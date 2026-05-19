@@ -12,6 +12,17 @@ Use the synthetic benchmark to validate the local machine and build:
 
 The command creates `C:\Temp\frametrace-db-bench\db\case.db` and inserts synthetic video-index rows in a single transaction using the production `videos` schema. It does not claim end-to-end media scan speed; it validates SQLite write-path behavior for large indexes.
 
+## Current macOS Baseline
+
+Latest local validation on macOS (Apple Silicon host, release build):
+
+- Command: `target/release/frametrace benchmark-db /tmp/frametrace-bench-1m --rows 1000000`
+- Result: 1,000,000 synthetic `videos` rows inserted in 15.3 seconds.
+- Database size: 670 MiB.
+- SQLite integrity check: `ok`.
+
+This baseline validates the large SQLite index write path on macOS. It does not replace Windows MSVC validation or terabyte-scale media scan testing against real evidence.
+
 For routine development, use a smaller run:
 
 ```powershell
