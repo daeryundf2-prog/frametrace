@@ -1,5 +1,7 @@
 /target
 /.omx
+/.playwright-cli/
+/output/
 .DS_Store
 
 # Local case/evidence outputs

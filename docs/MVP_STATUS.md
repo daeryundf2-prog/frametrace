@@ -46,6 +46,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Checksummed case package output with `package-case`.
 - Parser plugin catalog output with `list-parsers`.
 - Synthetic SQLite scale benchmark with `benchmark-db`.
+- Serverless Evidence Viewer GUI prototype under `gui/evidence-viewer/`.
 
 ## Deliberately Not Claimed Yet
 

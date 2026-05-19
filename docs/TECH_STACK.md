@@ -20,6 +20,7 @@ Evidence stays on the examiner PC or attached storage. The application owns a lo
 | Recovery | libewf CLI tools now, Sleuth Kit/libtsk later, custom carvers | E01/raw image import now; partition/file-system analysis later |
 | Analysis | OpenCV/ONNX Runtime later | Motion/person/vehicle/license-plate candidate extraction |
 | Reports | Local HTML first, PDF later | Reviewable and portable case output |
+| GUI prototype | Serverless Evidence Viewer HTML/CSS/JS | Validates viewer-first workflow before committing to WinUI implementation details |
 | Deliverable video | MP4 or AVI via FFmpeg | Client-friendly exports from selected evidence ranges |
 
 ## Windows Deployment Shape
@@ -83,6 +84,7 @@ Implemented now:
 - SQLite evidence-source registry and job/event tables for long-running work.
 - JSON/JSONL/TSV compatibility indexes.
 - Serverless review dashboard.
+- Serverless Evidence Viewer GUI prototype.
 - HTML case report.
 - MP4/AVI export command.
 - Review proxy and thumbnail generation.

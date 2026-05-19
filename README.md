@@ -16,6 +16,7 @@ This first implementation is the local core prototype:
 - Carves contiguous MP4/AVI/Dahua-DAV candidates from raw files or forensic image files.
 - Tracks evidence sources and long-running jobs in SQLite.
 - Builds a checksummed report/review package directory.
+- Includes a serverless Evidence Viewer GUI prototype for the final viewer-first desktop shell.
 
 ## Tech Stack Direction
 
@@ -41,6 +42,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
 - `docs/MANUFACTURER_PARSER_RESEARCH.md` - manufacturer-specific parser targets, priority, detection rules, and source links.
+- `docs/EVIDENCE_VIEWER_GUI.md` - viewer-first GUI plan, screen model, and production boundary.
 
 ## Windows Quick Start
 
@@ -90,6 +92,7 @@ cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 
 Open `case-001/review/index.html` in a browser after `make-review`.
 Open `case-001/reports/case-report.html` after `make-report`.
+Open `gui/evidence-viewer/index.html` to review the viewer-first GUI prototype.
 
 By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evidence can take hours. Use `--hash` when the evidence workflow requires per-file hashes.
 

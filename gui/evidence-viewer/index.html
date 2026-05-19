@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FrameTrace Evidence Viewer</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">FT</div>
+          <div>
+            <h1>FrameTrace</h1>
+            <p>Evidence Viewer</p>
+          </div>
+        </div>
+        <div class="case-strip" aria-label="Case summary">
+          <span>Case FT-2026-0519</span>
+          <span>Client CCTV and dashcam intake</span>
+          <span>Prototype session</span>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="syncViewButton" title="Toggle synchronized channel view" aria-label="Toggle synchronized channel view">2ch</button>
+          <button class="icon-button" id="packageButton" title="Package case" aria-label="Package case">PKG</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="source-pane" aria-label="Evidence sources">
+          <section class="summary-panel">
+            <div class="panel-title">Evidence</div>
+            <div class="source-list" id="sourceList"></div>
+          </section>
+          <section class="queue-panel">
+            <div class="panel-title">Review Queue</div>
+            <div class="queue-list" id="queueList"></div>
+          </section>
+        </aside>
+
+        <section class="browser-pane" aria-label="Evidence browser">
+          <div class="stats-grid" id="statsGrid"></div>
+          <div class="browser-toolbar">
+            <div class="segmented" id="filterTabs" role="tablist" aria-label="Evidence filters"></div>
+            <label class="search-box">
+              <span>Search</span>
+              <input id="searchInput" type="search" autocomplete="off" placeholder="path, hash, parser, note">
+            </label>
+          </div>
+          <div class="file-table" role="table" aria-label="Indexed evidence files">
+            <div class="file-row file-head" role="row">
+              <span>Status</span>
+              <span>Time</span>
+              <span>File</span>
+              <span>Type</span>
+              <span>Preview</span>
+              <span>Size</span>
+            </div>
+            <div id="fileRows" class="file-rows"></div>
+          </div>
+        </section>
+
+        <section class="viewer-pane" aria-label="Evidence viewer">
+          <div class="viewer-stage">
+            <div class="viewer-toolbar">
+              <div class="viewer-title">
+                <span id="activeKind">Video</span>
+                <strong id="activeName">-</strong>
+              </div>
+              <div class="viewer-toggles">
+                <button class="tool-button active" data-overlay="metadata">Meta</button>
+                <button class="tool-button" data-overlay="levels">Levels</button>
+                <button class="tool-button" data-overlay="compare">Compare</button>
+              </div>
+            </div>
+            <div class="media-frame">
+              <canvas id="viewerCanvas" width="1280" height="720" aria-label="Selected evidence preview"></canvas>
+              <div class="frame-overlay">
+                <span id="frameTimecode">00:00:00.000</span>
+                <span id="frameBadge">ORIGINAL</span>
+              </div>
+            </div>
+            <div class="timeline">
+              <div class="timeline-rail" id="timelineRail">
+                <div class="timeline-range" id="timelineRange"></div>
+                <div class="timeline-head" id="timelineHead"></div>
+                <div class="timeline-events" id="timelineEvents"></div>
+              </div>
+              <div class="timeline-scale" id="timelineScale"></div>
+            </div>
+            <div class="transport">
+              <button class="round-button" id="prevButton" title="Previous file" aria-label="Previous file">&#9664;&#9664;</button>
+              <button class="round-button" id="stepBackButton" title="Previous frame" aria-label="Previous frame">&#9664;</button>
+              <button class="round-button primary" id="playButton" title="Play or pause" aria-label="Play or pause">&#9654;</button>
+              <button class="round-button" id="stepForwardButton" title="Next frame" aria-label="Next frame">&#9654;</button>
+              <button class="round-button" id="nextButton" title="Next file" aria-label="Next file">&#9654;&#9654;</button>
+              <select id="speedSelect" aria-label="Playback speed">
+                <option value="0.25">0.25x</option>
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+              </select>
+              <label class="range-input">
+                <span>Zoom</span>
+                <input id="zoomInput" type="range" min="1" max="4" step="0.25" value="1">
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <aside class="inspector-pane" aria-label="Forensic inspector">
+          <section class="inspector-section">
+            <div class="panel-title">File State</div>
+            <div class="status-card" id="statusCard"></div>
+            <div class="review-actions">
+              <button id="markReviewedButton">Reviewed</button>
+              <button id="markImportantButton">Important</button>
+              <button id="addReportButton">Report</button>
+            </div>
+          </section>
+
+          <section class="inspector-section">
+            <div class="panel-title">Metadata</div>
+            <dl class="meta-list" id="metaList"></dl>
+          </section>
+
+          <section class="inspector-section">
+            <div class="panel-title">Output Queue</div>
+            <div class="output-grid">
+              <button id="exportMp4Button">MP4</button>
+              <button id="exportAviButton">AVI</button>
+              <button id="captureFrameButton">Frame</button>
+              <button id="verifyButton">Queue Verify</button>
+            </div>
+          </section>
+
+          <section class="inspector-section activity-section">
+            <div class="panel-title">Session Activity</div>
+            <div class="activity-list" id="activityList"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
