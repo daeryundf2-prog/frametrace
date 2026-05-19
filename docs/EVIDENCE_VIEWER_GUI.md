@@ -51,6 +51,17 @@ gui/evidence-viewer/index.html
 
 It is intentionally serverless so it can be opened directly from disk on a forensic workstation. It uses mocked case data and canvas-rendered sample frames to validate the workflow before the final Windows shell is implemented.
 
+## Localization
+
+The prototype defaults to Korean because examiner-facing review is expected to happen on Korean Windows workstations. The top-right `EN` / `KO` control switches the visible UI language without changing evidence values such as paths, hashes, parser IDs, or vendor names.
+
+Production localization should keep these rules:
+
+- Case data, file paths, hashes, parser IDs, and raw metadata stay verbatim.
+- UI labels, queue names, activity labels, validation states, and inspector field names are localized.
+- The selected locale is a user preference, not a case-evidence mutation.
+- Reports should record the report language separately from the original evidence metadata.
+
 ## QC Decisions
 
 The prototype was reviewed from both UI/UX and forensic-workflow perspectives. These guardrails are intentional:

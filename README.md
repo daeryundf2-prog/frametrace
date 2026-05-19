@@ -92,7 +92,7 @@ cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 
 Open `case-001/review/index.html` in a browser after `make-review`.
 Open `case-001/reports/case-report.html` after `make-report`.
-Open `gui/evidence-viewer/index.html` to review the viewer-first GUI prototype.
+Open `gui/evidence-viewer/index.html` to review the viewer-first GUI prototype. The prototype defaults to Korean and can be switched to English from the top-right language button.
 
 By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evidence can take hours. Use `--hash` when the evidence workflow requires per-file hashes.
 

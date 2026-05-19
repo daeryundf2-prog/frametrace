@@ -169,17 +169,304 @@ const records = [
   },
 ];
 
-const filters = [
-  ["all", "All"],
-  ["video", "Video"],
-  ["photo", "Photo"],
-  ["candidate", "Carved"],
-  ["needs_verification", "Verify"],
-  ["important", "Important"],
-  ["report", "Report"],
-];
+const translations = {
+  ko: {
+    "app.title": "FrameTrace 증거 뷰어",
+    "app.subtitle": "증거 뷰어",
+    "case.summaryAria": "사건 요약",
+    "case.id": "사건 FT-2026-0519",
+    "case.description": "의뢰인 CCTV/블랙박스 입수",
+    "case.prototype": "프로토타입 세션",
+    "lang.switch": "언어 전환",
+    "sync.title": "동기화 채널 보기 전환",
+    "package.title": "사건 패키징",
+    "sources.aria": "증거 소스",
+    "browser.aria": "증거 브라우저",
+    "filters.aria": "증거 필터",
+    "table.aria": "색인된 증거 파일",
+    "viewer.aria": "증거 뷰어",
+    "viewer.canvas": "선택 증거 미리보기",
+    "inspector.aria": "포렌식 인스펙터",
+    "panel.evidence": "증거",
+    "panel.reviewQueue": "검토 큐",
+    "panel.fileState": "파일 상태",
+    "panel.metadata": "메타데이터",
+    "panel.outputQueue": "출력 큐",
+    "panel.sessionActivity": "세션 활동",
+    "search.label": "검색",
+    "search.placeholder": "경로, 해시, 파서, 메모",
+    "table.status": "상태",
+    "table.time": "시각",
+    "table.file": "파일",
+    "table.type": "유형",
+    "table.preview": "미리보기",
+    "table.size": "크기",
+    "table.previewFor": "{name} 미리보기",
+    "overlay.metadata": "메타",
+    "overlay.levels": "레벨",
+    "overlay.compare": "비교",
+    "transport.prevFile": "이전 파일",
+    "transport.prevFrame": "이전 프레임",
+    "transport.playPause": "재생/일시정지",
+    "transport.nextFrame": "다음 프레임",
+    "transport.nextFile": "다음 파일",
+    "transport.speed": "재생 속도",
+    "transport.zoom": "확대",
+    "action.reviewed": "검토완료",
+    "action.important": "중요",
+    "action.report": "보고서",
+    "action.frame": "프레임",
+    "action.queueVerify": "검증 대기",
+    "stat.files": "파일",
+    "stat.videos": "영상",
+    "stat.photos": "사진",
+    "stat.carved": "복구 후보",
+    "stat.important": "중요",
+    "stat.verify": "검증 필요",
+    "stat.report": "보고서",
+    "stat.reviewed": "검토완료",
+    "filter.all": "전체",
+    "filter.video": "영상",
+    "filter.photo": "사진",
+    "filter.candidate": "복구",
+    "filter.needs_verification": "검증",
+    "filter.important": "중요",
+    "filter.report": "보고서",
+    "queue.unreviewed": "미검토",
+    "queue.important": "중요",
+    "queue.report": "보고서 포함",
+    "queue.needs_verification": "검증 필요",
+    "queue.triage": "1차 검토",
+    "queue.active": "활성 검토",
+    "source.all": "전체 증거",
+    "source.caseWideIndex": "사건 전체 색인",
+    "empty.noMatches": "이 보기와 일치하는 증거가 없습니다.",
+    "status.unreviewed": "열림",
+    "status.reviewed": "완료",
+    "status.important": "중요",
+    "status.needs_verification": "검증",
+    "status.candidate": "후보",
+    "type.video": "영상",
+    "type.photo": "사진",
+    "type.candidate": "복구",
+    "badge.original": "원본",
+    "badge.derived": "파생",
+    "badge.candidate": "후보",
+    "meta.id": "ID",
+    "meta.source": "소스",
+    "meta.path": "경로",
+    "meta.vendor": "제조사",
+    "meta.parser": "파서",
+    "meta.hash": "해시",
+    "meta.hashState": "해시 상태",
+    "meta.acquired": "입수시각",
+    "meta.readMode": "읽기모드",
+    "meta.offset": "오프셋",
+    "meta.codec": "코덱",
+    "meta.output": "출력",
+    "meta.channel": "채널",
+    "meta.duration": "길이",
+    "meta.still": "정지 이미지",
+    "meta.notRecorded": "기록 없음",
+    "output.noneQueued": "대기 중 작업 없음",
+    "output.mp4Queued": "MP4 출력 대기",
+    "output.aviQueued": "AVI 출력 대기",
+    "output.frameQueued": "프레임 캡처 대기",
+    "output.validationQueued": "검증 대기",
+    "activity.prototypeCaseOpened": "프로토타입 사건 열림",
+    "activity.prototypeCaseOpenedDetail": "GUI 검토용 mock 사건 색인 로드",
+    "activity.parserCatalogStaged": "파서 카탈로그 준비",
+    "activity.parserCatalogStagedDetail": "13개 소스 유형 표현",
+    "activity.selectedEvidence": "증거 선택",
+    "activity.playbackSpeed": "재생 속도",
+    "activity.viewerOverlay": "뷰어 오버레이",
+    "activity.markedReviewed": "검토완료 표시",
+    "activity.markedImportant": "중요 표시",
+    "activity.addedToReport": "보고서 포함",
+    "activity.removedFromReport": "보고서 제외",
+    "activity.mp4Queued": "MP4 출력 대기",
+    "activity.aviQueued": "AVI 출력 대기",
+    "activity.frameQueued": "프레임 캡처 대기",
+    "activity.validationQueued": "검증 대기",
+    "activity.synchronizedView": "동기화 보기",
+    "activity.packageQueued": "패키지 대기",
+    "activity.enabled": "활성화",
+    "activity.disabled": "비활성화",
+    "activity.packageDetail": "검토 세트, 보고서 세트, 매니페스트",
+    "canvas.derivedView": "파생 보기",
+    "syncPane.a": "A",
+    "syncPane.b": "B",
+    values: {
+      "mounted-volume": "마운트 볼륨",
+      folder: "폴더",
+      derived: "파생",
+      "raw-image": "raw 이미지",
+      "verified playable": "재생 검증됨",
+      "Impact moment visible at 00:00:27.400": "충격 시점이 00:00:27.400에 보임",
+      "Rear channel synchronized with front clip": "후방 채널이 전방 클립과 동기화됨",
+      "candidate needs playback verification": "재생 검증이 필요한 후보",
+      "Native DAV export, preserve original and export derived MP4": "DAV 원본은 보존하고 파생 MP4 출력 필요",
+      "derived artifact": "파생 산출물",
+      "Report still frame, original clip linked": "보고서용 정지 프레임, 원본 클립 연결됨",
+      "candidate-unvalidated": "미검증 후보",
+      "Contiguous MP4 signature; verify moov/mdat and playback": "연속 MP4 시그니처, moov/mdat 및 재생 검증 필요",
+      "Contrast-adjusted copy, original frame retained": "대비 보정 사본, 원본 프레임 보존",
+      "source mounted read-only": "소스 읽기전용 마운트",
+      "copied NVR export": "복사된 NVR 내보내기",
+      "E01 exported raw image": "E01 추출 raw 이미지",
+      "logical file": "논리 파일",
+      "parent vid_000001 @ 00:00:27.400": "상위 vid_000001 @ 00:00:27.400",
+      "parent vid_000117 @ 00:02:18.500": "상위 vid_000117 @ 00:02:18.500",
+      "front": "전방",
+      "rear": "후방",
+      "unknown": "알 수 없음",
+      "complete": "완료",
+      "skipped": "건너뜀",
+      "pending selected hash": "선택 해시 대기",
+    },
+    sources: {
+      "SD001 BlackVue microSD": "SD001 BlackVue microSD",
+      "HDD001 NVR export": "HDD001 NVR 내보내기",
+      "Derived from vid_000001": "vid_000001 파생",
+      "E01 exported raw image": "E01 추출 raw 이미지",
+      "Derived from vid_000117": "vid_000117 파생",
+    },
+  },
+  en: {
+    "app.title": "FrameTrace Evidence Viewer",
+    "app.subtitle": "Evidence Viewer",
+    "case.summaryAria": "Case summary",
+    "case.id": "Case FT-2026-0519",
+    "case.description": "Client CCTV and dashcam intake",
+    "case.prototype": "Prototype session",
+    "lang.switch": "Switch language",
+    "sync.title": "Toggle synchronized channel view",
+    "package.title": "Package case",
+    "sources.aria": "Evidence sources",
+    "browser.aria": "Evidence browser",
+    "filters.aria": "Evidence filters",
+    "table.aria": "Indexed evidence files",
+    "viewer.aria": "Evidence viewer",
+    "viewer.canvas": "Selected evidence preview",
+    "inspector.aria": "Forensic inspector",
+    "panel.evidence": "Evidence",
+    "panel.reviewQueue": "Review Queue",
+    "panel.fileState": "File State",
+    "panel.metadata": "Metadata",
+    "panel.outputQueue": "Output Queue",
+    "panel.sessionActivity": "Session Activity",
+    "search.label": "Search",
+    "search.placeholder": "path, hash, parser, note",
+    "table.status": "Status",
+    "table.time": "Time",
+    "table.file": "File",
+    "table.type": "Type",
+    "table.preview": "Preview",
+    "table.size": "Size",
+    "table.previewFor": "{name} preview",
+    "overlay.metadata": "Meta",
+    "overlay.levels": "Levels",
+    "overlay.compare": "Compare",
+    "transport.prevFile": "Previous file",
+    "transport.prevFrame": "Previous frame",
+    "transport.playPause": "Play or pause",
+    "transport.nextFrame": "Next frame",
+    "transport.nextFile": "Next file",
+    "transport.speed": "Playback speed",
+    "transport.zoom": "Zoom",
+    "action.reviewed": "Reviewed",
+    "action.important": "Important",
+    "action.report": "Report",
+    "action.frame": "Frame",
+    "action.queueVerify": "Queue Verify",
+    "stat.files": "Files",
+    "stat.videos": "Videos",
+    "stat.photos": "Photos",
+    "stat.carved": "Carved",
+    "stat.important": "Important",
+    "stat.verify": "Verify",
+    "stat.report": "Report",
+    "stat.reviewed": "Reviewed",
+    "filter.all": "All",
+    "filter.video": "Video",
+    "filter.photo": "Photo",
+    "filter.candidate": "Carved",
+    "filter.needs_verification": "Verify",
+    "filter.important": "Important",
+    "filter.report": "Report",
+    "queue.unreviewed": "Unreviewed",
+    "queue.important": "Important",
+    "queue.report": "Report set",
+    "queue.needs_verification": "Needs verification",
+    "queue.triage": "triage lane",
+    "queue.active": "active review lane",
+    "source.all": "All evidence",
+    "source.caseWideIndex": "case-wide index",
+    "empty.noMatches": "No matching evidence in this view.",
+    "status.unreviewed": "Open",
+    "status.reviewed": "Done",
+    "status.important": "Key",
+    "status.needs_verification": "Verify",
+    "status.candidate": "Candidate",
+    "type.video": "Video",
+    "type.photo": "Photo",
+    "type.candidate": "Carved",
+    "badge.original": "ORIGINAL",
+    "badge.derived": "DERIVED",
+    "badge.candidate": "CANDIDATE",
+    "meta.id": "ID",
+    "meta.source": "Source",
+    "meta.path": "Path",
+    "meta.vendor": "Vendor",
+    "meta.parser": "Parser",
+    "meta.hash": "Hash",
+    "meta.hashState": "Hash State",
+    "meta.acquired": "Acquired",
+    "meta.readMode": "Read Mode",
+    "meta.offset": "Offset",
+    "meta.codec": "Codec",
+    "meta.output": "Output",
+    "meta.channel": "Channel",
+    "meta.duration": "Duration",
+    "meta.still": "still",
+    "meta.notRecorded": "not recorded",
+    "output.noneQueued": "none queued",
+    "output.mp4Queued": "MP4 export queued",
+    "output.aviQueued": "AVI export queued",
+    "output.frameQueued": "frame capture queued",
+    "output.validationQueued": "validation queued",
+    "activity.prototypeCaseOpened": "Prototype case opened",
+    "activity.prototypeCaseOpenedDetail": "mock case index loaded for GUI review",
+    "activity.parserCatalogStaged": "Parser catalog staged",
+    "activity.parserCatalogStagedDetail": "13 source lanes represented",
+    "activity.selectedEvidence": "Selected evidence",
+    "activity.playbackSpeed": "Playback speed",
+    "activity.viewerOverlay": "Viewer overlay",
+    "activity.markedReviewed": "Marked reviewed",
+    "activity.markedImportant": "Marked important",
+    "activity.addedToReport": "Added to report",
+    "activity.removedFromReport": "Removed from report",
+    "activity.mp4Queued": "MP4 export queued",
+    "activity.aviQueued": "AVI export queued",
+    "activity.frameQueued": "Frame capture queued",
+    "activity.validationQueued": "Validation queued",
+    "activity.synchronizedView": "Synchronized view",
+    "activity.packageQueued": "Package queued",
+    "activity.enabled": "enabled",
+    "activity.disabled": "disabled",
+    "activity.packageDetail": "review set, report set, manifests",
+    "canvas.derivedView": "DERIVED VIEW",
+    "syncPane.a": "A",
+    "syncPane.b": "B",
+    values: {},
+    sources: {},
+  },
+};
+
+const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
 
 const state = {
+  locale: localStorage.getItem("frametrace.locale") || "ko",
   activeFilter: "all",
   selectedId: records[0].id,
   playback: 0,
@@ -190,8 +477,8 @@ const state = {
   activeSource: "all",
   syncView: false,
   activity: [
-    { title: "Prototype case opened", detail: "mock case index loaded for GUI review" },
-    { title: "Parser catalog staged", detail: "13 source lanes represented" },
+    { titleKey: "activity.prototypeCaseOpened", detailKey: "activity.prototypeCaseOpenedDetail" },
+    { titleKey: "activity.parserCatalogStaged", detailKey: "activity.parserCatalogStagedDetail" },
   ],
 };
 
@@ -222,9 +509,44 @@ const els = {
   stepForwardButton: document.getElementById("stepForwardButton"),
   speedSelect: document.getElementById("speedSelect"),
   zoomInput: document.getElementById("zoomInput"),
+  languageButton: document.getElementById("languageButton"),
 };
 
 let timer = null;
+
+function t(key, replacements = {}) {
+  const locale = translations[state.locale] ? state.locale : "ko";
+  const text = translations[locale][key] ?? translations.en[key] ?? key;
+  return String(text).replace(/\{(\w+)\}/g, (_, name) => replacements[name] ?? "");
+}
+
+function valueLabel(value) {
+  const locale = translations[state.locale] ? state.locale : "ko";
+  return translations[locale].values?.[value] ?? value;
+}
+
+function sourceLabel(value) {
+  const locale = translations[state.locale] ? state.locale : "ko";
+  return translations[locale].sources?.[value] ?? value;
+}
+
+function applyLocalization() {
+  document.documentElement.lang = state.locale;
+  document.title = t("app.title");
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+    element.setAttribute("title", t(element.dataset.i18nTitle));
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+    element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+  });
+  els.languageButton.textContent = state.locale === "ko" ? "EN" : "KO";
+}
 
 function selectedRecord() {
   return records.find((record) => record.id === state.selectedId) || records[0];
@@ -273,31 +595,31 @@ function renderStats() {
     reviewed: records.filter((r) => r.reviewed).length,
   };
   const stats = [
-    ["Files", counts.total],
-    ["Videos", counts.video],
-    ["Photos", counts.photo],
-    ["Carved", counts.candidate],
-    ["Important", counts.important],
-    ["Verify", counts.verify],
-    ["Report", counts.report],
-    ["Reviewed", `${counts.reviewed}/${counts.total}`],
+    ["stat.files", counts.total],
+    ["stat.videos", counts.video],
+    ["stat.photos", counts.photo],
+    ["stat.carved", counts.candidate],
+    ["stat.important", counts.important],
+    ["stat.verify", counts.verify],
+    ["stat.report", counts.report],
+    ["stat.reviewed", `${counts.reviewed}/${counts.total}`],
   ];
   els.statsGrid.innerHTML = stats.map(([label, value]) => (
-    `<div class="stat"><strong>${value}</strong><span>${label}</span></div>`
+    `<div class="stat"><strong>${value}</strong><span>${t(label)}</span></div>`
   )).join("");
 }
 
 function renderSources() {
   const sources = [...new Set(records.map((record) => record.source))];
   const rows = [
-    { name: "all", label: "All evidence", count: records.length, sub: "case-wide index" },
+    { name: "all", label: t("source.all"), count: records.length, sub: t("source.caseWideIndex") },
     ...sources.map((source) => {
       const sourceRecords = records.filter((record) => record.source === source);
       return {
         name: source,
-        label: source,
+        label: sourceLabel(source),
         count: sourceRecords.length,
-        sub: sourceRecords[0].sourceKind,
+        sub: valueLabel(sourceRecords[0].sourceKind),
       };
     }),
   ];
@@ -323,15 +645,15 @@ function renderSources() {
 
 function renderQueue() {
   const queues = [
-    ["unreviewed", "Unreviewed", records.filter((r) => !r.reviewed).length],
-    ["important", "Important", records.filter((r) => r.status === "important").length],
-    ["report", "Report set", records.filter((r) => r.report).length],
-    ["needs_verification", "Needs verification", records.filter((r) => r.status === "needs_verification" || r.status === "candidate").length],
+    ["unreviewed", records.filter((r) => !r.reviewed).length],
+    ["important", records.filter((r) => r.status === "important").length],
+    ["report", records.filter((r) => r.report).length],
+    ["needs_verification", records.filter((r) => r.status === "needs_verification" || r.status === "candidate").length],
   ];
-  els.queueList.innerHTML = queues.map(([key, label, count]) => (
+  els.queueList.innerHTML = queues.map(([key, count]) => (
     `<div class="queue-item ${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="button" tabindex="0" aria-pressed="${state.activeFilter === key}">
-      <div class="queue-line"><span>${label}</span><strong>${count}</strong></div>
-      <div class="queue-sub">${key === "unreviewed" ? "triage lane" : "active review lane"}</div>
+      <div class="queue-line"><span>${t(`queue.${key}`)}</span><strong>${count}</strong></div>
+      <div class="queue-sub">${key === "unreviewed" ? t("queue.triage") : t("queue.active")}</div>
     </div>`
   )).join("");
   els.queueList.querySelectorAll(".queue-item").forEach((item) => {
@@ -349,8 +671,8 @@ function renderQueue() {
 }
 
 function renderFilters() {
-  els.filterTabs.innerHTML = filters.map(([key, label]) => (
-    `<button class="${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="tab" aria-selected="${state.activeFilter === key}">${label}</button>`
+  els.filterTabs.innerHTML = filters.map((key) => (
+    `<button class="${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="tab" aria-selected="${state.activeFilter === key}">${t(`filter.${key}`)}</button>`
   )).join("");
   els.filterTabs.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -364,7 +686,7 @@ function renderFilters() {
 function renderFiles() {
   const visible = filteredRecords();
   if (!visible.length) {
-    els.fileRows.innerHTML = '<div class="empty-state">No matching evidence in this view.</div>';
+    els.fileRows.innerHTML = `<div class="empty-state">${t("empty.noMatches")}</div>`;
     return;
   }
   els.fileRows.innerHTML = visible.map((record) => (
@@ -373,7 +695,7 @@ function renderFiles() {
       <span class="time-cell">${escapeHtml(shortTimestamp(record.timestamp))}</span>
       <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(record.path)}</span></span>
       <span class="type-cell">${typeLabel(record.type)}</span>
-      <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-label="${escapeAttr(record.name)} preview"></canvas>
+      <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-label="${escapeAttr(t("table.previewFor", { name: record.name }))}"></canvas>
       <span class="size-cell">${escapeHtml(record.size)}</span>
     </div>`
   )).join("");
@@ -419,32 +741,33 @@ function renderInspector() {
   const record = selectedRecord();
   els.statusCard.innerHTML = `
     <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
-    <strong>${escapeHtml(record.validation)}</strong>
-    <span class="state-note">${escapeHtml(record.note)}</span>
+    <strong>${escapeHtml(valueLabel(record.validation))}</strong>
+    <span class="state-note">${escapeHtml(valueLabel(record.note))}</span>
   `;
   const fields = [
-    ["ID", `<code>${escapeHtml(record.id)}</code>`],
-    ["Source", escapeHtml(record.source)],
-    ["Path", `<code>${escapeHtml(record.path)}</code>`],
-    ["Vendor", escapeHtml(record.vendor)],
-    ["Parser", `<code>${escapeHtml(record.parser)}</code>`],
-    ["Hash", `<code>${escapeHtml(record.fullHash || record.hash)}</code>`],
-    ["Hash State", escapeHtml(record.hashStatus)],
-    ["Acquired", escapeHtml(record.acquiredAt || "not recorded")],
-    ["Read Mode", escapeHtml(record.readMode || "not recorded")],
-    ["Offset", escapeHtml(record.offset || "not recorded")],
-    ["Codec", escapeHtml(record.codec || "not recorded")],
-    ["Output", escapeHtml(record.outputState || "none queued")],
-    ["Channel", escapeHtml(record.channel)],
-    ["Duration", record.type === "photo" ? "still" : formatDuration(record.duration)],
+    [t("meta.id"), `<code>${escapeHtml(record.id)}</code>`],
+    [t("meta.source"), escapeHtml(sourceLabel(record.source))],
+    [t("meta.path"), `<code>${escapeHtml(record.path)}</code>`],
+    [t("meta.vendor"), escapeHtml(record.vendor)],
+    [t("meta.parser"), `<code>${escapeHtml(record.parser)}</code>`],
+    [t("meta.hash"), `<code>${escapeHtml(valueLabel(record.fullHash || record.hash))}</code>`],
+    [t("meta.hashState"), escapeHtml(valueLabel(record.hashStatus))],
+    [t("meta.acquired"), escapeHtml(record.acquiredAt || t("meta.notRecorded"))],
+    [t("meta.readMode"), escapeHtml(valueLabel(record.readMode || t("meta.notRecorded")))],
+    [t("meta.offset"), escapeHtml(valueLabel(record.offset || t("meta.notRecorded")))],
+    [t("meta.codec"), escapeHtml(record.codec || t("meta.notRecorded"))],
+    [t("meta.output"), escapeHtml(formatOutputState(record))],
+    [t("meta.channel"), escapeHtml(valueLabel(record.channel))],
+    [t("meta.duration"), record.type === "photo" ? t("meta.still") : formatDuration(record.duration)],
   ];
   els.metaList.innerHTML = fields.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("");
   els.activityList.innerHTML = state.activity.slice(0, 12).map((item) => (
-    `<div class="activity-item"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.detail)}</span></div>`
+    `<div class="activity-item"><strong>${escapeHtml(activityTitle(item))}</strong><span>${escapeHtml(activityDetail(item))}</span></div>`
   )).join("");
 }
 
 function renderAll() {
+  applyLocalization();
   renderStats();
   renderSources();
   renderQueue();
@@ -458,7 +781,7 @@ function selectRecord(id) {
   state.selectedId = id;
   state.playback = 0;
   stopTimer();
-  addActivity("Selected evidence", id);
+  addActivity("activity.selectedEvidence", id);
   renderAll();
 }
 
@@ -477,8 +800,23 @@ function updateRecord(mutator) {
   renderAll();
 }
 
-function addActivity(title, detail) {
-  state.activity.unshift({ title, detail });
+function addActivity(titleKey, detail, detailKey = null) {
+  state.activity.unshift({ titleKey, detail, detailKey });
+}
+
+function activityTitle(item) {
+  return item.titleKey ? t(item.titleKey) : valueLabel(item.title);
+}
+
+function activityDetail(item) {
+  if (item.detailKey) return t(item.detailKey);
+  return valueLabel(item.detail || "");
+}
+
+function formatOutputState(record) {
+  if (!record.outputStateKey) return t("output.noneQueued");
+  const label = t(record.outputStateKey);
+  return record.outputStateTime ? `${label} @ ${record.outputStateTime}` : label;
 }
 
 function togglePlay() {
@@ -565,8 +903,8 @@ function drawSyncedScene(ctx, width, height, primary, secondary, time) {
   const paneWidth = (width - pad * 2 - gap) / 2;
   const paneHeight = paneWidth * 9 / 16;
   const top = (height - paneHeight) / 2;
-  drawSyncedPane(ctx, pad, top, paneWidth, paneHeight, primary, time, "A");
-  drawSyncedPane(ctx, pad + paneWidth + gap, top, paneWidth, paneHeight, secondary, time, "B");
+  drawSyncedPane(ctx, pad, top, paneWidth, paneHeight, primary, time, t("syncPane.a"));
+  drawSyncedPane(ctx, pad + paneWidth + gap, top, paneWidth, paneHeight, secondary, time, t("syncPane.b"));
 }
 
 function drawSyncedPane(ctx, x, y, width, height, record, time, label) {
@@ -584,7 +922,7 @@ function drawSyncedPane(ctx, x, y, width, height, record, time, label) {
   ctx.fillRect(x + 12, y + 12, width * 0.42, 32);
   ctx.fillStyle = "#eaf3ef";
   ctx.font = `20px ${getComputedStyle(document.body).fontFamily}`;
-  ctx.fillText(`${label} ${record.channel}`, x + 22, y + 35);
+  ctx.fillText(`${label} ${valueLabel(record.channel)}`, x + 22, y + 35);
 }
 
 function pairedRecord(record) {
@@ -715,13 +1053,14 @@ function drawPerson(ctx, x, y, size) {
 }
 
 function drawCameraOverlay(ctx, width, height, record, time) {
+  const timestampLabel = record.timestamp === "unknown" ? valueLabel("unknown") : record.timestamp;
   ctx.fillStyle = "rgba(0, 0, 0, 0.56)";
   ctx.fillRect(width * 0.025, height * 0.035, width * 0.31, height * 0.08);
   ctx.fillStyle = "#eaf3ef";
   ctx.font = `${Math.floor(width * 0.022)}px ${getComputedStyle(document.body).fontFamily}`;
-  ctx.fillText(record.timestamp, width * 0.04, height * 0.073);
+  ctx.fillText(timestampLabel, width * 0.04, height * 0.073);
   ctx.font = `${Math.floor(width * 0.017)}px ${getComputedStyle(document.body).fontFamily}`;
-  ctx.fillText(`${record.channel}  ${formatTimecode(time)}`, width * 0.04, height * 0.103);
+  ctx.fillText(`${valueLabel(record.channel)}  ${formatTimecode(time)}`, width * 0.04, height * 0.103);
 }
 
 function drawLevelOverlay(ctx, width, height) {
@@ -750,31 +1089,25 @@ function drawCompareOverlay(ctx, width, height) {
   ctx.fillRect(width * 0.51, height * 0.06, width * 0.19, height * 0.05);
   ctx.fillStyle = "#eaf3ef";
   ctx.font = `${Math.floor(width * 0.018)}px ${getComputedStyle(document.body).fontFamily}`;
-  ctx.fillText("DERIVED VIEW", width * 0.525, height * 0.094);
+  ctx.fillText(t("canvas.derivedView"), width * 0.525, height * 0.094);
 }
 
 function frameBadge(record) {
-  if (record.sourceKind === "derived") return "DERIVED";
-  if (record.type === "candidate") return "CANDIDATE";
-  return "ORIGINAL";
+  if (record.sourceKind === "derived") return t("badge.derived");
+  if (record.type === "candidate") return t("badge.candidate");
+  return t("badge.original");
 }
 
 function statusLabel(value) {
-  return {
-    unreviewed: "Open",
-    reviewed: "Done",
-    important: "Key",
-    needs_verification: "Verify",
-    candidate: "Candidate",
-  }[value] || value;
+  return t(`status.${value}`);
 }
 
 function typeLabel(value) {
-  return { video: "Video", photo: "Photo", candidate: "Carved" }[value] || value;
+  return t(`type.${value}`);
 }
 
 function shortTimestamp(value) {
-  if (!value || value === "unknown") return "unknown";
+  if (!value || value === "unknown") return valueLabel("unknown");
   const parts = value.split(" ");
   if (parts.length < 2) return value;
   return `${parts[0].slice(5)} ${parts[1].slice(0, 5)}`;
@@ -835,7 +1168,7 @@ els.stepBackButton.addEventListener("click", () => step(-1 / 30));
 els.stepForwardButton.addEventListener("click", () => step(1 / 30));
 els.speedSelect.addEventListener("change", () => {
   state.speed = Number(els.speedSelect.value);
-  addActivity("Playback speed", `${state.speed}x`);
+  addActivity("activity.playbackSpeed", `${state.speed}x`);
 });
 els.zoomInput.addEventListener("input", () => {
   state.zoom = Number(els.zoomInput.value);
@@ -851,48 +1184,57 @@ els.timelineRail.addEventListener("click", (event) => {
 document.querySelectorAll("[data-overlay]").forEach((button) => {
   button.addEventListener("click", () => {
     state.activeOverlay = button.dataset.overlay;
-    addActivity("Viewer overlay", button.dataset.overlay);
+    addActivity("activity.viewerOverlay", t(`overlay.${button.dataset.overlay}`));
     renderViewer();
   });
 });
 document.getElementById("markReviewedButton").addEventListener("click", () => updateRecord((record) => {
   record.reviewed = true;
   if (record.status === "needs_verification") record.status = "reviewed";
-  addActivity("Marked reviewed", record.id);
+  addActivity("activity.markedReviewed", record.id);
 }));
 document.getElementById("markImportantButton").addEventListener("click", () => updateRecord((record) => {
   record.status = "important";
-  addActivity("Marked important", record.id);
+  addActivity("activity.markedImportant", record.id);
 }));
 document.getElementById("addReportButton").addEventListener("click", () => updateRecord((record) => {
   record.report = !record.report;
-  addActivity(record.report ? "Added to report" : "Removed from report", record.id);
+  addActivity(record.report ? "activity.addedToReport" : "activity.removedFromReport", record.id);
 }));
 document.getElementById("exportMp4Button").addEventListener("click", () => updateRecord((record) => {
-  record.outputState = `MP4 export queued @ ${formatTimecode(state.playback)}`;
-  addActivity("MP4 export queued", record.id);
+  record.outputStateKey = "output.mp4Queued";
+  record.outputStateTime = formatTimecode(state.playback);
+  addActivity("activity.mp4Queued", record.id);
 }));
 document.getElementById("exportAviButton").addEventListener("click", () => updateRecord((record) => {
-  record.outputState = `AVI export queued @ ${formatTimecode(state.playback)}`;
-  addActivity("AVI export queued", record.id);
+  record.outputStateKey = "output.aviQueued";
+  record.outputStateTime = formatTimecode(state.playback);
+  addActivity("activity.aviQueued", record.id);
 }));
 document.getElementById("captureFrameButton").addEventListener("click", () => updateRecord((record) => {
-  record.outputState = `frame capture queued @ ${formatTimecode(state.playback)}`;
-  addActivity("Frame capture queued", `${record.id} ${formatTimecode(state.playback)}`);
+  record.outputStateKey = "output.frameQueued";
+  record.outputStateTime = formatTimecode(state.playback);
+  addActivity("activity.frameQueued", `${record.id} ${formatTimecode(state.playback)}`);
 }));
 document.getElementById("verifyButton").addEventListener("click", () => updateRecord((record) => {
   if (record.status === "candidate" || record.status === "needs_verification") {
-    record.outputState = "validation queued";
+    record.outputStateKey = "output.validationQueued";
+    record.outputStateTime = null;
   }
-  addActivity("Validation queued", record.id);
+  addActivity("activity.validationQueued", record.id);
 }));
 document.getElementById("syncViewButton").addEventListener("click", (event) => {
   state.syncView = !state.syncView;
   event.currentTarget.classList.toggle("active", state.syncView);
-  addActivity("Synchronized view", state.syncView ? "enabled" : "disabled");
+  addActivity("activity.synchronizedView", null, state.syncView ? "activity.enabled" : "activity.disabled");
   renderAll();
 });
-document.getElementById("packageButton").addEventListener("click", () => addActivity("Package queued", "review set, report set, manifests"));
+els.languageButton.addEventListener("click", () => {
+  state.locale = state.locale === "ko" ? "en" : "ko";
+  localStorage.setItem("frametrace.locale", state.locale);
+  renderAll();
+});
+document.getElementById("packageButton").addEventListener("click", () => addActivity("activity.packageQueued", null, "activity.packageDetail"));
 document.addEventListener("keydown", (event) => {
   if (event.target && ["INPUT", "SELECT"].includes(event.target.tagName)) return;
   if (event.key === " ") {
