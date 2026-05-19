@@ -43,6 +43,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
 - `docs/MANUFACTURER_PARSER_RESEARCH.md` - manufacturer-specific parser targets, priority, detection rules, and source links.
 - `docs/EVIDENCE_VIEWER_GUI.md` - viewer-first GUI plan, screen model, and production boundary.
+- `docs/OPENDESIGN_ADAPTATION.md` - OpenDesign-compatible FrameTrace design-system handoff notes.
 
 ## Windows Quick Start
 

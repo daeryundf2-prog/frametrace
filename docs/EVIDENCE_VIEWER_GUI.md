@@ -73,6 +73,16 @@ The prototype was reviewed from both UI/UX and forensic-workflow perspectives. T
 - The activity panel is session activity only. Production audit must render chained engine logs.
 - A carved candidate must not become `verified playable` until a core validation command records tool, method, operator, timestamp, source artifact, and audit chain.
 
+## OpenDesign Handoff
+
+The repo includes an OpenDesign-compatible design system at:
+
+```text
+opendesign/design-systems/frametrace-forensic-workstation/
+```
+
+It captures the current viewer tokens, Korean-first forensic wording, large-case layout rules, and QC checklist. If OpenDesign is installed later, it should use this design system instead of inventing a new product style.
+
 ## Production Path
 
 The final production shell should be WinUI 3 on Windows 10/11 x64. The Rust engine remains the source of truth. The GUI should call the engine for:
