@@ -1,10 +1,8 @@
 use super::*;
 use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use crate::util::path_to_file_url;
+use rusqlite::{Transaction, params};
+use std::path::Path;
 
 pub fn write_scan_index(
     case_dir: &Path,

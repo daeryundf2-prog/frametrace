@@ -8,7 +8,7 @@ pub mod scan;
 
 pub use core::*;
 pub use evidence::*;
-pub use helpers::*;
+pub(crate) use helpers::*;
 pub use jobs::*;
 pub use metrics::*;
 pub use models::*;

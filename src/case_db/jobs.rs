@@ -1,10 +1,7 @@
 use super::*;
-use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use crate::util::now_unix;
+use rusqlite::{Connection, params};
+use std::path::Path;
 
 pub fn start_job(
     case_dir: &Path,

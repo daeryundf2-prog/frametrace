@@ -1,10 +1,4 @@
-use super::*;
-use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use crate::util::json_escape;
 
 pub(crate) fn string_array_json(values: &[String]) -> String {
     let body = values

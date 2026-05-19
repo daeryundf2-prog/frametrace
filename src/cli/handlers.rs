@@ -8,7 +8,7 @@ use crate::package;
 use crate::report;
 use crate::scan;
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
-use crate::video_export::{self, ExportFormat, ExportOptions};
+use crate::video_export::{self, ExportOptions};
 use std::env;
 use std::path::{Path, PathBuf};
 

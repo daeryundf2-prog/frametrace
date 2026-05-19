@@ -1,10 +1,7 @@
-use super::*;
-use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub(crate) const SCHEMA_VERSION: &str = "1";
 

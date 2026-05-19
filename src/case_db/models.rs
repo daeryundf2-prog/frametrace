@@ -1,10 +1,4 @@
-use super::*;
-use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
 
 pub struct IndexedVideoRow {
     pub id: String,

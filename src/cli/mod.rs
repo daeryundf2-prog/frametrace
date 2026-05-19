@@ -1,17 +1,10 @@
-use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
-use crate::carve::{self, CarveOptions};
-use crate::case_db;
-use crate::e01::{self, E01Options};
-use crate::html_report;
-use crate::model::{CaseManifest, ScanOptions};
-use crate::package;
-use crate::report;
-use crate::scan;
-use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
-use crate::video_export::{self, ExportFormat, ExportOptions};
+use crate::artifacts::{ProxyOptions, ThumbnailOptions};
+use crate::carve::CarveOptions;
+use crate::e01::E01Options;
+use crate::model::ScanOptions;
+use crate::video_export::{ExportFormat, ExportOptions};
 use clap::{Parser, Subcommand};
-use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub mod handlers;
 use handlers::*;

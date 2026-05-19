@@ -1,10 +1,9 @@
 use super::*;
-use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, now_unix, path_to_file_url};
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
+use crate::util::{json_escape, now_unix};
+use rusqlite::Connection;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::Path;
+use std::time::Instant;
 
 pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkResult, String> {
     fs::create_dir_all(output_dir)
