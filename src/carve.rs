@@ -1,5 +1,6 @@
 use crate::audit;
 use crate::util::{json_escape, now_unix, unique_path, write_text};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -42,13 +43,19 @@ pub struct CarvedArtifact {
     pub signature: String,
     pub extension: String,
     pub sha256: String,
+    pub validation_status: String,
+    pub validation_note: String,
+    pub duplicate_of: Option<String>,
 }
 
 impl CarvedArtifact {
     fn to_json(&self) -> String {
         format!(
-            "{{\"schema_version\":2,\"event\":\"carve-file\",\"id\":\"{}\",\"artifact_type\":\"carved-candidate\",\"validation_status\":\"candidate-unvalidated\",\"validation_note\":\"Signature-based contiguous carve only; verify playback/container integrity before reporting as recovered video.\",\"source_path\":\"{}\",\"output_path\":\"{}\",\"offset\":{},\"size_bytes\":{},\"signature\":\"{}\",\"extension\":\"{}\",\"sha256\":\"{}\"}}",
+            "{{\"schema_version\":3,\"event\":\"carve-file\",\"id\":\"{}\",\"artifact_type\":\"carved-candidate\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duplicate_of\":{},\"source_path\":\"{}\",\"output_path\":\"{}\",\"offset\":{},\"size_bytes\":{},\"signature\":\"{}\",\"extension\":\"{}\",\"sha256\":\"{}\"}}",
             json_escape(&self.id),
+            json_escape(&self.validation_status),
+            json_escape(&self.validation_note),
+            audit::optional_string(self.duplicate_of.as_deref()),
             json_escape(&self.source_path.to_string_lossy()),
             json_escape(&self.output_path.to_string_lossy()),
             self.offset,
@@ -153,6 +160,7 @@ pub fn carve_file(
     }
 
     let mut artifacts = Vec::new();
+    let mut first_by_hash = HashMap::<String, String>::new();
     for (index, hit) in hits.iter().enumerate() {
         let next_offset = hits
             .get(index + 1)
@@ -181,6 +189,16 @@ pub fn carve_file(
         copy_range(&source_path, hit.offset, size_bytes, &output_path)
             .map_err(|err| format!("failed to carve {}: {err}", output_path.display()))?;
         let sha256 = audit::digest_file(&output_path)?;
+        let duplicate_of = first_by_hash.get(&sha256).cloned();
+        if duplicate_of.is_none() {
+            first_by_hash.insert(sha256.clone(), id.clone());
+        }
+        let validation_status = if duplicate_of.is_some() {
+            "duplicate-candidate"
+        } else {
+            "candidate-unvalidated"
+        }
+        .to_string();
         artifacts.push(CarvedArtifact {
             id,
             source_path: source_path.clone(),
@@ -190,6 +208,9 @@ pub fn carve_file(
             signature: hit.signature.clone(),
             extension: hit.extension.clone(),
             sha256,
+            validation_status,
+            validation_note: validation_note_for_signature(&hit.signature).to_string(),
+            duplicate_of,
         });
     }
 
@@ -203,6 +224,23 @@ pub fn carve_file(
     };
     write_carve_outputs(case_dir, &result)?;
     Ok(result)
+}
+
+fn validation_note_for_signature(signature: &str) -> &'static str {
+    match signature {
+        "mp4-ftyp" => {
+            "MP4 ftyp signature found and carved contiguously; verify moov/mdat structure and playback before reporting as recovered."
+        }
+        "riff-avi" => {
+            "RIFF AVI signature found and carved contiguously; verify AVI index/playback before reporting as recovered."
+        }
+        "dahua-dhav" => {
+            "Dahua DHAV signature found; treat as proprietary candidate and validate with FFmpeg or vendor player."
+        }
+        _ => {
+            "Signature-based contiguous carve only; verify playback/container integrity before reporting as recovered video."
+        }
+    }
 }
 
 fn find_video_signatures(path: &Path, max_candidates: usize) -> Result<Vec<CarveHit>, String> {
@@ -301,7 +339,7 @@ fn write_carve_outputs(case_dir: &Path, result: &CarveResult) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
-    use super::{CarveHit, scan_buffer};
+    use super::{CarveHit, scan_buffer, validation_note_for_signature};
 
     #[test]
     fn finds_mp4_ftyp_start_offset() {
@@ -323,5 +361,11 @@ mod tests {
         scan_buffer(b"RIFFxxxxAVI data DHAVmore", 0, 0, &mut hits);
         assert!(hits.iter().any(|hit| hit.signature == "riff-avi"));
         assert!(hits.iter().any(|hit| hit.signature == "dahua-dhav"));
+    }
+
+    #[test]
+    fn explains_validation_boundary_by_signature() {
+        assert!(validation_note_for_signature("mp4-ftyp").contains("moov/mdat"));
+        assert!(validation_note_for_signature("dahua-dhav").contains("proprietary"));
     }
 }

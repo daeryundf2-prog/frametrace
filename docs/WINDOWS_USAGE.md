@@ -59,10 +59,11 @@ When the receiving form has these details, record them in the case manifest imme
 Run a fast inventory pass first. This avoids spending hours hashing or probing every file on a terabyte-scale source.
 
 ```powershell
+.\target\release\frametrace.exe register-source C:\Cases\case-001 E:\ --kind mounted-volume --write-protect "hardware write blocker"
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\ --no-ffprobe
 ```
 
-The scan still records likely source/parser lanes from extensions and folder names, even when `ffprobe` is skipped.
+The scan still records likely source/parser lanes from extensions and folder names, even when `ffprobe` is skipped. It also records SQLite evidence-source and job rows.
 
 If the blackbox SD card was acquired as E01, inspect and import it first:
 
@@ -124,8 +125,8 @@ For an imported E01:
 .\target\release\frametrace.exe carve-file C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw --max-bytes 536870912 --max-candidates 128
 ```
 
-`carve-file` is a candidate-recovery pass, not a full proprietary DVR file-system parser. It preserves offsets, hashes the carved outputs, and writes logs under `artifacts\carved`.
-Carved artifacts are labeled `candidate-unvalidated` until playback/container validation is done.
+`carve-file` is a candidate-recovery pass, not a full proprietary DVR file-system parser. It preserves offsets, hashes the carved outputs, marks duplicate carved hashes, and writes logs under `artifacts\carved`.
+Carved artifacts remain `candidate-unvalidated` or `duplicate-candidate` until playback/container validation is done.
 
 Generate the current HTML report:
 
@@ -138,6 +139,14 @@ Open:
 ```text
 C:\Cases\case-001\reports\case-report.html
 ```
+
+Build a checksummed transfer/review package:
+
+```powershell
+.\target\release\frametrace.exe package-case C:\Cases\case-001
+```
+
+Open `reports\case-report.html` from the package and print to PDF when a PDF deliverable is required.
 
 ## Evidence Handling Rules
 

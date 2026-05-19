@@ -1,9 +1,9 @@
 use crate::model::{ScanResult, VideoRecord};
-use crate::util::{json_escape, path_to_file_url};
+use crate::util::{json_escape, now_unix, path_to_file_url};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const SCHEMA_VERSION: &str = "1";
 
@@ -43,6 +43,42 @@ pub struct CaseDbSummary {
     pub path: PathBuf,
     pub video_count: u64,
     pub scan_run_count: u64,
+    pub evidence_source_count: u64,
+    pub job_count: u64,
+    pub active_job_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvidenceSourceInput {
+    pub kind: String,
+    pub path: PathBuf,
+    pub source_id: Option<String>,
+    pub write_protect: Option<String>,
+    pub acquisition_tool: Option<String>,
+    pub evidence_hash: Option<String>,
+    pub notes: Option<String>,
+    pub metadata_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvidenceSourceRow {
+    pub source_id: String,
+    pub kind: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobRecord {
+    pub job_id: String,
+    pub job_type: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DbBenchmarkResult {
+    pub path: PathBuf,
+    pub rows: usize,
+    pub elapsed_ms: u128,
 }
 
 pub fn case_db_path(case_dir: &Path) -> PathBuf {
@@ -70,6 +106,204 @@ pub fn write_scan_index(
     tx.commit()
         .map_err(|err| format!("failed to commit SQLite index: {err}"))?;
     Ok(())
+}
+
+pub fn register_evidence_source(
+    case_dir: &Path,
+    input: &EvidenceSourceInput,
+) -> Result<EvidenceSourceRow, String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let now = now_unix()?;
+    let path = input.path.to_string_lossy().to_string();
+    let source_id = input
+        .source_id
+        .clone()
+        .unwrap_or_else(|| stable_source_id(&input.kind, &path));
+    conn.execute(
+        r#"
+        INSERT INTO evidence_sources (
+            source_id,
+            kind,
+            path,
+            registered_unix,
+            last_seen_unix,
+            write_protect,
+            acquisition_tool,
+            evidence_hash,
+            notes,
+            metadata_json
+        )
+        VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8, ?9)
+        ON CONFLICT(source_id) DO UPDATE SET
+            kind = excluded.kind,
+            path = excluded.path,
+            last_seen_unix = excluded.last_seen_unix,
+            write_protect = excluded.write_protect,
+            acquisition_tool = excluded.acquisition_tool,
+            evidence_hash = excluded.evidence_hash,
+            notes = excluded.notes,
+            metadata_json = excluded.metadata_json
+        ON CONFLICT(kind, path) DO UPDATE SET
+            last_seen_unix = excluded.last_seen_unix,
+            write_protect = COALESCE(excluded.write_protect, evidence_sources.write_protect),
+            acquisition_tool = COALESCE(excluded.acquisition_tool, evidence_sources.acquisition_tool),
+            evidence_hash = COALESCE(excluded.evidence_hash, evidence_sources.evidence_hash),
+            notes = COALESCE(excluded.notes, evidence_sources.notes),
+            metadata_json = excluded.metadata_json
+        "#,
+        params![
+            source_id.as_str(),
+            input.kind.as_str(),
+            path.as_str(),
+            u64_to_i64(now),
+            input.write_protect.as_deref(),
+            input.acquisition_tool.as_deref(),
+            input.evidence_hash.as_deref(),
+            input.notes.as_deref(),
+            input.metadata_json.as_deref().unwrap_or("{}"),
+        ],
+    )
+    .map_err(|err| format!("failed to register evidence source: {err}"))?;
+
+    conn.query_row(
+        "SELECT source_id, kind, path FROM evidence_sources WHERE kind = ?1 AND path = ?2",
+        params![input.kind.as_str(), path.as_str()],
+        |row| {
+            Ok(EvidenceSourceRow {
+                source_id: row.get(0)?,
+                kind: row.get(1)?,
+                path: row.get(2)?,
+            })
+        },
+    )
+    .map_err(|err| format!("failed to read registered evidence source: {err}"))
+}
+
+pub fn start_job(
+    case_dir: &Path,
+    job_type: &str,
+    subject_path: &Path,
+    total_units: Option<u64>,
+    options_json: &str,
+) -> Result<JobRecord, String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let now = now_unix()?;
+    let job_number = count_table_rows(&conn, "jobs")?.saturating_add(1);
+    let job_id = format!("job_{now}_{job_number:06}");
+    conn.execute(
+        r#"
+        INSERT INTO jobs (
+            job_id,
+            job_type,
+            status,
+            subject_path,
+            started_unix,
+            updated_unix,
+            total_units,
+            completed_units,
+            options_json
+        )
+        VALUES (?1, ?2, 'running', ?3, ?4, ?4, ?5, 0, ?6)
+        "#,
+        params![
+            job_id.as_str(),
+            job_type,
+            subject_path.to_string_lossy().to_string(),
+            u64_to_i64(now),
+            total_units.map(u64_to_i64),
+            options_json,
+        ],
+    )
+    .map_err(|err| format!("failed to start SQLite job: {err}"))?;
+    append_job_event(case_dir, &job_id, "started", "job started", Some(0))?;
+    Ok(JobRecord {
+        job_id,
+        job_type: job_type.to_string(),
+        status: "running".to_string(),
+    })
+}
+
+pub fn update_job_progress(
+    case_dir: &Path,
+    job_id: &str,
+    completed_units: u64,
+    message: &str,
+) -> Result<(), String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let now = now_unix()?;
+    conn.execute(
+        "UPDATE jobs SET completed_units = ?1, updated_unix = ?2 WHERE job_id = ?3",
+        params![u64_to_i64(completed_units), u64_to_i64(now), job_id],
+    )
+    .map_err(|err| format!("failed to update SQLite job progress: {err}"))?;
+    append_job_event(case_dir, job_id, "progress", message, Some(completed_units))
+}
+
+pub fn complete_job(
+    case_dir: &Path,
+    job_id: &str,
+    completed_units: u64,
+    message: &str,
+) -> Result<(), String> {
+    finish_job(case_dir, job_id, "complete", completed_units, message, None)
+}
+
+pub fn fail_job(case_dir: &Path, job_id: &str, error: &str) -> Result<(), String> {
+    finish_job(case_dir, job_id, "failed", 0, "job failed", Some(error))
+}
+
+pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkResult, String> {
+    fs::create_dir_all(output_dir)
+        .map_err(|err| format!("failed to create benchmark directory: {err}"))?;
+    let mut conn = open_case_db(output_dir)?;
+    init_schema(&conn)?;
+    let started = Instant::now();
+    let now = now_unix()?;
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("failed to start benchmark transaction: {err}"))?;
+    for index in 0..rows {
+        let id = format!("bench_{index:08}");
+        let source_path = format!("C:/Evidence/bench/clip_{index:08}.mp4");
+        let record = IndexedVideoRow {
+            id,
+            source_path: source_path.clone(),
+            file_url: format!("file:///{source_path}"),
+            relative_path: format!("clip_{index:08}.mp4"),
+            extension: "mp4".to_string(),
+            size_bytes: 1024 + index as u64,
+            modified_unix: None,
+            sha256: None,
+            hash_status: "benchmark".to_string(),
+            confidence: "benchmark".to_string(),
+            source_profile_json: "{\"lane\":\"benchmark\",\"vendor\":\"Benchmark\",\"parser\":\"benchmark\",\"confidence\":\"benchmark\",\"recommended_action\":\"Synthetic row only\",\"evidence\":[]}".to_string(),
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            audio_codec: None,
+            width: None,
+            height: None,
+            ffprobe_ok: false,
+            ffprobe_error: None,
+            ffprobe_json: None,
+            record_json: format!(
+                "{{\"id\":\"bench_{index:08}\",\"source_path\":\"{}\",\"relative_path\":\"clip_{index:08}.mp4\",\"extension\":\"mp4\",\"size_bytes\":{},\"source_profile\":{{\"vendor\":\"Benchmark\",\"parser\":\"benchmark\"}}}}",
+                json_escape(&source_path),
+                1024 + index as u64
+            ),
+        };
+        upsert_indexed_record(&tx, &record, now)?;
+    }
+    tx.commit()
+        .map_err(|err| format!("failed to commit benchmark transaction: {err}"))?;
+    Ok(DbBenchmarkResult {
+        path: case_db_path(output_dir),
+        rows,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
 }
 
 pub fn load_video_ids(case_dir: &Path) -> Result<Vec<VideoIdRow>, String> {
@@ -114,6 +348,9 @@ pub fn summarize_case_db(case_dir: &Path) -> Result<Option<CaseDbSummary>, Strin
             path,
             video_count: 0,
             scan_run_count: 0,
+            evidence_source_count: 0,
+            job_count: 0,
+            active_job_count: 0,
         }));
     }
 
@@ -123,10 +360,28 @@ pub fn summarize_case_db(case_dir: &Path) -> Result<Option<CaseDbSummary>, Strin
     } else {
         0
     };
+    let evidence_source_count = if table_exists(&conn, "evidence_sources")? {
+        count_table_rows(&conn, "evidence_sources")?
+    } else {
+        0
+    };
+    let job_count = if table_exists(&conn, "jobs")? {
+        count_table_rows(&conn, "jobs")?
+    } else {
+        0
+    };
+    let active_job_count = if table_exists(&conn, "jobs")? {
+        count_jobs_by_status(&conn, "running")?
+    } else {
+        0
+    };
     Ok(Some(CaseDbSummary {
         path,
         video_count,
         scan_run_count,
+        evidence_source_count,
+        job_count,
+        active_job_count,
     }))
 }
 
@@ -209,6 +464,56 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             ON videos (extension);
         CREATE INDEX IF NOT EXISTS videos_last_indexed_idx
             ON videos (last_indexed_unix);
+
+        CREATE TABLE IF NOT EXISTS evidence_sources (
+            source_id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            path TEXT NOT NULL,
+            registered_unix INTEGER NOT NULL,
+            last_seen_unix INTEGER NOT NULL,
+            write_protect TEXT,
+            acquisition_tool TEXT,
+            evidence_hash TEXT,
+            notes TEXT,
+            metadata_json TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS evidence_sources_kind_path_idx
+            ON evidence_sources (kind, path);
+        CREATE INDEX IF NOT EXISTS evidence_sources_hash_idx
+            ON evidence_sources (evidence_hash);
+
+        CREATE TABLE IF NOT EXISTS jobs (
+            job_id TEXT PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            subject_path TEXT NOT NULL,
+            started_unix INTEGER NOT NULL,
+            updated_unix INTEGER NOT NULL,
+            completed_unix INTEGER,
+            total_units INTEGER,
+            completed_units INTEGER NOT NULL DEFAULT 0,
+            options_json TEXT NOT NULL,
+            error TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS jobs_status_idx
+            ON jobs (status);
+        CREATE INDEX IF NOT EXISTS jobs_type_started_idx
+            ON jobs (job_type, started_unix);
+
+        CREATE TABLE IF NOT EXISTS job_events (
+            event_pk INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            event_unix INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            completed_units INTEGER,
+            FOREIGN KEY(job_id) REFERENCES jobs(job_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS job_events_job_idx
+            ON job_events (job_id, event_unix);
         "#,
     )
     .map_err(|err| format!("failed to initialize SQLite schema: {err}"))?;
@@ -227,6 +532,71 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             stored.unwrap_or_else(|| "missing".to_string())
         ));
     }
+    Ok(())
+}
+
+fn finish_job(
+    case_dir: &Path,
+    job_id: &str,
+    status: &str,
+    completed_units: u64,
+    message: &str,
+    error: Option<&str>,
+) -> Result<(), String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let now = now_unix()?;
+    conn.execute(
+        r#"
+        UPDATE jobs
+        SET status = ?1,
+            updated_unix = ?2,
+            completed_unix = ?2,
+            completed_units = CASE WHEN ?3 > 0 THEN ?3 ELSE completed_units END,
+            error = ?4
+        WHERE job_id = ?5
+        "#,
+        params![
+            status,
+            u64_to_i64(now),
+            u64_to_i64(completed_units),
+            error,
+            job_id,
+        ],
+    )
+    .map_err(|err| format!("failed to finish SQLite job: {err}"))?;
+    append_job_event(case_dir, job_id, status, message, Some(completed_units))
+}
+
+fn append_job_event(
+    case_dir: &Path,
+    job_id: &str,
+    event_type: &str,
+    message: &str,
+    completed_units: Option<u64>,
+) -> Result<(), String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    conn.execute(
+        r#"
+        INSERT INTO job_events (
+            job_id,
+            event_unix,
+            event_type,
+            message,
+            completed_units
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        "#,
+        params![
+            job_id,
+            u64_to_i64(now_unix()?),
+            event_type,
+            message,
+            completed_units.map(u64_to_i64),
+        ],
+    )
+    .map_err(|err| format!("failed to append SQLite job event: {err}"))?;
     Ok(())
 }
 
@@ -452,12 +822,30 @@ fn count_table_rows(conn: &Connection, table_name: &str) -> Result<u64, String> 
     let sql = match table_name {
         "videos" => "SELECT COUNT(*) FROM videos",
         "scan_runs" => "SELECT COUNT(*) FROM scan_runs",
+        "evidence_sources" => "SELECT COUNT(*) FROM evidence_sources",
+        "jobs" => "SELECT COUNT(*) FROM jobs",
         _ => return Err(format!("unsupported SQLite count table: {table_name}")),
     };
     let count: i64 = conn
         .query_row(sql, [], |row| row.get(0))
         .map_err(|err| format!("failed to count SQLite table {table_name}: {err}"))?;
     Ok(count.max(0) as u64)
+}
+
+fn count_jobs_by_status(conn: &Connection, status: &str) -> Result<u64, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM jobs WHERE status = ?1",
+            [status],
+            |row| row.get(0),
+        )
+        .map_err(|err| format!("failed to count SQLite jobs with status {status}: {err}"))?;
+    Ok(count.max(0) as u64)
+}
+
+fn stable_source_id(kind: &str, path: &str) -> String {
+    let digest = crate::sha256::digest_bytes(format!("{kind}\n{path}").as_bytes());
+    format!("src_{}", &digest[..16])
 }
 
 fn string_array_json(values: &[String]) -> String {
@@ -487,7 +875,10 @@ fn usize_to_i64(value: usize) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_video_ids, summarize_case_db, write_scan_index};
+    use super::{
+        EvidenceSourceInput, load_video_ids, register_evidence_source, summarize_case_db,
+        write_scan_index,
+    };
     use crate::case_db::IndexedVideoRow;
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
@@ -521,6 +912,56 @@ mod tests {
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0].id, "vid_000001");
         assert_eq!(ids[0].source_path, "/evidence/one.mp4");
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn preserves_manual_source_id_when_auto_registering_same_path() {
+        let case_dir =
+            std::env::temp_dir().join(format!("frametrace-source-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        let source_path = PathBuf::from("/evidence/source");
+
+        let manual = register_evidence_source(
+            &case_dir,
+            &EvidenceSourceInput {
+                kind: "folder".to_string(),
+                path: source_path.clone(),
+                source_id: Some("SD001".to_string()),
+                write_protect: Some("hardware".to_string()),
+                acquisition_tool: None,
+                evidence_hash: None,
+                notes: Some("intake".to_string()),
+                metadata_json: None,
+            },
+        )
+        .unwrap();
+        let auto = register_evidence_source(
+            &case_dir,
+            &EvidenceSourceInput {
+                kind: "folder".to_string(),
+                path: source_path,
+                source_id: None,
+                write_protect: None,
+                acquisition_tool: None,
+                evidence_hash: None,
+                notes: Some("auto".to_string()),
+                metadata_json: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(manual.source_id, "SD001");
+        assert_eq!(auto.source_id, "SD001");
+        assert_eq!(
+            summarize_case_db(&case_dir)
+                .unwrap()
+                .unwrap()
+                .evidence_source_count,
+            1
+        );
 
         let _ = fs::remove_dir_all(case_dir);
     }

@@ -8,6 +8,7 @@ pub mod e01;
 pub mod ffprobe;
 pub mod html_report;
 pub mod model;
+pub mod package;
 pub mod report;
 pub mod scan;
 pub mod sha256;

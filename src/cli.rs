@@ -4,6 +4,7 @@ use crate::case_db;
 use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
+use crate::package;
 use crate::report;
 use crate::scan;
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
@@ -39,6 +40,16 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = parse_scan_options(args.collect())?;
             scan_folder(Path::new(&case_dir), Path::new(&source_dir), options)
         }
+        "register-source" => {
+            let case_dir = args.next().ok_or_else(|| {
+                "usage: register-source <case-dir> <path> --kind <folder|mounted-volume|e01|raw-image|physical-drive> [--source-id <id>] [--write-protect <state>] [--acquisition-tool <tool>] [--evidence-hash <sha256>] [--notes <text>]".to_string()
+            })?;
+            let path = args.next().ok_or_else(|| {
+                "usage: register-source <case-dir> <path> --kind <folder|mounted-volume|e01|raw-image|physical-drive> [--source-id <id>] [--write-protect <state>] [--acquisition-tool <tool>] [--evidence-hash <sha256>] [--notes <text>]".to_string()
+            })?;
+            let options = parse_register_source_options(args.collect())?;
+            register_source(Path::new(&case_dir), Path::new(&path), options)
+        }
         "inspect-e01" => {
             let case_dir = args.next().ok_or_else(|| {
                 "usage: inspect-e01 <case-dir> <e01-file> [--hash-e01] [--ewfinfo <path>]"
@@ -67,11 +78,22 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 .ok_or_else(|| "usage: make-review <case-dir>".to_string())?;
             make_review(Path::new(&case_dir))
         }
+        "list-parsers" => {
+            println!("{}", crate::detector::parser_catalog_json());
+            Ok(())
+        }
         "make-report" => {
             let case_dir = args
                 .next()
                 .ok_or_else(|| "usage: make-report <case-dir>".to_string())?;
             make_report(Path::new(&case_dir))
+        }
+        "package-case" => {
+            let case_dir = args
+                .next()
+                .ok_or_else(|| "usage: package-case <case-dir> [--output <dir>]".to_string())?;
+            let options = parse_package_options(args.collect())?;
+            package_case(Path::new(&case_dir), options)
         }
         "export-video" => {
             let case_dir = args.next().ok_or_else(|| {
@@ -113,6 +135,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = parse_carve_options(args.collect())?;
             carve_file(Path::new(&case_dir), Path::new(&source_file), options)
         }
+        "benchmark-db" => {
+            let output_dir = args
+                .next()
+                .ok_or_else(|| "usage: benchmark-db <output-dir> [--rows <n>]".to_string())?;
+            let options = parse_benchmark_options(args.collect())?;
+            benchmark_db(Path::new(&output_dir), options)
+        }
         "inspect" => {
             let case_dir = args
                 .next()
@@ -137,6 +166,26 @@ struct InitCaseOptions {
     acquisition_tool: Option<String>,
     evidence_hash: Option<String>,
     notes: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RegisterSourceOptions {
+    kind: String,
+    source_id: Option<String>,
+    write_protect: Option<String>,
+    acquisition_tool: Option<String>,
+    evidence_hash: Option<String>,
+    notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PackageOptions {
+    output_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct BenchmarkOptions {
+    rows: usize,
 }
 
 fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), String> {
@@ -181,8 +230,42 @@ fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> Resu
         ));
     }
 
-    let result = scan::scan_folder(case_dir, source_dir, &options)?;
+    let source = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "folder".to_string(),
+            path: source_dir.to_path_buf(),
+            source_id: None,
+            write_protect: None,
+            acquisition_tool: None,
+            evidence_hash: None,
+            notes: Some("Auto-registered by scan-folder".to_string()),
+            metadata_json: Some(scan_options_json(&options)),
+        },
+    )?;
+    let job = case_db::start_job(
+        case_dir,
+        "scan-folder",
+        source_dir,
+        None,
+        &scan_options_json(&options),
+    )?;
+    let result = match scan::scan_folder(case_dir, source_dir, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.video_count as u64,
+        "scan-folder completed",
+    )?;
     println!("scan complete");
+    println!("source registered: {} ({})", source.source_id, source.kind);
+    println!("job: {} ({})", job.job_id, job.job_type);
     println!("videos indexed: {}", result.video_count);
     println!("bytes indexed: {}", result.total_bytes);
     println!("index: {}", case_dir.join("db/video_index.json").display());
@@ -190,10 +273,50 @@ fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> Resu
     Ok(())
 }
 
+fn register_source(
+    case_dir: &Path,
+    source_path: &Path,
+    options: RegisterSourceOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let row = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: options.kind,
+            path: source_path.to_path_buf(),
+            source_id: options.source_id,
+            write_protect: options.write_protect,
+            acquisition_tool: options.acquisition_tool,
+            evidence_hash: options.evidence_hash,
+            notes: options.notes,
+            metadata_json: None,
+        },
+    )?;
+    println!("source registered: {}", row.source_id);
+    println!("kind: {}", row.kind);
+    println!("path: {}", row.path);
+    println!("sqlite: {}", case_db::case_db_path(case_dir).display());
+    Ok(())
+}
+
 fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
     ensure_case(case_dir)?;
     e01::inspect_e01(case_dir, e01_file, &options)?;
+    let row = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "e01".to_string(),
+            path: e01_file.to_path_buf(),
+            source_id: None,
+            write_protect: None,
+            acquisition_tool: Some("libewf ewfinfo".to_string()),
+            evidence_hash: None,
+            notes: Some("Auto-registered by inspect-e01".to_string()),
+            metadata_json: None,
+        },
+    )?;
     println!("E01 inspected");
+    println!("source registered: {} ({})", row.source_id, row.kind);
     println!("source: {}", e01_file.display());
     println!(
         "audit log: {}",
@@ -204,8 +327,50 @@ fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<
 
 fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let result = e01::import_e01(case_dir, e01_file, &options)?;
+    let source = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "e01".to_string(),
+            path: e01_file.to_path_buf(),
+            source_id: None,
+            write_protect: None,
+            acquisition_tool: Some("libewf".to_string()),
+            evidence_hash: None,
+            notes: Some("Auto-registered by import-e01".to_string()),
+            metadata_json: Some(e01_options_json(&options)),
+        },
+    )?;
+    let job = case_db::start_job(
+        case_dir,
+        "import-e01",
+        e01_file,
+        None,
+        &e01_options_json(&options),
+    )?;
+    let result = match e01::import_e01(case_dir, e01_file, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "raw-image".to_string(),
+            path: result.raw_output_path.clone(),
+            source_id: None,
+            write_protect: Some("derived read-only image; preserve original E01".to_string()),
+            acquisition_tool: Some("libewf ewfexport".to_string()),
+            evidence_hash: Some(result.raw_sha256.clone()),
+            notes: Some(format!("Exported from source {}", source.source_id)),
+            metadata_json: None,
+        },
+    )?;
+    case_db::complete_job(case_dir, &job.job_id, 1, "import-e01 completed")?;
     println!("E01 imported");
+    println!("source registered: {} ({})", source.source_id, source.kind);
+    println!("job: {} ({})", job.job_id, job.job_type);
     println!("source: {}", result.e01_path.display());
     println!("raw output: {}", result.raw_output_path.display());
     println!("raw sha256: {}", result.raw_sha256);
@@ -270,6 +435,16 @@ fn make_report(case_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let result = package::package_case(case_dir, options.output_dir.as_deref())?;
+    println!("case package written");
+    println!("output: {}", result.output_dir.display());
+    println!("files: {}", result.file_count);
+    println!("manifest: {}", result.manifest_path.display());
+    Ok(())
+}
+
 fn export_video(case_dir: &Path, selector: &str, options: ExportOptions) -> Result<(), String> {
     ensure_case(case_dir)?;
     let result = video_export::export_video(case_dir, selector, &options)?;
@@ -304,14 +479,57 @@ fn make_thumbnail(
 
 fn carve_file(case_dir: &Path, source_file: &Path, options: CarveOptions) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let result = carve::carve_file(case_dir, source_file, &options)?;
+    let source = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "raw-image".to_string(),
+            path: source_file.to_path_buf(),
+            source_id: None,
+            write_protect: None,
+            acquisition_tool: None,
+            evidence_hash: None,
+            notes: Some("Auto-registered by carve-file".to_string()),
+            metadata_json: Some(carve_options_json(&options)),
+        },
+    )?;
+    let job = case_db::start_job(
+        case_dir,
+        "carve-file",
+        source_file,
+        Some(options.max_candidates as u64),
+        &carve_options_json(&options),
+    )?;
+    let result = match carve::carve_file(case_dir, source_file, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.artifacts.len() as u64,
+        "carve-file completed",
+    )?;
     println!("carve complete");
+    println!("source registered: {} ({})", source.source_id, source.kind);
+    println!("job: {} ({})", job.job_id, job.job_type);
     println!("source: {}", result.source_path.display());
     println!("artifacts carved: {}", result.artifacts.len());
     println!(
         "results: {}",
         case_dir.join("db/carve_results.json").display()
     );
+    Ok(())
+}
+
+fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), String> {
+    let result = case_db::benchmark_case_db(output_dir, options.rows)?;
+    println!("SQLite benchmark complete");
+    println!("rows: {}", result.rows);
+    println!("elapsed_ms: {}", result.elapsed_ms);
+    println!("db: {}", result.path.display());
     Ok(())
 }
 
@@ -341,6 +559,9 @@ fn inspect(case_dir: &Path) -> Result<(), String> {
             println!("sqlite: {}", summary.path.display());
             println!("sqlite videos: {}", summary.video_count);
             println!("sqlite scan runs: {}", summary.scan_run_count);
+            println!("sqlite evidence sources: {}", summary.evidence_source_count);
+            println!("sqlite jobs: {}", summary.job_count);
+            println!("sqlite active jobs: {}", summary.active_job_count);
         }
         None => println!("sqlite: not created yet"),
     }
@@ -431,6 +652,48 @@ fn parse_scan_options(args: Vec<String>) -> Result<ScanOptions, String> {
     Ok(options)
 }
 
+fn parse_register_source_options(args: Vec<String>) -> Result<RegisterSourceOptions, String> {
+    let mut kind = None;
+    let mut source_id = None;
+    let mut write_protect = None;
+    let mut acquisition_tool = None;
+    let mut evidence_hash = None;
+    let mut notes = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--kind" => kind = Some(next_option_value(&mut args, "--kind")?),
+            "--source-id" => source_id = Some(next_option_value(&mut args, "--source-id")?),
+            "--write-protect" => {
+                write_protect = Some(next_option_value(&mut args, "--write-protect")?)
+            }
+            "--acquisition-tool" => {
+                acquisition_tool = Some(next_option_value(&mut args, "--acquisition-tool")?)
+            }
+            "--evidence-hash" => {
+                evidence_hash = Some(next_option_value(&mut args, "--evidence-hash")?)
+            }
+            "--notes" => notes = Some(next_option_value(&mut args, "--notes")?),
+            other => return Err(format!("unknown register-source option: {other}")),
+        }
+    }
+    let kind = kind.ok_or_else(|| "--kind is required".to_string())?;
+    if !matches!(
+        kind.as_str(),
+        "folder" | "mounted-volume" | "e01" | "raw-image" | "physical-drive"
+    ) {
+        return Err(format!("unsupported source kind: {kind}"));
+    }
+    Ok(RegisterSourceOptions {
+        kind,
+        source_id,
+        write_protect,
+        acquisition_tool,
+        evidence_hash,
+        notes,
+    })
+}
+
 fn parse_e01_options(args: Vec<String>) -> Result<E01Options, String> {
     let mut options = E01Options::default();
     let mut args = args.into_iter();
@@ -501,6 +764,20 @@ fn parse_export_options(args: Vec<String>) -> Result<ExportOptions, String> {
         duration_seconds,
         output_path,
     })
+}
+
+fn parse_package_options(args: Vec<String>) -> Result<PackageOptions, String> {
+    let mut options = PackageOptions::default();
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--output" => {
+                options.output_dir = Some(PathBuf::from(next_option_value(&mut args, "--output")?))
+            }
+            other => return Err(format!("unknown package-case option: {other}")),
+        }
+    }
+    Ok(options)
 }
 
 fn parse_proxy_options(args: Vec<String>) -> Result<ProxyOptions, String> {
@@ -578,6 +855,62 @@ fn parse_carve_options(args: Vec<String>) -> Result<CarveOptions, String> {
     Ok(options)
 }
 
+fn parse_benchmark_options(args: Vec<String>) -> Result<BenchmarkOptions, String> {
+    let mut rows = 10_000usize;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--rows" => {
+                let raw = next_option_value(&mut args, "--rows")?;
+                rows = raw
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid --rows value: {raw}"))?;
+                if rows == 0 {
+                    return Err("--rows must be greater than 0".to_string());
+                }
+            }
+            other => return Err(format!("unknown benchmark-db option: {other}")),
+        }
+    }
+    Ok(BenchmarkOptions { rows })
+}
+
+fn scan_options_json(options: &ScanOptions) -> String {
+    format!(
+        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{}}}",
+        options.hash_files,
+        options.use_ffprobe,
+        options
+            .max_depth
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string())
+    )
+}
+
+fn carve_options_json(options: &CarveOptions) -> String {
+    format!(
+        "{{\"max_bytes\":{},\"max_candidates\":{}}}",
+        options.max_bytes, options.max_candidates
+    )
+}
+
+fn e01_options_json(options: &E01Options) -> String {
+    format!(
+        "{{\"output_path\":{},\"max_bytes\":{},\"skip_verify\":{},\"hash_e01\":{}}}",
+        options
+            .output_path
+            .as_ref()
+            .map(|path| format!("\"{}\"", crate::util::json_escape(&path.to_string_lossy())))
+            .unwrap_or_else(|| "null".to_string()),
+        options
+            .max_bytes
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string()),
+        options.skip_verify,
+        options.hash_e01
+    )
+}
+
 fn parse_seconds(label: &str, raw: &str) -> Result<f64, String> {
     let value = raw
         .parse::<f64>()
@@ -615,6 +948,9 @@ Commands:
       Index video candidates and likely manufacturer/parser lanes from a mounted drive, copied folder, or disk image export.
       Full SHA-256 hashing is opt-in because terabyte-scale evidence can take hours.
 
+  register-source <case-dir> <path> --kind <folder|mounted-volume|e01|raw-image|physical-drive> [--source-id <id>] [--write-protect <state>] [--acquisition-tool <tool>] [--evidence-hash <sha256>] [--notes <text>]
+      Register an evidence source in the SQLite case database before acquisition, scan, import, or carving work.
+
   inspect-e01 <case-dir> <e01-file> [--hash-e01] [--ewfinfo <path>]
       Record E01 metadata through libewf ewfinfo and append an E01 audit log.
 
@@ -624,8 +960,14 @@ Commands:
   make-review <case-dir>
       Generate a serverless HTML review dashboard at review/index.html.
 
+  list-parsers
+      Print the manufacturer/source parser plugin catalog as JSON.
+
   make-report <case-dir>
       Generate a case report at reports/case-report.html.
+
+  package-case <case-dir> [--output <dir>]
+      Build a checksummed report/review package directory with manifest files.
 
   export-video <case-dir> <video-id|path> --format <mp4|avi> [--start <seconds>] [--duration <seconds>] [--output <path>]
       Export an indexed video or selected range as a client-deliverable MP4/AVI.
@@ -638,6 +980,9 @@ Commands:
 
   carve-file <case-dir> <source-file> [--max-bytes <n>] [--max-candidates <n>]
       Scan a raw file or forensic image for contiguous MP4/AVI/Dahua-DAV candidates and copy them as recovery artifacts.
+
+  benchmark-db <output-dir> [--rows <n>]
+      Create a synthetic SQLite index benchmark database for scale validation.
 
   inspect <case-dir>
       Print the current case/index status.

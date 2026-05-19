@@ -14,6 +14,8 @@ This first implementation is the local core prototype:
 - Generates review proxy MP4 files and JPEG thumbnails.
 - Inspects/verifies E01/Ex01/S01/L01 evidence containers through libewf tools and exports them to raw images for downstream carving or mounting.
 - Carves contiguous MP4/AVI/Dahua-DAV candidates from raw files or forensic image files.
+- Tracks evidence sources and long-running jobs in SQLite.
+- Builds a checksummed report/review package directory.
 
 ## Tech Stack Direction
 
@@ -33,6 +35,10 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 
 - `docs/TECH_STACK.md` - architecture and implementation direction.
 - `docs/WINDOWS_USAGE.md` - Windows setup, build, and field usage notes.
+- `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
+- `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.
+- `docs/PERFORMANCE_VALIDATION.md` - SQLite scale benchmark and large-media rules.
+- `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
 - `docs/MANUFACTURER_PARSER_RESEARCH.md` - manufacturer-specific parser targets, priority, detection rules, and source links.
 
@@ -44,6 +50,7 @@ Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available 
 cargo build --release
 .\target\release\frametrace.exe init-case C:\Cases\case-001 --title "Sample CCTV review"
 .\target\release\frametrace.exe import-e01 C:\Cases\case-001 D:\Images\blackbox.E01 --output C:\Cases\case-001\evidence\images\blackbox.raw
+.\target\release\frametrace.exe register-source C:\Cases\case-001 E:\ --kind mounted-volume --write-protect "hardware write blocker"
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\ --no-ffprobe
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2
 .\target\release\frametrace.exe make-review C:\Cases\case-001
@@ -51,6 +58,7 @@ cargo build --release
 .\target\release\frametrace.exe make-proxy C:\Cases\case-001 vid_000001
 .\target\release\frametrace.exe export-video C:\Cases\case-001 vid_000001 --format mp4 --start 10 --duration 30
 .\target\release\frametrace.exe make-report C:\Cases\case-001
+.\target\release\frametrace.exe package-case C:\Cases\case-001
 ```
 
 Open `C:\Cases\case-001\review\index.html` in a browser after `make-review`.
@@ -64,6 +72,7 @@ For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without 
 cargo run -- init-case ./case-001 --title "Sample CCTV review"
 cargo run -- inspect-e01 ./case-001 /path/to/blackbox.E01
 cargo run -- import-e01 ./case-001 /path/to/blackbox.E01 --output ./case-001/evidence/images/blackbox.raw
+cargo run -- register-source ./case-001 /path/to/evidence --kind folder --write-protect "copied evidence"
 cargo run -- scan-folder ./case-001 /path/to/evidence --no-ffprobe
 cargo run -- scan-folder ./case-001 /path/to/evidence/BLACKBOX --hash --max-depth 2
 cargo run -- make-review ./case-001
@@ -73,7 +82,10 @@ cargo run -- export-video ./case-001 vid_000001 --format mp4 --start 10 --durati
 cargo run -- export-video ./case-001 vid_000001 --format avi
 cargo run -- carve-file ./case-001 /path/to/image-or-raw-file.bin --max-bytes 268435456
 cargo run -- make-report ./case-001
+cargo run -- package-case ./case-001
 cargo run -- inspect ./case-001
+cargo run -- list-parsers
+cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 ```
 
 Open `case-001/review/index.html` in a browser after `make-review`.

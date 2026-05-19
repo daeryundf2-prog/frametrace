@@ -80,13 +80,17 @@ Implemented now:
 - Optional SHA-256 hashing.
 - Optional ffprobe metadata.
 - SQLite primary video index at `db/case.db`.
+- SQLite evidence-source registry and job/event tables for long-running work.
 - JSON/JSONL/TSV compatibility indexes.
 - Serverless review dashboard.
 - HTML case report.
 - MP4/AVI export command.
 - Review proxy and thumbnail generation.
 - E01/Ex01/S01/L01 inspection, verification, and raw export through `ewfinfo`, `ewfverify`, and `ewfexport`.
-- Contiguous MP4/AVI/Dahua-DAV carving from raw files or acquired image files.
+- Contiguous MP4/AVI/Dahua-DAV carving from raw files or acquired image files, with duplicate-candidate marking.
+- Checksummed report/review package directory.
+- Parser plugin catalog output through `list-parsers`.
+- Synthetic SQLite benchmark command for large-index validation.
 
 Not implemented yet:
 
@@ -96,7 +100,7 @@ Not implemented yet:
 - File-system-aware extraction from E01/raw images without mounting.
 - File-system-aware deleted file recovery.
 - File-system-aware unallocated-space carving.
-- SQLite job queue.
+- Mid-command resume from persisted job checkpoints.
 - Motion/object/license-plate analysis.
 - PDF report rendering.
 - Final Windows GUI shell.
