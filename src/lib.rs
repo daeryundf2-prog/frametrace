@@ -1,6 +1,7 @@
 pub mod artifacts;
 pub mod audit;
 pub mod carve;
+pub mod case_db;
 pub mod cli;
 pub mod detector;
 pub mod e01;

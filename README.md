@@ -22,7 +22,7 @@ This first implementation is the local core prototype:
 - Desktop shell: C#/WinUI 3 for the final production Windows app, with Tauri kept only as an optional fallback if the engine contract is already stable.
 - Core engine: Rust.
 - Video metadata and transcode boundary: FFmpeg / ffprobe.
-- Case DB: JSON/JSONL for the prototype, SQLite for the real workstation.
+- Case DB: SQLite for the primary local index, with JSON/JSONL/TSV compatibility artifacts kept for review/export flows.
 - Recovery path: libewf CLI tools for E01 evidence import now, Sleuth Kit / libtsk later for file-system analysis, custom carving plugins for DVR/CCTV formats.
 - Review UI: local web UI now, desktop webview later.
 
@@ -56,7 +56,7 @@ cargo build --release
 Open `C:\Cases\case-001\review\index.html` in a browser after `make-review`.
 Open `C:\Cases\case-001\reports\case-report.html` after `make-report`.
 
-For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without `--hash`, then run deeper analysis only on selected folders or copied evidence. Repeated scans preserve the cumulative case index: `db/video_index.json`, `db/videos.jsonl`, and `db/video_paths.tsv` keep previously indexed videos while refreshed records for the same source path are updated. Each scan run is also saved under `db/scan_runs/`.
+For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without `--hash`, then run deeper analysis only on selected folders or copied evidence. Repeated scans preserve the cumulative case index: `db/case.db` is the primary SQLite index, while `db/video_index.json`, `db/videos.jsonl`, and `db/video_paths.tsv` remain compatibility artifacts for review/export flows. Each scan run is also saved under `db/scan_runs/`.
 
 ## Development Commands
 

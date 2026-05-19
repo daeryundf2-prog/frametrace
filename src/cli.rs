@@ -1,5 +1,6 @@
 use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
 use crate::carve::{self, CarveOptions};
+use crate::case_db;
 use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
@@ -185,6 +186,7 @@ fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> Resu
     println!("videos indexed: {}", result.video_count);
     println!("bytes indexed: {}", result.total_bytes);
     println!("index: {}", case_dir.join("db/video_index.json").display());
+    println!("sqlite: {}", case_db::case_db_path(case_dir).display());
     Ok(())
 }
 
@@ -333,6 +335,14 @@ fn inspect(case_dir: &Path) -> Result<(), String> {
         );
     } else {
         println!("index: not created yet");
+    }
+    match case_db::summarize_case_db(case_dir)? {
+        Some(summary) => {
+            println!("sqlite: {}", summary.path.display());
+            println!("sqlite videos: {}", summary.video_count);
+            println!("sqlite scan runs: {}", summary.scan_run_count);
+        }
+        None => println!("sqlite: not created yet"),
     }
     Ok(())
 }

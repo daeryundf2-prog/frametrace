@@ -1,3 +1,4 @@
+use crate::case_db::{self, IndexedVideoRow};
 use crate::detector;
 use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
@@ -230,6 +231,12 @@ fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String
         .map_err(|err| format!("failed to write video jsonl: {err}"))?;
     write_text(&case_dir.join("db/video_paths.tsv"), &paths_tsv)
         .map_err(|err| format!("failed to write video path index: {err}"))?;
+
+    let db_records = merged_records
+        .iter()
+        .map(IndexedRecordLine::to_db_row)
+        .collect::<Vec<_>>();
+    case_db::write_scan_index(case_dir, result, &db_records)?;
     Ok(())
 }
 
@@ -292,12 +299,50 @@ impl IndexedRecordLine {
             ),
         )
     }
+
+    fn to_db_row(&self) -> IndexedVideoRow {
+        IndexedVideoRow {
+            id: self.id.clone(),
+            source_path: self.source_path.clone(),
+            file_url: extract_json_string(&self.json_line, "file_url").unwrap_or_default(),
+            relative_path: extract_json_string(&self.json_line, "relative_path")
+                .unwrap_or_default(),
+            extension: extract_json_string(&self.json_line, "extension").unwrap_or_default(),
+            size_bytes: extract_json_u64(&self.json_line, "size_bytes").unwrap_or(0),
+            modified_unix: extract_json_u64(&self.json_line, "modified_unix"),
+            sha256: extract_json_string(&self.json_line, "sha256"),
+            hash_status: extract_json_string(&self.json_line, "hash_status")
+                .unwrap_or_else(|| "unknown".to_string()),
+            confidence: extract_json_string(&self.json_line, "confidence")
+                .unwrap_or_else(|| "unknown".to_string()),
+            source_profile_json: extract_json_object(&self.json_line, "source_profile")
+                .unwrap_or_else(|| "{}".to_string()),
+            duration_seconds: extract_json_f64(&self.json_line, "duration_seconds"),
+            format_name: extract_json_string(&self.json_line, "format_name"),
+            video_codec: extract_json_string(&self.json_line, "video_codec"),
+            audio_codec: extract_json_string(&self.json_line, "audio_codec"),
+            width: extract_json_u64(&self.json_line, "width"),
+            height: extract_json_u64(&self.json_line, "height"),
+            ffprobe_ok: extract_json_bool(&self.json_line, "ffprobe_ok").unwrap_or(false),
+            ffprobe_error: extract_json_string(&self.json_line, "ffprobe_error"),
+            ffprobe_json: extract_json_value(&self.json_line, "ffprobe")
+                .filter(|value| value.trim() != "null"),
+            record_json: self.json_line.clone(),
+        }
+    }
 }
 
 fn load_existing_video_ids(case_dir: &Path) -> Result<IdRegistry, String> {
     let existing = load_existing_record_lines(case_dir)?;
     let mut ids_by_source = HashMap::new();
     let mut max_number = 0usize;
+
+    for record in case_db::load_video_ids(case_dir)? {
+        if let Some(number) = record.id.strip_prefix("vid_").and_then(parse_usize) {
+            max_number = max_number.max(number);
+        }
+        ids_by_source.insert(record.source_path, record.id);
+    }
 
     for record in existing {
         if let Some(number) = record.id.strip_prefix("vid_").and_then(parse_usize) {
@@ -521,6 +566,76 @@ fn extract_json_string(line: &str, key: &str) -> Option<String> {
     None
 }
 
+fn extract_json_object(line: &str, key: &str) -> Option<String> {
+    extract_json_value(line, key).filter(|value| value.trim_start().starts_with('{'))
+}
+
+fn extract_json_value(line: &str, key: &str) -> Option<String> {
+    let key = format!("\"{}\":", key);
+    let start = line.find(&key)? + key.len();
+    let value = line[start..].trim_start();
+    let first = value.chars().next()?;
+
+    match first {
+        '"' => extract_quoted_json_value(value),
+        '{' | '[' => extract_balanced_json_value(value, first),
+        _ => {
+            let end = value
+                .find(|ch| [',', '}', ']'].contains(&ch))
+                .unwrap_or(value.len());
+            let raw = value[..end].trim();
+            (!raw.is_empty()).then(|| raw.to_string())
+        }
+    }
+}
+
+fn extract_quoted_json_value(value: &str) -> Option<String> {
+    let mut escaped = false;
+    for (offset, ch) in value.char_indices().skip(1) {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(value[..offset + ch.len_utf8()].to_string());
+        }
+    }
+    None
+}
+
+fn extract_balanced_json_value(value: &str, opener: char) -> Option<String> {
+    let closer = if opener == '{' { '}' } else { ']' };
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in value.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            ch if ch == opener => depth += 1,
+            ch if ch == closer => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(value[..offset + ch.len_utf8()].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn extract_json_u64(line: &str, key: &str) -> Option<u64> {
     let key = format!("\"{}\":", key);
     let start = line.find(&key)? + key.len();
@@ -533,6 +648,34 @@ fn extract_json_u64(line: &str, key: &str) -> Option<u64> {
         None
     } else {
         digits.parse::<u64>().ok()
+    }
+}
+
+fn extract_json_f64(line: &str, key: &str) -> Option<f64> {
+    let key = format!("\"{}\":", key);
+    let start = line.find(&key)? + key.len();
+    let value = line[start..].trim_start();
+    let raw = value
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+' | 'e' | 'E'))
+        .collect::<String>();
+    if raw.is_empty() {
+        None
+    } else {
+        raw.parse::<f64>().ok().filter(|value| value.is_finite())
+    }
+}
+
+fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
+    let key = format!("\"{}\":", key);
+    let start = line.find(&key)? + key.len();
+    let value = line[start..].trim_start();
+    if value.starts_with("true") {
+        Some(true)
+    } else if value.starts_with("false") {
+        Some(false)
+    } else {
+        None
     }
 }
 

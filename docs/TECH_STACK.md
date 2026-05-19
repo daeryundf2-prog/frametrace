@@ -15,8 +15,8 @@ Evidence stays on the examiner PC or attached storage. The application owns a lo
 | Alternative UI path | Tauri | Keep only as a fallback after the engine contract is stable |
 | Core engine | Rust | Safe low-level I/O, predictable performance, good Windows support |
 | Video tools | FFmpeg / ffprobe | Mature codec/container support and metadata extraction |
-| Case state | SQLite | Durable local indexing for millions of artifacts without a server |
-| Prototype state | JSON + JSONL | Easy to inspect while the model is still changing |
+| Case state | SQLite | Durable local indexing for large evidence sets without a server |
+| Compatibility state | JSON + JSONL + TSV | Easy to inspect while preserving existing review/export flows |
 | Recovery | libewf CLI tools now, Sleuth Kit/libtsk later, custom carvers | E01/raw image import now; partition/file-system analysis later |
 | Analysis | OpenCV/ONNX Runtime later | Motion/person/vehicle/license-plate candidate extraction |
 | Reports | Local HTML first, PDF later | Reviewable and portable case output |
@@ -52,7 +52,7 @@ Source media or image
 ## Build Order
 
 1. Stabilize the Rust CLI engine and command outputs.
-2. Move case/index state to SQLite with resumable jobs.
+2. Expand SQLite from the primary video index into resumable job/progress tables.
 3. Add raw image and recovery workflows.
 4. Implement vendor parser plugins and validation samples.
 5. Expand thumbnail/proxy generation, carving validation, and review/report export completeness.
@@ -79,7 +79,8 @@ Implemented now:
 - Manufacturer/source parser lane detection for researched dashcam and CCTV export families.
 - Optional SHA-256 hashing.
 - Optional ffprobe metadata.
-- JSON/JSONL index.
+- SQLite primary video index at `db/case.db`.
+- JSON/JSONL/TSV compatibility indexes.
 - Serverless review dashboard.
 - HTML case report.
 - MP4/AVI export command.

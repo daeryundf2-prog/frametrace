@@ -81,7 +81,7 @@ After the first inventory, run deeper metadata collection on a narrowed source f
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2
 ```
 
-Repeated scans are cumulative. The case-wide index keeps previously indexed videos and refreshes matching source paths, while every individual scan run is preserved under `C:\Cases\case-001\db\scan_runs`.
+Repeated scans are cumulative. `C:\Cases\case-001\db\case.db` is the primary SQLite index, the JSON/JSONL/TSV files remain compatibility artifacts, and every individual scan run is preserved under `C:\Cases\case-001\db\scan_runs`.
 
 Generate the local review page:
 

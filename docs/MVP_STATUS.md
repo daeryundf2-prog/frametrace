@@ -10,6 +10,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Case manifest fields for operator, host, device ID/serial, write-protection state, acquisition tool, evidence hash, and notes.
 - Folder scan for mounted drives, copied SD cards, exported CCTV folders, and extracted image contents.
 - Cumulative case index across repeated scans, with per-run snapshots under `db/scan_runs`.
+- SQLite primary video index at `db/case.db`, updated by `scan-folder`.
 - E01/Ex01/S01/L01 container inspection and raw export through external libewf tools.
 - Terabyte-aware defaults:
   - per-file SHA-256 is opt-in with `--hash`
@@ -29,7 +30,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   - Avigilon AVE
   - Milestone/XProtect BLK/path signals
   - Axis/ONVIF and other researched vendor path signals
-- JSON, JSONL, and TSV index output.
+- JSON, JSONL, and TSV compatibility index output.
 - Serverless HTML review dashboard.
 - HTML case report with source/parser assessment.
 - MP4 and AVI export using FFmpeg.
@@ -60,7 +61,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 
 ## Next Product Milestones
 
-1. Replace JSON/JSONL prototype state with SQLite job/index tables.
+1. Expand SQLite into resumable job/progress tables.
 2. Add raw image/folder acquisition workflows with explicit write-protection guidance.
 3. Add file-system-aware deleted-file recovery and unallocated-space carving.
 4. Add stronger carving validation, preview triage, and deduplication.
