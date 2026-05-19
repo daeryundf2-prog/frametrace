@@ -1,4 +1,5 @@
-use crate::util::{json_escape, now_unix, read_to_string, unique_path, write_text};
+use crate::audit;
+use crate::util::{json_escape, now_unix, unique_path};
 use crate::video_export::{resolve_video_source, sanitize_filename};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,31 +69,9 @@ pub fn generate_proxy(
     };
     ensure_parent(&output_path)?;
 
-    let scale = format!("scale='min({},{})':-2", options.max_width, "iw");
+    let args = proxy_ffmpeg_args(&source_path, &output_path, options);
     let output = Command::new("ffmpeg")
-        .arg("-n")
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(&source_path)
-        .arg("-vf")
-        .arg(scale)
-        .arg("-map")
-        .arg("0:v:0")
-        .arg("-map")
-        .arg("0:a?")
-        .arg("-c:v")
-        .arg("libx264")
-        .arg("-preset")
-        .arg("veryfast")
-        .arg("-crf")
-        .arg("28")
-        .arg("-pix_fmt")
-        .arg("yuv420p")
-        .arg("-c:a")
-        .arg("aac")
-        .arg("-movflags")
-        .arg("+faststart")
-        .arg(&output_path)
+        .args(&args)
         .output()
         .map_err(|err| format!("failed to run ffmpeg for proxy: {err}"))?;
 
@@ -109,7 +88,12 @@ pub fn generate_proxy(
         kind: "proxy".to_string(),
         created_unix,
     };
-    append_artifact_log(case_dir, "artifacts/proxies/proxy-log.jsonl", &artifact)?;
+    append_artifact_log(
+        case_dir,
+        "artifacts/proxies/proxy-log.jsonl",
+        &artifact,
+        &args,
+    )?;
     Ok(artifact)
 }
 
@@ -140,18 +124,9 @@ pub fn generate_thumbnail(
     };
     ensure_parent(&output_path)?;
 
+    let args = thumbnail_ffmpeg_args(&source_path, &output_path, options);
     let output = Command::new("ffmpeg")
-        .arg("-n")
-        .arg("-hide_banner")
-        .arg("-ss")
-        .arg(format!("{:.3}", options.time_seconds))
-        .arg("-i")
-        .arg(&source_path)
-        .arg("-frames:v")
-        .arg("1")
-        .arg("-q:v")
-        .arg("3")
-        .arg(&output_path)
+        .args(&args)
         .output()
         .map_err(|err| format!("failed to run ffmpeg for thumbnail: {err}"))?;
 
@@ -172,8 +147,62 @@ pub fn generate_thumbnail(
         case_dir,
         "artifacts/thumbnails/thumbnail-log.jsonl",
         &artifact,
+        &args,
     )?;
     Ok(artifact)
+}
+
+fn proxy_ffmpeg_args(
+    source_path: &Path,
+    output_path: &Path,
+    options: &ProxyOptions,
+) -> Vec<String> {
+    let scale = format!("scale='min({},{})':-2", options.max_width, "iw");
+    vec![
+        "-n".to_string(),
+        "-hide_banner".to_string(),
+        "-i".to_string(),
+        audit::path_string(source_path),
+        "-vf".to_string(),
+        scale,
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-c:v".to_string(),
+        "libx264".to_string(),
+        "-preset".to_string(),
+        "veryfast".to_string(),
+        "-crf".to_string(),
+        "28".to_string(),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+        "-c:a".to_string(),
+        "aac".to_string(),
+        "-movflags".to_string(),
+        "+faststart".to_string(),
+        audit::path_string(output_path),
+    ]
+}
+
+fn thumbnail_ffmpeg_args(
+    source_path: &Path,
+    output_path: &Path,
+    options: &ThumbnailOptions,
+) -> Vec<String> {
+    vec![
+        "-n".to_string(),
+        "-hide_banner".to_string(),
+        "-ss".to_string(),
+        format!("{:.3}", options.time_seconds),
+        "-i".to_string(),
+        audit::path_string(source_path),
+        "-frames:v".to_string(),
+        "1".to_string(),
+        "-q:v".to_string(),
+        "3".to_string(),
+        audit::path_string(output_path),
+    ]
 }
 
 fn ensure_parent(path: &Path) -> Result<(), String> {
@@ -188,23 +217,34 @@ fn append_artifact_log(
     case_dir: &Path,
     relative_log: &str,
     artifact: &DerivedArtifact,
+    command_args: &[String],
 ) -> Result<(), String> {
     let path = case_dir.join(relative_log);
-    let existing = read_to_string(&path).unwrap_or_default();
+    let source_sha256 = audit::indexed_source_hash(
+        case_dir,
+        &artifact.source_path.to_string_lossy(),
+        &artifact.source_path,
+    );
+    let output_sha256 = audit::digest_file(&artifact.output_path)?;
     let line = format!(
-        "{{\"created_unix\":{},\"kind\":\"{}\",\"source_path\":\"{}\",\"output_path\":\"{}\"}}\n",
+        "{{\"schema_version\":2,\"event\":\"make-{}\",\"created_unix\":{},\"kind\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
+        json_escape(&artifact.kind),
         artifact.created_unix,
         json_escape(&artifact.kind),
         json_escape(&artifact.source_path.to_string_lossy()),
-        json_escape(&artifact.output_path.to_string_lossy())
+        audit::optional_string(source_sha256.as_deref()),
+        json_escape(&artifact.output_path.to_string_lossy()),
+        json_escape(&output_sha256),
+        json_escape(&audit::command_version("ffmpeg")),
+        audit::json_string_array(command_args)
     );
-    write_text(&path, &(existing + &line))
-        .map_err(|err| format!("failed to write artifact log: {err}"))
+    audit::append_chained_jsonl(&path, &line)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ProxyOptions, ThumbnailOptions};
+    use super::{ProxyOptions, ThumbnailOptions, proxy_ffmpeg_args, thumbnail_ffmpeg_args};
+    use std::path::Path;
 
     #[test]
     fn default_proxy_is_review_sized() {
@@ -214,5 +254,24 @@ mod tests {
     #[test]
     fn default_thumbnail_starts_at_zero() {
         assert_eq!(ThumbnailOptions::default().time_seconds, 0.0);
+    }
+
+    #[test]
+    fn builds_artifact_command_args() {
+        let proxy_args = proxy_ffmpeg_args(
+            Path::new("in.mp4"),
+            Path::new("proxy.mp4"),
+            &ProxyOptions::default(),
+        );
+        assert!(proxy_args.contains(&"libx264".to_string()));
+        assert_eq!(proxy_args.last().map(String::as_str), Some("proxy.mp4"));
+
+        let thumb_args = thumbnail_ffmpeg_args(
+            Path::new("in.mp4"),
+            Path::new("thumb.jpg"),
+            &ThumbnailOptions::default(),
+        );
+        assert!(thumb_args.contains(&"-frames:v".to_string()));
+        assert_eq!(thumb_args.last().map(String::as_str), Some("thumb.jpg"));
     }
 }

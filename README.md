@@ -80,3 +80,11 @@ By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evid
 Exported clips are written to `case-001/artifacts/clips/` unless `--output` is provided.
 Proxy files are written to `case-001/artifacts/proxies/`, thumbnails to `case-001/artifacts/thumbnails/`, and carved recovery candidates to `case-001/artifacts/carved/`.
 Default clip/proxy/thumbnail names are made unique when a file already exists. Explicit `--output` paths are never overwritten; choose a new path if the target already exists.
+
+`init-case` can record chain-of-custody context up front:
+
+```bash
+cargo run -- init-case ./case-001 --title "Client CCTV review" --operator "Examiner" --device-id "SD-001" --device-serial "SN123" --write-protect "hardware write blocker" --acquisition-tool "FTK Imager" --evidence-hash "<device-or-image-sha256>"
+```
+
+Export, proxy, thumbnail, and carve logs include SHA-256 values and tamper-evident hash-chain fields. Carved files are intentionally labeled as `candidate-unvalidated` until playback/container validation is performed.

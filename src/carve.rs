@@ -1,7 +1,7 @@
-use crate::sha256;
-use crate::util::{json_escape, now_unix, read_to_string, write_text};
+use crate::audit;
+use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const CHUNK_SIZE: usize = 1024 * 1024;
@@ -47,7 +47,7 @@ pub struct CarvedArtifact {
 impl CarvedArtifact {
     fn to_json(&self) -> String {
         format!(
-            "{{\"id\":\"{}\",\"source_path\":\"{}\",\"output_path\":\"{}\",\"offset\":{},\"size_bytes\":{},\"signature\":\"{}\",\"extension\":\"{}\",\"sha256\":\"{}\"}}",
+            "{{\"schema_version\":2,\"event\":\"carve-file\",\"id\":\"{}\",\"artifact_type\":\"carved-candidate\",\"validation_status\":\"candidate-unvalidated\",\"validation_note\":\"Signature-based contiguous carve only; verify playback/container integrity before reporting as recovered video.\",\"source_path\":\"{}\",\"output_path\":\"{}\",\"offset\":{},\"size_bytes\":{},\"signature\":\"{}\",\"extension\":\"{}\",\"sha256\":\"{}\"}}",
             json_escape(&self.id),
             json_escape(&self.source_path.to_string_lossy()),
             json_escape(&self.output_path.to_string_lossy()),
@@ -173,15 +173,14 @@ pub fn carve_file(
         }
 
         let id = format!("carve_{:06}", artifacts.len() + 1);
-        let output_path = case_dir
-            .join("artifacts/carved")
-            .join(format!("{}_{:012x}.{}", id, hit.offset, hit.extension));
+        let output_path = unique_path(
+            &case_dir
+                .join("artifacts/carved")
+                .join(format!("{}_{:012x}.{}", id, hit.offset, hit.extension)),
+        );
         copy_range(&source_path, hit.offset, size_bytes, &output_path)
             .map_err(|err| format!("failed to carve {}: {err}", output_path.display()))?;
-        let hash_file = File::open(&output_path)
-            .map_err(|err| format!("failed to open carved artifact for hashing: {err}"))?;
-        let sha256 = sha256::digest_reader(BufReader::new(hash_file))
-            .map_err(|err| format!("failed to hash carved artifact: {err}"))?;
+        let sha256 = audit::digest_file(&output_path)?;
         artifacts.push(CarvedArtifact {
             id,
             source_path: source_path.clone(),
@@ -294,12 +293,10 @@ fn write_carve_outputs(case_dir: &Path, result: &CarveResult) -> Result<(), Stri
         .map_err(|err| format!("failed to write carve results: {err}"))?;
 
     let log_path = case_dir.join("artifacts/carved/carve-log.jsonl");
-    let mut log = read_to_string(&log_path).unwrap_or_default();
     for artifact in &result.artifacts {
-        log.push_str(&artifact.to_json());
-        log.push('\n');
+        audit::append_chained_jsonl(&log_path, &artifact.to_json())?;
     }
-    write_text(&log_path, &log).map_err(|err| format!("failed to write carve log: {err}"))
+    Ok(())
 }
 
 #[cfg(test)]

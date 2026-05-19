@@ -28,6 +28,12 @@ pub fn digest_reader<R: Read>(mut reader: R) -> io::Result<String> {
     Ok(state.finalize_hex())
 }
 
+pub fn digest_bytes(bytes: &[u8]) -> String {
+    let mut state = Sha256State::new();
+    state.update(bytes);
+    state.finalize_hex()
+}
+
 #[derive(Clone)]
 struct Sha256State {
     h: [u32; 8],
@@ -138,7 +144,7 @@ impl Sha256State {
 
 #[cfg(test)]
 mod tests {
-    use super::digest_reader;
+    use super::{digest_bytes, digest_reader};
     use std::io::Cursor;
 
     #[test]
@@ -157,5 +163,6 @@ mod tests {
             digest,
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+        assert_eq!(digest_bytes(b"abc"), digest);
     }
 }

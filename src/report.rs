@@ -121,7 +121,7 @@ pub fn render_case_report(
 
   <h2>Processing Summary</h2>
   <div id="processing"></div>
-  <div class="note">This report describes derived review artifacts. Source media should remain preserved separately with acquisition logs and device-level hashes when available.</div>
+  <div class="note">This report separates original source references from derived review/export artifacts. Carved files are candidate recoveries until separately validated by playback/container inspection.</div>
 
   <h2>Source / Parser Assessment</h2>
   <div id="source-assessment"></div>
@@ -176,6 +176,11 @@ const fmtDuration = value => {{
   return h ? `${{h}}:${{String(m).padStart(2, "0")}}:${{String(s).padStart(2, "0")}}` : `${{m}}:${{String(s).padStart(2, "0")}}`;
 }};
 
+const fmtUnix = value => {{
+  if (!Number.isFinite(value)) return "-";
+  return new Date(value * 1000).toLocaleString();
+}};
+
 const sourceCounts = new Map();
 videos.forEach(video => {{
   const profile = video.source_profile || {{}};
@@ -184,7 +189,7 @@ videos.forEach(video => {{
 }});
 
 document.getElementById("title").textContent = manifest.title || "FrameTrace Forensic Video Report";
-document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · generated from local case data`;
+document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · generated from local case data · ${{manifest.tool_name || "frametrace"}} ${{manifest.tool_version || ""}}`;
 document.getElementById("count").textContent = scan.video_count ?? videos.length;
 document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
 document.getElementById("confirmed").textContent = videos.filter(video => video.ffprobe_ok).length;
@@ -196,8 +201,14 @@ document.getElementById("carved").textContent = carveLog.length;
 
 document.getElementById("processing").innerHTML = `<table>
   <tbody>
+    <tr><th>Case ID</th><td>${{escapeHtml(manifest.case_id || "-")}}</td></tr>
+    <tr><th>Operator / host</th><td>${{escapeHtml(manifest.operator || "-")}} / ${{escapeHtml(manifest.host || "-")}}</td></tr>
+    <tr><th>Platform / tool</th><td>${{escapeHtml(manifest.platform || "-")}} / ${{escapeHtml(manifest.tool_name || "-")}} ${{escapeHtml(manifest.tool_version || "")}}</td></tr>
+    <tr><th>Device</th><td>${{escapeHtml(manifest.device_id || "-")}} · serial: ${{escapeHtml(manifest.device_serial || "-")}} · write-protect: ${{escapeHtml(manifest.write_protect || "-")}}</td></tr>
+    <tr><th>Acquisition</th><td>${{escapeHtml(manifest.acquisition_tool || "-")}} · evidence hash: <code>${{escapeHtml(manifest.evidence_hash || "-")}}</code></td></tr>
+    <tr><th>Notes</th><td>${{escapeHtml(manifest.notes || "-")}}</td></tr>
     <tr><th>Source path</th><td><code>${{escapeHtml(scan.source_path || "-")}}</code></td></tr>
-    <tr><th>Scanned at</th><td>${{escapeHtml(scan.scanned_unix || "-")}}</td></tr>
+    <tr><th>Scanned at</th><td>${{fmtUnix(scan.scanned_unix)}} <span class="muted">(${{escapeHtml(scan.scanned_unix || "-")}})</span></td></tr>
     <tr><th>Hash mode</th><td>${{scan.options?.hash_files ? "Per-file SHA-256 calculated" : "Per-file SHA-256 skipped"}}</td></tr>
     <tr><th>Metadata mode</th><td>${{scan.options?.use_ffprobe ? "ffprobe enabled" : "ffprobe skipped"}}</td></tr>
     <tr><th>Warnings</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "None"}}</td></tr>
@@ -244,43 +255,49 @@ document.getElementById("videos").innerHTML = videos.length ? `<table>
 
 document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
   <thead>
-    <tr><th>Format</th><th>Source</th><th>Output</th><th>Range</th></tr>
+    <tr><th>Format</th><th>Source</th><th>Output</th><th>Output SHA-256</th><th>Range</th><th>Audit chain</th></tr>
   </thead>
   <tbody>
     ${{exportsLog.map(item => `<tr>
       <td>${{escapeHtml(item.format || "-")}}</td>
       <td><code>${{escapeHtml(item.source_path || item.selector || "-")}}</code></td>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.output_sha256 || "-")}}</code></td>
       <td>${{item.start_seconds ?? "-"}}, ${{item.duration_seconds ?? "-"}}</td>
+      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>No exported clips yet.</p>";
 
 document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<table>
   <thead>
-    <tr><th>Kind</th><th>Source</th><th>Output</th></tr>
+    <tr><th>Kind</th><th>Source</th><th>Output</th><th>Output SHA-256</th><th>Audit chain</th></tr>
   </thead>
   <tbody>
     ${{derivedLog.map(item => `<tr>
       <td>${{escapeHtml(item.kind || "-")}}</td>
       <td><code>${{escapeHtml(item.source_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.output_sha256 || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>No proxy or thumbnail artifacts yet.</p>";
 
 document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<table>
   <thead>
-    <tr><th>ID</th><th>Signature</th><th>Offset</th><th>Size</th><th>Output</th><th>SHA-256</th></tr>
+    <tr><th>ID</th><th>Status</th><th>Signature</th><th>Offset</th><th>Size</th><th>Output</th><th>SHA-256</th><th>Audit chain</th></tr>
   </thead>
   <tbody>
     ${{carveLog.map(item => `<tr>
       <td>${{escapeHtml(item.id || "-")}}</td>
+      <td>${{escapeHtml(item.validation_status || "candidate-unvalidated")}}</td>
       <td>${{escapeHtml(item.signature || item.extension || "-")}}</td>
       <td>${{escapeHtml(item.offset ?? "-")}}</td>
       <td>${{fmtBytes(item.size_bytes)}}</td>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.sha256 || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>No carved candidates yet.</p>";

@@ -43,6 +43,12 @@ Use a case folder on a fast local SSD when possible:
 .\target\release\frametrace.exe init-case C:\Cases\case-001 --title "Client CCTV review"
 ```
 
+When the receiving form has these details, record them in the case manifest immediately:
+
+```powershell
+.\target\release\frametrace.exe init-case C:\Cases\case-001 --title "Client CCTV review" --operator "Examiner" --device-id "SD-001" --device-serial "SN123" --write-protect "hardware write blocker" --acquisition-tool "FTK Imager" --evidence-hash "<device-or-image-sha256>"
+```
+
 Run a fast inventory pass first. This avoids spending hours hashing or probing every file on a terabyte-scale source.
 
 ```powershell
@@ -86,6 +92,7 @@ Generate review artifacts:
 ```
 
 Default export, proxy, and thumbnail names are made unique when a file already exists. When `--output` is provided, FrameTrace refuses to overwrite an existing file.
+The derived artifact logs include output SHA-256 values, FFmpeg version text, command arguments, and hash-chain fields so later report review can detect missing or reordered log entries.
 
 Carve contiguous video candidates from an acquired image file or raw export file:
 
@@ -94,6 +101,7 @@ Carve contiguous video candidates from an acquired image file or raw export file
 ```
 
 `carve-file` is a candidate-recovery pass, not a full proprietary DVR file-system parser. It preserves offsets, hashes the carved outputs, and writes logs under `artifacts\carved`.
+Carved artifacts are labeled `candidate-unvalidated` until playback/container validation is done.
 
 Generate the current HTML report:
 

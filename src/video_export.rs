@@ -1,4 +1,5 @@
-use crate::util::{now_unix, read_to_string, unique_path, write_text};
+use crate::audit;
+use crate::util::{json_escape, now_unix, read_to_string, unique_path};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -86,49 +87,9 @@ fn run_ffmpeg_export(
     output_path: &Path,
     options: &ExportOptions,
 ) -> Result<(), String> {
-    let mut command = Command::new("ffmpeg");
-    command
-        .arg("-n")
-        .arg("-hide_banner")
-        .arg("-i")
-        .arg(source_path);
-    if let Some(start) = options.start_seconds {
-        command.arg("-ss").arg(format!("{start:.3}"));
-    }
-    if let Some(duration) = options.duration_seconds {
-        command.arg("-t").arg(format!("{duration:.3}"));
-    }
-    command.arg("-map").arg("0:v:0").arg("-map").arg("0:a?");
-
-    match options.format {
-        ExportFormat::Mp4 => {
-            command
-                .arg("-c:v")
-                .arg("libx264")
-                .arg("-preset")
-                .arg("veryfast")
-                .arg("-crf")
-                .arg("20")
-                .arg("-pix_fmt")
-                .arg("yuv420p")
-                .arg("-c:a")
-                .arg("aac")
-                .arg("-movflags")
-                .arg("+faststart");
-        }
-        ExportFormat::Avi => {
-            command
-                .arg("-c:v")
-                .arg("mpeg4")
-                .arg("-q:v")
-                .arg("3")
-                .arg("-c:a")
-                .arg("libmp3lame");
-        }
-    }
-
-    let output = command
-        .arg(output_path)
+    let args = ffmpeg_export_args(source_path, output_path, options);
+    let output = Command::new("ffmpeg")
+        .args(&args)
         .output()
         .map_err(|err| format!("failed to run ffmpeg: {err}"))?;
 
@@ -139,6 +100,65 @@ fn run_ffmpeg_export(
         ));
     }
     Ok(())
+}
+
+fn ffmpeg_export_args(
+    source_path: &Path,
+    output_path: &Path,
+    options: &ExportOptions,
+) -> Vec<String> {
+    let mut args = vec![
+        "-n".to_string(),
+        "-hide_banner".to_string(),
+        "-i".to_string(),
+        audit::path_string(source_path),
+    ];
+    if let Some(start) = options.start_seconds {
+        args.push("-ss".to_string());
+        args.push(format!("{start:.3}"));
+    }
+    if let Some(duration) = options.duration_seconds {
+        args.push("-t".to_string());
+        args.push(format!("{duration:.3}"));
+    }
+    args.extend([
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+    ]);
+
+    match options.format {
+        ExportFormat::Mp4 => {
+            args.extend(
+                [
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-movflags",
+                    "+faststart",
+                ]
+                .iter()
+                .map(|arg| arg.to_string()),
+            );
+        }
+        ExportFormat::Avi => {
+            args.extend(
+                ["-c:v", "mpeg4", "-q:v", "3", "-c:a", "libmp3lame"]
+                    .iter()
+                    .map(|arg| arg.to_string()),
+            );
+        }
+    }
+    args.push(audit::path_string(output_path));
+    args
 }
 
 pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
@@ -163,10 +183,10 @@ pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, 
             continue;
         }
         let id = fields[0];
-        let source_path = fields[1];
-        let relative_path = fields[2];
+        let source_path = tsv_unescape(fields[1]);
+        let relative_path = tsv_unescape(fields[2]);
         if selector == id || selector == source_path || selector == relative_path {
-            let path = PathBuf::from(source_path);
+            let path = PathBuf::from(&source_path);
             if path.is_file() {
                 return path
                     .canonicalize()
@@ -191,19 +211,25 @@ fn write_export_log(
     options: &ExportOptions,
 ) -> Result<(), String> {
     let path = case_dir.join("artifacts/clips/export-log.jsonl");
-    let existing = read_to_string(&path).unwrap_or_default();
+    let exported_unix = now_unix()?;
+    let source_sha256 = audit::indexed_source_hash(case_dir, selector, source_path);
+    let output_sha256 = audit::digest_file(output_path)?;
+    let args = ffmpeg_export_args(source_path, output_path, options);
     let line = format!(
-        "{{\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"output_path\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{}}}\n",
-        now_unix()?,
-        crate::util::json_escape(selector),
-        crate::util::json_escape(&source_path.to_string_lossy()),
-        crate::util::json_escape(&output_path.to_string_lossy()),
+        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
+        exported_unix,
+        json_escape(selector),
+        json_escape(&source_path.to_string_lossy()),
+        audit::optional_string(source_sha256.as_deref()),
+        json_escape(&output_path.to_string_lossy()),
+        json_escape(&output_sha256),
         options.format.extension(),
         optional_f64(options.start_seconds),
-        optional_f64(options.duration_seconds)
+        optional_f64(options.duration_seconds),
+        json_escape(&audit::command_version("ffmpeg")),
+        audit::json_string_array(&args)
     );
-    write_text(&path, &(existing + &line))
-        .map_err(|err| format!("failed to write export log: {err}"))
+    audit::append_chained_jsonl(&path, &line)
 }
 
 fn optional_f64(value: Option<f64>) -> String {
@@ -211,6 +237,29 @@ fn optional_f64(value: Option<f64>) -> String {
         .filter(|value| value.is_finite())
         .map(|value| format!("{value:.3}"))
         .unwrap_or_else(|| "null".to_string())
+}
+
+fn tsv_unescape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('n') => out.push('\n'),
+            Some('\\') => out.push('\\'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 pub fn sanitize_filename(input: &str) -> String {
@@ -231,7 +280,8 @@ pub fn sanitize_filename(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExportFormat, sanitize_filename};
+    use super::{ExportFormat, ExportOptions, ffmpeg_export_args, sanitize_filename, tsv_unescape};
+    use std::path::Path;
 
     #[test]
     fn parses_export_formats() {
@@ -244,5 +294,24 @@ mod tests {
     fn sanitizes_clip_names() {
         assert_eq!(sanitize_filename("vid_000001"), "vid_000001");
         assert_eq!(sanitize_filename("a/b:c.mp4"), "a_b_c_mp4");
+    }
+
+    #[test]
+    fn builds_export_command_args() {
+        let options = ExportOptions {
+            format: ExportFormat::Mp4,
+            start_seconds: Some(1.0),
+            duration_seconds: Some(2.0),
+            output_path: None,
+        };
+        let args = ffmpeg_export_args(Path::new("in.mp4"), Path::new("out.mp4"), &options);
+        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"libx264".to_string()));
+        assert_eq!(args.last().map(String::as_str), Some("out.mp4"));
+    }
+
+    #[test]
+    fn unescapes_tsv_paths() {
+        assert_eq!(tsv_unescape("a\\tb\\\\c"), "a\tb\\c");
     }
 }

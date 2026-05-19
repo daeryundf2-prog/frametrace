@@ -1,4 +1,5 @@
 pub mod artifacts;
+pub mod audit;
 pub mod carve;
 pub mod cli;
 pub mod detector;

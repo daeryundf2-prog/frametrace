@@ -10,19 +10,35 @@ pub struct CaseManifest {
     pub tool_name: String,
     pub tool_version: String,
     pub platform: String,
+    pub operator: Option<String>,
+    pub host: Option<String>,
+    pub device_id: Option<String>,
+    pub device_serial: Option<String>,
+    pub write_protect: Option<String>,
+    pub acquisition_tool: Option<String>,
+    pub evidence_hash: Option<String>,
+    pub notes: Option<String>,
 }
 
 impl CaseManifest {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"schema_version\": {},\n  \"case_id\": \"{}\",\n  \"title\": \"{}\",\n  \"created_unix\": {},\n  \"tool_name\": \"{}\",\n  \"tool_version\": \"{}\",\n  \"platform\": \"{}\"\n}}\n",
+            "{{\n  \"schema_version\": {},\n  \"case_id\": \"{}\",\n  \"title\": \"{}\",\n  \"created_unix\": {},\n  \"tool_name\": \"{}\",\n  \"tool_version\": \"{}\",\n  \"platform\": \"{}\",\n  \"operator\": {},\n  \"host\": {},\n  \"device_id\": {},\n  \"device_serial\": {},\n  \"write_protect\": {},\n  \"acquisition_tool\": {},\n  \"evidence_hash\": {},\n  \"notes\": {}\n}}\n",
             self.schema_version,
             json_escape(&self.case_id),
             json_escape(&self.title),
             self.created_unix,
             json_escape(&self.tool_name),
             json_escape(&self.tool_version),
-            json_escape(&self.platform)
+            json_escape(&self.platform),
+            optional_string_json(self.operator.as_deref()),
+            optional_string_json(self.host.as_deref()),
+            optional_string_json(self.device_id.as_deref()),
+            optional_string_json(self.device_serial.as_deref()),
+            optional_string_json(self.write_protect.as_deref()),
+            optional_string_json(self.acquisition_tool.as_deref()),
+            optional_string_json(self.evidence_hash.as_deref()),
+            optional_string_json(self.notes.as_deref())
         )
     }
 }

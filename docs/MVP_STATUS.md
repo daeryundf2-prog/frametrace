@@ -7,6 +7,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Product name and executable name: `FrameTrace` / `frametrace.exe`.
 - Windows 10/11 x64 local-only operating model.
 - Case folder creation with evidence, database, review, report, and artifact directories.
+- Case manifest fields for operator, host, device ID/serial, write-protection state, acquisition tool, evidence hash, and notes.
 - Folder scan for mounted drives, copied SD cards, exported CCTV folders, and extracted image contents.
 - Cumulative case index across repeated scans, with per-run snapshots under `db/scan_runs`.
 - Terabyte-aware defaults:
@@ -35,8 +36,9 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Review proxy MP4 generation.
 - JPEG thumbnail generation.
 - Default export/proxy/thumbnail output names avoid collisions; explicit `--output` paths are not overwritten.
+- Derived export/proxy/thumbnail logs include output SHA-256, source-index SHA-256 when available, FFmpeg version, command arguments, and hash-chain fields.
 - Contiguous MP4/AVI/Dahua-DAV candidate carving from raw files or acquired image files.
-- Recovery artifact logs with source offsets, output hashes, and carved output paths.
+- Recovery artifact logs with source offsets, output hashes, carved output paths, candidate-validation status, and hash-chain fields.
 
 ## Deliberately Not Claimed Yet
 
@@ -46,6 +48,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - File-system-aware unallocated-space carving.
 - Proprietary DVR/NVR file-system recovery.
 - Court/admissibility validation for recovered proprietary formats.
+- Cryptographic signing or external timestamping of reports/logs.
 - Windows GUI packaging.
 - Final Windows GUI shell.
 - PDF report rendering.

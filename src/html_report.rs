@@ -134,6 +134,30 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       padding: 12px 14px;
       font-size: 13px;
     }}
+    .table-status {{
+      color: #475467;
+      font-size: 13px;
+      margin: 0 0 8px;
+    }}
+    .pager {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      margin-top: 10px;
+    }}
+    button {{
+      border: 1px solid #c7ceda;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #1f2933;
+      padding: 7px 10px;
+      font-size: 13px;
+    }}
+    button:disabled {{
+      color: #98a2b3;
+      background: #f2f4f7;
+    }}
   </style>
 </head>
 <body>
@@ -160,7 +184,13 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
         <option value="">All confidence</option>
       </select>
     </section>
+    <div class="table-status" id="result-status"></div>
     <section id="table-wrap"></section>
+    <section class="pager" aria-label="pagination">
+      <button id="prev-page" type="button">Previous</button>
+      <span class="subtle" id="page-status"></span>
+      <button id="next-page" type="button">Next</button>
+    </section>
   </main>
   <script>
     const manifest = {manifest};
@@ -221,9 +251,13 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     document.getElementById("metric-warnings").textContent = warnings.length;
     document.getElementById("metric-hash").textContent = scan.options?.hash_files ? "SHA-256" : "Skipped";
     document.getElementById("metric-probe").textContent = scan.options?.use_ffprobe ? "Enabled" : "Skipped";
+    const warningSeverity = warning => /failed|unreadable|skipped/i.test(warning) ? "주의" : "정보";
     document.getElementById("warnings").innerHTML = warnings.length
-      ? `<div class="warnings"><strong>Scan warnings</strong><br>${{warnings.map(escapeHtml).join("<br>")}}</div>`
+      ? `<div class="warnings"><strong>Scan warnings</strong><table><thead><tr><th>Severity</th><th>Message</th><th>Status</th></tr></thead><tbody>${{warnings.map(warning => `<tr><td>${{warningSeverity(warning)}}</td><td>${{escapeHtml(warning)}}</td><td>Review required</td></tr>`).join("")}}</tbody></table></div>`
       : "";
+
+    let currentPage = 1;
+    const pageSize = 100;
 
     const render = () => {{
       const query = document.getElementById("query").value.trim().toLowerCase();
@@ -248,6 +282,15 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
         ].some(value => String(value ?? "").toLowerCase().includes(query));
       }});
 
+      const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+      currentPage = Math.min(currentPage, pageCount);
+      const start = (currentPage - 1) * pageSize;
+      const pageRows = filtered.slice(start, start + pageSize);
+      document.getElementById("result-status").textContent = `${{filtered.length}} matching videos · showing ${{filtered.length ? start + 1 : 0}}-${{Math.min(start + pageSize, filtered.length)}}`;
+      document.getElementById("page-status").textContent = `Page ${{currentPage}} / ${{pageCount}}`;
+      document.getElementById("prev-page").disabled = currentPage <= 1;
+      document.getElementById("next-page").disabled = currentPage >= pageCount;
+
       const wrap = document.getElementById("table-wrap");
       if (!filtered.length) {{
         wrap.innerHTML = '<div class="empty">No matching videos.</div>';
@@ -267,7 +310,7 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
           </tr>
         </thead>
         <tbody>
-          ${{filtered.map(video => `
+          ${{pageRows.map(video => `
             <tr>
               <td><span class="badge">${{escapeHtml(video.id)}}</span></td>
               <td><code>${{escapeHtml(video.relative_path || video.source_path)}}</code><br><span class="subtle">${{escapeHtml(video.confidence)}}</span></td>
@@ -275,16 +318,18 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
               <td>${{escapeHtml(video.video_codec || "-")}} / ${{escapeHtml(video.audio_codec || "-")}}<br><span class="subtle">${{escapeHtml(video.width || "-")}}x${{escapeHtml(video.height || "-")}} · ${{fmtDuration(video.duration_seconds)}}</span></td>
               <td>${{fmtBytes(video.size_bytes)}}</td>
               <td><code>${{escapeHtml(video.sha256 || video.hash_status || "-")}}</code></td>
-              <td class="actions"><a href="${{escapeHtml(video.file_url)}}" target="_blank" rel="noreferrer">Open</a></td>
+              <td class="actions"><a href="${{escapeHtml(video.file_url)}}" target="_blank" rel="noreferrer">Source</a></td>
             </tr>
           `).join("")}}
         </tbody>
       </table>`;
     }};
 
-    document.getElementById("query").addEventListener("input", render);
-    sourceSelect.addEventListener("change", render);
-    confidenceSelect.addEventListener("change", render);
+    document.getElementById("query").addEventListener("input", () => {{ currentPage = 1; render(); }});
+    sourceSelect.addEventListener("change", () => {{ currentPage = 1; render(); }});
+    confidenceSelect.addEventListener("change", () => {{ currentPage = 1; render(); }});
+    document.getElementById("prev-page").addEventListener("click", () => {{ currentPage -= 1; render(); }});
+    document.getElementById("next-page").addEventListener("click", () => {{ currentPage += 1; render(); }});
     render();
   </script>
 </body>

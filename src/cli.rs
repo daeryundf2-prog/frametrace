@@ -9,6 +9,8 @@ use crate::video_export::{self, ExportFormat, ExportOptions};
 use std::env;
 use std::path::{Path, PathBuf};
 
+const INIT_CASE_USAGE: &str = "init-case <case-dir> [--title <title>] [--operator <name>] [--device-id <id>] [--device-serial <serial>] [--write-protect <state>] [--acquisition-tool <tool>] [--evidence-hash <sha256>] [--notes <text>]";
+
 pub fn run(args: Vec<String>) -> Result<(), String> {
     let mut args = args.into_iter();
     let _program = args.next();
@@ -19,11 +21,9 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
 
     match command.as_str() {
         "init-case" => {
-            let case_dir = args
-                .next()
-                .ok_or_else(|| "usage: init-case <case-dir> [--title <title>]".to_string())?;
-            let title = parse_title(args.collect())?;
-            init_case(Path::new(&case_dir), title.as_deref())
+            let case_dir = args.next().ok_or_else(|| INIT_CASE_USAGE.to_string())?;
+            let options = parse_init_case_options(args.collect())?;
+            init_case(Path::new(&case_dir), &options)
         }
         "scan-folder" => {
             let case_dir = args.next().ok_or_else(|| {
@@ -103,18 +103,41 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     }
 }
 
-fn init_case(case_dir: &Path, title: Option<&str>) -> Result<(), String> {
+#[derive(Debug, Clone, Default)]
+struct InitCaseOptions {
+    title: Option<String>,
+    operator: Option<String>,
+    device_id: Option<String>,
+    device_serial: Option<String>,
+    write_protect: Option<String>,
+    acquisition_tool: Option<String>,
+    evidence_hash: Option<String>,
+    notes: Option<String>,
+}
+
+fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), String> {
     create_case_layout(case_dir).map_err(|err| format!("failed to create case layout: {err}"))?;
 
     let case_id = format!("FT-{}", now_unix()?);
     let manifest = CaseManifest {
         schema_version: 1,
         case_id,
-        title: title.unwrap_or("Untitled FrameTrace case").to_string(),
+        title: options
+            .title
+            .clone()
+            .unwrap_or_else(|| "Untitled FrameTrace case".to_string()),
         created_unix: now_unix()?,
         tool_name: env!("CARGO_PKG_NAME").to_string(),
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
         platform: env::consts::OS.to_string(),
+        operator: options.operator.clone().or_else(default_operator),
+        host: default_host(),
+        device_id: options.device_id.clone(),
+        device_serial: options.device_serial.clone(),
+        write_protect: options.write_protect.clone(),
+        acquisition_tool: options.acquisition_tool.clone(),
+        evidence_hash: options.evidence_hash.clone(),
+        notes: options.notes.clone(),
     };
 
     write_text(&case_dir.join("case.json"), &manifest.to_json())
@@ -266,23 +289,56 @@ fn ensure_case(case_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_title(args: Vec<String>) -> Result<Option<String>, String> {
-    let mut title = None;
+fn parse_init_case_options(args: Vec<String>) -> Result<InitCaseOptions, String> {
+    let mut options = InitCaseOptions::default();
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--title" => {
-                let rest: Vec<String> = args.collect();
-                if rest.is_empty() {
-                    return Err("--title requires a value".to_string());
-                }
-                title = Some(rest.join(" "));
-                break;
+                options.title = Some(next_option_value(&mut args, "--title")?);
             }
+            "--operator" => options.operator = Some(next_option_value(&mut args, "--operator")?),
+            "--device-id" => options.device_id = Some(next_option_value(&mut args, "--device-id")?),
+            "--device-serial" => {
+                options.device_serial = Some(next_option_value(&mut args, "--device-serial")?)
+            }
+            "--write-protect" => {
+                options.write_protect = Some(next_option_value(&mut args, "--write-protect")?)
+            }
+            "--acquisition-tool" => {
+                options.acquisition_tool = Some(next_option_value(&mut args, "--acquisition-tool")?)
+            }
+            "--evidence-hash" => {
+                options.evidence_hash = Some(next_option_value(&mut args, "--evidence-hash")?)
+            }
+            "--notes" => options.notes = Some(next_option_value(&mut args, "--notes")?),
             other => return Err(format!("unknown init-case option: {other}")),
         }
     }
-    Ok(title)
+    Ok(options)
+}
+
+fn next_option_value(
+    args: &mut impl Iterator<Item = String>,
+    option: &str,
+) -> Result<String, String> {
+    args.next()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("{option} requires a value"))
+}
+
+fn default_operator() -> Option<String> {
+    env::var("USERNAME")
+        .ok()
+        .or_else(|| env::var("USER").ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn default_host() -> Option<String> {
+    env::var("COMPUTERNAME")
+        .ok()
+        .or_else(|| env::var("HOSTNAME").ok())
+        .filter(|value| !value.trim().is_empty())
 }
 
 fn parse_scan_options(args: Vec<String>) -> Result<ScanOptions, String> {
@@ -457,7 +513,7 @@ fn print_help() {
 FrameTrace
 
 Commands:
-  init-case <case-dir> [--title <title>]
+  {INIT_CASE_USAGE}
       Create a local forensic case folder.
 
   scan-folder <case-dir> <source-dir> [--hash] [--no-ffprobe] [--max-depth <n>]
