@@ -296,7 +296,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             output,
         } => {
             let options = ProxyOptions {
-                max_width: max_width.unwrap_or(0),
+                max_width: max_width.unwrap_or_else(|| ProxyOptions::default().max_width),
                 output_path: output,
             };
             make_proxy(&case_dir, &selector, options)
