@@ -15,6 +15,7 @@ pub fn create_case_layout(case_dir: &Path) -> io::Result<()> {
     for child in [
         "evidence",
         "evidence/hashes",
+        "evidence/images",
         "evidence/logs",
         "artifacts",
         "artifacts/recovered",

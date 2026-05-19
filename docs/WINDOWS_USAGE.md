@@ -10,7 +10,11 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
 2. Install FFmpeg for Windows and make sure both tools are in `PATH`:
    - `ffmpeg.exe`
    - `ffprobe.exe`
-3. Use PowerShell or Windows Terminal.
+3. Install libewf tools if E01/Ex01 evidence containers will be processed:
+   - `ewfinfo.exe`
+   - `ewfverify.exe`
+   - `ewfexport.exe`
+4. Use PowerShell or Windows Terminal.
 
 Check the tools:
 
@@ -19,6 +23,9 @@ rustc --version
 cargo --version
 ffmpeg -version
 ffprobe -version
+ewfinfo -V
+ewfverify -V
+ewfexport -V
 ```
 
 ## Build
@@ -56,6 +63,17 @@ Run a fast inventory pass first. This avoids spending hours hashing or probing e
 ```
 
 The scan still records likely source/parser lanes from extensions and folder names, even when `ffprobe` is skipped.
+
+If the blackbox SD card was acquired as E01, inspect and import it first:
+
+```powershell
+.\target\release\frametrace.exe inspect-e01 C:\Cases\case-001 D:\Images\blackbox.E01
+.\target\release\frametrace.exe import-e01 C:\Cases\case-001 D:\Images\blackbox.E01 --output C:\Cases\case-001\evidence\images\blackbox.raw
+```
+
+`import-e01` uses `ewfinfo`, `ewfverify`, and `ewfexport`. It writes E01 provenance logs under `evidence\logs`, hashes the exported raw image, and appends `evidence\logs\e01-audit.jsonl`.
+
+For normal video-file review, mount the E01 or exported raw image read-only with a forensic mounter and run `scan-folder` on the mounted drive letter. For direct signature recovery from the image, run `carve-file` on the exported raw file.
 
 After the first inventory, run deeper metadata collection on a narrowed source folder when needed:
 
@@ -100,6 +118,12 @@ Carve contiguous video candidates from an acquired image file or raw export file
 .\target\release\frametrace.exe carve-file C:\Cases\case-001 D:\Images\client-sdcard.img --max-bytes 536870912 --max-candidates 128
 ```
 
+For an imported E01:
+
+```powershell
+.\target\release\frametrace.exe carve-file C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw --max-bytes 536870912 --max-candidates 128
+```
+
 `carve-file` is a candidate-recovery pass, not a full proprietary DVR file-system parser. It preserves offsets, hashes the carved outputs, and writes logs under `artifacts\carved`.
 Carved artifacts are labeled `candidate-unvalidated` until playback/container validation is done.
 
@@ -123,6 +147,7 @@ C:\Cases\case-001\reports\case-report.html
 - Keep derived files, logs, reports, and exports inside the case folder.
 - Start with mounted volumes and copied evidence folders. Raw `\\.\PhysicalDriveN` access should be added only after imaging and recovery behavior is validated.
 - On unstable disks, image first with a dedicated acquisition tool, then scan the mounted image or extracted folder.
+- For E01/Ex01 images, keep the original E01 set unchanged. Use `import-e01` only to create a derived raw working image inside the case folder.
 
 ## FFmpeg Notes
 

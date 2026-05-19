@@ -10,6 +10,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Case manifest fields for operator, host, device ID/serial, write-protection state, acquisition tool, evidence hash, and notes.
 - Folder scan for mounted drives, copied SD cards, exported CCTV folders, and extracted image contents.
 - Cumulative case index across repeated scans, with per-run snapshots under `db/scan_runs`.
+- E01/Ex01/S01/L01 container inspection and raw export through external libewf tools.
 - Terabyte-aware defaults:
   - per-file SHA-256 is opt-in with `--hash`
   - `ffprobe` can be skipped with `--no-ffprobe`
@@ -39,11 +40,14 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Derived export/proxy/thumbnail logs include output SHA-256, source-index SHA-256 when available, FFmpeg version, command arguments, and hash-chain fields.
 - Contiguous MP4/AVI/Dahua-DAV candidate carving from raw files or acquired image files.
 - Recovery artifact logs with source offsets, output hashes, carved output paths, candidate-validation status, and hash-chain fields.
+- E01 provenance logs under `evidence/logs/e01-audit.jsonl`.
 
 ## Deliberately Not Claimed Yet
 
 - Raw `\\.\PhysicalDriveN` acquisition.
-- E01 image creation/verification.
+- Native in-process E01 parsing without external libewf command-line tools.
+- E01 image creation/acquisition.
+- File-system-aware extraction from E01/raw images without mounting.
 - File-system-aware deleted file reconstruction.
 - File-system-aware unallocated-space carving.
 - Proprietary DVR/NVR file-system recovery.

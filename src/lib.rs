@@ -3,6 +3,7 @@ pub mod audit;
 pub mod carve;
 pub mod cli;
 pub mod detector;
+pub mod e01;
 pub mod ffprobe;
 pub mod html_report;
 pub mod model;

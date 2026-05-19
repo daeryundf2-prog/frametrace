@@ -1,5 +1,6 @@
 use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
 use crate::carve::{self, CarveOptions};
+use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
 use crate::report;
@@ -36,6 +37,28 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             })?;
             let options = parse_scan_options(args.collect())?;
             scan_folder(Path::new(&case_dir), Path::new(&source_dir), options)
+        }
+        "inspect-e01" => {
+            let case_dir = args.next().ok_or_else(|| {
+                "usage: inspect-e01 <case-dir> <e01-file> [--hash-e01] [--ewfinfo <path>]"
+                    .to_string()
+            })?;
+            let e01_file = args.next().ok_or_else(|| {
+                "usage: inspect-e01 <case-dir> <e01-file> [--hash-e01] [--ewfinfo <path>]"
+                    .to_string()
+            })?;
+            let options = parse_e01_options(args.collect())?;
+            inspect_e01(Path::new(&case_dir), Path::new(&e01_file), options)
+        }
+        "import-e01" => {
+            let case_dir = args.next().ok_or_else(|| {
+                "usage: import-e01 <case-dir> <e01-file> [--output <raw-img>] [--max-bytes <n>] [--skip-verify] [--hash-e01] [--ewfinfo <path>] [--ewfverify <path>] [--ewfexport <path>]".to_string()
+            })?;
+            let e01_file = args.next().ok_or_else(|| {
+                "usage: import-e01 <case-dir> <e01-file> [--output <raw-img>] [--max-bytes <n>] [--skip-verify] [--hash-e01] [--ewfinfo <path>] [--ewfverify <path>] [--ewfexport <path>]".to_string()
+            })?;
+            let options = parse_e01_options(args.collect())?;
+            import_e01(Path::new(&case_dir), Path::new(&e01_file), options)
         }
         "make-review" => {
             let case_dir = args
@@ -162,6 +185,41 @@ fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> Resu
     println!("videos indexed: {}", result.video_count);
     println!("bytes indexed: {}", result.total_bytes);
     println!("index: {}", case_dir.join("db/video_index.json").display());
+    Ok(())
+}
+
+fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    e01::inspect_e01(case_dir, e01_file, &options)?;
+    println!("E01 inspected");
+    println!("source: {}", e01_file.display());
+    println!(
+        "audit log: {}",
+        case_dir.join("evidence/logs/e01-audit.jsonl").display()
+    );
+    Ok(())
+}
+
+fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let result = e01::import_e01(case_dir, e01_file, &options)?;
+    println!("E01 imported");
+    println!("source: {}", result.e01_path.display());
+    println!("raw output: {}", result.raw_output_path.display());
+    println!("raw sha256: {}", result.raw_sha256);
+    if let Some(e01_sha256) = result.e01_sha256 {
+        println!("E01 sha256: {e01_sha256}");
+    }
+    println!("info log: {}", result.ewfinfo_log_path.display());
+    if let Some(path) = result.ewfverify_log_path {
+        println!("verify log: {}", path.display());
+    }
+    println!("export log: {}", result.ewfexport_log_path.display());
+    println!(
+        "next: carve-file {} {}",
+        case_dir.display(),
+        result.raw_output_path.display()
+    );
     Ok(())
 }
 
@@ -363,6 +421,33 @@ fn parse_scan_options(args: Vec<String>) -> Result<ScanOptions, String> {
     Ok(options)
 }
 
+fn parse_e01_options(args: Vec<String>) -> Result<E01Options, String> {
+    let mut options = E01Options::default();
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--output" => {
+                options.output_path =
+                    Some(PathBuf::from(next_option_value(&mut args, "--output")?));
+            }
+            "--max-bytes" => {
+                let raw = next_option_value(&mut args, "--max-bytes")?;
+                options.max_bytes = Some(
+                    raw.parse::<u64>()
+                        .map_err(|_| format!("invalid --max-bytes value: {raw}"))?,
+                );
+            }
+            "--skip-verify" => options.skip_verify = true,
+            "--hash-e01" => options.hash_e01 = true,
+            "--ewfinfo" => options.ewfinfo_bin = next_option_value(&mut args, "--ewfinfo")?,
+            "--ewfverify" => options.ewfverify_bin = next_option_value(&mut args, "--ewfverify")?,
+            "--ewfexport" => options.ewfexport_bin = next_option_value(&mut args, "--ewfexport")?,
+            other => return Err(format!("unknown E01 option: {other}")),
+        }
+    }
+    Ok(options)
+}
+
 fn parse_export_options(args: Vec<String>) -> Result<ExportOptions, String> {
     let mut format = None;
     let mut start_seconds = None;
@@ -519,6 +604,12 @@ Commands:
   scan-folder <case-dir> <source-dir> [--hash] [--no-ffprobe] [--max-depth <n>]
       Index video candidates and likely manufacturer/parser lanes from a mounted drive, copied folder, or disk image export.
       Full SHA-256 hashing is opt-in because terabyte-scale evidence can take hours.
+
+  inspect-e01 <case-dir> <e01-file> [--hash-e01] [--ewfinfo <path>]
+      Record E01 metadata through libewf ewfinfo and append an E01 audit log.
+
+  import-e01 <case-dir> <e01-file> [--output <raw-img>] [--max-bytes <n>] [--skip-verify] [--hash-e01] [--ewfinfo <path>] [--ewfverify <path>] [--ewfexport <path>]
+      Verify an E01 with libewf, export it to raw image form, hash the raw output, and log the provenance.
 
   make-review <case-dir>
       Generate a serverless HTML review dashboard at review/index.html.

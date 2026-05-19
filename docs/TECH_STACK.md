@@ -17,7 +17,7 @@ Evidence stays on the examiner PC or attached storage. The application owns a lo
 | Video tools | FFmpeg / ffprobe | Mature codec/container support and metadata extraction |
 | Case state | SQLite | Durable local indexing for millions of artifacts without a server |
 | Prototype state | JSON + JSONL | Easy to inspect while the model is still changing |
-| Recovery | Sleuth Kit/libtsk, libewf, custom carvers | Partition/file-system analysis and forensic image support |
+| Recovery | libewf CLI tools now, Sleuth Kit/libtsk later, custom carvers | E01/raw image import now; partition/file-system analysis later |
 | Analysis | OpenCV/ONNX Runtime later | Motion/person/vehicle/license-plate candidate extraction |
 | Reports | Local HTML first, PDF later | Reviewable and portable case output |
 | Deliverable video | MP4 or AVI via FFmpeg | Client-friendly exports from selected evidence ranges |
@@ -38,6 +38,7 @@ Evidence stays on the examiner PC or attached storage. The application owns a lo
 ```text
 Source media or image
   -> read-only evidence reader
+  -> E01 inspection/verification/raw export where needed
   -> partition/file-system indexer
   -> normal files + deleted entries + unallocated ranges
   -> video candidate registry
@@ -83,12 +84,15 @@ Implemented now:
 - HTML case report.
 - MP4/AVI export command.
 - Review proxy and thumbnail generation.
+- E01/Ex01/S01/L01 inspection, verification, and raw export through `ewfinfo`, `ewfverify`, and `ewfexport`.
 - Contiguous MP4/AVI/Dahua-DAV carving from raw files or acquired image files.
 
 Not implemented yet:
 
 - Raw `\\.\PhysicalDriveX` acquisition.
-- E01 creation/verification.
+- E01 creation/acquisition.
+- Native in-process E01 parsing without external libewf command-line tools.
+- File-system-aware extraction from E01/raw images without mounting.
 - File-system-aware deleted file recovery.
 - File-system-aware unallocated-space carving.
 - SQLite job queue.

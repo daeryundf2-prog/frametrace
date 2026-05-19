@@ -12,6 +12,7 @@ This first implementation is the local core prototype:
 - Generates an HTML case report.
 - Exports selected source videos or time ranges as MP4 or AVI deliverables.
 - Generates review proxy MP4 files and JPEG thumbnails.
+- Inspects/verifies E01/Ex01/S01/L01 evidence containers through libewf tools and exports them to raw images for downstream carving or mounting.
 - Carves contiguous MP4/AVI/Dahua-DAV candidates from raw files or forensic image files.
 
 ## Tech Stack Direction
@@ -22,7 +23,7 @@ This first implementation is the local core prototype:
 - Core engine: Rust.
 - Video metadata and transcode boundary: FFmpeg / ffprobe.
 - Case DB: JSON/JSONL for the prototype, SQLite for the real workstation.
-- Recovery future path: Sleuth Kit / libtsk for file-system analysis, libewf for E01 evidence containers, custom carving plugins for DVR/CCTV formats.
+- Recovery path: libewf CLI tools for E01 evidence import now, Sleuth Kit / libtsk later for file-system analysis, custom carving plugins for DVR/CCTV formats.
 - Review UI: local web UI now, desktop webview later.
 
 The product should stay local-first. It should not require a server for evidence processing.
@@ -42,6 +43,7 @@ Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available 
 ```powershell
 cargo build --release
 .\target\release\frametrace.exe init-case C:\Cases\case-001 --title "Sample CCTV review"
+.\target\release\frametrace.exe import-e01 C:\Cases\case-001 D:\Images\blackbox.E01 --output C:\Cases\case-001\evidence\images\blackbox.raw
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\ --no-ffprobe
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2
 .\target\release\frametrace.exe make-review C:\Cases\case-001
@@ -60,6 +62,8 @@ For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without 
 
 ```bash
 cargo run -- init-case ./case-001 --title "Sample CCTV review"
+cargo run -- inspect-e01 ./case-001 /path/to/blackbox.E01
+cargo run -- import-e01 ./case-001 /path/to/blackbox.E01 --output ./case-001/evidence/images/blackbox.raw
 cargo run -- scan-folder ./case-001 /path/to/evidence --no-ffprobe
 cargo run -- scan-folder ./case-001 /path/to/evidence/BLACKBOX --hash --max-depth 2
 cargo run -- make-review ./case-001
@@ -88,3 +92,5 @@ cargo run -- init-case ./case-001 --title "Client CCTV review" --operator "Exami
 ```
 
 Export, proxy, thumbnail, and carve logs include SHA-256 values and tamper-evident hash-chain fields. Carved files are intentionally labeled as `candidate-unvalidated` until playback/container validation is performed.
+
+E01 support requires libewf command-line tools in `PATH`: `ewfinfo`, `ewfverify`, and `ewfexport`. `import-e01` verifies the E01, exports a raw image, hashes the raw output, and writes `evidence/logs/e01-audit.jsonl`. To inspect file-system contents, mount the E01/raw image read-only with a forensic mounter and run `scan-folder` on the mounted volume. To recover contiguous embedded video candidates directly from the raw image, run `carve-file` against the exported `.raw`.
