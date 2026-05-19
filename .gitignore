@@ -1,0 +1,31 @@
+/target
+/.omx
+.DS_Store
+
+# Local case/evidence outputs
+/case-*
+/cases
+/Cases
+/evidence
+/artifacts
+
+# Do not accidentally commit client media or forensic images.
+*.avi
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.wmv
+*.asf
+*.dav
+*.g64
+*.g64x
+*.ave
+*.blk
+*.img
+*.dd
+*.E01
+*.Ex01
+*.jpg
+*.jpeg
+*.png
