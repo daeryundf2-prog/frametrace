@@ -7,6 +7,7 @@ use crate::model::{CaseManifest, ScanOptions};
 use crate::package;
 use crate::report;
 use crate::scan;
+use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
 use crate::video_export::{self, ExportOptions};
 use std::env;
@@ -277,6 +278,8 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         .unwrap_or_default();
     let carve_log =
         read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
+    let filesystem_log =
+        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let html = report::render_case_report(
         &manifest_json,
         &index_json,
@@ -284,6 +287,7 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         &proxy_log,
         &thumbnail_log,
         &carve_log,
+        &filesystem_log,
     );
     let report_path = case_dir.join("reports/case-report.html");
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
@@ -384,6 +388,132 @@ pub fn carve_file(
     Ok(())
 }
 
+pub fn inspect_image(
+    case_dir: &Path,
+    image_file: &Path,
+    options: TskInspectOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let source = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "forensic-image".to_string(),
+            path: image_file.to_path_buf(),
+            source_id: None,
+            write_protect: Some(
+                "treat image as read-only; recover into derived artifacts".to_string(),
+            ),
+            acquisition_tool: Some("Sleuth Kit mmls/fls".to_string()),
+            evidence_hash: None,
+            notes: Some("Auto-registered by inspect-image".to_string()),
+            metadata_json: Some(tsk_inspect_options_json(&options)),
+        },
+    )?;
+    let job = case_db::start_job(
+        case_dir,
+        "inspect-image",
+        image_file,
+        Some(options.max_entries as u64),
+        &tsk_inspect_options_json(&options),
+    )?;
+    let result = match tsk::inspect_image(case_dir, image_file, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.entries.len() as u64,
+        "inspect-image completed",
+    )?;
+    println!("filesystem image inspected");
+    println!("source registered: {} ({})", source.source_id, source.kind);
+    println!("job: {} ({})", job.job_id, job.job_type);
+    println!("image: {}", result.image_path.display());
+    println!("partition offset: {}", result.partition_offset);
+    println!("partitions: {}", result.partitions.len());
+    println!("entries: {}", result.entries.len());
+    println!(
+        "deleted entries: {}",
+        result.entries.iter().filter(|entry| entry.deleted).count()
+    );
+    println!(
+        "video candidates: {}",
+        result
+            .entries
+            .iter()
+            .filter(|entry| entry.video_candidate)
+            .count()
+    );
+    println!("summary: {}", result.summary_path.display());
+    println!("entries jsonl: {}", result.entries_jsonl_path.display());
+    println!("mmls log: {}", result.mmls_log_path.display());
+    println!("fls log: {}", result.fls_log_path.display());
+    if !result.warnings.is_empty() {
+        println!("warnings: {}", result.warnings.len());
+    }
+    Ok(())
+}
+
+pub fn recover_inode(
+    case_dir: &Path,
+    image_file: &Path,
+    options: TskRecoverOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let source = case_db::register_evidence_source(
+        case_dir,
+        &case_db::EvidenceSourceInput {
+            kind: "forensic-image".to_string(),
+            path: image_file.to_path_buf(),
+            source_id: None,
+            write_protect: Some("source image read-only; inode output is derived".to_string()),
+            acquisition_tool: Some("Sleuth Kit icat".to_string()),
+            evidence_hash: None,
+            notes: Some("Auto-registered by recover-inode".to_string()),
+            metadata_json: Some(tsk_recover_options_json(&options)),
+        },
+    )?;
+    let job = case_db::start_job(
+        case_dir,
+        "recover-inode",
+        image_file,
+        Some(1),
+        &tsk_recover_options_json(&options),
+    )?;
+    let result = match tsk::recover_inode(case_dir, image_file, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(case_dir, &job.job_id, 1, "recover-inode completed")?;
+    println!("inode recovered");
+    println!("source registered: {} ({})", source.source_id, source.kind);
+    println!("job: {} ({})", job.job_id, job.job_type);
+    println!("image: {}", result.image_path.display());
+    println!("partition offset: {}", result.partition_offset);
+    println!("inode: {}", result.inode);
+    println!("output: {}", result.output_path.display());
+    println!("size bytes: {}", result.size_bytes);
+    println!("sha256: {}", result.sha256);
+    println!("validation: {}", result.validation_status);
+    println!(
+        "next: scan-folder {} {} --no-ffprobe",
+        case_dir.display(),
+        result
+            .output_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .display()
+    );
+    Ok(())
+}
+
 pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), String> {
     let result = case_db::benchmark_case_db(output_dir, options.rows)?;
     println!("SQLite benchmark complete");
@@ -473,6 +603,36 @@ fn carve_options_json(options: &CarveOptions) -> String {
     format!(
         "{{\"max_bytes\":{},\"max_candidates\":{}}}",
         options.max_bytes, options.max_candidates
+    )
+}
+
+fn tsk_inspect_options_json(options: &TskInspectOptions) -> String {
+    format!(
+        "{{\"partition_offset\":{},\"max_entries\":{},\"mmls_bin\":\"{}\",\"fls_bin\":\"{}\"}}",
+        options
+            .partition_offset
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string()),
+        options.max_entries,
+        crate::util::json_escape(&options.mmls_bin),
+        crate::util::json_escape(&options.fls_bin)
+    )
+}
+
+fn tsk_recover_options_json(options: &TskRecoverOptions) -> String {
+    format!(
+        "{{\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":{},\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_bin\":\"{}\"}}",
+        options.partition_offset,
+        crate::util::json_escape(&options.inode),
+        options
+            .output_path
+            .as_ref()
+            .map(|path| format!("\"{}\"", crate::util::json_escape(&path.to_string_lossy())))
+            .unwrap_or_else(|| "null".to_string()),
+        options.recover_deleted,
+        options.include_slack,
+        options.skip_sparse_holes,
+        crate::util::json_escape(&options.icat_bin)
     )
 }
 

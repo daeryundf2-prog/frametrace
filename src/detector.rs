@@ -26,6 +26,9 @@ pub fn detect_source_profile(
     if let Some(profile) = detect_named_vendor(&normalized, &ext) {
         return profile;
     }
+    if let Some(profile) = detect_raw_stream_pattern(&normalized, &ext) {
+        return profile;
+    }
     if let Some(profile) = detect_dashcam_pattern(&normalized, &ext) {
         return profile;
     }
@@ -176,11 +179,18 @@ fn detect_dashcam_pattern(path: &str, extension: &str) -> Option<SourceProfile> 
         path,
         &[
             "/continuous/",
+            "/normal/",
+            "/movie/",
             "/incident/",
             "/event/",
             "/parking/",
             "/motion/",
             "/manual/",
+            "/impact/",
+            "/상시/",
+            "/이벤트/",
+            "/주차/",
+            "/충격/",
         ],
     );
     if !recording_mode.is_empty() && matches!(extension, "mp4" | "mov" | "avi") {
@@ -191,6 +201,41 @@ fn detect_dashcam_pattern(path: &str, extension: &str) -> Option<SourceProfile> 
             "medium",
             "Treat folder name as recording mode; verify model-specific metadata before making vendor claims.",
             vec![format!("dashcam recording folder signal: {recording_mode}")],
+        ));
+    }
+
+    None
+}
+
+fn detect_raw_stream_pattern(path: &str, extension: &str) -> Option<SourceProfile> {
+    if matches!(extension, "264" | "h264") {
+        let vendor = if contains_any(path, &["hikvision", "ivms", "vsplayer"]) {
+            ("Hikvision", "hikvision")
+        } else if contains_any(path, &["dahua", "smartpss", "dss"]) {
+            ("Dahua / OEM DAV", "dahua_dav")
+        } else if contains_any(path, &["uniview", "ezstation"]) {
+            ("Uniview", "uniview")
+        } else {
+            ("DVR/NVR raw H.264 stream", "raw_h264_stream")
+        };
+        return Some(vendor_profile(
+            "dvr-hdd-recovery",
+            vendor.0,
+            vendor.1,
+            "medium",
+            "Treat raw H.264 elementary streams as recovery candidates; wrap/transcode only as derived artifacts after playback validation.",
+            vec![format!("raw H.264-style extension: .{extension}")],
+        ));
+    }
+
+    if matches!(extension, "265" | "h265" | "hevc") {
+        return Some(vendor_profile(
+            "dvr-hdd-recovery",
+            "DVR/NVR raw H.265 stream",
+            "raw_h265_stream",
+            "medium",
+            "Treat raw H.265/HEVC streams as recovery candidates; validate decoder compatibility before export.",
+            vec![format!("raw H.265/HEVC-style extension: .{extension}")],
         ));
     }
 
@@ -283,9 +328,27 @@ fn named_vendor_plugins() -> &'static [ParserPlugin] {
             lane: "dashcam-sd-card",
             vendor: "FineVu",
             confidence: "medium",
-            path_needles: &["finevu", "fine-vu"],
+            path_needles: &["finevu", "fine-vu", "mando"],
             extensions: &["mp4", "avi"],
             recommended_action: "Path signal only: extract player-compatible GPS/G-sensor metadata when present.",
+        },
+        ParserPlugin {
+            id: "urive",
+            lane: "dashcam-sd-card",
+            vendor: "Urive",
+            confidence: "medium",
+            path_needles: &["urive", "유라이브"],
+            extensions: &["mp4", "avi"],
+            recommended_action: "Path signal only: classify continuous/event/parking folders and preserve player metadata sidecars.",
+        },
+        ParserPlugin {
+            id: "papago_dashcam",
+            lane: "dashcam-sd-card",
+            vendor: "PAPAGO",
+            confidence: "medium",
+            path_needles: &["papago", "gosafe"],
+            extensions: &["mp4", "mov"],
+            recommended_action: "Path signal only: extract GPS/speed metadata when present and verify front/rear pairing.",
         },
         ParserPlugin {
             id: "iroad",
@@ -413,6 +476,24 @@ fn named_vendor_plugins() -> &'static [ParserPlugin] {
             extensions: &[],
             recommended_action: "Research target only until validated sample images exist.",
         },
+        ParserPlugin {
+            id: "raw_h264_stream",
+            lane: "dvr-hdd-recovery",
+            vendor: "DVR/NVR raw H.264 stream",
+            confidence: "medium",
+            path_needles: &[],
+            extensions: &["264", "h264"],
+            recommended_action: "Signature/extension target: validate elementary stream playback before reporting recovered video.",
+        },
+        ParserPlugin {
+            id: "raw_h265_stream",
+            lane: "dvr-hdd-recovery",
+            vendor: "DVR/NVR raw H.265 stream",
+            confidence: "medium",
+            path_needles: &[],
+            extensions: &["265", "h265", "hevc"],
+            recommended_action: "Signature/extension target: validate HEVC playback before reporting recovered video.",
+        },
     ]
 }
 
@@ -513,6 +594,33 @@ mod tests {
     fn detects_thinkware_style_event_folders() {
         let profile = detect_source_profile("continuous/20260519_120000.mp4", "mp4", None);
         assert_eq!(profile.parser, "thinkware_inavi");
+        assert_eq!(profile.lane, "dashcam-sd-card");
+    }
+
+    #[test]
+    fn detects_korean_dashcam_recording_folders() {
+        let profile = detect_source_profile("주차/20260519_120000.avi", "avi", None);
+        assert_eq!(profile.parser, "thinkware_inavi");
+        assert_eq!(profile.lane, "dashcam-sd-card");
+    }
+
+    #[test]
+    fn detects_raw_dvr_streams() {
+        let profile = detect_source_profile("lost+found/channel01.264", "264", None);
+        assert_eq!(profile.parser, "raw_h264_stream");
+        assert_eq!(profile.lane, "dvr-hdd-recovery");
+    }
+
+    #[test]
+    fn does_not_treat_digits_in_path_as_raw_stream_vendor() {
+        let profile = detect_source_profile("camera264/clip.mp4", "mp4", None);
+        assert_eq!(profile.parser, "generic_media");
+    }
+
+    #[test]
+    fn detects_urive_dashcam_paths() {
+        let profile = detect_source_profile("URIVE/event/front.mp4", "mp4", None);
+        assert_eq!(profile.parser, "urive");
         assert_eq!(profile.lane, "dashcam-sd-card");
     }
 

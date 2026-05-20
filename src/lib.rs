@@ -12,5 +12,6 @@ pub mod package;
 pub mod report;
 pub mod scan;
 pub mod sha256;
+pub mod tsk;
 pub mod util;
 pub mod video_export;

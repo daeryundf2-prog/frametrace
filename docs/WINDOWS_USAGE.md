@@ -14,7 +14,11 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
    - `ewfinfo.exe`
    - `ewfverify.exe`
    - `ewfexport.exe`
-4. Use PowerShell or Windows Terminal.
+4. Install The Sleuth Kit tools if raw-image file-system inspection or deleted inode recovery will be processed:
+   - `mmls.exe`
+   - `fls.exe`
+   - `icat.exe`
+5. Use PowerShell or Windows Terminal.
 
 Check the tools:
 
@@ -26,6 +30,9 @@ ffprobe -version
 ewfinfo -V
 ewfverify -V
 ewfexport -V
+mmls -V
+fls -V
+icat -V
 ```
 
 ## Build
@@ -75,6 +82,26 @@ If the blackbox SD card was acquired as E01, inspect and import it first:
 `import-e01` uses `ewfinfo`, `ewfverify`, and `ewfexport`. It writes E01 provenance logs under `evidence\logs`, hashes the exported raw image, and appends `evidence\logs\e01-audit.jsonl`.
 
 For normal video-file review, mount the E01 or exported raw image read-only with a forensic mounter and run `scan-folder` on the mounted drive letter. For direct signature recovery from the image, run `carve-file` on the exported raw file.
+
+For file-system-aware triage without mounting, inspect the exported raw image with Sleuth Kit:
+
+```powershell
+.\target\release\frametrace.exe inspect-image C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw
+```
+
+If the correct file-system offset is known or must be selected manually:
+
+```powershell
+.\target\release\frametrace.exe inspect-image C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw --partition-offset 2048
+```
+
+Recover one inode/metadata address from the `fls` listing:
+
+```powershell
+.\target\release\frametrace.exe recover-inode C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw 1304-128-1 --partition-offset 2048 --recover-deleted
+```
+
+`inspect-image` writes `db\filesystem\tsk-files-*.jsonl` and raw tool logs under `evidence\logs`. `recover-inode` writes derived candidates under `artifacts\recovered\filesystem` and appends `evidence\logs\tsk-audit.jsonl`.
 
 After the first inventory, run deeper metadata collection on a narrowed source folder when needed:
 
@@ -157,6 +184,7 @@ Open `reports\case-report.html` from the package and print to PDF when a PDF del
 - Start with mounted volumes and copied evidence folders. Raw `\\.\PhysicalDriveN` access should be added only after imaging and recovery behavior is validated.
 - On unstable disks, image first with a dedicated acquisition tool, then scan the mounted image or extracted folder.
 - For E01/Ex01 images, keep the original E01 set unchanged. Use `import-e01` only to create a derived raw working image inside the case folder.
+- For Sleuth Kit recovery, preserve the selected partition offset and inode value in notes/report review. Inode-recovered files remain candidates until validated.
 
 ## FFmpeg Notes
 

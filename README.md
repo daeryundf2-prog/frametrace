@@ -13,6 +13,7 @@ This first implementation is the local core prototype:
 - Exports selected source videos or time ranges as MP4 or AVI deliverables.
 - Generates review proxy MP4 files and JPEG thumbnails.
 - Inspects/verifies E01/Ex01/S01/L01 evidence containers through libewf tools and exports them to raw images for downstream carving or mounting.
+- Lists active/deleted file-system entries from raw images through Sleuth Kit `mmls`/`fls` and recovers examiner-selected inodes through `icat`.
 - Carves contiguous MP4/AVI/Dahua-DAV candidates from raw files or forensic image files.
 - Tracks evidence sources and long-running jobs in SQLite.
 - Builds a checksummed report/review package directory.
@@ -38,6 +39,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/WINDOWS_USAGE.md` - Windows setup, build, and field usage notes.
 - `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
 - `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.
+- `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.
 - `docs/PERFORMANCE_VALIDATION.md` - SQLite scale benchmark and large-media rules.
 - `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
@@ -53,6 +55,8 @@ Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available 
 cargo build --release
 .\target\release\frametrace.exe init-case C:\Cases\case-001 --title "Sample CCTV review"
 .\target\release\frametrace.exe import-e01 C:\Cases\case-001 D:\Images\blackbox.E01 --output C:\Cases\case-001\evidence\images\blackbox.raw
+.\target\release\frametrace.exe inspect-image C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw --partition-offset 2048
+.\target\release\frametrace.exe recover-inode C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw 1304-128-1 --partition-offset 2048 --recover-deleted
 .\target\release\frametrace.exe register-source C:\Cases\case-001 E:\ --kind mounted-volume --write-protect "hardware write blocker"
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\ --no-ffprobe
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2
@@ -75,6 +79,8 @@ For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without 
 cargo run -- init-case ./case-001 --title "Sample CCTV review"
 cargo run -- inspect-e01 ./case-001 /path/to/blackbox.E01
 cargo run -- import-e01 ./case-001 /path/to/blackbox.E01 --output ./case-001/evidence/images/blackbox.raw
+cargo run -- inspect-image ./case-001 ./case-001/evidence/images/blackbox.raw --partition-offset 2048
+cargo run -- recover-inode ./case-001 ./case-001/evidence/images/blackbox.raw 1304-128-1 --partition-offset 2048 --recover-deleted
 cargo run -- register-source ./case-001 /path/to/evidence --kind folder --write-protect "copied evidence"
 cargo run -- scan-folder ./case-001 /path/to/evidence --no-ffprobe
 cargo run -- scan-folder ./case-001 /path/to/evidence/BLACKBOX --hash --max-depth 2
@@ -99,6 +105,7 @@ By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evid
 
 Exported clips are written to `case-001/artifacts/clips/` unless `--output` is provided.
 Proxy files are written to `case-001/artifacts/proxies/`, thumbnails to `case-001/artifacts/thumbnails/`, and carved recovery candidates to `case-001/artifacts/carved/`.
+Filesystem inode recoveries are written to `case-001/artifacts/recovered/filesystem/`.
 Default clip/proxy/thumbnail names are made unique when a file already exists. Explicit `--output` paths are never overwritten; choose a new path if the target already exists.
 
 `init-case` can record chain-of-custody context up front:
@@ -110,3 +117,4 @@ cargo run -- init-case ./case-001 --title "Client CCTV review" --operator "Exami
 Export, proxy, thumbnail, and carve logs include SHA-256 values and tamper-evident hash-chain fields. Carved files are intentionally labeled as `candidate-unvalidated` until playback/container validation is performed.
 
 E01 support requires libewf command-line tools in `PATH`: `ewfinfo`, `ewfverify`, and `ewfexport`. `import-e01` verifies the E01, exports a raw image, hashes the raw output, and writes `evidence/logs/e01-audit.jsonl`. To inspect file-system contents, mount the E01/raw image read-only with a forensic mounter and run `scan-folder` on the mounted volume. To recover contiguous embedded video candidates directly from the raw image, run `carve-file` against the exported `.raw`.
+For file-system-aware deleted-file triage, install Sleuth Kit tools in `PATH` and run `inspect-image`/`recover-inode` against the exported `.raw`. These outputs remain `candidate-unvalidated` until examiner playback/container validation is recorded.

@@ -13,6 +13,8 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - SQLite primary video index at `db/case.db`, updated by `scan-folder`.
 - SQLite evidence-source registry plus job/event tables for scan, E01 import, and carving auditability.
 - E01/Ex01/S01/L01 container inspection and raw export through external libewf tools.
+- Sleuth Kit `mmls`/`fls` raw-image file-system inspection.
+- Sleuth Kit `icat` examiner-selected inode recovery into derived artifacts.
 - Terabyte-aware defaults:
   - per-file SHA-256 is opt-in with `--hash`
   - `ffprobe` can be skipped with `--no-ffprobe`
@@ -43,6 +45,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Contiguous MP4/AVI/Dahua-DAV candidate carving from raw files or acquired image files.
 - Recovery artifact logs with source offsets, output hashes, carved output paths, duplicate-candidate marking, candidate-validation status, and hash-chain fields.
 - E01 provenance logs under `evidence/logs/e01-audit.jsonl`.
+- Sleuth Kit provenance logs under `evidence/logs/tsk-audit.jsonl`.
 - Checksummed case package output with `package-case`.
 - Parser plugin catalog output with `list-parsers`.
 - Synthetic SQLite scale benchmark with `benchmark-db`.
@@ -53,8 +56,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Raw `\\.\PhysicalDriveN` acquisition.
 - Native in-process E01 parsing without external libewf command-line tools.
 - E01 image creation/acquisition.
-- File-system-aware extraction from E01/raw images without mounting.
-- File-system-aware deleted file reconstruction.
+- Automatic bulk deleted-file reconstruction from E01/raw images.
 - File-system-aware unallocated-space carving.
 - Mid-command resume from persisted job checkpoints.
 - Proprietary DVR/NVR file-system recovery.
@@ -68,7 +70,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 ## Next Product Milestones
 
 1. Add mid-command resume checkpoints for scan/carve/import jobs.
-2. Add file-system-aware deleted-file recovery and unallocated-space carving.
+2. Add file-system-aware unallocated-space carving and bulk export controls.
 3. Add stronger carving preview triage and container validation.
 4. Add per-vendor parser implementations one at a time, starting with Dahua DAV and BlackVue/Thinkware-style dashcam metadata.
 5. Add cryptographic signing/external timestamping and native PDF rendering.

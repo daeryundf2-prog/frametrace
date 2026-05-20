@@ -2,6 +2,7 @@ use crate::artifacts::{ProxyOptions, ThumbnailOptions};
 use crate::carve::CarveOptions;
 use crate::e01::E01Options;
 use crate::model::ScanOptions;
+use crate::tsk::{TskInspectOptions, TskRecoverOptions};
 use crate::video_export::{ExportFormat, ExportOptions};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -145,6 +146,37 @@ pub enum Commands {
         max_bytes: Option<u64>,
         #[arg(long)]
         max_candidates: Option<usize>,
+    },
+    /// List active/deleted files in a raw forensic image with Sleuth Kit mmls/fls
+    InspectImage {
+        case_dir: PathBuf,
+        image_file: PathBuf,
+        #[arg(long)]
+        partition_offset: Option<u64>,
+        #[arg(long, default_value_t = 20000)]
+        max_entries: usize,
+        #[arg(long)]
+        mmls: Option<String>,
+        #[arg(long)]
+        fls: Option<String>,
+    },
+    /// Recover one filesystem inode from a raw forensic image with Sleuth Kit icat
+    RecoverInode {
+        case_dir: PathBuf,
+        image_file: PathBuf,
+        inode: String,
+        #[arg(long, default_value_t = 0)]
+        partition_offset: u64,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        recover_deleted: bool,
+        #[arg(long)]
+        include_slack: bool,
+        #[arg(long)]
+        skip_sparse_holes: bool,
+        #[arg(long)]
+        icat: Option<String>,
     },
     /// Create a synthetic SQLite index benchmark database for scale validation
     BenchmarkDb {
@@ -327,6 +359,44 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 options.max_candidates = mc;
             }
             carve_file(&case_dir, &source_file, options)
+        }
+        Commands::InspectImage {
+            case_dir,
+            image_file,
+            partition_offset,
+            max_entries,
+            mmls,
+            fls,
+        } => {
+            let options = TskInspectOptions {
+                partition_offset,
+                max_entries,
+                mmls_bin: mmls.unwrap_or_else(|| "mmls".to_string()),
+                fls_bin: fls.unwrap_or_else(|| "fls".to_string()),
+            };
+            inspect_image(&case_dir, &image_file, options)
+        }
+        Commands::RecoverInode {
+            case_dir,
+            image_file,
+            inode,
+            partition_offset,
+            output,
+            recover_deleted,
+            include_slack,
+            skip_sparse_holes,
+            icat,
+        } => {
+            let options = TskRecoverOptions {
+                partition_offset,
+                inode,
+                output_path: output,
+                recover_deleted,
+                include_slack,
+                skip_sparse_holes,
+                icat_bin: icat.unwrap_or_else(|| "icat".to_string()),
+            };
+            recover_inode(&case_dir, &image_file, options)
         }
         Commands::BenchmarkDb { output_dir, rows } => {
             let options = BenchmarkOptions { rows };

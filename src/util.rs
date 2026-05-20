@@ -19,11 +19,13 @@ pub fn create_case_layout(case_dir: &Path) -> io::Result<()> {
         "evidence/logs",
         "artifacts",
         "artifacts/recovered",
+        "artifacts/recovered/filesystem",
         "artifacts/carved",
         "artifacts/proxies",
         "artifacts/thumbnails",
         "artifacts/clips",
         "db",
+        "db/filesystem",
         "review",
         "reports",
     ] {

@@ -7,6 +7,7 @@ pub fn render_case_report(
     proxy_log_jsonl: &str,
     thumbnail_log_jsonl: &str,
     carve_log_jsonl: &str,
+    filesystem_log_jsonl: &str,
 ) -> String {
     let manifest = json_for_script(manifest_json);
     let index = json_for_script(index_json);
@@ -14,13 +15,14 @@ pub fn render_case_report(
     let proxy_lines = json_for_script(&jsonl_to_array(proxy_log_jsonl));
     let thumbnail_lines = json_for_script(&jsonl_to_array(thumbnail_log_jsonl));
     let carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl));
+    let filesystem_lines = json_for_script(&jsonl_to_array(filesystem_log_jsonl));
     format!(
         r#"<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FrameTrace Forensic Video Report</title>
+  <title>FrameTrace 영상 포렌식 보고서</title>
   <style>
     body {{
       margin: 0;
@@ -106,37 +108,41 @@ pub fn render_case_report(
 </head>
 <body>
 <main>
-  <h1 id="title">FrameTrace Forensic Video Report</h1>
+  <h1 id="title">FrameTrace 영상 포렌식 보고서</h1>
   <div class="muted" id="case-line"></div>
   <section class="summary">
-    <div class="box">Indexed videos<strong id="count">0</strong></div>
-    <div class="box">Total evidence bytes<strong id="bytes">0</strong></div>
-    <div class="box">Confirmed by ffprobe<strong id="confirmed">0</strong></div>
-    <div class="box">Likely sources<strong id="sources">0</strong></div>
-    <div class="box">Scan warnings<strong id="warnings-count">0</strong></div>
-    <div class="box">Exported clips<strong id="exports">0</strong></div>
-    <div class="box">Review artifacts<strong id="derived">0</strong></div>
-    <div class="box">Carved candidates<strong id="carved">0</strong></div>
+    <div class="box">색인 영상<strong id="count">0</strong></div>
+    <div class="box">증거 총 용량<strong id="bytes">0</strong></div>
+    <div class="box">ffprobe 확인<strong id="confirmed">0</strong></div>
+    <div class="box">추정 소스<strong id="sources">0</strong></div>
+    <div class="box">스캔 경고<strong id="warnings-count">0</strong></div>
+    <div class="box">내보낸 클립<strong id="exports">0</strong></div>
+    <div class="box">리뷰 산출물<strong id="derived">0</strong></div>
+    <div class="box">복구 후보<strong id="carved">0</strong></div>
+    <div class="box">파일시스템 작업<strong id="filesystem-actions">0</strong></div>
   </section>
 
-  <h2>Processing Summary</h2>
+  <h2>처리 요약</h2>
   <div id="processing"></div>
-  <div class="note">This report separates original source references from derived review/export artifacts. Carved files are candidate recoveries until separately validated by playback/container inspection.</div>
+  <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
 
-  <h2>Source / Parser Assessment</h2>
+  <h2>소스 / 파서 평가</h2>
   <div id="source-assessment"></div>
 
-  <h2>Video Index</h2>
+  <h2>영상 색인</h2>
   <div id="videos"></div>
 
-  <h2>Exported MP4/AVI Outputs</h2>
+  <h2>MP4/AVI 내보내기 산출물</h2>
   <div id="clip-exports"></div>
 
-  <h2>Review Artifacts</h2>
+  <h2>리뷰 산출물</h2>
   <div id="derived-artifacts"></div>
 
-  <h2>Recovered / Carved Candidates</h2>
+  <h2>복구 / Carving 후보</h2>
   <div id="carved-artifacts"></div>
+
+  <h2>파일시스템 조사 / Inode 복구</h2>
+  <div id="filesystem-recovery"></div>
 <script>
 const manifest = {manifest};
 const scan = {index};
@@ -144,6 +150,7 @@ const exportsLog = {export_lines};
 const proxyLog = {proxy_lines};
 const thumbnailLog = {thumbnail_lines};
 const carveLog = {carve_lines};
+const filesystemLog = {filesystem_lines};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
 const derivedLog = [...proxyLog, ...thumbnailLog];
@@ -188,8 +195,8 @@ videos.forEach(video => {{
   sourceCounts.set(key, (sourceCounts.get(key) || 0) + 1);
 }});
 
-document.getElementById("title").textContent = manifest.title || "FrameTrace Forensic Video Report";
-document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · generated from local case data · ${{manifest.tool_name || "frametrace"}} ${{manifest.tool_version || ""}}`;
+document.getElementById("title").textContent = manifest.title || "FrameTrace 영상 포렌식 보고서";
+document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · 로컬 케이스 데이터 기반 생성 · ${{manifest.tool_name || "frametrace"}} ${{manifest.tool_version || ""}}`;
 document.getElementById("count").textContent = scan.video_count ?? videos.length;
 document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
 document.getElementById("confirmed").textContent = videos.filter(video => video.ffprobe_ok).length;
@@ -198,26 +205,27 @@ document.getElementById("warnings-count").textContent = warnings.length;
 document.getElementById("exports").textContent = exportsLog.length;
 document.getElementById("derived").textContent = derivedLog.length;
 document.getElementById("carved").textContent = carveLog.length;
+document.getElementById("filesystem-actions").textContent = filesystemLog.length;
 
 document.getElementById("processing").innerHTML = `<table>
   <tbody>
-    <tr><th>Case ID</th><td>${{escapeHtml(manifest.case_id || "-")}}</td></tr>
-    <tr><th>Operator / host</th><td>${{escapeHtml(manifest.operator || "-")}} / ${{escapeHtml(manifest.host || "-")}}</td></tr>
-    <tr><th>Platform / tool</th><td>${{escapeHtml(manifest.platform || "-")}} / ${{escapeHtml(manifest.tool_name || "-")}} ${{escapeHtml(manifest.tool_version || "")}}</td></tr>
-    <tr><th>Device</th><td>${{escapeHtml(manifest.device_id || "-")}} · serial: ${{escapeHtml(manifest.device_serial || "-")}} · write-protect: ${{escapeHtml(manifest.write_protect || "-")}}</td></tr>
-    <tr><th>Acquisition</th><td>${{escapeHtml(manifest.acquisition_tool || "-")}} · evidence hash: <code>${{escapeHtml(manifest.evidence_hash || "-")}}</code></td></tr>
-    <tr><th>Notes</th><td>${{escapeHtml(manifest.notes || "-")}}</td></tr>
-    <tr><th>Source path</th><td><code>${{escapeHtml(scan.source_path || "-")}}</code></td></tr>
-    <tr><th>Scanned at</th><td>${{fmtUnix(scan.scanned_unix)}} <span class="muted">(${{escapeHtml(scan.scanned_unix || "-")}})</span></td></tr>
-    <tr><th>Hash mode</th><td>${{scan.options?.hash_files ? "Per-file SHA-256 calculated" : "Per-file SHA-256 skipped"}}</td></tr>
-    <tr><th>Metadata mode</th><td>${{scan.options?.use_ffprobe ? "ffprobe enabled" : "ffprobe skipped"}}</td></tr>
-    <tr><th>Warnings</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "None"}}</td></tr>
+    <tr><th>케이스 ID</th><td>${{escapeHtml(manifest.case_id || "-")}}</td></tr>
+    <tr><th>작업자 / 호스트</th><td>${{escapeHtml(manifest.operator || "-")}} / ${{escapeHtml(manifest.host || "-")}}</td></tr>
+    <tr><th>플랫폼 / 도구</th><td>${{escapeHtml(manifest.platform || "-")}} / ${{escapeHtml(manifest.tool_name || "-")}} ${{escapeHtml(manifest.tool_version || "")}}</td></tr>
+    <tr><th>장치</th><td>${{escapeHtml(manifest.device_id || "-")}} · serial: ${{escapeHtml(manifest.device_serial || "-")}} · write-protect: ${{escapeHtml(manifest.write_protect || "-")}}</td></tr>
+    <tr><th>취득</th><td>${{escapeHtml(manifest.acquisition_tool || "-")}} · evidence hash: <code>${{escapeHtml(manifest.evidence_hash || "-")}}</code></td></tr>
+    <tr><th>비고</th><td>${{escapeHtml(manifest.notes || "-")}}</td></tr>
+    <tr><th>소스 경로</th><td><code>${{escapeHtml(scan.source_path || "-")}}</code></td></tr>
+    <tr><th>스캔 시각</th><td>${{fmtUnix(scan.scanned_unix)}} <span class="muted">(${{escapeHtml(scan.scanned_unix || "-")}})</span></td></tr>
+    <tr><th>해시 모드</th><td>${{scan.options?.hash_files ? "파일별 SHA-256 계산" : "파일별 SHA-256 생략"}}</td></tr>
+    <tr><th>메타데이터 모드</th><td>${{scan.options?.use_ffprobe ? "ffprobe 사용" : "ffprobe 생략"}}</td></tr>
+    <tr><th>경고</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}}</td></tr>
   </tbody>
 </table>`;
 
 document.getElementById("source-assessment").innerHTML = sourceCounts.size ? `<table>
   <thead>
-    <tr><th>Likely source</th><th>Parser lane</th><th>Confidence</th><th>Files</th><th>Handling note</th></tr>
+    <tr><th>추정 소스</th><th>파서 레인</th><th>신뢰도</th><th>파일 수</th><th>처리 메모</th></tr>
   </thead>
   <tbody>
     ${{[...sourceCounts.entries()].map(([key, count]) => {{
@@ -232,12 +240,12 @@ document.getElementById("source-assessment").innerHTML = sourceCounts.size ? `<t
       </tr>`;
     }}).join("")}}
   </tbody>
-</table>` : "<p>No source assessment available.</p>";
+</table>` : "<p>소스 평가 정보가 없습니다.</p>";
 
 document.getElementById("videos").innerHTML = videos.length ? `<table>
   <thead>
     <tr>
-      <th>ID</th><th>Path</th><th>Source</th><th>Format</th><th>Duration</th><th>Size</th><th>Hash</th>
+      <th>ID</th><th>경로</th><th>소스</th><th>포맷</th><th>길이</th><th>크기</th><th>해시</th>
     </tr>
   </thead>
   <tbody>
@@ -251,11 +259,11 @@ document.getElementById("videos").innerHTML = videos.length ? `<table>
       <td><code>${{escapeHtml(video.sha256 || video.hash_status || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
-</table>` : "<p>No indexed videos.</p>";
+</table>` : "<p>색인된 영상이 없습니다.</p>";
 
 document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
   <thead>
-    <tr><th>Format</th><th>Source</th><th>Output</th><th>Output SHA-256</th><th>Range</th><th>Audit chain</th></tr>
+    <tr><th>포맷</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>범위</th><th>감사 체인</th></tr>
   </thead>
   <tbody>
     ${{exportsLog.map(item => `<tr>
@@ -267,11 +275,11 @@ document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
       <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
-</table>` : "<p>No exported clips yet.</p>";
+</table>` : "<p>내보낸 클립이 없습니다.</p>";
 
 document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<table>
   <thead>
-    <tr><th>Kind</th><th>Source</th><th>Output</th><th>Output SHA-256</th><th>Audit chain</th></tr>
+    <tr><th>종류</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>감사 체인</th></tr>
   </thead>
   <tbody>
     ${{derivedLog.map(item => `<tr>
@@ -282,11 +290,11 @@ document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<t
       <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
-</table>` : "<p>No proxy or thumbnail artifacts yet.</p>";
+</table>` : "<p>프록시 또는 썸네일 산출물이 없습니다.</p>";
 
 document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<table>
   <thead>
-    <tr><th>ID</th><th>Status</th><th>Signature</th><th>Offset</th><th>Size</th><th>Output</th><th>SHA-256</th><th>Audit chain</th></tr>
+    <tr><th>ID</th><th>상태</th><th>시그니처</th><th>오프셋</th><th>크기</th><th>산출물</th><th>SHA-256</th><th>감사 체인</th></tr>
   </thead>
   <tbody>
     ${{carveLog.map(item => `<tr>
@@ -300,7 +308,24 @@ document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<tabl
       <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
-</table>` : "<p>No carved candidates yet.</p>";
+</table>` : "<p>Carving 후보가 없습니다.</p>";
+
+document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
+  <thead>
+    <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${{filesystemLog.map(item => `<tr>
+      <td>${{escapeHtml(item.event || "-")}}</td>
+      <td><code>${{escapeHtml(item.image_path || "-")}}</code></td>
+      <td>${{escapeHtml(item.partition_offset ?? "-")}}</td>
+      <td><code>${{escapeHtml(item.inode || "-")}}</code></td>
+      <td>${{escapeHtml(item.validation_status || `${{item.entry_count ?? "-"}} entries`)}}<br><code>${{escapeHtml(item.output_path || item.summary_path || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.sha256 || item.entries_jsonl_path || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+    </tr>`).join("")}}
+  </tbody>
+</table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";
 </script>
 </main>
 </body>

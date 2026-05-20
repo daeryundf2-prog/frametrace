@@ -54,6 +54,8 @@ This document tracks manufacturer-specific parser targets for FrameTrace. The go
 
 Current prototype status: `src/detector.rs` implements the first lightweight detector registry. It classifies likely parser lanes from extensions, path/folder names, and standard media metadata. This is intentionally conservative: it creates review/report signals and future parser routing, but it does not claim deep proprietary recovery support yet.
 
+Current implementation also includes Korean dashcam folder signals (`상시`, `이벤트`, `주차`, `충격`), Urive/PAPAGO/FineVu-Mando path signals, and raw H.264/H.265 DVR recovery lanes. These remain routing hints until sample-backed metadata extraction and validation are added.
+
 ### Plugin registry
 
 Add a registry with small detector functions:
