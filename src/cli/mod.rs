@@ -3,6 +3,7 @@ use crate::carve::CarveOptions;
 use crate::e01::E01Options;
 use crate::model::ScanOptions;
 use crate::tsk::{TskInspectOptions, TskRecoverOptions};
+use crate::validation::ValidationOptions;
 use crate::video_export::{ExportFormat, ExportOptions};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -177,6 +178,13 @@ pub enum Commands {
         skip_sparse_holes: bool,
         #[arg(long)]
         icat: Option<String>,
+    },
+    /// Validate an indexed video, carved candidate, recovered inode, or artifact path with ffprobe
+    ValidateArtifact {
+        case_dir: PathBuf,
+        selector: String,
+        #[arg(long)]
+        ffprobe: Option<String>,
     },
     /// Create a synthetic SQLite index benchmark database for scale validation
     BenchmarkDb {
@@ -397,6 +405,16 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 icat_bin: icat.unwrap_or_else(|| "icat".to_string()),
             };
             recover_inode(&case_dir, &image_file, options)
+        }
+        Commands::ValidateArtifact {
+            case_dir,
+            selector,
+            ffprobe,
+        } => {
+            let options = ValidationOptions {
+                ffprobe_bin: ffprobe.unwrap_or_else(|| "ffprobe".to_string()),
+            };
+            validate_artifact(&case_dir, &selector, options)
         }
         Commands::BenchmarkDb { output_dir, rows } => {
             let options = BenchmarkOptions { rows };

@@ -9,6 +9,7 @@ FrameTrace currently supports practical first-pass recovery triage, not full pro
 - File-system-aware image listing through external Sleuth Kit `mmls`/`fls`.
 - Examiner-selected inode recovery through external Sleuth Kit `icat`.
 - Signature-based contiguous carving for MP4 `ftyp`, RIFF AVI, and Dahua DHAV candidates.
+- ffprobe-based validation logging for indexed videos, carved candidates, and inode recoveries.
 - Candidate hashes, offsets, output paths, validation notes, duplicate candidate marking, and chained carve logs.
 
 ## Not Claimed
@@ -29,3 +30,5 @@ Every carved or inode-recovered file remains a candidate until validated. The ca
 Before reporting a recovered clip as usable evidence, validate container structure and playback with FFmpeg/ffprobe, a trusted vendor player, or a documented specialist workflow.
 
 For Sleuth Kit inode recovery, also record the selected partition offset, inode/metadata address, and whether `icat -r` was used for deleted-file recovery. FrameTrace logs these values in `evidence/logs/tsk-audit.jsonl`.
+
+`validate-artifact` can promote an artifact's review signal to `verified-playable` only when `ffprobe` parses a video stream. It does not prove event relevance, timestamp accuracy, or court admissibility by itself.

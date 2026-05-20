@@ -51,6 +51,14 @@ gui/evidence-viewer/index.html
 
 It is intentionally serverless so it can be opened directly from disk on a forensic workstation. It uses mocked case data and canvas-rendered sample frames to validate the workflow before the final Windows shell is implemented.
 
+`make-review` also generates a real-case viewer at:
+
+```text
+case/review/evidence-viewer.html
+```
+
+That page reads the current video index, carving log, and validation log at generation time. It is still serverless, but unlike the GUI prototype it is tied to actual case data.
+
 ## Localization
 
 The prototype defaults to Korean because examiner-facing review is expected to happen on Korean Windows workstations. The top-right `EN` / `KO` control switches the visible UI language without changing evidence values such as paths, hashes, parser IDs, or vendor names.

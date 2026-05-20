@@ -121,7 +121,10 @@ Open:
 
 ```text
 C:\Cases\case-001\review\index.html
+C:\Cases\case-001\review\evidence-viewer.html
 ```
+
+`evidence-viewer.html` is the viewer-first real case page. It uses the current video index, carving log, and validation log; no server is required.
 
 Export client deliverables:
 
@@ -154,6 +157,16 @@ For an imported E01:
 
 `carve-file` is a candidate-recovery pass, not a full proprietary DVR file-system parser. It preserves offsets, hashes the carved outputs, marks duplicate carved hashes, and writes logs under `artifacts\carved`.
 Carved artifacts remain `candidate-unvalidated` or `duplicate-candidate` until playback/container validation is done.
+
+Validate an indexed video, carved candidate ID, recovered inode output path, or direct file path with `ffprobe`:
+
+```powershell
+.\target\release\frametrace.exe validate-artifact C:\Cases\case-001 vid_000001
+.\target\release\frametrace.exe validate-artifact C:\Cases\case-001 carve_000001
+.\target\release\frametrace.exe validate-artifact C:\Cases\case-001 C:\Cases\case-001\artifacts\recovered\filesystem\inode_1304-128-1.bin
+```
+
+Validation results are appended to `evidence\logs\validation-log.jsonl` and shown in the HTML report and evidence viewer. `verified-playable` means `ffprobe` found a video stream; the examiner should still perform playback review before final reporting.
 
 Generate the current HTML report:
 

@@ -14,4 +14,5 @@ pub mod scan;
 pub mod sha256;
 pub mod tsk;
 pub mod util;
+pub mod validation;
 pub mod video_export;

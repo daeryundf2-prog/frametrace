@@ -66,6 +66,12 @@ artifacts/recovered/filesystem/
 
 Recovered files are labeled `candidate-unvalidated`. Validate playback, container structure, timestamps, and source context before reporting them as usable evidence.
 
+Run `validate-artifact` after recovery to record the first container/playability result:
+
+```bash
+cargo run -- validate-artifact ./case-001 ./case-001/artifacts/recovered/filesystem/inode_1304-128-1.bin
+```
+
 ## Boundaries
 
 - The source image is not modified.

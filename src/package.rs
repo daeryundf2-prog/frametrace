@@ -102,6 +102,7 @@ fn fixed_package_files() -> &'static [&'static str] {
         "db/video_paths.tsv",
         "db/carve_results.json",
         "review/index.html",
+        "review/evidence-viewer.html",
         "reports/case-report.html",
     ]
 }
@@ -113,6 +114,8 @@ fn recursive_package_dirs() -> &'static [&'static str] {
         "artifacts/proxies",
         "artifacts/thumbnails",
         "artifacts/carved",
+        "artifacts/recovered",
+        "db/filesystem",
     ]
 }
 

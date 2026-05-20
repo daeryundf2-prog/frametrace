@@ -1,21 +1,25 @@
 use crate::util::json_for_script;
 
-pub fn render_case_report(
-    manifest_json: &str,
-    index_json: &str,
-    export_log_jsonl: &str,
-    proxy_log_jsonl: &str,
-    thumbnail_log_jsonl: &str,
-    carve_log_jsonl: &str,
-    filesystem_log_jsonl: &str,
-) -> String {
-    let manifest = json_for_script(manifest_json);
-    let index = json_for_script(index_json);
-    let export_lines = json_for_script(&jsonl_to_array(export_log_jsonl));
-    let proxy_lines = json_for_script(&jsonl_to_array(proxy_log_jsonl));
-    let thumbnail_lines = json_for_script(&jsonl_to_array(thumbnail_log_jsonl));
-    let carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl));
-    let filesystem_lines = json_for_script(&jsonl_to_array(filesystem_log_jsonl));
+pub struct ReportInputs<'a> {
+    pub manifest_json: &'a str,
+    pub index_json: &'a str,
+    pub export_log_jsonl: &'a str,
+    pub proxy_log_jsonl: &'a str,
+    pub thumbnail_log_jsonl: &'a str,
+    pub carve_log_jsonl: &'a str,
+    pub filesystem_log_jsonl: &'a str,
+    pub validation_log_jsonl: &'a str,
+}
+
+pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
+    let manifest = json_for_script(inputs.manifest_json);
+    let index = json_for_script(inputs.index_json);
+    let export_lines = json_for_script(&jsonl_to_array(inputs.export_log_jsonl));
+    let proxy_lines = json_for_script(&jsonl_to_array(inputs.proxy_log_jsonl));
+    let thumbnail_lines = json_for_script(&jsonl_to_array(inputs.thumbnail_log_jsonl));
+    let carve_lines = json_for_script(&jsonl_to_array(inputs.carve_log_jsonl));
+    let filesystem_lines = json_for_script(&jsonl_to_array(inputs.filesystem_log_jsonl));
+    let validation_lines = json_for_script(&jsonl_to_array(inputs.validation_log_jsonl));
     format!(
         r#"<!doctype html>
 <html lang="ko">
@@ -120,6 +124,7 @@ pub fn render_case_report(
     <div class="box">리뷰 산출물<strong id="derived">0</strong></div>
     <div class="box">복구 후보<strong id="carved">0</strong></div>
     <div class="box">파일시스템 작업<strong id="filesystem-actions">0</strong></div>
+    <div class="box">검증 기록<strong id="validations">0</strong></div>
   </section>
 
   <h2>처리 요약</h2>
@@ -141,6 +146,9 @@ pub fn render_case_report(
   <h2>복구 / Carving 후보</h2>
   <div id="carved-artifacts"></div>
 
+  <h2>재생 / 컨테이너 검증</h2>
+  <div id="validation-results"></div>
+
   <h2>파일시스템 조사 / Inode 복구</h2>
   <div id="filesystem-recovery"></div>
 <script>
@@ -151,6 +159,7 @@ const proxyLog = {proxy_lines};
 const thumbnailLog = {thumbnail_lines};
 const carveLog = {carve_lines};
 const filesystemLog = {filesystem_lines};
+const validationLog = {validation_lines};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
 const derivedLog = [...proxyLog, ...thumbnailLog];
@@ -206,6 +215,7 @@ document.getElementById("exports").textContent = exportsLog.length;
 document.getElementById("derived").textContent = derivedLog.length;
 document.getElementById("carved").textContent = carveLog.length;
 document.getElementById("filesystem-actions").textContent = filesystemLog.length;
+document.getElementById("validations").textContent = validationLog.length;
 
 document.getElementById("processing").innerHTML = `<table>
   <tbody>
@@ -309,6 +319,24 @@ document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<tabl
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>Carving 후보가 없습니다.</p>";
+
+document.getElementById("validation-results").innerHTML = validationLog.length ? `<table>
+  <thead>
+    <tr><th>상태</th><th>대상</th><th>포맷</th><th>코덱</th><th>길이</th><th>SHA-256</th><th>검증 메모</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${{validationLog.map(item => `<tr>
+      <td>${{escapeHtml(item.validation_status || "-")}}</td>
+      <td><code>${{escapeHtml(item.target_path || item.selector || "-")}}</code></td>
+      <td>${{escapeHtml(item.format_name || "-")}}</td>
+      <td>${{escapeHtml(item.video_codec || "-")}} / ${{escapeHtml(item.audio_codec || "-")}}</td>
+      <td>${{fmtDuration(item.duration_seconds)}}</td>
+      <td><code>${{escapeHtml(item.target_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(item.validation_note || item.ffprobe_error || "-")}}</td>
+      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+    </tr>`).join("")}}
+  </tbody>
+</table>` : "<p>검증 기록이 없습니다.</p>";
 
 document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
   <thead>

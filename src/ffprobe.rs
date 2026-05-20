@@ -3,7 +3,11 @@ use std::path::Path;
 use std::process::Command;
 
 pub fn probe(path: &Path) -> ProbeSummary {
-    let output = Command::new("ffprobe")
+    probe_with_binary("ffprobe", path)
+}
+
+pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
+    let output = Command::new(binary)
         .arg("-v")
         .arg("error")
         .arg("-print_format")

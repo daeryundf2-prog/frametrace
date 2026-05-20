@@ -9,6 +9,7 @@ use crate::report;
 use crate::scan;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
+use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -258,7 +259,24 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     let html = html_report::render_review_html(&manifest_json, &index_json);
     let review_path = case_dir.join("review/index.html");
     write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
+    let carve_log =
+        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
+    let validation_log =
+        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let evidence_viewer = html_report::render_evidence_viewer_html(
+        &manifest_json,
+        &index_json,
+        &carve_log,
+        &validation_log,
+    );
+    let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
+    write_text(&evidence_viewer_path, &evidence_viewer)
+        .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
     println!("review written: {}", review_path.display());
+    println!(
+        "evidence viewer written: {}",
+        evidence_viewer_path.display()
+    );
     Ok(())
 }
 
@@ -280,15 +298,18 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
     let filesystem_log =
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
-    let html = report::render_case_report(
-        &manifest_json,
-        &index_json,
-        &export_log,
-        &proxy_log,
-        &thumbnail_log,
-        &carve_log,
-        &filesystem_log,
-    );
+    let validation_log =
+        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let html = report::render_case_report(&report::ReportInputs {
+        manifest_json: &manifest_json,
+        index_json: &index_json,
+        export_log_jsonl: &export_log,
+        proxy_log_jsonl: &proxy_log,
+        thumbnail_log_jsonl: &thumbnail_log,
+        carve_log_jsonl: &carve_log,
+        filesystem_log_jsonl: &filesystem_log,
+        validation_log_jsonl: &validation_log,
+    });
     let report_path = case_dir.join("reports/case-report.html");
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
     println!("report written: {}", report_path.display());
@@ -514,6 +535,43 @@ pub fn recover_inode(
     Ok(())
 }
 
+pub fn validate_artifact(
+    case_dir: &Path,
+    selector: &str,
+    options: ValidationOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(
+        case_dir,
+        "validate-artifact",
+        Path::new(selector),
+        Some(1),
+        &validation_options_json(&options),
+    )?;
+    let result = match validation::validate_artifact(case_dir, selector, &options) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(case_dir, &job.job_id, 1, "validate-artifact completed")?;
+    println!("artifact validated");
+    println!("job: {} ({})", job.job_id, job.job_type);
+    println!("selector: {}", result.selector);
+    println!("target: {}", result.target_path.display());
+    println!("sha256: {}", result.target_sha256);
+    println!("status: {}", result.validation_status);
+    println!("note: {}", result.validation_note);
+    if let Some(codec) = result.probe.video_codec {
+        println!("video codec: {codec}");
+    }
+    if let Some(duration) = result.probe.duration_seconds {
+        println!("duration seconds: {duration:.3}");
+    }
+    Ok(())
+}
+
 pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), String> {
     let result = case_db::benchmark_case_db(output_dir, options.rows)?;
     println!("SQLite benchmark complete");
@@ -633,6 +691,13 @@ fn tsk_recover_options_json(options: &TskRecoverOptions) -> String {
         options.include_slack,
         options.skip_sparse_holes,
         crate::util::json_escape(&options.icat_bin)
+    )
+}
+
+fn validation_options_json(options: &ValidationOptions) -> String {
+    format!(
+        "{{\"ffprobe_bin\":\"{}\"}}",
+        crate::util::json_escape(&options.ffprobe_bin)
     )
 }
 

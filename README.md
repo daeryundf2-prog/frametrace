@@ -15,6 +15,7 @@ This first implementation is the local core prototype:
 - Inspects/verifies E01/Ex01/S01/L01 evidence containers through libewf tools and exports them to raw images for downstream carving or mounting.
 - Lists active/deleted file-system entries from raw images through Sleuth Kit `mmls`/`fls` and recovers examiner-selected inodes through `icat`.
 - Carves contiguous MP4/AVI/Dahua-DAV candidates from raw files or forensic image files.
+- Validates indexed videos, carved candidates, and inode recoveries with `ffprobe` and records validation audit logs.
 - Tracks evidence sources and long-running jobs in SQLite.
 - Builds a checksummed report/review package directory.
 - Includes a serverless Evidence Viewer GUI prototype for the final viewer-first desktop shell.
@@ -64,11 +65,13 @@ cargo build --release
 .\target\release\frametrace.exe make-thumbnail C:\Cases\case-001 vid_000001 --time 5
 .\target\release\frametrace.exe make-proxy C:\Cases\case-001 vid_000001
 .\target\release\frametrace.exe export-video C:\Cases\case-001 vid_000001 --format mp4 --start 10 --duration 30
+.\target\release\frametrace.exe validate-artifact C:\Cases\case-001 vid_000001
 .\target\release\frametrace.exe make-report C:\Cases\case-001
 .\target\release\frametrace.exe package-case C:\Cases\case-001
 ```
 
 Open `C:\Cases\case-001\review\index.html` in a browser after `make-review`.
+Open `C:\Cases\case-001\review\evidence-viewer.html` for the viewer-first real case page after `make-review`.
 Open `C:\Cases\case-001\reports\case-report.html` after `make-report`.
 
 For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without `--hash`, then run deeper analysis only on selected folders or copied evidence. Repeated scans preserve the cumulative case index: `db/case.db` is the primary SQLite index, while `db/video_index.json`, `db/videos.jsonl`, and `db/video_paths.tsv` remain compatibility artifacts for review/export flows. Each scan run is also saved under `db/scan_runs/`.
@@ -89,6 +92,7 @@ cargo run -- make-thumbnail ./case-001 vid_000001 --time 5
 cargo run -- make-proxy ./case-001 vid_000001
 cargo run -- export-video ./case-001 vid_000001 --format mp4 --start 10 --duration 30
 cargo run -- export-video ./case-001 vid_000001 --format avi
+cargo run -- validate-artifact ./case-001 vid_000001
 cargo run -- carve-file ./case-001 /path/to/image-or-raw-file.bin --max-bytes 268435456
 cargo run -- make-report ./case-001
 cargo run -- package-case ./case-001
@@ -98,6 +102,7 @@ cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 ```
 
 Open `case-001/review/index.html` in a browser after `make-review`.
+Open `case-001/review/evidence-viewer.html` to review actual indexed/candidate media in a viewer-first page.
 Open `case-001/reports/case-report.html` after `make-report`.
 Open `gui/evidence-viewer/index.html` to review the viewer-first GUI prototype. The prototype defaults to Korean and can be switched to English from the top-right language button.
 
@@ -114,7 +119,7 @@ Default clip/proxy/thumbnail names are made unique when a file already exists. E
 cargo run -- init-case ./case-001 --title "Client CCTV review" --operator "Examiner" --device-id "SD-001" --device-serial "SN123" --write-protect "hardware write blocker" --acquisition-tool "FTK Imager" --evidence-hash "<device-or-image-sha256>"
 ```
 
-Export, proxy, thumbnail, and carve logs include SHA-256 values and tamper-evident hash-chain fields. Carved files are intentionally labeled as `candidate-unvalidated` until playback/container validation is performed.
+Export, proxy, thumbnail, validation, and carve logs include SHA-256 values and tamper-evident hash-chain fields. Carved and inode-recovered files are intentionally labeled as `candidate-unvalidated` until playback/container validation is performed.
 
 E01 support requires libewf command-line tools in `PATH`: `ewfinfo`, `ewfverify`, and `ewfexport`. `import-e01` verifies the E01, exports a raw image, hashes the raw output, and writes `evidence/logs/e01-audit.jsonl`. To inspect file-system contents, mount the E01/raw image read-only with a forensic mounter and run `scan-folder` on the mounted volume. To recover contiguous embedded video candidates directly from the raw image, run `carve-file` against the exported `.raw`.
 For file-system-aware deleted-file triage, install Sleuth Kit tools in `PATH` and run `inspect-image`/`recover-inode` against the exported `.raw`. These outputs remain `candidate-unvalidated` until examiner playback/container validation is recorded.
