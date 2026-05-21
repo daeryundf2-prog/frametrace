@@ -38,6 +38,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 
 - `docs/TECH_STACK.md` - architecture and implementation direction.
 - `docs/WINDOWS_USAGE.md` - Windows setup, build, and field usage notes.
+- `docs/WINDOWS_IMPLEMENTATION_HANDOFF.md` - Windows-side continuation checklist for build, real evidence validation, GUI shell, and release packaging.
 - `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
 - `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.
 - `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.
@@ -49,6 +50,8 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/OPENDESIGN_ADAPTATION.md` - OpenDesign-compatible FrameTrace design-system handoff notes.
 
 ## Windows Quick Start
+
+For the remaining Windows-only work, start with `docs/WINDOWS_IMPLEMENTATION_HANDOFF.md`. It is the handoff checklist for cloning the repo on Windows, validating the current engine, testing E01/raw-image workflows, and then implementing the production Windows GUI shell.
 
 Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available in `PATH`.
 
