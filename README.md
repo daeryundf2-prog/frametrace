@@ -39,6 +39,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/TECH_STACK.md` - architecture and implementation direction.
 - `docs/WINDOWS_USAGE.md` - Windows setup, build, and field usage notes.
 - `docs/WINDOWS_IMPLEMENTATION_HANDOFF.md` - Windows-side continuation checklist for build, real evidence validation, GUI shell, and release packaging.
+- `docs/WINDOWS_RISK_REVIEW.md` - Windows/GUI operational risks to resolve before production use.
 - `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
 - `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.
 - `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.

@@ -4,6 +4,8 @@
 
 현재 Rust 코어는 macOS에서 케이스 생성, 폴더 스캔, E01 import, Sleuth Kit 이미지 조사, inode 복구, carving, `ffprobe` 검증, 보고서, 패키징, 실제 케이스 기반 Evidence Viewer 생성까지 검증된 상태다. Windows에서는 프로젝트를 새로 만들지 말고, 현재 엔진을 Windows에서 검증하고 보강한 뒤 최종 GUI shell을 붙이면 된다.
 
+GUI 또는 Windows 배포 구현을 시작하기 전에 `docs/WINDOWS_RISK_REVIEW.md`도 함께 읽는다. 진행률/ETA, 중단 재개, 디스크 공간, dependency checker, audit chain 검증, 대량 리스트 성능은 production GUI 요구사항으로 취급한다.
+
 ## 0. Git에서 시작
 
 Windows 작업 PC에서:
@@ -15,7 +17,7 @@ git status
 git log -1 --oneline
 ```
 
-기준 커밋:
+최소 기준 커밋:
 
 ```text
 f5c95f5 Close the pre-Windows validation loop for case review
