@@ -166,7 +166,7 @@ Validate an indexed video, carved candidate ID, recovered inode output path, or 
 .\target\release\frametrace.exe validate-artifact C:\Cases\case-001 C:\Cases\case-001\artifacts\recovered\filesystem\inode_1304-128-1.bin
 ```
 
-Validation results are appended to `evidence\logs\validation-log.jsonl` and shown in the HTML report and evidence viewer. `verified-playable` means `ffprobe` found a video stream; the examiner should still perform playback review before final reporting.
+Validation results are appended to `evidence\logs\validation-log.jsonl` and shown in the HTML report and evidence viewer. `ffprobe-video-stream-confirmed` means `ffprobe` found a video stream; the examiner should still perform playback review before final reporting.
 
 Generate the current HTML report:
 

@@ -24,7 +24,7 @@ The screen answers these questions immediately:
 - Proxy, thumbnail, frame capture, clip export, and contrast/zoom outputs are derived artifacts.
 - Every derived artifact must link to source file ID, source hash when available, command parameters, operator, timestamp, and output hash.
 - Carved files are displayed as candidates until playback/container validation is recorded.
-- The viewer must distinguish `candidate-unvalidated`, `duplicate-candidate`, `verified playable`, and `derived artifact`.
+- The viewer must distinguish `candidate-unvalidated`, `duplicate-candidate`, `ffprobe-video-stream-confirmed`, and `derived artifact`.
 
 ## Video Review
 
@@ -79,7 +79,7 @@ The prototype was reviewed from both UI/UX and forensic-workflow perspectives. T
 - The `2ch` control renders a synchronized split review mock for paired front/rear clips.
 - Output and validation controls are queue-style prototype states, not durable forensic actions.
 - The activity panel is session activity only. Production audit must render chained engine logs.
-- A carved candidate must not become `verified playable` until a core validation command records tool, method, operator, timestamp, source artifact, and audit chain.
+- A carved candidate must not become `ffprobe-video-stream-confirmed` until a core validation command records tool, method, operator, timestamp, source artifact, and audit chain.
 
 ## OpenDesign Handoff
 

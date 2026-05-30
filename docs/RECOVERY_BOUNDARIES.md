@@ -31,4 +31,4 @@ Before reporting a recovered clip as usable evidence, validate container structu
 
 For Sleuth Kit inode recovery, also record the selected partition offset, inode/metadata address, and whether `icat -r` was used for deleted-file recovery. FrameTrace logs these values in `evidence/logs/tsk-audit.jsonl`.
 
-`validate-artifact` can promote an artifact's review signal to `verified-playable` only when `ffprobe` parses a video stream. It does not prove event relevance, timestamp accuracy, or court admissibility by itself.
+`validate-artifact` can promote an artifact's review signal to `ffprobe-video-stream-confirmed` only when `ffprobe` parses a video stream. It does not prove event relevance, timestamp accuracy, or court admissibility by itself.
