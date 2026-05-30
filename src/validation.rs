@@ -118,7 +118,7 @@ fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
         );
     }
     (
-        "verified-playable",
+        "ffprobe-video-stream-confirmed",
         "ffprobe parsed a video stream; examiner playback review is still required before final reporting.",
     )
 }
@@ -208,7 +208,7 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn classifies_successful_video_probe_as_verified_playable() {
+    fn classifies_successful_video_probe_as_ffprobe_confirmed() {
         let probe = ProbeSummary {
             ok: true,
             raw_json: Some("{}".to_string()),
@@ -220,7 +220,10 @@ mod tests {
             width: Some(1920),
             height: Some(1080),
         };
-        assert_eq!(validation_status(&probe).0, "verified-playable");
+        assert_eq!(
+            validation_status(&probe).0,
+            "ffprobe-video-stream-confirmed"
+        );
     }
 
     #[test]

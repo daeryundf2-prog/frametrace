@@ -9,6 +9,7 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>FrameTrace Review</title>
   <style>
     :root {{
@@ -354,6 +355,7 @@ pub fn render_evidence_viewer_html(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>FrameTrace Evidence Viewer</title>
   <style>
     :root {{
@@ -435,7 +437,7 @@ pub fn render_evidence_viewer_html(
         </select>
         <select id="status">
           <option value="">전체 검증 상태</option>
-          <option value="verified-playable">verified-playable</option>
+          <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
           <option value="validation-failed">validation-failed</option>
           <option value="candidate-unvalidated">candidate-unvalidated</option>
           <option value="duplicate-candidate">duplicate-candidate</option>
@@ -575,7 +577,7 @@ function fmtDuration(value) {{
   return `${{Math.floor(seconds / 60)}}:${{String(seconds % 60).padStart(2, "0")}}`;
 }}
 function statusClass(status) {{
-  if (status === "verified-playable" || status === "ffprobe-confirmed") return "ok";
+  if (status === "ffprobe-video-stream-confirmed" || status === "ffprobe-confirmed") return "ok";
   if (status === "validation-failed") return "failed";
   return "candidate";
 }}
@@ -645,7 +647,7 @@ function renderMetrics() {{
   els.caseLine.textContent = `${{manifest.case_id || "case"}} · ${{manifest.title || "Untitled"}} · ${{scan.source_path || "-"}}`;
   els.metricVideos.textContent = videos.length;
   els.metricCarved.textContent = carveLog.length;
-  els.metricVerified.textContent = records.filter(record => record.status === "verified-playable" || record.status === "ffprobe-confirmed").length;
+  els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
 }}
 function render() {{ renderMetrics(); renderList(); renderDetails(); }}
