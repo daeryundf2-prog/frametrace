@@ -373,7 +373,7 @@ fn merge_existing_with_scan(
         if let Some(updated) = current_by_source.get(&existing.source_path) {
             merged.push(updated.clone());
         } else {
-            merged.push(existing);
+            merged.push(existing.mark_stale(result.scanned_unix));
         }
     }
 
@@ -400,21 +400,18 @@ fn load_existing_record_lines(case_dir: &Path) -> Result<Vec<IndexedRecordLine>,
     };
 
     let mut records = Vec::new();
-    for (line_index, line) in text.lines().enumerate() {
+    for (line_index, line) in json_record_lines(&text).into_iter().enumerate() {
         let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
         let id = extract_json_string(line, "id").ok_or_else(|| {
             format!(
-                "failed to parse id in {} line {}",
+                "failed to parse id in {} record {}",
                 path.display(),
                 line_index + 1
             )
         })?;
         let source_path = extract_json_string(line, "source_path").ok_or_else(|| {
             format!(
-                "failed to parse source_path in {} line {}",
+                "failed to parse source_path in {} record {}",
                 path.display(),
                 line_index + 1
             )
@@ -426,6 +423,111 @@ fn load_existing_record_lines(case_dir: &Path) -> Result<Vec<IndexedRecordLine>,
         });
     }
     Ok(records)
+}
+
+impl IndexedRecordLine {
+    fn mark_stale(mut self, stale_since_unix: u64) -> Self {
+        self.json_line = set_json_field(
+            &set_json_field(&self.json_line, "index_status", "\"stale\""),
+            "stale_since_unix",
+            &stale_since_unix.to_string(),
+        );
+        self
+    }
+}
+
+fn set_json_field(line: &str, key: &str, value: &str) -> String {
+    if extract_json_value(line, key).is_some() {
+        replace_json_field(line, key, value)
+    } else {
+        insert_json_field(line, key, value)
+    }
+}
+
+fn replace_json_field(line: &str, key: &str, value: &str) -> String {
+    let needle = format!("\"{key}\":");
+    let Some(key_start) = line.find(&needle) else {
+        return insert_json_field(line, key, value);
+    };
+    let value_start = key_start + needle.len();
+    let whitespace_len = line[value_start..]
+        .chars()
+        .take_while(|ch| ch.is_whitespace())
+        .map(char::len_utf8)
+        .sum::<usize>();
+    let actual_value_start = value_start + whitespace_len;
+    let Some(existing_value) = extract_json_value(line, key) else {
+        return insert_json_field(line, key, value);
+    };
+    let actual_value_end = actual_value_start + existing_value.len();
+    format!(
+        "{}{}{}",
+        &line[..actual_value_start],
+        value,
+        &line[actual_value_end..]
+    )
+}
+
+fn insert_json_field(line: &str, key: &str, value: &str) -> String {
+    let trimmed = line.trim_end();
+    let Some(close_index) = trimmed.rfind('}') else {
+        return line.to_string();
+    };
+    let prefix = &trimmed[..close_index];
+    let suffix = &trimmed[close_index..];
+    let separator = if prefix.trim_end().ends_with('{') {
+        ""
+    } else {
+        ","
+    };
+    format!("{prefix}{separator}\"{key}\":{value}{suffix}")
+}
+
+fn json_record_lines(text: &str) -> Vec<String> {
+    let mut records = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for ch in text.chars() {
+        if depth > 0 {
+            current.push(ch);
+        } else if ch.is_whitespace() {
+            continue;
+        } else {
+            current.push(ch);
+        }
+
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && !current.trim().is_empty() {
+                    records.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !current.trim().is_empty() {
+        records.push(current.trim().to_string());
+    }
+    records
 }
 
 fn scan_index_json(result: &ScanResult, records: &[IndexedRecordLine]) -> String {
@@ -772,6 +874,8 @@ mod tests {
         let merged = merge_existing_with_scan(&case_dir, &result).unwrap();
         assert_eq!(merged.len(), 2);
         assert!(merged[0].json_line.contains("\"id\":\"vid_000001\""));
+        assert!(merged[0].json_line.contains("\"index_status\":\"stale\""));
+        assert!(merged[0].json_line.contains("\"stale_since_unix\":1"));
         assert!(merged[1].json_line.contains("\"id\":\"vid_000002\""));
         assert!(merged[1].json_line.contains("\"sha256\":\"abc\""));
 
