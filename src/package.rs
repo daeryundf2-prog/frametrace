@@ -49,6 +49,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     for rel in fixed_package_files() {
         copy_package_file(case_dir, &output_dir, Path::new(rel), &mut files)?;
     }
+    copy_markdown_reports(case_dir, &output_dir, &mut files)?;
     for rel_dir in recursive_package_dirs() {
         copy_package_dir(case_dir, &output_dir, Path::new(rel_dir), &mut files)?;
     }
@@ -117,6 +118,39 @@ fn recursive_package_dirs() -> &'static [&'static str] {
         "artifacts/recovered",
         "db/filesystem",
     ]
+}
+
+fn copy_markdown_reports(
+    case_dir: &Path,
+    output_dir: &Path,
+    files: &mut Vec<PackageFile>,
+) -> Result<(), String> {
+    let reports_dir = case_dir.join("reports");
+    if !reports_dir.is_dir() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(&reports_dir)
+        .map_err(|err| format!("failed to read reports directory: {err}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("failed to read reports entry: {err}"))?;
+        let path = entry.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+        {
+            continue;
+        }
+        copy_package_file(
+            case_dir,
+            output_dir,
+            &Path::new("reports").join(entry.file_name()),
+            files,
+        )?;
+    }
+    Ok(())
 }
 
 fn copy_package_dir(
@@ -224,10 +258,12 @@ mod tests {
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
         fs::write(case_dir.join("reports/case-report.html"), b"<html></html>").unwrap();
+        fs::write(case_dir.join("reports/summary.md"), b"# Summary").unwrap();
 
         let result = package_case(&case_dir, Some(&output_dir)).unwrap();
-        assert_eq!(result.file_count, 3);
+        assert_eq!(result.file_count, 4);
         assert!(output_dir.join("case.json").is_file());
+        assert!(output_dir.join("reports/summary.md").is_file());
         assert!(output_dir.join("manifest.sha256").is_file());
         assert!(result.manifest_path.is_file());
 
