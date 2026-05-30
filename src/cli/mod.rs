@@ -5,6 +5,7 @@ use crate::model::ScanOptions;
 use crate::tsk::{TskInspectOptions, TskRecoverOptions};
 use crate::validation::ValidationOptions;
 use crate::video_export::{ExportFormat, ExportOptions};
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -186,6 +187,8 @@ pub enum Commands {
         #[arg(long)]
         ffprobe: Option<String>,
     },
+    /// Verify a chained JSONL audit log and report tamper status
+    VerifyAudit { log_path: PathBuf },
     /// Create a synthetic SQLite index benchmark database for scale validation
     BenchmarkDb {
         output_dir: PathBuf,
@@ -200,8 +203,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     let cli = match Cli::try_parse_from(args) {
         Ok(c) => c,
         Err(e) => {
-            e.print().unwrap();
-            return Ok(());
+            let kind = e.kind();
+            e.print()
+                .map_err(|err| format!("failed to print command line help: {err}"))?;
+            return if matches!(kind, ErrorKind::DisplayHelp | ErrorKind::DisplayVersion) {
+                Ok(())
+            } else {
+                Err("invalid command line".to_string())
+            };
         }
     };
 
@@ -416,6 +425,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             };
             validate_artifact(&case_dir, &selector, options)
         }
+        Commands::VerifyAudit { log_path } => verify_audit(&log_path),
         Commands::BenchmarkDb { output_dir, rows } => {
             let options = BenchmarkOptions { rows };
             benchmark_db(&output_dir, options)

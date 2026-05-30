@@ -5,6 +5,12 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditChainVerification {
+    pub entries: usize,
+    pub last_entry_sha256: String,
+}
+
 pub fn digest_file(path: &Path) -> Result<String, String> {
     let file = File::open(path)
         .map_err(|err| format!("failed to open {} for hashing: {err}", path.display()))?;
@@ -57,6 +63,50 @@ pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> 
             "failed to append chained audit log {}: {err}",
             path.display()
         )
+    })
+}
+
+pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, String> {
+    let text = read_to_string(path)
+        .map_err(|err| format!("failed to read audit log {}: {err}", path.display()))?;
+    let mut previous_entry_sha256 = "GENESIS".to_string();
+    let mut last_entry_sha256 = previous_entry_sha256.clone();
+    let mut entries = 0usize;
+
+    for (index, line) in text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+    {
+        let line_number = index + 1;
+        let recorded_previous = extract_json_string(line, "previous_entry_sha256")
+            .ok_or_else(|| format!("audit line {line_number} is missing previous_entry_sha256"))?;
+        if recorded_previous != previous_entry_sha256 {
+            return Err(format!(
+                "audit line {line_number} previous hash mismatch: expected {previous_entry_sha256}, found {recorded_previous}"
+            ));
+        }
+
+        let recorded_entry = extract_json_string(line, "entry_sha256")
+            .ok_or_else(|| format!("audit line {line_number} is missing entry_sha256"))?;
+        let signed_entry = entry_without_recorded_hash(line).ok_or_else(|| {
+            format!("audit line {line_number} has invalid entry_sha256 placement")
+        })?;
+        let computed_entry = sha256::digest_bytes(signed_entry.as_bytes());
+        if recorded_entry != computed_entry {
+            return Err(format!(
+                "audit line {line_number} entry hash mismatch: expected {computed_entry}, found {recorded_entry}"
+            ));
+        }
+
+        previous_entry_sha256 = sha256::digest_bytes(line.as_bytes());
+        last_entry_sha256 = recorded_entry;
+        entries += 1;
+    }
+
+    Ok(AuditChainVerification {
+        entries,
+        last_entry_sha256,
     })
 }
 
@@ -139,9 +189,15 @@ fn extract_json_string(line: &str, key: &str) -> Option<String> {
     None
 }
 
+fn entry_without_recorded_hash(line: &str) -> Option<String> {
+    let marker = ",\"entry_sha256\":";
+    let start = line.rfind(marker)?;
+    Some(format!("{}}}", &line[..start]))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{append_chained_jsonl, digest_file};
+    use super::{append_chained_jsonl, digest_file, verify_chained_jsonl};
     use crate::util::read_to_string;
     use std::fs;
 
@@ -160,6 +216,28 @@ mod tests {
         assert!(text.contains("\"previous_entry_sha256\":\"GENESIS\""));
         assert!(text.contains("\"entry_sha256\""));
 
+        let verification = verify_chained_jsonl(&path).unwrap();
+        assert_eq!(verification.entries, 2);
+        assert_ne!(verification.last_entry_sha256, "GENESIS");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_tampered_audit_lines() {
+        let dir = std::env::temp_dir().join(format!(
+            "frametrace-audit-tamper-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+
+        append_chained_jsonl(&path, r#"{"kind":"one"}"#).unwrap();
+        let text = read_to_string(&path).unwrap().replace("one", "two");
+        fs::write(&path, text).unwrap();
+
+        assert!(verify_chained_jsonl(&path).is_err());
         let _ = fs::remove_dir_all(dir);
     }
 

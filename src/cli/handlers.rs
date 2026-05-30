@@ -1,4 +1,5 @@
 use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
+use crate::audit;
 use crate::carve::{self, CarveOptions};
 use crate::case_db;
 use crate::e01::{self, E01Options};
@@ -578,6 +579,14 @@ pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), 
     println!("rows: {}", result.rows);
     println!("elapsed_ms: {}", result.elapsed_ms);
     println!("db: {}", result.path.display());
+    Ok(())
+}
+
+pub fn verify_audit(log_path: &Path) -> Result<(), String> {
+    let result = audit::verify_chained_jsonl(log_path)?;
+    println!("audit verified: {}", log_path.display());
+    println!("entries: {}", result.entries);
+    println!("last entry sha256: {}", result.last_entry_sha256);
     Ok(())
 }
 
