@@ -155,7 +155,7 @@ impl VideoRecord {
         let width = optional_u32_json(self.probe.width);
         let height = optional_u32_json(self.probe.height);
         let ffprobe_json = match &self.probe.raw_json {
-            Some(raw) => raw.trim().to_string(),
+            Some(raw) => raw.trim().replace(['\r', '\n'], ""),
             None => "null".to_string(),
         };
         format!(
