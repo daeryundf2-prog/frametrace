@@ -17,7 +17,7 @@ const K: [u32; 64] = [
 
 pub fn digest_reader<R: Read>(mut reader: R) -> io::Result<String> {
     let mut state = Sha256State::new();
-    let mut buffer = [0u8; 1024 * 1024];
+    let mut buffer = vec![0u8; 1024 * 1024];
     loop {
         let read = reader.read(&mut buffer)?;
         if read == 0 {

@@ -132,7 +132,7 @@ pub fn inspect_image(
             .join("evidence/logs")
             .join(format!("tsk-mmls-{inspected_unix}.txt")),
     );
-    let mmls_args = vec![audit::path_string(&image_path)];
+    let mmls_args = vec![tsk_path_string(&image_path)];
     let mmls = run_capture(&options.mmls_bin, &mmls_args);
     let partitions = match &mmls {
         Ok(output) if output.status_success => {
@@ -391,13 +391,10 @@ fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
 }
 
 fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
-    let path = path
-        .canonicalize()
-        .map_err(|err| format!("failed to canonicalize forensic image path: {err}"))?;
     if !path.is_file() {
         return Err(format!("forensic image is not a file: {}", path.display()));
     }
-    Ok(path)
+    Ok(path.to_path_buf())
 }
 
 fn run_capture(binary: &str, args: &[String]) -> Result<CommandOutput, String> {
@@ -541,7 +538,7 @@ fn fls_args(image_path: &Path, offset: u64) -> Vec<String> {
         "-p".to_string(),
         "-o".to_string(),
         offset.to_string(),
-        audit::path_string(image_path),
+        tsk_path_string(image_path),
     ]
 }
 
@@ -559,10 +556,15 @@ fn icat_args(image_path: &Path, options: &TskRecoverOptions) -> Vec<String> {
     args.extend([
         "-o".to_string(),
         options.partition_offset.to_string(),
-        audit::path_string(image_path),
+        tsk_path_string(image_path),
         options.inode.clone(),
     ]);
     args
+}
+
+fn tsk_path_string(path: &Path) -> String {
+    let raw = audit::path_string(path);
+    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
 }
 
 fn sanitize_filename(value: &str) -> String {
