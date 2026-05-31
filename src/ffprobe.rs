@@ -1,4 +1,6 @@
 use crate::model::ProbeSummary;
+use crate::tool_policy::resolve_tool_binary;
+use crate::util::compact_json_value_if_well_formed;
 use std::path::Path;
 use std::process::Command;
 
@@ -7,7 +9,24 @@ pub fn probe(path: &Path) -> ProbeSummary {
 }
 
 pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
-    let output = Command::new(binary)
+    let binary = match resolve_tool_binary(binary, &["ffprobe"]) {
+        Ok(binary) => binary,
+        Err(error) => {
+            return ProbeSummary {
+                ok: false,
+                raw_json: None,
+                error: Some(error),
+                duration_seconds: None,
+                format_name: None,
+                video_codec: None,
+                audio_codec: None,
+                width: None,
+                height: None,
+            };
+        }
+    };
+
+    let output = Command::new(&binary)
         .arg("-v")
         .arg("error")
         .arg("-print_format")
@@ -49,6 +68,19 @@ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
     }
 
     let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    if compact_json_value_if_well_formed(&raw).is_none() {
+        return ProbeSummary {
+            ok: false,
+            raw_json: None,
+            error: Some("invalid ffprobe JSON output".to_string()),
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            audio_codec: None,
+            width: None,
+            height: None,
+        };
+    }
     let video_section = stream_section(&raw, "video");
     let audio_section = stream_section(&raw, "audio");
     ProbeSummary {

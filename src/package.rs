@@ -42,12 +42,23 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
                 .join(format!("package_{created_unix}")),
         ),
     };
+    validate_required_package_files(case_dir)?;
     fs::create_dir_all(&output_dir)
         .map_err(|err| format!("failed to create package output: {err}"))?;
 
     let mut files = Vec::new();
-    for rel in fixed_package_files() {
+    let mut missing_optional_files = Vec::new();
+    for rel in required_package_files() {
         copy_package_file(case_dir, &output_dir, Path::new(rel), &mut files)?;
+    }
+    for rel in optional_package_files() {
+        copy_optional_package_file(
+            case_dir,
+            &output_dir,
+            Path::new(rel),
+            &mut files,
+            &mut missing_optional_files,
+        )?;
     }
     copy_markdown_reports(case_dir, &output_dir, &mut files)?;
     for rel_dir in recursive_package_dirs() {
@@ -63,7 +74,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     write_text(&checksum_path, &checksum_text)
         .map_err(|err| format!("failed to write package checksum manifest: {err}"))?;
 
-    let manifest_json = package_manifest_json(created_unix, &files);
+    let manifest_json = package_manifest_json(created_unix, &files, &missing_optional_files);
     let manifest_path = output_dir.join("package-manifest.json");
     write_text(&manifest_path, &manifest_json)
         .map_err(|err| format!("failed to write package manifest: {err}"))?;
@@ -94,18 +105,39 @@ fn reject_recursive_package_output(case_dir: &Path, output_dir: &Path) -> Result
     Ok(())
 }
 
-fn fixed_package_files() -> &'static [&'static str] {
+fn required_package_files() -> &'static [&'static str] {
     &[
         "case.json",
         "db/case.db",
         "db/video_index.json",
         "db/videos.jsonl",
         "db/video_paths.tsv",
+    ]
+}
+
+fn optional_package_files() -> &'static [&'static str] {
+    &[
         "db/carve_results.json",
         "review/index.html",
         "review/evidence-viewer.html",
         "reports/case-report.html",
     ]
+}
+
+fn validate_required_package_files(case_dir: &Path) -> Result<(), String> {
+    let missing = required_package_files()
+        .iter()
+        .filter(|rel| !case_dir.join(rel).is_file())
+        .copied()
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "case package is missing required files: {}",
+            missing.join(", ")
+        ))
+    }
 }
 
 fn recursive_package_dirs() -> &'static [&'static str] {
@@ -174,9 +206,18 @@ fn copy_package_dir(
             entry.map_err(|err| format!("failed to read package directory entry: {err}"))?;
         let path = entry.path();
         let rel = rel_dir.join(entry.file_name());
-        if path.is_dir() {
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("failed to read package file type {}: {err}", path.display()))?;
+        if file_type.is_symlink() {
+            return Err(format!(
+                "package input contains unsupported symlink: {}",
+                path.display()
+            ));
+        }
+        if file_type.is_dir() {
             copy_package_dir(case_dir, output_dir, &rel, files)?;
-        } else if path.is_file() {
+        } else if file_type.is_file() {
             copy_package_file(case_dir, output_dir, &rel, files)?;
         }
     }
@@ -190,7 +231,23 @@ fn copy_package_file(
     files: &mut Vec<PackageFile>,
 ) -> Result<(), String> {
     let source = case_dir.join(rel);
-    if !source.is_file() {
+    let metadata = match fs::symlink_metadata(&source) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(format!(
+                "failed to inspect package source {}: {err}",
+                source.display()
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "package source cannot be a symlink: {}",
+            source.display()
+        ));
+    }
+    if !metadata.is_file() {
         return Ok(());
     }
     let target = output_dir.join(rel);
@@ -205,8 +262,6 @@ fn copy_package_file(
             target.display()
         )
     })?;
-    let metadata = fs::metadata(&target)
-        .map_err(|err| format!("failed to read package file metadata: {err}"))?;
     files.push(PackageFile {
         relative_path: rel.to_path_buf(),
         sha256: audit::digest_file(&target)?,
@@ -215,7 +270,25 @@ fn copy_package_file(
     Ok(())
 }
 
-fn package_manifest_json(created_unix: u64, files: &[PackageFile]) -> String {
+fn copy_optional_package_file(
+    case_dir: &Path,
+    output_dir: &Path,
+    rel: &Path,
+    files: &mut Vec<PackageFile>,
+    missing_optional_files: &mut Vec<PathBuf>,
+) -> Result<(), String> {
+    if !case_dir.join(rel).is_file() {
+        missing_optional_files.push(rel.to_path_buf());
+        return Ok(());
+    }
+    copy_package_file(case_dir, output_dir, rel, files)
+}
+
+fn package_manifest_json(
+    created_unix: u64,
+    files: &[PackageFile],
+    missing_optional_files: &[PathBuf],
+) -> String {
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str("  \"schema_version\": 1,\n");
@@ -231,6 +304,15 @@ fn package_manifest_json(created_unix: u64, files: &[PackageFile]) -> String {
             json_escape(&file.sha256)
         ));
         if index + 1 != files.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"missing_optional_files\": [\n");
+    for (index, rel) in missing_optional_files.iter().enumerate() {
+        out.push_str(&format!("    \"{}\"", json_escape(&rel.to_string_lossy())));
+        if index + 1 != missing_optional_files.len() {
             out.push(',');
         }
         out.push('\n');
@@ -256,16 +338,40 @@ mod tests {
         fs::create_dir_all(case_dir.join("db")).unwrap();
         fs::create_dir_all(case_dir.join("reports")).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        fs::write(case_dir.join("db/video_index.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
+        fs::write(case_dir.join("db/video_paths.tsv"), b"id\tsource_path\n").unwrap();
         fs::write(case_dir.join("reports/case-report.html"), b"<html></html>").unwrap();
         fs::write(case_dir.join("reports/summary.md"), b"# Summary").unwrap();
 
         let result = package_case(&case_dir, Some(&output_dir)).unwrap();
-        assert_eq!(result.file_count, 4);
         assert!(output_dir.join("case.json").is_file());
+        assert!(output_dir.join("db/case.db").is_file());
         assert!(output_dir.join("reports/summary.md").is_file());
         assert!(output_dir.join("manifest.sha256").is_file());
         assert!(result.manifest_path.is_file());
+        let manifest = fs::read_to_string(&result.manifest_path).unwrap();
+        assert!(manifest.contains("\"missing_optional_files\""));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_missing_required_package_files() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-package-required-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("package");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&case_dir).unwrap();
+        fs::write(case_dir.join("case.json"), b"{}").unwrap();
+
+        let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
+        assert!(err.contains("missing required files"));
+        assert!(!output_dir.exists());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -283,6 +389,35 @@ mod tests {
 
         let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
         assert!(err.contains("recursively packaged directory"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_package_inputs() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-package-symlink-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("package");
+        let outside = root.join("outside.txt");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
+        fs::write(case_dir.join("case.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        fs::write(case_dir.join("db/video_index.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
+        fs::write(case_dir.join("db/video_paths.tsv"), b"id\tsource_path\n").unwrap();
+        fs::write(&outside, b"outside").unwrap();
+        symlink(&outside, case_dir.join("evidence/logs/leak.txt")).unwrap();
+
+        let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
+        assert!(err.contains("unsupported symlink"));
 
         let _ = fs::remove_dir_all(root);
     }

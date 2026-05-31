@@ -1,4 +1,5 @@
 use crate::audit;
+use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -133,7 +134,7 @@ pub fn inspect_image(
             .join(format!("tsk-mmls-{inspected_unix}.txt")),
     );
     let mmls_args = vec![tsk_path_string(&image_path)];
-    let mmls = run_capture(&options.mmls_bin, &mmls_args);
+    let mmls = run_capture(&options.mmls_bin, &["mmls"], &mmls_args);
     let partitions = match &mmls {
         Ok(output) if output.status_success => {
             write_text(&mmls_log_path, &output.combined_text())
@@ -166,7 +167,7 @@ pub fn inspect_image(
             .join(format!("tsk-fls-{inspected_unix}.txt")),
     );
     let fls_args = fls_args(&image_path, partition_offset);
-    let fls = run_capture(&options.fls_bin, &fls_args)?;
+    let fls = run_capture(&options.fls_bin, &["fls"], &fls_args)?;
     write_text(&fls_log_path, &fls.combined_text())
         .map_err(|err| format!("failed to write fls log: {err}"))?;
     if !fls.status_success {
@@ -230,8 +231,8 @@ pub fn inspect_image(
             entries.len(),
             entries.iter().filter(|entry| entry.deleted).count(),
             entries.iter().filter(|entry| entry.video_candidate).count(),
-            json_escape(&tsk_command_version(&options.mmls_bin)),
-            json_escape(&tsk_command_version(&options.fls_bin)),
+            json_escape(&tsk_command_version(&options.mmls_bin, &["mmls"])),
+            json_escape(&tsk_command_version(&options.fls_bin, &["fls"])),
             json_escape(&mmls_log_path.to_string_lossy()),
             json_escape(&fls_log_path.to_string_lossy()),
             json_escape(&entries_jsonl_path.to_string_lossy()),
@@ -280,15 +281,18 @@ pub fn recover_inode(
                 .join(format!("inode_{}.bin", sanitize_filename(&options.inode))),
         ),
     };
+    require_case_output_path(case_dir, &output_path, "inode recovery")?;
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create recovery output directory: {err}"))?;
     }
 
     let args = icat_args(&image_path, options);
+    let icat_bin = resolve_tool_binary(&options.icat_bin, &["icat"])
+        .map_err(|err| format!("{err} (install Sleuth Kit and ensure icat is in PATH)"))?;
     let output = File::create(&output_path)
         .map_err(|err| format!("failed to create {}: {err}", output_path.display()))?;
-    let result = Command::new(&options.icat_bin)
+    let result = Command::new(&icat_bin)
         .args(&args)
         .stdout(Stdio::from(output))
         .stderr(Stdio::piped())
@@ -328,7 +332,7 @@ pub fn recover_inode(
             options.recover_deleted,
             options.include_slack,
             options.skip_sparse_holes,
-            json_escape(&tsk_command_version(&options.icat_bin)),
+            json_escape(&tsk_command_version(&options.icat_bin, &["icat"])),
             json_escape(&options.icat_bin),
             audit::json_string_array(&args)
         ),
@@ -397,8 +401,10 @@ fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-fn run_capture(binary: &str, args: &[String]) -> Result<CommandOutput, String> {
-    let output = Command::new(binary)
+fn run_capture(binary: &str, allowed: &[&str], args: &[String]) -> Result<CommandOutput, String> {
+    let resolved_binary = resolve_tool_binary(binary, allowed)
+        .map_err(|err| format!("{err} (install Sleuth Kit and ensure {binary} is in PATH)"))?;
+    let output = Command::new(&resolved_binary)
         .args(args)
         .output()
         .map_err(|err| format!("failed to run {binary}: {err}"))?;
@@ -425,20 +431,8 @@ impl CommandOutput {
     }
 }
 
-fn tsk_command_version(binary: &str) -> String {
-    match Command::new(binary).arg("-V").output() {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .unwrap_or("unknown")
-            .trim()
-            .to_string(),
-        Ok(output) => format!(
-            "unavailable: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(err) => format!("unavailable: {err}"),
-    }
+fn tsk_command_version(binary: &str, allowed: &[&str]) -> String {
+    command_version(binary, allowed, "-V")
 }
 
 fn parse_mmls_partitions(text: &str) -> Vec<MmlsPartition> {

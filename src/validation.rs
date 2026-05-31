@@ -1,6 +1,7 @@
 use crate::audit;
 use crate::ffprobe;
 use crate::model::ProbeSummary;
+use crate::tool_policy::command_version;
 use crate::util::{json_escape, now_unix, read_to_string};
 use crate::video_export::resolve_video_source;
 use std::path::{Path, PathBuf};
@@ -144,7 +145,11 @@ fn append_validation_log(
         optional_u32(result.probe.height),
         result.probe.ok,
         audit::optional_string(result.probe.error.as_deref()),
-        json_escape(&audit::command_version(&options.ffprobe_bin)),
+        json_escape(&command_version(
+            &options.ffprobe_bin,
+            &["ffprobe"],
+            "-version"
+        )),
         json_escape(&options.ffprobe_bin)
     );
     audit::append_chained_jsonl(&case_dir.join("evidence/logs/validation-log.jsonl"), &line)

@@ -1,4 +1,5 @@
 use crate::audit;
+use crate::tool_policy::require_case_output_path;
 use crate::util::{json_escape, now_unix, read_to_string, unique_path};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -51,6 +52,7 @@ pub fn export_video(
     let source_path = resolve_video_source(case_dir, selector)?;
     let export_unix = now_unix()?;
     let output_path = if let Some(output_path) = &options.output_path {
+        require_case_output_path(case_dir, output_path, "video export")?;
         if output_path.exists() {
             return Err(format!(
                 "output already exists: {} (choose a new --output path)",

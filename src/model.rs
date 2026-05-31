@@ -1,4 +1,4 @@
-use crate::util::{json_escape, path_to_file_url};
+use crate::util::{compact_json_value_if_well_formed, json_escape, path_to_file_url};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -155,7 +155,9 @@ impl VideoRecord {
         let width = optional_u32_json(self.probe.width);
         let height = optional_u32_json(self.probe.height);
         let ffprobe_json = match &self.probe.raw_json {
-            Some(raw) => raw.trim().replace(['\r', '\n'], ""),
+            Some(raw) => {
+                compact_json_value_if_well_formed(raw).unwrap_or_else(|| "null".to_string())
+            }
             None => "null".to_string(),
         };
         format!(

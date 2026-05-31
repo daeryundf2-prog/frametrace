@@ -197,6 +197,55 @@ pub enum Commands {
     },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
+    /// Run forensic QA validation checks
+    Qa {
+        #[command(subcommand)]
+        command: QaCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum QaCommands {
+    /// Compare an indexed case against a TSV ground-truth corpus manifest
+    Accuracy {
+        case_dir: PathBuf,
+        corpus_manifest: PathBuf,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
+    /// Compare two case directories for normalized deterministic equivalence
+    Reproducibility {
+        left_case_dir: PathBuf,
+        right_case_dir: PathBuf,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
+    /// Check whether required report-defensible artifacts exist
+    ReportDefense {
+        case_dir: PathBuf,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
+    /// Run a SQLite-backed scale benchmark and emit a performance report
+    Performance {
+        output_dir: PathBuf,
+        #[arg(long, default_value_t = 10000)]
+        rows: usize,
+    },
+    /// Run release-readiness QA and emit pass/fail blockers
+    Release {
+        case_dir: PathBuf,
+        #[arg(long)]
+        corpus_manifest: Option<PathBuf>,
+        #[arg(long)]
+        comparison_case: Option<PathBuf>,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+        #[arg(long)]
+        performance_output_dir: Option<PathBuf>,
+        #[arg(long, default_value_t = 100000)]
+        performance_rows: usize,
+    },
 }
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
@@ -431,5 +480,71 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             benchmark_db(&output_dir, options)
         }
         Commands::Inspect { case_dir } => inspect(&case_dir),
+        Commands::Qa { command } => run_qa(command),
+    }
+}
+
+fn run_qa(command: QaCommands) -> Result<(), String> {
+    match command {
+        QaCommands::Accuracy {
+            case_dir,
+            corpus_manifest,
+            output_dir,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
+            let report = crate::qa::accuracy_report(&case_dir, &corpus_manifest, &output_dir)?;
+            println!("accuracy QA passed: {}", report.report_path.display());
+            Ok(())
+        }
+        QaCommands::Reproducibility {
+            left_case_dir,
+            right_case_dir,
+            output_dir,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| left_case_dir.join("reports/qa"));
+            let report =
+                crate::qa::reproducibility_report(&left_case_dir, &right_case_dir, &output_dir)?;
+            println!(
+                "reproducibility QA passed: {}",
+                report.report_path.display()
+            );
+            Ok(())
+        }
+        QaCommands::ReportDefense {
+            case_dir,
+            output_dir,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
+            let report = crate::qa::report_defense_check(&case_dir, &output_dir)?;
+            println!("report-defense QA passed: {}", report.report_path.display());
+            Ok(())
+        }
+        QaCommands::Performance { output_dir, rows } => {
+            let report = crate::qa::performance_report(&output_dir, rows)?;
+            println!("performance QA passed: {}", report.report_path.display());
+            Ok(())
+        }
+        QaCommands::Release {
+            case_dir,
+            corpus_manifest,
+            comparison_case,
+            output_dir,
+            performance_output_dir,
+            performance_rows,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
+            let options = crate::qa::ReleaseReadinessOptions {
+                corpus_manifest,
+                comparison_case_dir: comparison_case,
+                performance_output_dir,
+                performance_rows,
+            };
+            let report = crate::qa::release_readiness_report(&case_dir, &output_dir, &options)?;
+            println!(
+                "release readiness QA passed: {}",
+                report.report_path.display()
+            );
+            Ok(())
+        }
     }
 }
