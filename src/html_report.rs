@@ -343,11 +343,13 @@ pub fn render_evidence_viewer_html(
     manifest_json: &str,
     index_json: &str,
     carve_log_jsonl: &str,
+    filesystem_log_jsonl: &str,
     validation_log_jsonl: &str,
 ) -> String {
     let manifest = json_for_script(manifest_json);
     let index = json_for_script(index_json);
     let carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl));
+    let filesystem_lines = json_for_script(&jsonl_to_array(filesystem_log_jsonl));
     let validation_lines = json_for_script(&jsonl_to_array(validation_log_jsonl));
     format!(
         r#"<!doctype html>
@@ -434,6 +436,7 @@ pub fn render_evidence_viewer_html(
           <option value="">전체 유형</option>
           <option value="video">색인 영상</option>
           <option value="carved">carving 후보</option>
+          <option value="filesystem">파일시스템 복구</option>
         </select>
         <select id="status">
           <option value="">전체 검증 상태</option>
@@ -483,9 +486,11 @@ pub fn render_evidence_viewer_html(
 const manifest = {manifest};
 const scan = {index};
 const carveLog = {carve_lines};
+const filesystemLog = {filesystem_lines};
 const validationLog = {validation_lines};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const validationsByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
+const recoveredFilesystemLog = filesystemLog.filter(item => item.event === "recover-inode" && item.output_path);
 const records = [
   ...videos.map(video => {{
     const validation = validationsByPath.get(normalizePath(video.source_path));
@@ -523,6 +528,26 @@ const records = [
       size: item.size_bytes,
       note: validation?.validation_note || item.validation_note || "-",
       offset: item.offset,
+      validation
+    }};
+  }}),
+  ...recoveredFilesystemLog.map(item => {{
+    const validation = validationsByPath.get(normalizePath(item.output_path));
+    return {{
+      id: `inode:${{item.partition_offset ?? 0}}:${{item.inode || item.output_path}}`,
+      kind: "filesystem",
+      name: item.output_path ? item.output_path.split(/[\\\\/]/).pop() : item.inode,
+      path: item.output_path,
+      fileUrl: fileUrl(item.output_path),
+      parser: "tsk/icat",
+      vendor: "Filesystem recovery",
+      status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
+      sha256: validation?.target_sha256 || item.sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || "-",
+      size: item.size_bytes,
+      note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
+      offset: item.partition_offset,
       validation
     }};
   }})
@@ -646,7 +671,7 @@ function renderDetails() {{
 function renderMetrics() {{
   els.caseLine.textContent = `${{manifest.case_id || "case"}} · ${{manifest.title || "Untitled"}} · ${{scan.source_path || "-"}}`;
   els.metricVideos.textContent = videos.length;
-  els.metricCarved.textContent = carveLog.length;
+  els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
 }}
@@ -671,4 +696,20 @@ fn jsonl_to_array(jsonl: &str) -> String {
         .filter(|line| !line.is_empty())
         .collect();
     format!("[{}]", items.join(","))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_evidence_viewer_html;
+
+    #[test]
+    fn evidence_viewer_includes_filesystem_recovery_records() {
+        let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
+        let index = r#"{"videos":[]}"#;
+        let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
+        let html = render_evidence_viewer_html(manifest, index, "", filesystem, "");
+        assert!(html.contains("recoveredFilesystemLog"));
+        assert!(html.contains("tsk/icat"));
+        assert!(html.contains("inode_1304.bin"));
+    }
 }

@@ -1,4 +1,5 @@
 use crate::audit;
+use crate::tool_policy::require_case_output_path;
 use crate::util::{json_escape, now_unix, unique_path};
 use crate::video_export::{resolve_video_source, sanitize_filename};
 use std::path::{Path, PathBuf};
@@ -53,6 +54,7 @@ pub fn generate_proxy(
     let source_path = resolve_video_source(case_dir, selector)?;
     let created_unix = now_unix()?;
     let output_path = if let Some(output_path) = &options.output_path {
+        require_case_output_path(case_dir, output_path, "proxy")?;
         if output_path.exists() {
             return Err(format!(
                 "output already exists: {} (choose a new --output path)",
@@ -108,6 +110,7 @@ pub fn generate_thumbnail(
     let source_path = resolve_video_source(case_dir, selector)?;
     let created_unix = now_unix()?;
     let output_path = if let Some(output_path) = &options.output_path {
+        require_case_output_path(case_dir, output_path, "thumbnail")?;
         if output_path.exists() {
             return Err(format!(
                 "output already exists: {} (choose a new --output path)",

@@ -42,8 +42,12 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/WINDOWS_RISK_REVIEW.md` - Windows/GUI operational risks to resolve before production use.
 - `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
 - `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.
+- `docs/recovery-prd.md` - approved recovery requirements for the current hardening slice.
+- `docs/recovery-test-spec.md` - recovery, QA, reproducibility, and scale validation commands.
+- `docs/validation-corpus.md` - corpus manifest structure and pass criteria.
 - `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.
 - `docs/PERFORMANCE_VALIDATION.md` - SQLite scale benchmark and large-media rules.
+- `docs/FORENSIC_HARDENING_PLAN.md` - gated cleanup, DB, provenance, reproducibility, report defensibility, and scale-validation roadmap.
 - `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
 - `docs/MANUFACTURER_PARSER_RESEARCH.md` - manufacturer-specific parser targets, priority, detection rules, and source links.
@@ -71,6 +75,7 @@ cargo build --release
 .\target\release\frametrace.exe export-video C:\Cases\case-001 vid_000001 --format mp4 --start 10 --duration 30
 .\target\release\frametrace.exe validate-artifact C:\Cases\case-001 vid_000001
 .\target\release\frametrace.exe make-report C:\Cases\case-001
+.\target\release\frametrace.exe qa report-defense C:\Cases\case-001
 .\target\release\frametrace.exe package-case C:\Cases\case-001
 ```
 
@@ -99,6 +104,11 @@ cargo run -- export-video ./case-001 vid_000001 --format avi
 cargo run -- validate-artifact ./case-001 vid_000001
 cargo run -- carve-file ./case-001 /path/to/image-or-raw-file.bin --max-bytes 268435456
 cargo run -- make-report ./case-001
+cargo run -- qa report-defense ./case-001
+cargo run -- qa accuracy ./case-001 ./corpus.tsv
+cargo run -- qa reproducibility ./case-001 ./case-001
+cargo run -- qa performance ./target/frametrace-qa-performance --rows 10000
+cargo run -- qa release ./case-001 --corpus-manifest ./corpus.tsv --comparison-case ./case-001 --performance-output-dir ./target/frametrace-release-performance --performance-rows 10000
 cargo run -- package-case ./case-001
 cargo run -- inspect ./case-001
 cargo run -- list-parsers
@@ -115,7 +125,7 @@ By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evid
 Exported clips are written to `case-001/artifacts/clips/` unless `--output` is provided.
 Proxy files are written to `case-001/artifacts/proxies/`, thumbnails to `case-001/artifacts/thumbnails/`, and carved recovery candidates to `case-001/artifacts/carved/`.
 Filesystem inode recoveries are written to `case-001/artifacts/recovered/filesystem/`.
-Default clip/proxy/thumbnail names are made unique when a file already exists. Explicit `--output` paths are never overwritten; choose a new path if the target already exists.
+Default clip/proxy/thumbnail names are made unique when a file already exists. Explicit `--output` paths for derived evidence/recovery artifacts must remain inside the case directory and are never overwritten; choose a new path if the target already exists.
 
 `init-case` can record chain-of-custody context up front:
 

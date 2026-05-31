@@ -1,4 +1,5 @@
 use crate::audit;
+use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -44,6 +45,7 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
     let inspected_unix = now_unix()?;
     let info = run_capture(
         &options.ewfinfo_bin,
+        &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
     )?;
     let info_log_path = unique_path(
@@ -66,7 +68,7 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
             inspected_unix,
             json_escape(&e01_path.to_string_lossy()),
             audit::optional_string(e01_sha256.as_deref()),
-            json_escape(&ewf_command_version(&options.ewfinfo_bin)),
+            json_escape(&ewf_command_version(&options.ewfinfo_bin, &["ewfinfo"])),
             json_escape(&info_log_path.to_string_lossy())
         ),
     )
@@ -82,6 +84,7 @@ pub fn import_e01(
 
     let info = run_capture(
         &options.ewfinfo_bin,
+        &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
     )?;
     let info_log_path = unique_path(
@@ -108,7 +111,7 @@ pub fn import_e01(
             audit::path_string(&path),
             audit::path_string(&e01_path),
         ];
-        run_status(&options.ewfverify_bin, &args)?;
+        run_status(&options.ewfverify_bin, &["ewfverify"], &args)?;
         Some(path)
     };
 
@@ -117,6 +120,7 @@ pub fn import_e01(
             .join("evidence/images")
             .join(default_raw_filename(&e01_path))
     });
+    require_case_output_path(case_dir, &requested_raw_path, "E01 raw")?;
     if requested_raw_path.exists() {
         return Err(format!(
             "output already exists: {} (choose a new --output path)",
@@ -142,7 +146,7 @@ pub fn import_e01(
             .join(format!("e01-export-{imported_unix}.txt")),
     );
     let export_args = ewfexport_args(&e01_path, &export_target, options, &export_log_path);
-    run_status(&options.ewfexport_bin, &export_args)?;
+    run_status(&options.ewfexport_bin, &["ewfexport"], &export_args)?;
     let generated_raw_path = resolve_ewfexport_output(&generated_raw_path)?;
     if generated_raw_path != requested_raw_path {
         std::fs::rename(&generated_raw_path, &requested_raw_path).map_err(|err| {
@@ -177,9 +181,9 @@ pub fn import_e01(
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "null".to_string()),
             !options.skip_verify,
-            json_escape(&ewf_command_version(&options.ewfinfo_bin)),
-            json_escape(&ewf_command_version(&options.ewfverify_bin)),
-            json_escape(&ewf_command_version(&options.ewfexport_bin)),
+            json_escape(&ewf_command_version(&options.ewfinfo_bin, &["ewfinfo"])),
+            json_escape(&ewf_command_version(&options.ewfverify_bin, &["ewfverify"])),
+            json_escape(&ewf_command_version(&options.ewfexport_bin, &["ewfexport"])),
             json_escape(&info_log_path.to_string_lossy()),
             audit::optional_string(
                 verify_log_path
@@ -287,8 +291,13 @@ fn resolve_ewfexport_output(expected: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-fn run_capture(binary: &str, args: &[&str]) -> Result<CommandOutput, String> {
-    let output = Command::new(binary).args(args).output().map_err(|err| {
+fn run_capture(binary: &str, allowed: &[&str], args: &[&str]) -> Result<CommandOutput, String> {
+    let resolved_binary = resolve_tool_binary(binary, allowed)
+        .map_err(|err| format!("{err} (install libewf tools and ensure {binary} is in PATH)"))?;
+    let output = Command::new(&resolved_binary)
+        .args(args)
+        .output()
+        .map_err(|err| {
         format!(
             "failed to run {binary}: {err} (install libewf tools and ensure {binary} is in PATH)"
         )
@@ -304,8 +313,13 @@ fn run_capture(binary: &str, args: &[&str]) -> Result<CommandOutput, String> {
     })
 }
 
-fn run_status(binary: &str, args: &[String]) -> Result<(), String> {
-    let output = Command::new(binary).args(args).output().map_err(|err| {
+fn run_status(binary: &str, allowed: &[&str], args: &[String]) -> Result<(), String> {
+    let resolved_binary = resolve_tool_binary(binary, allowed)
+        .map_err(|err| format!("{err} (install libewf tools and ensure {binary} is in PATH)"))?;
+    let output = Command::new(&resolved_binary)
+        .args(args)
+        .output()
+        .map_err(|err| {
         format!(
             "failed to run {binary}: {err} (install libewf tools and ensure {binary} is in PATH)"
         )
@@ -320,25 +334,8 @@ fn run_status(binary: &str, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn ewf_command_version(binary: &str) -> String {
-    match Command::new(binary).arg("-V").output() {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            stdout
-                .lines()
-                .chain(stderr.lines())
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or("unknown")
-                .trim()
-                .to_string()
-        }
-        Ok(output) => format!(
-            "unavailable: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(err) => format!("unavailable: {err}"),
-    }
+fn ewf_command_version(binary: &str, allowed: &[&str]) -> String {
+    command_version(binary, allowed, "-V")
 }
 
 fn append_e01_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
@@ -412,6 +409,9 @@ mod tests {
 
     #[test]
     fn missing_ewf_version_reports_unavailable() {
-        assert!(ewf_command_version("frametrace-missing-ewf-binary").contains("unavailable"));
+        assert!(
+            ewf_command_version("frametrace-missing-ewf-binary", &["ewfinfo"])
+                .contains("unavailable")
+        );
     }
 }

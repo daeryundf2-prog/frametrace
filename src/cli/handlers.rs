@@ -262,12 +262,15 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
     let carve_log =
         read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
+    let filesystem_log =
+        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
         &carve_log,
+        &filesystem_log,
         &validation_log,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");

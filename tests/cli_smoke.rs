@@ -61,6 +61,51 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     ]));
     assert_success(&run(&["make-review", path(&case_dir)]));
     assert_success(&run(&["make-report", path(&case_dir)]));
+
+    let corpus_manifest = root.join("corpus.tsv");
+    let indexed_source = media_dir
+        .join("clip.mp4")
+        .canonicalize()
+        .expect("fixture path should canonicalize");
+    fs::write(
+        &corpus_manifest,
+        format!("source_path\tsha256\n{}\t\n", indexed_source.display()),
+    )
+    .expect("corpus manifest should be written");
+    assert_success(&run(&[
+        "qa",
+        "accuracy",
+        path(&case_dir),
+        path(&corpus_manifest),
+    ]));
+    assert_success(&run(&[
+        "qa",
+        "reproducibility",
+        path(&case_dir),
+        path(&case_dir),
+    ]));
+    assert_success(&run(&["qa", "report-defense", path(&case_dir)]));
+    assert_success(&run(&[
+        "qa",
+        "performance",
+        path(&root.join("qa-performance")),
+        "--rows",
+        "1000",
+    ]));
+    assert_success(&run(&[
+        "qa",
+        "release",
+        path(&case_dir),
+        "--corpus-manifest",
+        path(&corpus_manifest),
+        "--comparison-case",
+        path(&case_dir),
+        "--performance-output-dir",
+        path(&root.join("qa-release-performance")),
+        "--performance-rows",
+        "1000",
+    ]));
+
     assert_success(&run(&["package-case", path(&case_dir)]));
     assert_success(&run(&["inspect", path(&case_dir)]));
 
@@ -68,6 +113,26 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     assert!(case_dir.join("review/index.html").is_file());
     assert!(case_dir.join("review/evidence-viewer.html").is_file());
     assert!(case_dir.join("reports/case-report.html").is_file());
+    assert!(case_dir.join("reports/qa/accuracy-report.json").is_file());
+    assert!(
+        case_dir
+            .join("reports/qa/reproducibility-report.json")
+            .is_file()
+    );
+    assert!(
+        case_dir
+            .join("reports/qa/report-defense-checklist.md")
+            .is_file()
+    );
+    assert!(
+        root.join("qa-performance/performance-report.json")
+            .is_file()
+    );
+    assert!(case_dir.join("reports/qa/release-readiness.json").is_file());
+    assert!(
+        root.join("qa-release-performance/performance-report.json")
+            .is_file()
+    );
 
     let _ = fs::remove_dir_all(root);
 }

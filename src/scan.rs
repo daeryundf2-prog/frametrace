@@ -24,7 +24,8 @@ pub fn scan_folder(
     let source_dir = source_dir
         .canonicalize()
         .map_err(|err| format!("failed to canonicalize source: {err}"))?;
-    let collection = collect_video_candidates(&source_dir, options.max_depth)?;
+    let excluded_dirs = excluded_case_dirs(case_dir, &source_dir)?;
+    let collection = collect_video_candidates(&source_dir, options.max_depth, &excluded_dirs)?;
     let mut id_registry = load_existing_video_ids(case_dir)?;
     let mut records = Vec::with_capacity(collection.files.len());
     let mut total_bytes = 0u64;
@@ -104,6 +105,7 @@ struct CandidateCollection {
 fn collect_video_candidates(
     source_dir: &Path,
     max_depth: Option<usize>,
+    excluded_dirs: &[PathBuf],
 ) -> Result<CandidateCollection, String> {
     let mut out = Vec::new();
     let mut warnings = Vec::new();
@@ -146,6 +148,13 @@ fn collect_video_candidates(
                 }
             };
             if file_type.is_dir() {
+                if path_is_or_is_under_excluded_dir(&path, excluded_dirs) {
+                    warnings.push(format!(
+                        "skipped FrameTrace case output directory {}",
+                        path.display()
+                    ));
+                    continue;
+                }
                 queue.push_back((path, depth + 1));
             } else if file_type.is_file() && looks_like_video(&path) {
                 out.push(path);
@@ -158,6 +167,29 @@ fn collect_video_candidates(
         files: out,
         warnings,
     })
+}
+
+fn excluded_case_dirs(case_dir: &Path, source_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let case_dir = case_dir
+        .canonicalize()
+        .unwrap_or_else(|_| case_dir.to_path_buf());
+    if case_dir == source_dir {
+        return Err(format!(
+            "source directory cannot be the FrameTrace case directory: {}",
+            source_dir.display()
+        ));
+    }
+    if case_dir.starts_with(source_dir) {
+        Ok(vec![case_dir])
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+fn path_is_or_is_under_excluded_dir(path: &Path, excluded_dirs: &[PathBuf]) -> bool {
+    excluded_dirs
+        .iter()
+        .any(|excluded| path == excluded || path.starts_with(excluded))
 }
 
 fn looks_like_video(path: &Path) -> bool {
@@ -783,7 +815,10 @@ fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_json_string, looks_like_video, merge_existing_with_scan};
+    use super::{
+        collect_video_candidates, excluded_case_dirs, extract_json_string, looks_like_video,
+        merge_existing_with_scan,
+    };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
     use std::path::PathBuf;
@@ -806,6 +841,56 @@ mod tests {
         fs::write(&path, b"\0\0\0\x18ftypmp42").unwrap();
         assert!(looks_like_video(&path));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_scanning_the_case_directory_as_source() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-case-source-reject-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let canonical = root.canonicalize().unwrap();
+        let err = excluded_case_dirs(&canonical, &canonical).unwrap_err();
+        assert!(err.contains("source directory cannot be the FrameTrace case directory"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn collect_candidates_skips_excluded_case_output_tree() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-scan-exclusion-test-{}",
+            std::process::id()
+        ));
+        let source_dir = root.join("source");
+        let case_dir = source_dir.join("case");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(source_dir.join("camera")).unwrap();
+        fs::create_dir_all(case_dir.join("artifacts/clips")).unwrap();
+        fs::write(source_dir.join("camera/real.mp4"), b"not actually media").unwrap();
+        fs::write(
+            case_dir.join("artifacts/clips/derived.mp4"),
+            b"not actually media",
+        )
+        .unwrap();
+
+        let collection =
+            collect_video_candidates(&source_dir, None, std::slice::from_ref(&case_dir)).unwrap();
+        let names = collection
+            .files
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["real.mp4"]);
+        assert!(
+            collection
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("skipped FrameTrace case output directory"))
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

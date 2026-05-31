@@ -1,9 +1,9 @@
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub(crate) const SCHEMA_VERSION: &str = "1";
+pub(crate) const SCHEMA_VERSION: &str = "2";
 
 pub fn case_db_path(case_dir: &Path) -> PathBuf {
     case_dir.join("db/case.db")
@@ -36,9 +36,6 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-
-        INSERT OR IGNORE INTO schema_meta (key, value)
-        VALUES ('schema_version', '1');
 
         CREATE TABLE IF NOT EXISTS scan_runs (
             run_pk INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,13 +147,94 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
         )
         .optional()
         .map_err(|err| format!("failed to read SQLite schema version: {err}"))?;
-    if stored.as_deref() != Some(SCHEMA_VERSION) {
-        return Err(format!(
-            "unsupported SQLite schema version: {}",
-            stored.unwrap_or_else(|| "missing".to_string())
-        ));
+    match stored.as_deref() {
+        None => {
+            apply_schema_v2_indexes(conn)?;
+            conn.execute(
+                "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
+                [SCHEMA_VERSION],
+            )
+            .map_err(|err| format!("failed to store SQLite schema version: {err}"))?;
+        }
+        Some("1") => migrate_v1_to_v2(conn)?,
+        Some(SCHEMA_VERSION) => apply_schema_v2_indexes(conn)?,
+        Some(version) => {
+            return Err(format!("unsupported SQLite schema version: {version}"));
+        }
     }
     Ok(())
+}
+
+fn migrate_v1_to_v2(conn: &Connection) -> Result<(), String> {
+    backup_database(conn, "1", "2")?;
+    apply_schema_v2_indexes(conn)?;
+    conn.execute(
+        "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION],
+    )
+    .map_err(|err| format!("failed to update SQLite schema version: {err}"))?;
+    Ok(())
+}
+
+fn apply_schema_v2_indexes(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS videos_modified_unix_idx
+            ON videos (modified_unix);
+        CREATE INDEX IF NOT EXISTS videos_ffprobe_ok_idx
+            ON videos (ffprobe_ok);
+        CREATE INDEX IF NOT EXISTS videos_confidence_idx
+            ON videos (confidence);
+        CREATE INDEX IF NOT EXISTS videos_extension_modified_idx
+            ON videos (extension, modified_unix);
+        CREATE INDEX IF NOT EXISTS videos_last_scanned_idx
+            ON videos (last_scanned_unix);
+        "#,
+    )
+    .map_err(|err| format!("failed to apply SQLite v2 indexes: {err}"))
+}
+
+fn backup_database(conn: &Connection, from_version: &str, to_version: &str) -> Result<(), String> {
+    let Some(db_path) = main_database_path(conn)? else {
+        return Ok(());
+    };
+    if !db_path.is_file() {
+        return Ok(());
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("system time before UNIX epoch: {err}"))?
+        .as_secs();
+    let backup_name = format!("case.db.backup-v{from_version}-to-v{to_version}-{timestamp}");
+    let backup_path = db_path.with_file_name(backup_name);
+    fs::copy(&db_path, &backup_path).map_err(|err| {
+        format!(
+            "failed to create SQLite migration backup {}: {err}",
+            backup_path.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn main_database_path(conn: &Connection) -> Result<Option<PathBuf>, String> {
+    let mut stmt = conn
+        .prepare("PRAGMA database_list")
+        .map_err(|err| format!("failed to inspect SQLite database list: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            let name: String = row.get(1)?;
+            let path: String = row.get(2)?;
+            Ok((name, path))
+        })
+        .map_err(|err| format!("failed to query SQLite database list: {err}"))?;
+    for row in rows {
+        let (name, path) =
+            row.map_err(|err| format!("failed to read SQLite database list row: {err}"))?;
+        if name == "main" && !path.is_empty() {
+            return Ok(Some(PathBuf::from(path)));
+        }
+    }
+    Ok(None)
 }
 
 pub(crate) fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, String> {
@@ -169,4 +247,86 @@ pub(crate) fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, 
         .optional()
         .map_err(|err| format!("failed to inspect SQLite schema: {err}"))?;
     Ok(found.is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SCHEMA_VERSION, case_db_path, init_schema, open_case_db};
+    use rusqlite::{Connection, OptionalExtension};
+    use std::fs;
+
+    #[test]
+    fn initializes_new_databases_at_current_schema_version() {
+        let case_dir =
+            std::env::temp_dir().join(format!("frametrace-schema-new-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&case_dir);
+
+        let conn = open_case_db(&case_dir).unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
+        assert!(index_exists(&conn, "videos_modified_unix_idx"));
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn migrates_v1_schema_to_current_with_backup() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-schema-migrate-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        let db_path = case_db_path(&case_dir);
+        let seed = Connection::open(&db_path).unwrap();
+        seed.execute_batch(
+            r#"
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO schema_meta (key, value) VALUES ('schema_version', '1');
+            "#,
+        )
+        .unwrap();
+        drop(seed);
+
+        let conn = open_case_db(&case_dir).unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
+        assert!(index_exists(&conn, "videos_extension_modified_idx"));
+        let backup_exists = fs::read_dir(case_dir.join("db"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("case.db.backup-v1-to-v2-")
+            });
+        assert!(backup_exists);
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    fn read_schema_version(conn: &Connection) -> Option<String> {
+        conn.query_row(
+            "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    fn index_exists(conn: &Connection, index_name: &str) -> bool {
+        conn.query_row(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            [index_name],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .unwrap()
+        .is_some()
+    }
 }

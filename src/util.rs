@@ -117,6 +117,59 @@ pub fn path_to_file_url(path: &Path) -> String {
     }
 }
 
+pub fn compact_json_value_if_well_formed(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let opener = trimmed.chars().next()?;
+    let closer = match opener {
+        '{' => '}',
+        '[' => ']',
+        _ => return None,
+    };
+
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut compact = String::new();
+
+    for ch in trimmed.chars() {
+        if in_string {
+            compact.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => {
+                in_string = true;
+                compact.push(ch);
+            }
+            '{' | '[' => {
+                stack.push(if ch == '{' { '}' } else { ']' });
+                compact.push(ch);
+            }
+            '}' | ']' => {
+                if stack.pop()? != ch {
+                    return None;
+                }
+                compact.push(ch);
+            }
+            ch if ch.is_whitespace() => {}
+            _ => compact.push(ch),
+        }
+    }
+
+    if in_string || escaped || !stack.is_empty() || !compact.ends_with(closer) {
+        return None;
+    }
+    Some(compact)
+}
+
 fn percent_encode_path(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for byte in input.as_bytes() {
@@ -132,7 +185,7 @@ fn percent_encode_path(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{json_escape, path_to_file_url, unique_path};
+    use super::{compact_json_value_if_well_formed, json_escape, path_to_file_url, unique_path};
     use std::fs;
     use std::path::Path;
 
@@ -146,6 +199,16 @@ mod tests {
         let url = path_to_file_url(Path::new("/tmp/a b.mp4"));
         assert!(url.starts_with("file://"));
         assert!(url.contains("a%20b.mp4"));
+    }
+
+    #[test]
+    fn compacts_only_well_formed_json_values() {
+        assert_eq!(
+            compact_json_value_if_well_formed("{\n  \"a\": \"x y\"\n}").as_deref(),
+            Some("{\"a\":\"x y\"}")
+        );
+        assert_eq!(compact_json_value_if_well_formed("not json"), None);
+        assert_eq!(compact_json_value_if_well_formed("{\"a\":1"), None);
     }
 
     #[test]
