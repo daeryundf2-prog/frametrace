@@ -619,23 +619,251 @@ fn insert_indexed_evidence(
 fn normalized_case_core(case_dir: &Path) -> Result<String, String> {
     let mut parts = Vec::new();
     for rel in ["db/videos.jsonl", "db/video_paths.tsv"] {
-        let path = case_dir.join(rel);
+        parts.push(normalized_required_file_part(case_dir, rel)?);
+    }
+    for rel in [
+        "db/carve_results.json",
+        "artifacts/carved/carve-log.jsonl",
+        "evidence/logs/tsk-audit.jsonl",
+        "evidence/logs/validation-log.jsonl",
+    ] {
+        if let Some(part) = normalized_optional_file_part(case_dir, rel)? {
+            parts.push(part);
+        }
+    }
+    parts.extend(normalized_optional_dir_parts(case_dir, "db/filesystem")?);
+    parts.extend(normalized_package_manifest_parts(case_dir)?);
+    parts.sort();
+    Ok(parts.join("\n"))
+}
+
+fn normalized_required_file_part(case_dir: &Path, rel: &str) -> Result<String, String> {
+    let path = case_dir.join(rel);
+    let text = read_to_string(&path).map_err(|err| {
+        format!(
+            "failed to read reproducibility input {}: {err}",
+            path.display()
+        )
+    })?;
+    Ok(normalized_text_part(case_dir, rel, &text))
+}
+
+fn normalized_optional_file_part(case_dir: &Path, rel: &str) -> Result<Option<String>, String> {
+    let path = case_dir.join(rel);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = read_to_string(&path).map_err(|err| {
+        format!(
+            "failed to read reproducibility input {}: {err}",
+            path.display()
+        )
+    })?;
+    Ok(Some(normalized_text_part(case_dir, rel, &text)))
+}
+
+fn normalized_optional_dir_parts(case_dir: &Path, rel_dir: &str) -> Result<Vec<String>, String> {
+    let dir = case_dir.join(rel_dir);
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    collect_files_recursively(&dir, &mut files)?;
+    files.sort();
+
+    let mut normalized_contents = Vec::new();
+    for path in files {
         let text = read_to_string(&path).map_err(|err| {
             format!(
                 "failed to read reproducibility input {}: {err}",
                 path.display()
             )
         })?;
-        let mut lines = text
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        lines.sort();
-        parts.push(format!("{rel}\n{}\n", lines.join("\n")));
+        normalized_contents.push(normalized_text_part(case_dir, rel_dir, &text));
     }
-    Ok(parts.join("\n"))
+    normalized_contents.sort();
+    Ok(normalized_contents
+        .into_iter()
+        .enumerate()
+        .map(|(index, part)| format!("{rel_dir}_artifact_{index}\n{part}"))
+        .collect())
+}
+
+fn normalized_package_manifest_parts(case_dir: &Path) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    collect_files_recursively(case_dir, &mut files)?;
+    files.retain(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "package-manifest.json" || name == "manifest.sha256")
+    });
+
+    let mut normalized_contents = Vec::new();
+    for path in files {
+        let text = read_to_string(&path).map_err(|err| {
+            format!(
+                "failed to read package reproducibility input {}: {err}",
+                path.display()
+            )
+        })?;
+        let label = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("package-manifest");
+        normalized_contents.push(normalized_text_part(case_dir, label, &text));
+    }
+    normalized_contents.sort();
+    Ok(normalized_contents
+        .into_iter()
+        .enumerate()
+        .map(|(index, part)| format!("package_artifact_{index}\n{part}"))
+        .collect())
+}
+
+fn collect_files_recursively(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    for entry in fs::read_dir(dir)
+        .map_err(|err| format!("failed to read directory {}: {err}", dir.display()))?
+    {
+        let entry = entry.map_err(|err| format!("failed to read directory entry: {err}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("failed to read file type for {:?}: {err}", entry.path()))?;
+        if file_type.is_dir() {
+            collect_files_recursively(&entry.path(), out)?;
+        } else if file_type.is_file() {
+            out.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn normalized_text_part(case_dir: &Path, label: &str, text: &str) -> String {
+    let mut normalized = normalize_case_paths(case_dir, text);
+    for key in VOLATILE_NUMERIC_FIELDS {
+        normalized = replace_json_number_field(&normalized, key, "0");
+    }
+    for key in VOLATILE_STRING_FIELDS {
+        normalized = replace_json_string_field(&normalized, key, "<VOLATILE>");
+    }
+    let mut lines = normalized
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    lines.sort();
+    format!("{label}\n{}\n", lines.join("\n"))
+}
+
+const VOLATILE_NUMERIC_FIELDS: &[&str] = &[
+    "created_unix",
+    "scanned_unix",
+    "first_indexed_unix",
+    "last_indexed_unix",
+    "last_scanned_unix",
+    "registered_unix",
+    "last_seen_unix",
+    "started_unix",
+    "updated_unix",
+    "completed_unix",
+    "event_unix",
+    "carved_unix",
+    "inspected_unix",
+    "recovered_unix",
+    "validated_unix",
+];
+
+const VOLATILE_STRING_FIELDS: &[&str] = &["entry_sha256", "previous_entry_sha256"];
+
+fn normalize_case_paths(case_dir: &Path, text: &str) -> String {
+    let mut out = text.replace('\\', "/");
+    let raw = case_dir.to_string_lossy().replace('\\', "/");
+    out = out.replace(&raw, "<CASE>");
+    if let Ok(canonical) = case_dir.canonicalize() {
+        let canonical = canonical.to_string_lossy().replace('\\', "/");
+        out = out.replace(&canonical, "<CASE>");
+    }
+    out
+}
+
+fn replace_json_number_field(text: &str, key: &str, replacement: &str) -> String {
+    let marker = format!("\"{key}\":");
+    let mut out = String::with_capacity(text.len());
+    let mut remaining = text;
+    while let Some(index) = remaining.find(&marker) {
+        out.push_str(&remaining[..index + marker.len()]);
+        let after_marker = &remaining[index + marker.len()..];
+        let whitespace_len = after_marker
+            .char_indices()
+            .find(|(_, ch)| !ch.is_whitespace())
+            .map(|(idx, _)| idx)
+            .unwrap_or(after_marker.len());
+        out.push_str(&after_marker[..whitespace_len]);
+        let after_whitespace = &after_marker[whitespace_len..];
+        let number_len = after_whitespace
+            .char_indices()
+            .take_while(|(_, ch)| ch.is_ascii_digit())
+            .last()
+            .map(|(idx, ch)| idx + ch.len_utf8())
+            .unwrap_or(0);
+        if number_len == 0 {
+            remaining = after_marker;
+            continue;
+        }
+        out.push_str(replacement);
+        remaining = &after_whitespace[number_len..];
+    }
+    out.push_str(remaining);
+    out
+}
+
+fn replace_json_string_field(text: &str, key: &str, replacement: &str) -> String {
+    let marker = format!("\"{key}\":");
+    let mut out = String::with_capacity(text.len());
+    let mut remaining = text;
+    while let Some(index) = remaining.find(&marker) {
+        out.push_str(&remaining[..index + marker.len()]);
+        let after_marker = &remaining[index + marker.len()..];
+        let whitespace_len = after_marker
+            .char_indices()
+            .find(|(_, ch)| !ch.is_whitespace())
+            .map(|(idx, _)| idx)
+            .unwrap_or(after_marker.len());
+        out.push_str(&after_marker[..whitespace_len]);
+        let after_whitespace = &after_marker[whitespace_len..];
+        let Some(rest) = after_whitespace.strip_prefix('"') else {
+            remaining = after_marker;
+            continue;
+        };
+        let Some(string_len) = json_string_content_len(rest) else {
+            remaining = after_marker;
+            continue;
+        };
+        out.push('"');
+        out.push_str(replacement);
+        out.push('"');
+        remaining = &rest[string_len + 1..];
+    }
+    out.push_str(remaining);
+    out
+}
+
+fn json_string_content_len(value: &str) -> Option<usize> {
+    let mut escaping = false;
+    for (index, ch) in value.char_indices() {
+        if escaping {
+            escaping = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaping = true;
+            continue;
+        }
+        if ch == '"' {
+            return Some(index);
+        }
+    }
+    None
 }
 
 fn extract_json_string(line: &str, key: &str) -> Option<String> {
@@ -679,7 +907,9 @@ fn simple_html_report(title: &str, body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{accuracy_report, read_review_manifest, report_defense_check};
+    use super::{
+        accuracy_report, read_review_manifest, report_defense_check, reproducibility_report,
+    };
     use std::fs;
 
     #[test]
@@ -780,6 +1010,116 @@ mod tests {
         assert!(err.contains("disallowed claim"));
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reproducibility_normalizes_case_paths_timestamps_and_package_times() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-repro-normalized-test-{}",
+            std::process::id()
+        ));
+        let left = root.join("left-case");
+        let right = root.join("right-case");
+        let output_dir = root.join("qa");
+        let _ = fs::remove_dir_all(&root);
+        seed_repro_case(&left, 111, "ffprobe-video-stream-confirmed", "abc");
+        seed_repro_case(&right, 999, "ffprobe-video-stream-confirmed", "abc");
+
+        let report = reproducibility_report(&left, &right, &output_dir).unwrap();
+        assert!(report.passed);
+        assert!(report.report_path.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reproducibility_detects_recovery_validation_drift() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-repro-drift-test-{}",
+            std::process::id()
+        ));
+        let left = root.join("left-case");
+        let right = root.join("right-case");
+        let output_dir = root.join("qa");
+        let _ = fs::remove_dir_all(&root);
+        seed_repro_case(&left, 111, "ffprobe-video-stream-confirmed", "abc");
+        seed_repro_case(&right, 999, "validation-failed", "abc");
+
+        let err = reproducibility_report(&left, &right, &output_dir).unwrap_err();
+        assert!(err.contains("normalized core outputs differ"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn seed_repro_case(
+        case_dir: &std::path::Path,
+        timestamp: u64,
+        validation_status: &str,
+        artifact_hash: &str,
+    ) {
+        fs::create_dir_all(case_dir.join("db/filesystem")).unwrap();
+        fs::create_dir_all(case_dir.join("artifacts/carved")).unwrap();
+        fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
+        fs::create_dir_all(case_dir.join("reports/package")).unwrap();
+        let artifact = case_dir.join("artifacts/carved/carve_000001.mp4");
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            format!(
+                "{{\"id\":\"video_000001\",\"source_path\":\"/evidence/source.mp4\",\"sha256\":\"sourcehash\",\"first_indexed_unix\":{},\"last_indexed_unix\":{}}}\n",
+                timestamp,
+                timestamp + 1
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/video_paths.tsv"),
+            "id\tsource_path\nvideo_000001\t/evidence/source.mp4\n",
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("artifacts/carved/carve-log.jsonl"),
+            format!(
+                "{{\"id\":\"carve_000001\",\"output_path\":\"{}\",\"sha256\":\"{}\",\"validation_status\":\"candidate-unvalidated\",\"carved_unix\":{},\"previous_entry_sha256\":\"left\",\"entry_sha256\":\"right\"}}\n",
+                artifact.display(),
+                artifact_hash,
+                timestamp
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("evidence/logs/validation-log.jsonl"),
+            format!(
+                "{{\"selector\":\"carve_000001\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_status\":\"{}\",\"validated_unix\":{}}}\n",
+                artifact.display(),
+                artifact_hash,
+                validation_status,
+                timestamp + 2
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/filesystem/tsk-files-123.jsonl"),
+            format!(
+                "{{\"path\":\"{}\",\"inode\":\"42\",\"deleted\":true,\"inspected_unix\":{}}}\n",
+                artifact.display(),
+                timestamp + 3
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("reports/package/package-manifest.json"),
+            format!(
+                "{{\"schema_version\":1,\"created_unix\":{},\"files\":[{{\"relative_path\":\"artifacts/carved/carve_000001.mp4\",\"sha256\":\"{}\"}}]}}\n",
+                timestamp + 4,
+                artifact_hash
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("reports/package/manifest.sha256"),
+            format!("{artifact_hash}  artifacts/carved/carve_000001.mp4\n"),
+        )
+        .unwrap();
     }
 
     #[test]

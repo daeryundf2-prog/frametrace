@@ -61,7 +61,7 @@ Rules:
 | Precision | `>= 0.98` |
 | Recall | `>= 0.98` |
 | Hash mismatch | `0` |
-| Reproducibility | Normalized core outputs exactly equal |
+| Reproducibility | Normalized scan, recovery, validation, filesystem, and package outputs exactly equal |
 | Report defensibility | All required artifacts present |
 | Performance | `>= 50000` rows/minute |
 
@@ -101,6 +101,7 @@ Any missing, unchecked, or unapproved gate is a release blocker.
 8. Evidence viewer includes TSK inode recovery outputs.
 9. Release readiness command writes `release-readiness.json` and fails on missing review blockers.
 10. Report defensibility command fails if report/viewer outputs contain disallowed legal-overclaim terms.
+11. Reproducibility command compares recovery logs, validation status, filesystem listings, and package manifests while normalizing case-local paths and volatile timestamps.
 
 ## Evidence Retention
 
