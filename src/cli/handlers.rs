@@ -581,6 +581,9 @@ pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), 
     println!("SQLite benchmark complete");
     println!("rows: {}", result.rows);
     println!("elapsed_ms: {}", result.elapsed_ms);
+    println!("query_count: {}", result.query_count);
+    println!("max_query_ms: {}", result.max_query_ms);
+    println!("query_rows_returned: {}", result.query_rows_returned);
     println!("db: {}", result.path.display());
     Ok(())
 }

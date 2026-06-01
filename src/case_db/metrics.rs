@@ -1,11 +1,14 @@
 use super::*;
 use crate::util::{json_escape, now_unix};
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
 pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkResult, String> {
+    if rows == 0 {
+        return Err("benchmark row count must be greater than 0".to_string());
+    }
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create benchmark directory: {err}"))?;
     let mut conn = open_case_db(output_dir)?;
@@ -25,8 +28,8 @@ pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkRe
             relative_path: format!("clip_{index:08}.mp4"),
             extension: "mp4".to_string(),
             size_bytes: 1024 + index as u64,
-            modified_unix: None,
-            sha256: None,
+            modified_unix: Some(now + index as u64),
+            sha256: Some(format!("benchmark_hash_{index:08}")),
             hash_status: "benchmark".to_string(),
             confidence: "benchmark".to_string(),
             source_profile_json: "{\"lane\":\"benchmark\",\"vendor\":\"Benchmark\",\"parser\":\"benchmark\",\"confidence\":\"benchmark\",\"recommended_action\":\"Synthetic row only\",\"evidence\":[]}".to_string(),
@@ -49,11 +52,113 @@ pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkRe
     }
     tx.commit()
         .map_err(|err| format!("failed to commit benchmark transaction: {err}"))?;
+    let (query_count, max_query_ms, query_rows_returned) = benchmark_indexed_queries(&conn, rows)?;
     Ok(DbBenchmarkResult {
         path: case_db_path(output_dir),
         rows,
         elapsed_ms: started.elapsed().as_millis(),
+        query_count,
+        max_query_ms,
+        query_rows_returned,
     })
+}
+
+fn benchmark_indexed_queries(
+    conn: &Connection,
+    rows: usize,
+) -> Result<(usize, u128, usize), String> {
+    let mut query_count = 0usize;
+    let mut max_query_ms = 0u128;
+    let mut query_rows_returned = 0usize;
+
+    record_query(
+        &mut query_count,
+        &mut max_query_ms,
+        &mut query_rows_returned,
+        || {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM videos WHERE extension = ?1",
+                    params!["mp4"],
+                    |row| row.get(0),
+                )
+                .map_err(|err| format!("failed benchmark extension query: {err}"))?;
+            Ok(count.max(0) as usize)
+        },
+    )?;
+
+    let midpoint = rows.saturating_sub(1) / 2;
+    let source_path = format!("C:/Evidence/bench/clip_{midpoint:08}.mp4");
+    record_query(
+        &mut query_count,
+        &mut max_query_ms,
+        &mut query_rows_returned,
+        || {
+            let found: String = conn
+                .query_row(
+                    "SELECT id FROM videos WHERE source_path = ?1",
+                    params![source_path],
+                    |row| row.get(0),
+                )
+                .map_err(|err| format!("failed benchmark source lookup query: {err}"))?;
+            Ok(usize::from(!found.is_empty()))
+        },
+    )?;
+
+    let sha = format!("benchmark_hash_{midpoint:08}");
+    record_query(
+        &mut query_count,
+        &mut max_query_ms,
+        &mut query_rows_returned,
+        || {
+            let found: String = conn
+                .query_row(
+                    "SELECT id FROM videos WHERE sha256 = ?1",
+                    params![sha],
+                    |row| row.get(0),
+                )
+                .map_err(|err| format!("failed benchmark sha256 lookup query: {err}"))?;
+            Ok(usize::from(!found.is_empty()))
+        },
+    )?;
+
+    record_query(
+        &mut query_count,
+        &mut max_query_ms,
+        &mut query_rows_returned,
+        || {
+            let mut stmt = conn
+            .prepare(
+                "SELECT id FROM videos WHERE extension = ?1 ORDER BY modified_unix DESC LIMIT 100",
+            )
+            .map_err(|err| format!("failed to prepare benchmark timeline query: {err}"))?;
+            let rows = stmt
+                .query_map(params!["mp4"], |row| row.get::<_, String>(0))
+                .map_err(|err| format!("failed benchmark timeline query: {err}"))?;
+            let mut count = 0usize;
+            for row in rows {
+                row.map_err(|err| format!("failed benchmark timeline row read: {err}"))?;
+                count += 1;
+            }
+            Ok(count)
+        },
+    )?;
+
+    Ok((query_count, max_query_ms, query_rows_returned))
+}
+
+fn record_query(
+    query_count: &mut usize,
+    max_query_ms: &mut u128,
+    query_rows_returned: &mut usize,
+    run: impl FnOnce() -> Result<usize, String>,
+) -> Result<(), String> {
+    let started = Instant::now();
+    let rows = run()?;
+    *query_count += 1;
+    *max_query_ms = (*max_query_ms).max(started.elapsed().as_millis());
+    *query_rows_returned += rows;
+    Ok(())
 }
 
 pub fn summarize_case_db(case_dir: &Path) -> Result<Option<CaseDbSummary>, String> {
@@ -117,4 +222,42 @@ pub(crate) fn count_table_rows(conn: &Connection, table_name: &str) -> Result<u6
         .query_row(sql, [], |row| row.get(0))
         .map_err(|err| format!("failed to count SQLite table {table_name}: {err}"))?;
     Ok(count.max(0) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::benchmark_case_db;
+    use std::fs;
+
+    #[test]
+    fn benchmark_records_indexed_query_latency() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-db-benchmark-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        let result = benchmark_case_db(&root, 64).unwrap();
+
+        assert_eq!(result.rows, 64);
+        assert_eq!(result.query_count, 4);
+        assert_eq!(result.query_rows_returned, 130);
+        assert!(result.path.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn benchmark_rejects_zero_rows() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-db-benchmark-zero-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        let err = benchmark_case_db(&root, 0).unwrap_err();
+
+        assert!(err.contains("greater than 0"));
+        let _ = fs::remove_dir_all(root);
+    }
 }

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 const PRECISION_TARGET: f64 = 0.98;
 const RECALL_TARGET: f64 = 0.98;
+const PERFORMANCE_ROWS_PER_MINUTE_TARGET: u128 = 50_000;
+const PERFORMANCE_QUERY_LATENCY_TARGET_MS: u128 = 2_000;
 
 #[derive(Debug, Clone)]
 struct ExpectedEvidence {
@@ -256,15 +258,21 @@ pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, St
     } else {
         rows as u128 * 60_000 / result.elapsed_ms
     };
-    let passed = rows_per_minute >= 50_000;
+    let passed = rows_per_minute >= PERFORMANCE_ROWS_PER_MINUTE_TARGET
+        && result.max_query_ms <= PERFORMANCE_QUERY_LATENCY_TARGET_MS;
     write_text(
         &report_path,
         &format!(
-            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"performance\",\n  \"passed\": {},\n  \"rows\": {},\n  \"elapsed_ms\": {},\n  \"rows_per_minute\": {},\n  \"database_path\": \"{}\"\n}}\n",
+            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"performance\",\n  \"passed\": {},\n  \"rows\": {},\n  \"elapsed_ms\": {},\n  \"rows_per_minute\": {},\n  \"rows_per_minute_target\": {},\n  \"query_count\": {},\n  \"max_query_ms\": {},\n  \"query_latency_target_ms\": {},\n  \"query_rows_returned\": {},\n  \"database_path\": \"{}\"\n}}\n",
             passed,
             result.rows,
             result.elapsed_ms,
             rows_per_minute,
+            PERFORMANCE_ROWS_PER_MINUTE_TARGET,
+            result.query_count,
+            result.max_query_ms,
+            PERFORMANCE_QUERY_LATENCY_TARGET_MS,
+            result.query_rows_returned,
             json_escape(&result.path.to_string_lossy())
         ),
     )
@@ -276,7 +284,8 @@ pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, St
         })
     } else {
         Err(format!(
-            "performance QA failed: rows_per_minute={rows_per_minute}, target=50000"
+            "performance QA failed: rows_per_minute={rows_per_minute}, target={PERFORMANCE_ROWS_PER_MINUTE_TARGET}, max_query_ms={}, query_latency_target_ms={PERFORMANCE_QUERY_LATENCY_TARGET_MS}",
+            result.max_query_ms
         ))
     }
 }
@@ -908,7 +917,8 @@ fn simple_html_report(title: &str, body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        accuracy_report, read_review_manifest, report_defense_check, reproducibility_report,
+        accuracy_report, performance_report, read_review_manifest, report_defense_check,
+        reproducibility_report,
     };
     use std::fs;
 
@@ -1047,6 +1057,26 @@ mod tests {
 
         let err = reproducibility_report(&left, &right, &output_dir).unwrap_err();
         assert!(err.contains("normalized core outputs differ"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn performance_report_records_query_latency_metrics() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-performance-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        let report = performance_report(&root, 1_000).unwrap();
+        let text = fs::read_to_string(&report.report_path).unwrap();
+
+        assert!(report.passed);
+        assert!(text.contains("\"query_count\": 4"));
+        assert!(text.contains("\"max_query_ms\""));
+        assert!(text.contains("\"query_latency_target_ms\": 2000"));
+        assert!(text.contains("\"query_rows_returned\""));
 
         let _ = fs::remove_dir_all(root);
     }

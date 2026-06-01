@@ -61,8 +61,12 @@ pub struct JobRecord {
     pub status: String,
 }
 
+#[derive(Debug)]
 pub struct DbBenchmarkResult {
     pub path: PathBuf,
     pub rows: usize,
     pub elapsed_ms: u128,
+    pub query_count: usize,
+    pub max_query_ms: u128,
+    pub query_rows_returned: usize,
 }
