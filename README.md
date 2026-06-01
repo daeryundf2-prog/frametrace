@@ -76,6 +76,7 @@ cargo build --release
 .\target\release\frametrace.exe validate-artifact C:\Cases\case-001 vid_000001
 .\target\release\frametrace.exe make-report C:\Cases\case-001
 .\target\release\frametrace.exe qa report-defense C:\Cases\case-001
+.\target\release\frametrace.exe mark-interrupted-jobs C:\Cases\case-001 --reason "operator reviewed stopped run"
 .\target\release\frametrace.exe package-case C:\Cases\case-001
 ```
 
@@ -83,7 +84,7 @@ Open `C:\Cases\case-001\review\index.html` in a browser after `make-review`.
 Open `C:\Cases\case-001\review\evidence-viewer.html` for the viewer-first real case page after `make-review`.
 Open `C:\Cases\case-001\reports\case-report.html` after `make-report`.
 
-For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without `--hash`, then run deeper analysis only on selected folders or copied evidence. Repeated scans preserve the cumulative case index: `db/case.db` is the primary SQLite index, while `db/video_index.json`, `db/videos.jsonl`, and `db/video_paths.tsv` remain compatibility artifacts for review/export flows. Each scan run is also saved under `db/scan_runs/`.
+For terabyte-scale disks, run a fast first pass with `--no-ffprobe` and without `--hash`, then run deeper analysis only on selected folders or copied evidence. Repeated scans preserve the cumulative case index: `db/case.db` is the primary SQLite index, while `db/video_index.json`, `db/videos.jsonl`, and `db/video_paths.tsv` remain compatibility artifacts for review/export flows. Each scan run is also saved under `db/scan_runs/`. `qa report-defense` blocks while any SQLite job remains `running`; complete the job or use `mark-interrupted-jobs` after operator review of a stopped run.
 
 ## Development Commands
 

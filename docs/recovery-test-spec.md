@@ -102,6 +102,7 @@ Any missing, unchecked, or unapproved gate is a release blocker.
 9. Release readiness command writes `release-readiness.json` and fails on missing review blockers.
 10. Report defensibility command fails if report/viewer outputs contain disallowed legal-overclaim terms.
 11. Reproducibility command compares recovery logs, validation status, filesystem listings, and package manifests while normalizing case-local paths and volatile timestamps.
+12. Report defensibility command fails while any SQLite job remains `running`; the operator must complete it or mark it interrupted before release review.
 
 ## Evidence Retention
 

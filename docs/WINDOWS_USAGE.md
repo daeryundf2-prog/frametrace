@@ -188,6 +188,13 @@ Build a checksummed transfer/review package:
 
 Open `reports\case-report.html` from the package and print to PDF when a PDF deliverable is required.
 
+If a previous long run was stopped and `qa report-defense` reports active jobs, review the partial output and then mark those stale jobs interrupted before packaging:
+
+```powershell
+.\target\release\frametrace.exe mark-interrupted-jobs C:\Cases\case-001 --reason "operator reviewed stopped run"
+.\target\release\frametrace.exe qa report-defense C:\Cases\case-001
+```
+
 ## Evidence Handling Rules
 
 - Treat source media as read-only.

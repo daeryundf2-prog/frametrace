@@ -51,3 +51,4 @@ Out of scope until a feature-specific PRD and corpus exist:
 - Any missing SHA-256 for a produced recovered artifact.
 - Any required corpus false negative marked P0.
 - Any migration failure without a generated rollback backup.
+- Any SQLite job still marked `running` during report-defense or release-readiness review.

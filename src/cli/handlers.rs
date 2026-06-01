@@ -596,6 +596,13 @@ pub fn verify_audit(log_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn mark_interrupted_jobs(case_dir: &Path, reason: &str) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let count = case_db::interrupt_running_jobs(case_dir, reason)?;
+    println!("interrupted jobs marked: {count}");
+    Ok(())
+}
+
 pub fn inspect(case_dir: &Path) -> Result<(), String> {
     ensure_case(case_dir)?;
     let manifest_path = case_dir.join("case.json");

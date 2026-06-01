@@ -193,8 +193,10 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
         .filter(|(_, path)| !path.is_file())
         .map(|(name, path)| format!("{name}: {}", path.display()))
         .collect::<Vec<_>>();
+    let active_job_count =
+        case_db::summarize_case_db(case_dir)?.map_or(0, |summary| summary.active_job_count);
     let claim_violations = report_claim_violations(case_dir)?;
-    let passed = missing.is_empty() && claim_violations.is_empty();
+    let passed = missing.is_empty() && claim_violations.is_empty() && active_job_count == 0;
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create QA output directory: {err}"))?;
     let report_path = output_dir.join("report-defense-checklist.md");
@@ -215,6 +217,12 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
             text.push_str(&format!("- {item}\n"));
         }
     }
+    if active_job_count > 0 {
+        text.push_str("\n## Active Jobs\n\n");
+        text.push_str(&format!(
+            "- {active_job_count} running SQLite job(s) must complete or be marked interrupted before report defense.\n"
+        ));
+    }
     write_text(&report_path, &text)
         .map_err(|err| format!("failed to write report-defense checklist: {err}"))?;
     if passed {
@@ -224,9 +232,10 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
         })
     } else {
         Err(format!(
-            "report defensibility QA failed: missing {} required artifacts, {} disallowed claim(s)",
+            "report defensibility QA failed: missing {} required artifacts, {} disallowed claim(s), {} active job(s)",
             missing.len(),
-            claim_violations.len()
+            claim_violations.len(),
+            active_job_count
         ))
     }
 }
@@ -920,7 +929,9 @@ mod tests {
         accuracy_report, performance_report, read_review_manifest, report_defense_check,
         reproducibility_report,
     };
+    use crate::case_db;
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn accuracy_report_passes_for_matching_manifest() {
@@ -1018,6 +1029,40 @@ mod tests {
 
         let err = report_defense_check(&case_dir, &output_dir).unwrap_err();
         assert!(err.contains("disallowed claim"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn report_defense_rejects_cases_with_running_jobs() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-active-jobs-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("qa");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(case_dir.join("reports")).unwrap();
+        fs::write(case_dir.join("case.json"), "{}").unwrap();
+        fs::write(case_dir.join("db/video_index.json"), "{}").unwrap();
+        fs::write(case_dir.join("db/videos.jsonl"), "").unwrap();
+        fs::write(case_dir.join("db/video_paths.tsv"), "id\tsource_path\n").unwrap();
+        fs::write(case_dir.join("reports/case-report.html"), "<html></html>").unwrap();
+        case_db::start_job(
+            &case_dir,
+            "scan-folder",
+            Path::new("/evidence"),
+            Some(1),
+            "{}",
+        )
+        .unwrap();
+
+        let err = report_defense_check(&case_dir, &output_dir).unwrap_err();
+
+        assert!(err.contains("active job"));
+        let checklist = fs::read_to_string(output_dir.join("report-defense-checklist.md")).unwrap();
+        assert!(checklist.contains("running SQLite job"));
 
         let _ = fs::remove_dir_all(root);
     }

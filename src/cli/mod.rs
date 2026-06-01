@@ -189,6 +189,15 @@ pub enum Commands {
     },
     /// Verify a chained JSONL audit log and report tamper status
     VerifyAudit { log_path: PathBuf },
+    /// Mark leftover running jobs as interrupted before release or retry review
+    MarkInterruptedJobs {
+        case_dir: PathBuf,
+        #[arg(
+            long,
+            default_value = "operator marked stale running jobs as interrupted"
+        )]
+        reason: String,
+    },
     /// Create a synthetic SQLite index benchmark database for scale validation
     BenchmarkDb {
         output_dir: PathBuf,
@@ -477,6 +486,9 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             validate_artifact(&case_dir, &selector, options)
         }
         Commands::VerifyAudit { log_path } => verify_audit(&log_path),
+        Commands::MarkInterruptedJobs { case_dir, reason } => {
+            mark_interrupted_jobs(&case_dir, &reason)
+        }
         Commands::BenchmarkDb { output_dir, rows } => {
             let options = BenchmarkOptions { rows };
             benchmark_db(&output_dir, options)

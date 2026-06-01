@@ -78,6 +78,84 @@ pub fn fail_job(case_dir: &Path, job_id: &str, error: &str) -> Result<(), String
     finish_job(case_dir, job_id, "failed", 0, "job failed", Some(error))
 }
 
+pub fn interrupt_running_jobs(case_dir: &Path, reason: &str) -> Result<usize, String> {
+    let mut conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let now = now_unix()?;
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("failed to start interrupted-job transaction: {err}"))?;
+    let jobs = {
+        let mut stmt = tx
+            .prepare(
+                "SELECT job_id, completed_units FROM jobs WHERE status = 'running' ORDER BY started_unix, job_id",
+            )
+            .map_err(|err| format!("failed to prepare running job query: {err}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .map_err(|err| format!("failed to query running jobs: {err}"))?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(|err| format!("failed to read running job row: {err}"))?);
+        }
+        jobs
+    };
+    let mut transitioned = 0usize;
+    for (job_id, completed_units) in jobs {
+        let changed = tx
+            .execute(
+                r#"
+                UPDATE jobs
+                SET status = 'interrupted',
+                    updated_unix = ?1,
+                    completed_unix = ?1,
+                    error = ?2
+                WHERE job_id = ?3 AND status = 'running'
+                "#,
+                params![u64_to_i64(now), reason, job_id.as_str()],
+            )
+            .map_err(|err| format!("failed to mark SQLite job interrupted: {err}"))?;
+        if changed == 1 {
+            tx.execute(
+                r#"
+                INSERT INTO job_events (
+                    job_id,
+                    event_unix,
+                    event_type,
+                    message,
+                    completed_units
+                )
+                VALUES (?1, ?2, 'interrupted', 'job marked interrupted', ?3)
+                "#,
+                params![job_id.as_str(), u64_to_i64(now), completed_units],
+            )
+            .map_err(|err| format!("failed to append interrupted job event: {err}"))?;
+            transitioned += 1;
+        }
+    }
+    tx.commit()
+        .map_err(|err| format!("failed to commit interrupted-job transaction: {err}"))?;
+    Ok(transitioned)
+}
+
+pub fn running_job_ids(case_dir: &Path) -> Result<Vec<String>, String> {
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let mut stmt = conn
+        .prepare("SELECT job_id FROM jobs WHERE status = 'running' ORDER BY started_unix, job_id")
+        .map_err(|err| format!("failed to prepare running job query: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("failed to query running jobs: {err}"))?;
+    let mut job_ids = Vec::new();
+    for row in rows {
+        job_ids.push(row.map_err(|err| format!("failed to read running job row: {err}"))?);
+    }
+    Ok(job_ids)
+}
+
 pub(crate) fn finish_job(
     case_dir: &Path,
     job_id: &str,
@@ -152,4 +230,47 @@ pub(crate) fn count_jobs_by_status(conn: &Connection, status: &str) -> Result<u6
         )
         .map_err(|err| format!("failed to count SQLite jobs with status {status}: {err}"))?;
     Ok(count.max(0) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{interrupt_running_jobs, running_job_ids, start_job};
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn marks_running_jobs_interrupted_for_recovery_review() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-jobs-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+
+        let job = start_job(&root, "scan-folder", Path::new("/evidence"), Some(10), "{}").unwrap();
+        assert_eq!(running_job_ids(&root).unwrap(), vec![job.job_id]);
+
+        let count = interrupt_running_jobs(&root, "process was stopped before release QA").unwrap();
+
+        assert_eq!(count, 1);
+        assert!(running_job_ids(&root).unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn interrupt_running_jobs_does_not_overwrite_terminal_jobs() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-terminal-jobs-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+
+        let job = start_job(&root, "scan-folder", Path::new("/evidence"), Some(10), "{}").unwrap();
+        super::fail_job(&root, &job.job_id, "operator stopped failed run").unwrap();
+
+        let count = interrupt_running_jobs(&root, "stale job review").unwrap();
+
+        assert_eq!(count, 0);
+        assert!(running_job_ids(&root).unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(root);
+    }
 }
