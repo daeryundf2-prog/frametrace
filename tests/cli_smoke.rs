@@ -31,6 +31,24 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn assert_failure_contains(output: &Output, expected: &str) {
+    assert!(
+        !output.status.success(),
+        "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains(expected),
+        "expected output to contain {expected:?}\nactual:\n{combined}"
+    );
+}
+
 #[test]
 fn help_command_succeeds() {
     let output = run(&["--help"]);
@@ -72,6 +90,18 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
         format!("source_path\tsha256\n{}\t\n", indexed_source.display()),
     )
     .expect("corpus manifest should be written");
+    let review_manifest = root.join("release-review.txt");
+    fs::write(
+        &review_manifest,
+        "\
+technical_review=pass
+security_review=pass
+migration_validation=pass
+operator_review=pass
+legal_review=pass
+",
+    )
+    .expect("release review manifest should be written");
     assert_success(&run(&[
         "qa",
         "accuracy",
@@ -92,6 +122,22 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
         "--rows",
         "1000",
     ]));
+    assert_failure_contains(
+        &run(&[
+            "qa",
+            "release",
+            path(&case_dir),
+            "--corpus-manifest",
+            path(&corpus_manifest),
+            "--comparison-case",
+            path(&case_dir),
+            "--performance-output-dir",
+            path(&root.join("qa-release-blocked-performance")),
+            "--performance-rows",
+            "1000",
+        ]),
+        "missing --review-manifest",
+    );
     assert_success(&run(&[
         "qa",
         "release",
@@ -100,6 +146,8 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
         path(&corpus_manifest),
         "--comparison-case",
         path(&case_dir),
+        "--review-manifest",
+        path(&review_manifest),
         "--performance-output-dir",
         path(&root.join("qa-release-performance")),
         "--performance-rows",

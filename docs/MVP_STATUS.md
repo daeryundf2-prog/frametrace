@@ -63,7 +63,7 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - File-system-aware unallocated-space carving.
 - Mid-command resume from persisted job checkpoints.
 - Proprietary DVR/NVR file-system recovery.
-- Court/admissibility validation for recovered proprietary formats.
+- Report-defensible validation for recovered proprietary formats.
 - Cryptographic signing or external timestamping of reports/logs.
 - Windows GUI packaging.
 - Final Windows GUI shell.

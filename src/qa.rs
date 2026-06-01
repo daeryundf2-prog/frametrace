@@ -29,9 +29,21 @@ pub struct QaReport {
 pub struct ReleaseReadinessOptions {
     pub corpus_manifest: Option<PathBuf>,
     pub comparison_case_dir: Option<PathBuf>,
+    pub review_manifest: Option<PathBuf>,
     pub performance_output_dir: Option<PathBuf>,
     pub performance_rows: usize,
 }
+
+const REVIEW_GATES: &[(&str, &str)] = &[
+    ("technical_review", "Technical Review"),
+    ("security_review", "Security Review"),
+    ("migration_validation", "Migration Validation"),
+    ("operator_review", "Operator Review"),
+    ("legal_review", "Legal Review"),
+];
+
+const DISALLOWED_REPORT_CLAIMS: &[&str] =
+    &["court-ready", "court-grade", "court-proven", "legal-grade"];
 
 pub fn accuracy_report(
     case_dir: &Path,
@@ -179,7 +191,8 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
         .filter(|(_, path)| !path.is_file())
         .map(|(name, path)| format!("{name}: {}", path.display()))
         .collect::<Vec<_>>();
-    let passed = missing.is_empty();
+    let claim_violations = report_claim_violations(case_dir)?;
+    let passed = missing.is_empty() && claim_violations.is_empty();
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create QA output directory: {err}"))?;
     let report_path = output_dir.join("report-defense-checklist.md");
@@ -194,6 +207,12 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
             text.push_str(&format!("- {item}\n"));
         }
     }
+    if !claim_violations.is_empty() {
+        text.push_str("\n## Disallowed Report Claims\n\n");
+        for item in &claim_violations {
+            text.push_str(&format!("- {item}\n"));
+        }
+    }
     write_text(&report_path, &text)
         .map_err(|err| format!("failed to write report-defense checklist: {err}"))?;
     if passed {
@@ -203,10 +222,30 @@ pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaRepo
         })
     } else {
         Err(format!(
-            "report defensibility QA failed: missing {} required artifacts",
-            missing.len()
+            "report defensibility QA failed: missing {} required artifacts, {} disallowed claim(s)",
+            missing.len(),
+            claim_violations.len()
         ))
     }
+}
+
+fn report_claim_violations(case_dir: &Path) -> Result<Vec<String>, String> {
+    let mut violations = Vec::new();
+    for rel in ["reports/case-report.html", "review/evidence-viewer.html"] {
+        let path = case_dir.join(rel);
+        if !path.is_file() {
+            continue;
+        }
+        let text = read_to_string(&path)
+            .map_err(|err| format!("failed to read report output {}: {err}", path.display()))?;
+        let lower = text.to_ascii_lowercase();
+        for term in DISALLOWED_REPORT_CLAIMS {
+            if lower.contains(term) {
+                violations.push(format!("{rel}: contains disallowed claim `{term}`"));
+            }
+        }
+    }
+    Ok(violations)
 }
 
 pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, String> {
@@ -254,6 +293,7 @@ pub fn release_readiness_report(
     checks.push(run_release_check("report_defense", || {
         report_defense_check(case_dir, output_dir).map(|report| report.report_path)
     }));
+    checks.extend(review_gate_checks(options.review_manifest.as_deref()));
 
     if let Some(corpus_manifest) = &options.corpus_manifest {
         checks.push(run_release_check("accuracy", || {
@@ -302,8 +342,14 @@ pub fn release_readiness_report(
             passed,
         })
     } else {
+        let blocker_summary = checks
+            .iter()
+            .filter(|check| check.status != "PASS")
+            .map(|check| format!("{}: {}", check.name, check.evidence))
+            .collect::<Vec<_>>()
+            .join("; ");
         Err(format!(
-            "release readiness failed: {blocker_count} blocker(s); see {}",
+            "release readiness failed: {blocker_count} blocker(s): {blocker_summary}; see {}",
             markdown_path.display()
         ))
     }
@@ -339,6 +385,115 @@ fn run_release_check(name: &str, run: impl FnOnce() -> Result<PathBuf, String>) 
             evidence: err,
         },
     }
+}
+
+fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
+    let Some(path) = manifest_path else {
+        return REVIEW_GATES
+            .iter()
+            .map(|(key, _)| ReleaseCheck::blocked(key, "missing --review-manifest"))
+            .collect();
+    };
+
+    match read_review_manifest(path) {
+        Ok(gates) => REVIEW_GATES
+            .iter()
+            .map(|(key, label)| {
+                if gates.get(*key).copied().unwrap_or(false) {
+                    ReleaseCheck {
+                        name: (*key).to_string(),
+                        status: "PASS".to_string(),
+                        evidence: path.to_string_lossy().to_string(),
+                    }
+                } else {
+                    ReleaseCheck {
+                        name: (*key).to_string(),
+                        status: "FAIL".to_string(),
+                        evidence: format!("{label} is not approved in {}", path.display()),
+                    }
+                }
+            })
+            .collect(),
+        Err(err) => REVIEW_GATES
+            .iter()
+            .map(|(key, _)| ReleaseCheck {
+                name: (*key).to_string(),
+                status: "FAIL".to_string(),
+                evidence: err.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn read_review_manifest(path: &Path) -> Result<HashMap<String, bool>, String> {
+    let text = read_to_string(path).map_err(|err| {
+        format!(
+            "failed to read release review manifest {}: {err}",
+            path.display()
+        )
+    })?;
+    let mut gates = HashMap::new();
+    for (line_index, raw_line) in text.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((checked, label)) = parse_markdown_checkbox(line) {
+            gates.insert(normalize_review_gate(label), checked);
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            gates.insert(normalize_review_gate(key), review_value_is_pass(value));
+            continue;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            gates.insert(normalize_review_gate(key), review_value_is_pass(value));
+            continue;
+        }
+        return Err(format!(
+            "invalid review manifest row {} in {}",
+            line_index + 1,
+            path.display()
+        ));
+    }
+    Ok(gates)
+}
+
+fn parse_markdown_checkbox(line: &str) -> Option<(bool, &str)> {
+    let rest = line.strip_prefix('-')?.trim_start();
+    let checked = rest
+        .strip_prefix("[x]")
+        .or_else(|| rest.strip_prefix("[X]"));
+    if let Some(label) = checked {
+        return Some((true, label.trim()));
+    }
+    rest.strip_prefix("[ ]").map(|label| (false, label.trim()))
+}
+
+fn normalize_review_gate(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|ch: char| !ch.is_alphanumeric())
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+fn review_value_is_pass(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "pass" | "passed" | "approved" | "true" | "yes" | "complete" | "completed" | "done" | "x"
+    )
 }
 
 fn release_json(passed: bool, checks: &[ReleaseCheck]) -> String {
@@ -406,17 +561,59 @@ fn read_expected_manifest(path: &Path) -> Result<Vec<ExpectedEvidence>, String> 
 }
 
 fn read_indexed_evidence(case_dir: &Path) -> Result<Vec<IndexedEvidence>, String> {
+    let mut indexed = HashMap::<String, IndexedEvidence>::new();
+
     let path = case_dir.join("db/videos.jsonl");
     let text = read_to_string(&path)
         .map_err(|err| format!("failed to read indexed evidence {}: {err}", path.display()))?;
-    Ok(text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| IndexedEvidence {
-            source_path: extract_json_string(line, "source_path").unwrap_or_default(),
-            sha256: extract_json_string(line, "sha256"),
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        insert_indexed_evidence(
+            &mut indexed,
+            extract_json_string(line, "source_path"),
+            extract_json_string(line, "sha256"),
+        );
+    }
+
+    for rel_log in [
+        "artifacts/carved/carve-log.jsonl",
+        "evidence/logs/tsk-audit.jsonl",
+        "evidence/logs/validation-log.jsonl",
+    ] {
+        let log_path = case_dir.join(rel_log);
+        let text = read_to_string(&log_path).unwrap_or_default();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let source_path = extract_json_string(line, "output_path")
+                .or_else(|| extract_json_string(line, "target_path"));
+            let sha256 = extract_json_string(line, "sha256")
+                .or_else(|| extract_json_string(line, "target_sha256"));
+            insert_indexed_evidence(&mut indexed, source_path, sha256);
+        }
+    }
+
+    let mut out = indexed.into_values().collect::<Vec<_>>();
+    out.sort_by(|left, right| left.source_path.cmp(&right.source_path));
+    Ok(out)
+}
+
+fn insert_indexed_evidence(
+    indexed: &mut HashMap<String, IndexedEvidence>,
+    source_path: Option<String>,
+    sha256: Option<String>,
+) {
+    let Some(source_path) = source_path.filter(|value| !value.trim().is_empty()) else {
+        return;
+    };
+    indexed
+        .entry(source_path.clone())
+        .and_modify(|item| {
+            if sha256.is_some() {
+                item.sha256 = sha256.clone();
+            }
         })
-        .collect())
+        .or_insert(IndexedEvidence {
+            source_path,
+            sha256,
+        });
 }
 
 fn normalized_case_core(case_dir: &Path) -> Result<String, String> {
@@ -482,7 +679,7 @@ fn simple_html_report(title: &str, body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::accuracy_report;
+    use super::{accuracy_report, read_review_manifest, report_defense_check};
     use std::fs;
 
     #[test]
@@ -507,6 +704,109 @@ mod tests {
         let report = accuracy_report(&case_dir, &manifest, &output_dir).unwrap();
         assert!(report.passed);
         assert!(report.report_path.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn accuracy_report_includes_recovery_artifacts() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-qa-recovery-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("qa");
+        let manifest = root.join("corpus.tsv");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(case_dir.join("artifacts/carved")).unwrap();
+        fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
+        fs::write(case_dir.join("db/videos.jsonl"), "").unwrap();
+        let carved_path = root.join("case/artifacts/carved/carve_000001.mp4");
+        fs::write(
+            case_dir.join("artifacts/carved/carve-log.jsonl"),
+            format!(
+                "{{\"id\":\"carve_000001\",\"output_path\":\"{}\",\"sha256\":\"abc\",\"validation_status\":\"candidate-unvalidated\"}}\n",
+                carved_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("evidence/logs/validation-log.jsonl"),
+            format!(
+                "{{\"selector\":\"carve_000001\",\"target_path\":\"{}\",\"target_sha256\":\"abc\",\"validation_status\":\"ffprobe-video-stream-confirmed\"}}\n",
+                carved_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(&manifest, format!("{}\tabc\n", carved_path.display())).unwrap();
+
+        let report = accuracy_report(&case_dir, &manifest, &output_dir).unwrap();
+        assert!(report.passed);
+        assert!(report.report_path.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn report_defense_rejects_disallowed_legal_claims() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-report-claims-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("qa");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(case_dir.join("reports")).unwrap();
+        fs::create_dir_all(case_dir.join("review")).unwrap();
+        fs::write(case_dir.join("case.json"), "{}").unwrap();
+        fs::write(case_dir.join("db/case.db"), "").unwrap();
+        fs::write(case_dir.join("db/video_index.json"), "{}").unwrap();
+        fs::write(case_dir.join("db/videos.jsonl"), "").unwrap();
+        fs::write(case_dir.join("db/video_paths.tsv"), "id\tsource_path\n").unwrap();
+        fs::write(
+            case_dir.join("reports/case-report.html"),
+            "<html>court-ready recovery</html>",
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("review/evidence-viewer.html"),
+            "<html></html>",
+        )
+        .unwrap();
+
+        let err = report_defense_check(&case_dir, &output_dir).unwrap_err();
+        assert!(err.contains("disallowed claim"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn review_manifest_accepts_key_value_and_markdown_gates() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-review-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let manifest = root.join("release-review.txt");
+        fs::write(
+            &manifest,
+            "\
+technical_review=pass
+security review: approved
+- [x] Migration Validation
+- [x] Operator Review
+legal-review=done
+",
+        )
+        .unwrap();
+
+        let gates = read_review_manifest(&manifest).unwrap();
+        assert_eq!(gates.get("technical_review"), Some(&true));
+        assert_eq!(gates.get("security_review"), Some(&true));
+        assert_eq!(gates.get("migration_validation"), Some(&true));
+        assert_eq!(gates.get("operator_review"), Some(&true));
+        assert_eq!(gates.get("legal_review"), Some(&true));
 
         let _ = fs::remove_dir_all(root);
     }

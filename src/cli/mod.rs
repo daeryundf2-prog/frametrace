@@ -240,6 +240,8 @@ pub enum QaCommands {
         #[arg(long)]
         comparison_case: Option<PathBuf>,
         #[arg(long)]
+        review_manifest: Option<PathBuf>,
+        #[arg(long)]
         output_dir: Option<PathBuf>,
         #[arg(long)]
         performance_output_dir: Option<PathBuf>,
@@ -528,6 +530,7 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
             case_dir,
             corpus_manifest,
             comparison_case,
+            review_manifest,
             output_dir,
             performance_output_dir,
             performance_rows,
@@ -536,6 +539,7 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
             let options = crate::qa::ReleaseReadinessOptions {
                 corpus_manifest,
                 comparison_case_dir: comparison_case,
+                review_manifest,
                 performance_output_dir,
                 performance_rows,
             };

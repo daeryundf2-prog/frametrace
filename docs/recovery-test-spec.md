@@ -31,7 +31,7 @@ frametrace qa accuracy <case_dir> <corpus_manifest>
 frametrace qa reproducibility <case_dir_a> <case_dir_b>
 frametrace qa report-defense <case_dir>
 frametrace qa performance <output_dir> --rows 100000
-frametrace qa release <case_dir> --corpus-manifest <corpus_manifest> --comparison-case <case_dir_b> --performance-output-dir <output_dir> --performance-rows 100000
+frametrace qa release <case_dir> --corpus-manifest <corpus_manifest> --comparison-case <case_dir_b> --review-manifest <release_review_manifest> --performance-output-dir <output_dir> --performance-rows 100000
 ```
 
 ## Corpus Manifest Format
@@ -47,7 +47,11 @@ Rules:
 
 - Header row is optional.
 - Blank lines and `#` comments are ignored.
-- `source_path` must match the canonical source path written to `db/videos.jsonl`.
+- `source_path` must match one indexed evidence path:
+  - canonical source path written to `db/videos.jsonl`
+  - carved artifact `output_path` from `artifacts/carved/carve-log.jsonl`
+  - recovered inode `output_path` from `evidence/logs/tsk-audit.jsonl`
+  - validation `target_path` from `evidence/logs/validation-log.jsonl`
 - `sha256` may be blank when the scan was intentionally run without `--hash`.
 
 ## Pass/Fail Thresholds
@@ -61,6 +65,30 @@ Rules:
 | Report defensibility | All required artifacts present |
 | Performance | `>= 50000` rows/minute |
 
+## Release Review Manifest Format
+
+`qa release` must receive `--review-manifest`; otherwise the release readiness report is blocked. The manifest records non-automatable release gates that require human or external evidence:
+
+```text
+technical_review=pass
+security_review=pass
+migration_validation=pass
+operator_review=pass
+legal_review=pass
+```
+
+Markdown checkboxes are also accepted:
+
+```text
+- [x] Technical Review
+- [x] Security Review
+- [x] Migration Validation
+- [x] Operator Review
+- [x] Legal Review
+```
+
+Any missing, unchecked, or unapproved gate is a release blocker.
+
 ## Required Regression Cases
 
 1. Case output directory is rejected as a scan source.
@@ -71,8 +99,9 @@ Rules:
 6. Explicit recovery/export outputs outside the case directory are rejected.
 7. Version 1 SQLite databases migrate to version 2 with a backup.
 8. Evidence viewer includes TSK inode recovery outputs.
-9. Release readiness command writes `release-readiness.json` and fails on blockers.
+9. Release readiness command writes `release-readiness.json` and fails on missing review blockers.
+10. Report defensibility command fails if report/viewer outputs contain disallowed legal-overclaim terms.
 
 ## Evidence Retention
 
-Keep generated QA artifacts under `<case_dir>/reports/qa` unless a test-specific output directory is required. Preserve `case.json`, `db/case.db`, `db/videos.jsonl`, `db/video_paths.tsv`, `reports/case-report.html`, `review/evidence-viewer.html`, and QA JSON/HTML/Markdown reports for release review.
+Keep generated QA artifacts under `<case_dir>/reports/qa` unless a test-specific output directory is required. Preserve `case.json`, `db/case.db`, `db/videos.jsonl`, `db/video_paths.tsv`, `reports/case-report.html`, `review/evidence-viewer.html`, release review manifest, and QA JSON/HTML/Markdown reports for release review.
