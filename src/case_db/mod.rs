@@ -2,8 +2,13 @@ pub mod core;
 pub mod evidence;
 pub mod helpers;
 pub mod jobs;
+#[cfg(test)]
+mod jobs_tests;
 pub mod metrics;
+#[cfg(test)]
+mod metrics_tests;
 pub mod models;
+mod query_plan;
 pub mod scan;
 
 pub use core::*;
@@ -12,6 +17,7 @@ pub(crate) use helpers::*;
 pub use jobs::*;
 pub use metrics::*;
 pub use models::*;
+pub(crate) use query_plan::*;
 pub use scan::*;
 
 #[cfg(test)]

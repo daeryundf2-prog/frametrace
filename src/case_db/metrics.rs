@@ -53,6 +53,7 @@ pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkRe
     tx.commit()
         .map_err(|err| format!("failed to commit benchmark transaction: {err}"))?;
     let (query_count, max_query_ms, query_rows_returned) = benchmark_indexed_queries(&conn, rows)?;
+    let query_plans = benchmark_query_plans(&conn)?;
     Ok(DbBenchmarkResult {
         path: case_db_path(output_dir),
         rows,
@@ -60,6 +61,7 @@ pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkRe
         query_count,
         max_query_ms,
         query_rows_returned,
+        query_plans,
     })
 }
 
@@ -222,42 +224,4 @@ pub(crate) fn count_table_rows(conn: &Connection, table_name: &str) -> Result<u6
         .query_row(sql, [], |row| row.get(0))
         .map_err(|err| format!("failed to count SQLite table {table_name}: {err}"))?;
     Ok(count.max(0) as u64)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::benchmark_case_db;
-    use std::fs;
-
-    #[test]
-    fn benchmark_records_indexed_query_latency() {
-        let root = std::env::temp_dir().join(format!(
-            "frametrace-db-benchmark-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-
-        let result = benchmark_case_db(&root, 64).unwrap();
-
-        assert_eq!(result.rows, 64);
-        assert_eq!(result.query_count, 4);
-        assert_eq!(result.query_rows_returned, 130);
-        assert!(result.path.is_file());
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn benchmark_rejects_zero_rows() {
-        let root = std::env::temp_dir().join(format!(
-            "frametrace-db-benchmark-zero-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&root);
-
-        let err = benchmark_case_db(&root, 0).unwrap_err();
-
-        assert!(err.contains("greater than 0"));
-        let _ = fs::remove_dir_all(root);
-    }
 }

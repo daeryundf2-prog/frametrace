@@ -69,4 +69,12 @@ pub struct DbBenchmarkResult {
     pub query_count: usize,
     pub max_query_ms: u128,
     pub query_rows_returned: usize,
+    pub query_plans: Vec<DbBenchmarkQueryPlan>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DbBenchmarkQueryPlan {
+    pub label: String,
+    pub sql: String,
+    pub detail: String,
 }

@@ -63,7 +63,7 @@ Rules:
 | Hash mismatch | `0` |
 | Reproducibility | Normalized scan, recovery, validation, filesystem, and package outputs exactly equal |
 | Report defensibility | All required artifacts present |
-| Performance | `>= 50000` rows/minute and `max_query_ms <= 2000` for indexed SQLite queries |
+| Performance | `>= 50000` rows/minute, `max_query_ms <= 2000` for indexed SQLite queries, and `query_plan_full_scan_count == 0` |
 
 ## Release Review Manifest Format
 

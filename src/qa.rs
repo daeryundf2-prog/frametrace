@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 
 const PRECISION_TARGET: f64 = 0.98;
 const RECALL_TARGET: f64 = 0.98;
-const PERFORMANCE_ROWS_PER_MINUTE_TARGET: u128 = 50_000;
-const PERFORMANCE_QUERY_LATENCY_TARGET_MS: u128 = 2_000;
+pub use crate::performance_qa::performance_report;
 
 #[derive(Debug, Clone)]
 struct ExpectedEvidence {
@@ -257,46 +256,6 @@ fn report_claim_violations(case_dir: &Path) -> Result<Vec<String>, String> {
         }
     }
     Ok(violations)
-}
-
-pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, String> {
-    let result = case_db::benchmark_case_db(output_dir, rows)?;
-    let report_path = output_dir.join("performance-report.json");
-    let rows_per_minute = if result.elapsed_ms == 0 {
-        rows as u128 * 60_000
-    } else {
-        rows as u128 * 60_000 / result.elapsed_ms
-    };
-    let passed = rows_per_minute >= PERFORMANCE_ROWS_PER_MINUTE_TARGET
-        && result.max_query_ms <= PERFORMANCE_QUERY_LATENCY_TARGET_MS;
-    write_text(
-        &report_path,
-        &format!(
-            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"performance\",\n  \"passed\": {},\n  \"rows\": {},\n  \"elapsed_ms\": {},\n  \"rows_per_minute\": {},\n  \"rows_per_minute_target\": {},\n  \"query_count\": {},\n  \"max_query_ms\": {},\n  \"query_latency_target_ms\": {},\n  \"query_rows_returned\": {},\n  \"database_path\": \"{}\"\n}}\n",
-            passed,
-            result.rows,
-            result.elapsed_ms,
-            rows_per_minute,
-            PERFORMANCE_ROWS_PER_MINUTE_TARGET,
-            result.query_count,
-            result.max_query_ms,
-            PERFORMANCE_QUERY_LATENCY_TARGET_MS,
-            result.query_rows_returned,
-            json_escape(&result.path.to_string_lossy())
-        ),
-    )
-    .map_err(|err| format!("failed to write performance report: {err}"))?;
-    if passed {
-        Ok(QaReport {
-            report_path,
-            passed,
-        })
-    } else {
-        Err(format!(
-            "performance QA failed: rows_per_minute={rows_per_minute}, target={PERFORMANCE_ROWS_PER_MINUTE_TARGET}, max_query_ms={}, query_latency_target_ms={PERFORMANCE_QUERY_LATENCY_TARGET_MS}",
-            result.max_query_ms
-        ))
-    }
 }
 
 pub fn release_readiness_report(

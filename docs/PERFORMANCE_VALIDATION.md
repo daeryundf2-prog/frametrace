@@ -29,6 +29,14 @@ For routine development, use a smaller run:
 cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 ```
 
+Run the QA performance check before release review:
+
+```powershell
+cargo run -- qa performance ./target/frametrace-performance --rows 100000
+```
+
+This writes both `performance-report.json` and `performance-report.md`. The JSON report includes insert throughput, max indexed query latency, representative `EXPLAIN QUERY PLAN` output, and `query_plan_full_scan_count`. The check fails if rows/minute or query latency miss target, or if any representative `videos` query falls back to a full table scan.
+
 ## Field Performance Rules
 
 - Start with `scan-folder --no-ffprobe` and no `--hash`.

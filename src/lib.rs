@@ -9,6 +9,7 @@ pub mod ffprobe;
 pub mod html_report;
 pub mod model;
 pub mod package;
+mod performance_qa;
 pub mod qa;
 pub mod report;
 pub mod scan;
