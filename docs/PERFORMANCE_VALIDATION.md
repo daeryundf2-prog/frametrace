@@ -35,7 +35,17 @@ Run the QA performance check before release review:
 cargo run -- qa performance ./target/frametrace-performance --rows 100000
 ```
 
-This writes both `performance-report.json` and `performance-report.md`. The JSON report includes insert throughput, max indexed query latency, representative `EXPLAIN QUERY PLAN` output, and `query_plan_full_scan_count`. The check fails if rows/minute or query latency miss target, or if any representative `videos` query falls back to a full table scan.
+This writes both `performance-report.json` and `performance-report.md`. The JSON report includes insert throughput, max indexed query latency, representative `EXPLAIN QUERY PLAN` output, `query_plan_full_scan_count`, max RSS, average CPU, and the resource sample count. The check fails if rows/minute or query latency miss target, if RSS cannot be measured or exceeds the row-tier target, if CPU cannot be measured, or if any representative `videos` query falls back to a full table scan.
+
+Resource target tiers:
+
+| Benchmark rows | Max RSS target |
+| ---: | ---: |
+| `< 100,000` | `1.0 GiB` |
+| `>= 100,000` | `2.5 GiB` |
+| `>= 1,000,000` | `4.0 GiB` |
+
+CPU is measured in the SQLite throughput benchmark, but the `95%` average CPU gate is not enforced for that benchmark because the command intentionally drives local SQLite at maximum throughput. Enforce CPU separately in the 5-minute field-performance run before claiming Phase 9 completion.
 
 ## Field Performance Rules
 

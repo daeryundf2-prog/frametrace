@@ -39,7 +39,7 @@ Keep media, raw images, and E01 files outside git. Commit only manifests, hashes
 - Purpose: validate that indexing and SQLite operations survive large case sizes.
 - Ground truth: generated synthetic row count and optional media hash manifest.
 - Expected outputs: `qa performance` report and completion log.
-- Pass criteria: `rows_per_minute >= 50000`, `max_query_ms <= 2000` for indexed SQLite queries, `query_plan_full_scan_count == 0`, and no database migration/indexing failure.
+- Pass criteria: `rows_per_minute >= 50000`, `max_query_ms <= 2000` for indexed SQLite queries, `query_plan_full_scan_count == 0`, `max_rss_bytes <= max_rss_target_bytes`, measured `cpu_average_percent`, and no database migration/indexing failure.
 
 ## Corpus F: Mixed Real-World Case Dataset
 
