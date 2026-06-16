@@ -23,9 +23,9 @@
           <span data-i18n="case.prototype">프로토타입 세션</span>
         </div>
         <div class="top-actions">
-          <button class="icon-button" id="languageButton" title="Switch language" aria-label="Switch language" data-i18n-title="lang.switch" data-i18n-aria-label="lang.switch">EN</button>
-          <button class="icon-button" id="syncViewButton" title="동기화 채널 보기 전환" aria-label="동기화 채널 보기 전환" data-i18n-title="sync.title" data-i18n-aria-label="sync.title">2ch</button>
-          <button class="icon-button" id="packageButton" title="사건 패키징" aria-label="사건 패키징" data-i18n-title="package.title" data-i18n-aria-label="package.title">PKG</button>
+          <button class="icon-button" id="languageButton" type="button" title="Switch language" aria-label="Switch language" data-i18n-title="lang.switch" data-i18n-aria-label="lang.switch">EN</button>
+          <button class="icon-button" id="syncViewButton" type="button" title="동기화 채널 보기 전환" aria-label="동기화 채널 보기 전환" data-i18n-title="sync.title" data-i18n-aria-label="sync.title">2ch</button>
+          <button class="icon-button" id="packageButton" type="button" title="사건 패키징" aria-label="사건 패키징" data-i18n-title="package.title" data-i18n-aria-label="package.title">PKG</button>
         </div>
       </header>
 
@@ -45,22 +45,53 @@
           <div class="stats-grid" id="statsGrid"></div>
           <div class="browser-toolbar">
             <div class="segmented" id="filterTabs" role="tablist" aria-label="증거 필터" data-i18n-aria-label="filters.aria"></div>
+            <div class="inventory-controls" aria-label="목록 표시 옵션" data-i18n-aria-label="inventory.controlsAria">
+              <label>
+                <span data-i18n="inventory.density">밀도</span>
+                <select id="densitySelect">
+                  <option value="compact" data-i18n="density.compact">압축</option>
+                  <option value="normal" selected data-i18n="density.normal">표준</option>
+                  <option value="media" data-i18n="density.media">미디어</option>
+                </select>
+              </label>
+              <button id="focusModeButton" type="button" data-i18n="inventory.focus">목록 집중</button>
+            </div>
             <label class="search-box">
               <span data-i18n="search.label">검색</span>
               <input id="searchInput" type="search" autocomplete="off" placeholder="경로, 해시, 파서, 메모" data-i18n-placeholder="search.placeholder">
             </label>
+            <div class="inventory-metrics" aria-live="polite">
+              <span id="resultCount">0</span>
+              <span id="visibleWindow">0</span>
+              <span id="queryLatency">0 ms</span>
+            </div>
           </div>
           <div class="file-table" role="table" aria-label="색인된 증거 파일" data-i18n-aria-label="table.aria">
             <div class="file-row file-head" role="row">
+              <span data-i18n="table.select">선택</span>
               <span data-i18n="table.status">상태</span>
+              <span data-i18n="table.review">검토</span>
+              <span data-i18n="table.id">ID</span>
+              <span data-i18n="table.name">이름</span>
+              <span data-i18n="table.source">소스</span>
               <span data-i18n="table.time">시각</span>
-              <span data-i18n="table.file">파일</span>
               <span data-i18n="table.type">유형</span>
-              <span data-i18n="table.preview">미리보기</span>
+              <span data-i18n="table.validation">검증</span>
               <span data-i18n="table.size">크기</span>
+              <span data-i18n="table.hash">해시</span>
+              <span data-i18n="table.report">보고서</span>
+              <span data-i18n="table.preview">미리보기</span>
             </div>
             <div id="fileRows" class="file-rows"></div>
           </div>
+          <div class="selection-bar">
+            <span id="selectionSummary">0 selected</span>
+            <button type="button" data-bulk-action="mark-reviewed" data-i18n="bulk.reviewed">검토 표시</button>
+            <button type="button" data-bulk-action="report-set" data-i18n="bulk.report">보고서 세트</button>
+            <button type="button" data-bulk-action="queue-validation" data-i18n="bulk.validation">검증 큐</button>
+            <button type="button" data-bulk-action="export-manifest" data-i18n="bulk.export">매니페스트</button>
+          </div>
+          <div id="bulkPreview" class="bulk-preview" hidden></div>
         </section>
 
         <section class="viewer-pane" aria-label="증거 뷰어" data-i18n-aria-label="viewer.aria">
@@ -71,9 +102,9 @@
                 <strong id="activeName">-</strong>
               </div>
               <div class="viewer-toggles">
-                <button class="tool-button active" data-overlay="metadata" data-i18n="overlay.metadata">메타</button>
-                <button class="tool-button" data-overlay="levels" data-i18n="overlay.levels">레벨</button>
-                <button class="tool-button" data-overlay="compare" data-i18n="overlay.compare">비교</button>
+                <button class="tool-button active" type="button" data-overlay="metadata" data-i18n="overlay.metadata">메타</button>
+                <button class="tool-button" type="button" data-overlay="levels" data-i18n="overlay.levels">레벨</button>
+                <button class="tool-button" type="button" data-overlay="compare" data-i18n="overlay.compare">비교</button>
               </div>
             </div>
             <div class="media-frame">
@@ -92,11 +123,11 @@
               <div class="timeline-scale" id="timelineScale"></div>
             </div>
             <div class="transport">
-              <button class="round-button" id="prevButton" title="이전 파일" aria-label="이전 파일" data-i18n-title="transport.prevFile" data-i18n-aria-label="transport.prevFile">&#9664;&#9664;</button>
-              <button class="round-button" id="stepBackButton" title="이전 프레임" aria-label="이전 프레임" data-i18n-title="transport.prevFrame" data-i18n-aria-label="transport.prevFrame">&#9664;</button>
-              <button class="round-button primary" id="playButton" title="재생/일시정지" aria-label="재생/일시정지" data-i18n-title="transport.playPause" data-i18n-aria-label="transport.playPause">&#9654;</button>
-              <button class="round-button" id="stepForwardButton" title="다음 프레임" aria-label="다음 프레임" data-i18n-title="transport.nextFrame" data-i18n-aria-label="transport.nextFrame">&#9654;</button>
-              <button class="round-button" id="nextButton" title="다음 파일" aria-label="다음 파일" data-i18n-title="transport.nextFile" data-i18n-aria-label="transport.nextFile">&#9654;&#9654;</button>
+              <button class="round-button" id="prevButton" type="button" title="이전 파일" aria-label="이전 파일" data-i18n-title="transport.prevFile" data-i18n-aria-label="transport.prevFile">&#9664;&#9664;</button>
+              <button class="round-button" id="stepBackButton" type="button" title="이전 프레임" aria-label="이전 프레임" data-i18n-title="transport.prevFrame" data-i18n-aria-label="transport.prevFrame">&#9664;</button>
+              <button class="round-button primary" id="playButton" type="button" title="재생/일시정지" aria-label="재생/일시정지" data-i18n-title="transport.playPause" data-i18n-aria-label="transport.playPause">&#9654;</button>
+              <button class="round-button" id="stepForwardButton" type="button" title="다음 프레임" aria-label="다음 프레임" data-i18n-title="transport.nextFrame" data-i18n-aria-label="transport.nextFrame">&#9654;</button>
+              <button class="round-button" id="nextButton" type="button" title="다음 파일" aria-label="다음 파일" data-i18n-title="transport.nextFile" data-i18n-aria-label="transport.nextFile">&#9654;&#9654;</button>
               <select id="speedSelect" aria-label="재생 속도" data-i18n-aria-label="transport.speed">
                 <option value="0.25">0.25x</option>
                 <option value="0.5">0.5x</option>
@@ -116,9 +147,9 @@
             <div class="panel-title" data-i18n="panel.fileState">파일 상태</div>
             <div class="status-card" id="statusCard"></div>
             <div class="review-actions">
-              <button id="markReviewedButton" data-i18n="action.reviewed">검토완료</button>
-              <button id="markImportantButton" data-i18n="action.important">중요</button>
-              <button id="addReportButton" data-i18n="action.report">보고서</button>
+              <button id="markReviewedButton" type="button" data-i18n="action.reviewed">검토완료</button>
+              <button id="markImportantButton" type="button" data-i18n="action.important">중요</button>
+              <button id="addReportButton" type="button" data-i18n="action.report">보고서</button>
             </div>
           </section>
 
@@ -130,10 +161,10 @@
           <section class="inspector-section">
             <div class="panel-title" data-i18n="panel.outputQueue">출력 큐</div>
             <div class="output-grid">
-              <button id="exportMp4Button">MP4</button>
-              <button id="exportAviButton">AVI</button>
-              <button id="captureFrameButton" data-i18n="action.frame">프레임</button>
-              <button id="verifyButton" data-i18n="action.queueVerify">검증 대기</button>
+              <button id="exportMp4Button" type="button">MP4</button>
+              <button id="exportAviButton" type="button">AVI</button>
+              <button id="captureFrameButton" type="button" data-i18n="action.frame">프레임</button>
+              <button id="verifyButton" type="button" data-i18n="action.queueVerify">검증 대기</button>
             </div>
           </section>
 

@@ -386,6 +386,8 @@ pub fn render_evidence_viewer_html(
     .metrics {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }}
     .metric {{ border: 1px solid var(--line); border-radius: 7px; padding: 9px; background: #fff; color: var(--muted); font-size: 12px; }}
     .metric strong {{ display: block; margin-top: 2px; color: var(--ink); font-size: 18px; }}
+    .notice {{ margin: 0 10px 10px; border: 1px solid #fed7aa; border-radius: 7px; background: #fff7ed; color: #7c2d12; padding: 8px 10px; font-size: 12px; }}
+    .notice[hidden] {{ display: none; }}
     .filters {{ display: grid; gap: 8px; padding: 10px; }}
     input, select, button {{ font: inherit; }}
     input, select {{ height: 34px; border: 1px solid #bdc9c4; border-radius: 6px; padding: 0 10px; background: #fff; color: var(--ink); }}
@@ -430,6 +432,7 @@ pub fn render_evidence_viewer_html(
         <div class="metric">검증됨<strong id="metricVerified">0</strong></div>
         <div class="metric">검증 실패<strong id="metricFailed">0</strong></div>
       </div>
+      <div class="notice" id="inventoryNotice" hidden></div>
       <div class="filters">
         <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
         <select id="kind">
@@ -563,6 +566,7 @@ const els = {{
   metricCarved: document.getElementById("metricCarved"),
   metricVerified: document.getElementById("metricVerified"),
   metricFailed: document.getElementById("metricFailed"),
+  inventoryNotice: document.getElementById("inventoryNotice"),
   query: document.getElementById("query"),
   kind: document.getElementById("kind"),
   status: document.getElementById("status"),
@@ -670,10 +674,17 @@ function renderDetails() {{
 }}
 function renderMetrics() {{
   els.caseLine.textContent = `${{manifest.case_id || "case"}} · ${{manifest.title || "Untitled"}} · ${{scan.source_path || "-"}}`;
-  els.metricVideos.textContent = videos.length;
+  els.metricVideos.textContent = scan.video_count ?? videos.length;
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
+  if (scan.inventory_truncated) {{
+    els.inventoryNotice.hidden = false;
+    els.inventoryNotice.textContent = `이 HTML 뷰어는 ${{scan.video_count ?? videos.length}}개 중 ${{scan.embedded_video_count ?? videos.length}}개만 포함합니다. 전체 목록은 ${{scan.inventory_query_contract || "frametrace inventory"}}로 페이지 조회하세요.`;
+  }} else {{
+    els.inventoryNotice.hidden = true;
+    els.inventoryNotice.textContent = "";
+  }}
 }}
 function render() {{ renderMetrics(); renderList(); renderDetails(); }}
 els.query.addEventListener("input", () => {{ currentPage = 1; render(); }});
@@ -711,5 +722,15 @@ mod tests {
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
         assert!(html.contains("inode_1304.bin"));
+    }
+
+    #[test]
+    fn evidence_viewer_discloses_bounded_inventory_subset() {
+        let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
+        let index = r#"{"video_count":502,"embedded_video_count":500,"inventory_truncated":true,"inventory_limit":500,"inventory_query_contract":"frametrace inventory <case_dir> --limit 500 --offset <n>","videos":[]}"#;
+        let html = render_evidence_viewer_html(manifest, index, "", "", "");
+        assert!(html.contains("id=\"inventoryNotice\""));
+        assert!(html.contains("scan.inventory_truncated"));
+        assert!(html.contains("inventory_query_contract"));
     }
 }

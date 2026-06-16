@@ -1,24 +1,36 @@
 pub mod core;
+#[cfg(test)]
+mod core_tests;
 pub mod evidence;
 pub mod helpers;
+pub mod inventory;
+mod inventory_query;
+#[cfg(test)]
+mod inventory_tests;
+pub mod inventory_types;
 pub mod jobs;
 #[cfg(test)]
 mod jobs_tests;
 pub mod metrics;
+mod metrics_queries;
 #[cfg(test)]
 mod metrics_tests;
 pub mod models;
 mod query_plan;
 pub mod scan;
+pub mod schema;
 
 pub use core::*;
 pub use evidence::*;
 pub(crate) use helpers::*;
+pub use inventory::*;
+pub use inventory_types::*;
 pub use jobs::*;
 pub use metrics::*;
 pub use models::*;
 pub(crate) use query_plan::*;
 pub use scan::*;
+pub(crate) use schema::*;
 
 #[cfg(test)]
 mod tests {

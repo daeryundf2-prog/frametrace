@@ -29,6 +29,30 @@ pub(crate) fn benchmark_query_plans(
             "SELECT id FROM videos WHERE extension = ?1 ORDER BY modified_unix DESC LIMIT 100",
             params!["mp4"],
         )?,
+        collect_query_plan(
+            conn,
+            "inventory_validation_candidates",
+            "SELECT id FROM videos WHERE ffprobe_ok = ?1 ORDER BY modified_unix ASC, id ASC LIMIT 100",
+            params![0],
+        )?,
+        collect_query_plan(
+            conn,
+            "inventory_hash_state",
+            "SELECT id FROM videos WHERE hash_status = ?1 ORDER BY id LIMIT 100",
+            params!["benchmark"],
+        )?,
+        collect_query_plan(
+            conn,
+            "inventory_path_prefix",
+            "SELECT id FROM videos WHERE relative_path >= ?1 AND relative_path < ?2 ORDER BY relative_path LIMIT 100",
+            params!["clip_000000", "clip_000001"],
+        )?,
+        collect_query_plan(
+            conn,
+            "inventory_recent_since",
+            "SELECT id FROM videos WHERE modified_unix >= ?1 ORDER BY modified_unix ASC LIMIT 100",
+            params![0],
+        )?,
     ];
     Ok(queries.into_iter().collect())
 }

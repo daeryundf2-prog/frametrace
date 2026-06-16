@@ -97,7 +97,7 @@ Any missing, unchecked, or unapproved gate is a release blocker.
 4. Package generation rejects missing required files.
 5. Unapproved external tool names are rejected.
 6. Explicit recovery/export outputs outside the case directory are rejected.
-7. Version 1 SQLite databases migrate to version 2 with a backup.
+7. Version 1 SQLite databases migrate to the current schema with ordered backups for every migration step.
 8. Evidence viewer includes TSK inode recovery outputs.
 9. Release readiness command writes `release-readiness.json` and fails on missing review blockers.
 10. Report defensibility command fails if report/viewer outputs contain disallowed legal-overclaim terms.

@@ -13,6 +13,7 @@ mod performance_qa;
 pub mod qa;
 pub mod report;
 mod resource_monitor;
+pub mod review_bundle;
 pub mod scan;
 pub mod sha256;
 pub mod tool_policy;

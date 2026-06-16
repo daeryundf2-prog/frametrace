@@ -1,6 +1,7 @@
+use super::metrics_queries::benchmark_indexed_queries;
 use super::*;
 use crate::util::{json_escape, now_unix};
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -63,104 +64,6 @@ pub fn benchmark_case_db(output_dir: &Path, rows: usize) -> Result<DbBenchmarkRe
         query_rows_returned,
         query_plans,
     })
-}
-
-fn benchmark_indexed_queries(
-    conn: &Connection,
-    rows: usize,
-) -> Result<(usize, u128, usize), String> {
-    let mut query_count = 0usize;
-    let mut max_query_ms = 0u128;
-    let mut query_rows_returned = 0usize;
-
-    record_query(
-        &mut query_count,
-        &mut max_query_ms,
-        &mut query_rows_returned,
-        || {
-            let count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM videos WHERE extension = ?1",
-                    params!["mp4"],
-                    |row| row.get(0),
-                )
-                .map_err(|err| format!("failed benchmark extension query: {err}"))?;
-            Ok(count.max(0) as usize)
-        },
-    )?;
-
-    let midpoint = rows.saturating_sub(1) / 2;
-    let source_path = format!("C:/Evidence/bench/clip_{midpoint:08}.mp4");
-    record_query(
-        &mut query_count,
-        &mut max_query_ms,
-        &mut query_rows_returned,
-        || {
-            let found: String = conn
-                .query_row(
-                    "SELECT id FROM videos WHERE source_path = ?1",
-                    params![source_path],
-                    |row| row.get(0),
-                )
-                .map_err(|err| format!("failed benchmark source lookup query: {err}"))?;
-            Ok(usize::from(!found.is_empty()))
-        },
-    )?;
-
-    let sha = format!("benchmark_hash_{midpoint:08}");
-    record_query(
-        &mut query_count,
-        &mut max_query_ms,
-        &mut query_rows_returned,
-        || {
-            let found: String = conn
-                .query_row(
-                    "SELECT id FROM videos WHERE sha256 = ?1",
-                    params![sha],
-                    |row| row.get(0),
-                )
-                .map_err(|err| format!("failed benchmark sha256 lookup query: {err}"))?;
-            Ok(usize::from(!found.is_empty()))
-        },
-    )?;
-
-    record_query(
-        &mut query_count,
-        &mut max_query_ms,
-        &mut query_rows_returned,
-        || {
-            let mut stmt = conn
-            .prepare(
-                "SELECT id FROM videos WHERE extension = ?1 ORDER BY modified_unix DESC LIMIT 100",
-            )
-            .map_err(|err| format!("failed to prepare benchmark timeline query: {err}"))?;
-            let rows = stmt
-                .query_map(params!["mp4"], |row| row.get::<_, String>(0))
-                .map_err(|err| format!("failed benchmark timeline query: {err}"))?;
-            let mut count = 0usize;
-            for row in rows {
-                row.map_err(|err| format!("failed benchmark timeline row read: {err}"))?;
-                count += 1;
-            }
-            Ok(count)
-        },
-    )?;
-
-    Ok((query_count, max_query_ms, query_rows_returned))
-}
-
-fn record_query(
-    query_count: &mut usize,
-    max_query_ms: &mut u128,
-    query_rows_returned: &mut usize,
-    run: impl FnOnce() -> Result<usize, String>,
-) -> Result<(), String> {
-    let started = Instant::now();
-    let rows = run()?;
-    *query_count += 1;
-    *max_query_ms = (*max_query_ms).max(started.elapsed().as_millis());
-    *query_rows_returned += rows;
-    Ok(())
 }
 
 pub fn summarize_case_db(case_dir: &Path) -> Result<Option<CaseDbSummary>, String> {

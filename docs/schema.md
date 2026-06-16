@@ -4,9 +4,10 @@ Phase 3 audit records the current schema and migration risks before destructive 
 
 ## Current Schema Version
 
-- `SCHEMA_VERSION = "2"`
-- New databases are initialized at schema version 2.
-- Existing version 1 databases migrate forward to version 2 with a pre-migration backup.
+- `SCHEMA_VERSION = "3"`
+- New databases are initialized at schema version 3.
+- Existing version 1 databases migrate forward through version 2 and version 3 with pre-migration backups at each step.
+- Existing version 2 databases migrate forward to version 3 with a pre-migration backup.
 - Unsupported versions still fail closed.
 
 ## Tables
@@ -44,6 +45,10 @@ Phase 3 audit records the current schema and migration risks before destructive 
 | `videos_confidence_idx` | Triage filtering. |
 | `videos_extension_modified_idx` | File type plus timeline filters. |
 | `videos_last_scanned_idx` | Scan freshness. |
+| `videos_inventory_default_idx` | Large inventory validation-state timeline paging. |
+| `videos_hash_status_idx` | Hash-state filtering with stable large inventory sorting. |
+| `videos_relative_path_idx` | Engine-backed path prefix search. |
+| `videos_confidence_modified_idx` | Confidence-filtered timeline review. |
 | `evidence_sources_kind_path_idx` | Source uniqueness. |
 | `evidence_sources_hash_idx` | Evidence hash lookup. |
 | `jobs_status_idx` | Active/completed job filtering. |
@@ -53,17 +58,17 @@ Phase 3 audit records the current schema and migration risks before destructive 
 ## Migration Contract Implemented
 
 - Version table: `schema_meta(key='schema_version')`.
-- Migration path: version 1 -> version 2.
-- Backup name: `case.db.backup-v1-to-v2-{unix_timestamp}` beside `db/case.db`.
-- Migration verification: unit tests assert new-db version 2 initialization and v1 migration with backup creation.
-- Rollback: restore the generated backup over `db/case.db` before rerunning the tool.
+- Migration path: version 1 -> version 2 -> version 3.
+- Backup names: `case.db.backup-v1-to-v2-{unix_timestamp}` and `case.db.backup-v2-to-v3-{unix_timestamp}` beside `db/case.db`.
+- Migration verification: unit tests assert new-db version 3 initialization, v1 chained migration, v2 direct migration, backup creation, and v3 inventory index creation.
+- Rollback: restore the latest generated backup over `db/case.db` before rerunning the tool.
 
 ## Migration Risks
 
 1. SQLite and JSONL/TSV compatibility artifacts can diverge.
 2. `record_json` duplicates typed columns but preserves compatibility.
 3. `job_events` is written but not yet surfaced enough in reports/viewer.
-4. Only v1->v2 exists; any future schema requires a named migration plus fixture.
+4. Future schema versions require a named migration, backup test, fixture, and post-migration index/query-plan verification.
 
 ## Deletion Policy
 

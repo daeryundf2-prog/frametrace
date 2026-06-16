@@ -1,4 +1,4 @@
-const records = [
+const seedRecords = [
   {
     id: "vid_000001",
     type: "video",
@@ -169,6 +169,65 @@ const records = [
   },
 ];
 
+const records = generateMockInventory(seedRecords, 10000);
+
+function generateMockInventory(seed, count) {
+  const statuses = ["unreviewed", "reviewed", "important", "needs_verification", "candidate"];
+  const sources = [
+    "SD001 BlackVue microSD",
+    "HDD001 NVR export",
+    "E01 exported raw image",
+    "Recovered filesystem",
+  ];
+  return Array.from({ length: count }, (_, index) => {
+    const base = seed[index % seed.length];
+    const status = statuses[index % statuses.length];
+    const source = sources[index % sources.length];
+    const extension = base.name.split(".").pop() || "bin";
+    const folder = String(Math.floor(index / 250) + 1).padStart(3, "0");
+    const sequence = String(index + 1).padStart(6, "0");
+    const idPrefix = base.type === "photo" ? "img" : base.type === "candidate" ? "carve" : "vid";
+    const hash = pseudoHash(index);
+    return {
+      ...base,
+      id: index < seed.length ? base.id : `${idPrefix}_${sequence}`,
+      name: index < seed.length ? base.name : `${base.name.replace(`.${extension}`, "")}_${sequence}.${extension}`,
+      path: index < seed.length ? base.path : `${source}/case-folder-${folder}/${base.name}`,
+      source,
+      sourceKind: source.includes("E01") ? "raw-image" : source.includes("Recovered") ? "derived" : "mounted-volume",
+      status,
+      reviewed: status === "reviewed",
+      report: index % 17 === 0 || base.report,
+      hashStatus: index % 11 === 0 ? "pending selected hash" : "complete",
+      hash: `${hash.slice(0, 12)}...${hash.slice(-4)}`,
+      fullHash: hash,
+      size: formatBytes(120000 + ((index * 7919) % 900000000)),
+      timestamp: `2026-05-${String(1 + (index % 28)).padStart(2, "0")} ${String(index % 24).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}:00`,
+      acquiredAt: "2026-05-19 13:12:04 KST",
+      validation: status === "candidate" ? "candidate-unvalidated" : base.validation,
+      note: status === "candidate" ? "Contiguous candidate awaiting validation" : base.note,
+      duration: Math.max(base.duration || 1, 1),
+    };
+  });
+}
+
+function pseudoHash(index) {
+  const alphabet = "0123456789abcdef";
+  let value = (index + 1) * 2654435761;
+  let out = "";
+  for (let i = 0; i < 64; i += 1) {
+    value = (value * 1664525 + 1013904223) >>> 0;
+    out += alphabet[value & 15];
+  }
+  return out;
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
+}
+
 const translations = {
   ko: {
     "app.title": "FrameTrace 증거 뷰어",
@@ -183,7 +242,18 @@ const translations = {
     "sources.aria": "증거 소스",
     "browser.aria": "증거 브라우저",
     "filters.aria": "증거 필터",
+    "inventory.controlsAria": "목록 표시 옵션",
+    "inventory.density": "밀도",
+    "inventory.focus": "목록 집중",
+    "inventory.default": "기본 보기",
+    "inventory.results": "{count}개 일치",
+    "inventory.window": "{start}-{end} 표시",
+    "inventory.latency": "{ms} ms",
+    "density.compact": "압축",
+    "density.normal": "표준",
+    "density.media": "미디어",
     "table.aria": "색인된 증거 파일",
+    "table.select": "선택",
     "viewer.aria": "증거 뷰어",
     "viewer.canvas": "선택 증거 미리보기",
     "inspector.aria": "포렌식 인스펙터",
@@ -196,11 +266,18 @@ const translations = {
     "search.label": "검색",
     "search.placeholder": "경로, 해시, 파서, 메모",
     "table.status": "상태",
+    "table.review": "검토",
+    "table.id": "ID",
+    "table.name": "이름",
+    "table.source": "소스",
     "table.time": "시각",
     "table.file": "파일",
     "table.type": "유형",
     "table.preview": "미리보기",
+    "table.validation": "검증",
     "table.size": "크기",
+    "table.hash": "해시",
+    "table.report": "보고서",
     "table.previewFor": "{name} 미리보기",
     "overlay.metadata": "메타",
     "overlay.levels": "레벨",
@@ -217,7 +294,20 @@ const translations = {
     "action.report": "보고서",
     "action.frame": "프레임",
     "action.queueVerify": "검증 대기",
+    "bulk.reviewed": "검토 표시",
+    "bulk.report": "보고서 세트",
+    "bulk.validation": "검증 큐",
+    "bulk.export": "매니페스트",
+    "bulk.selected": "{count}개 선택",
+    "bulk.previewTitle": "작업 미리보기",
+    "bulk.previewAction": "작업",
+    "bulk.previewFilter": "필터",
+    "bulk.previewMutation": "예상 변경",
+    "bulk.previewAudit": "감사 예정 위치",
+    "bulk.noSelection": "선택된 행 없음",
     "stat.files": "파일",
+    "stat.matches": "일치",
+    "stat.selected": "선택",
     "stat.videos": "영상",
     "stat.photos": "사진",
     "stat.carved": "복구 후보",
@@ -290,6 +380,7 @@ const translations = {
     "activity.validationQueued": "검증 대기",
     "activity.synchronizedView": "동기화 보기",
     "activity.packageQueued": "패키지 대기",
+    "activity.bulkPreview": "작업 미리보기 생성",
     "activity.enabled": "활성화",
     "activity.disabled": "비활성화",
     "activity.packageDetail": "검토 세트, 보고서 세트, 매니페스트",
@@ -311,6 +402,7 @@ const translations = {
       "candidate-unvalidated": "미검증 후보",
       "Contiguous MP4 signature; verify moov/mdat and playback": "연속 MP4 시그니처, moov/mdat 및 재생 검증 필요",
       "Contrast-adjusted copy, original frame retained": "대비 보정 사본, 원본 프레임 보존",
+      "Contiguous candidate awaiting validation": "연속 후보, 검증 대기",
       "source mounted read-only": "소스 읽기전용 마운트",
       "copied NVR export": "복사된 NVR 내보내기",
       "E01 exported raw image": "E01 추출 raw 이미지",
@@ -330,6 +422,7 @@ const translations = {
       "Derived from vid_000001": "vid_000001 파생",
       "E01 exported raw image": "E01 추출 raw 이미지",
       "Derived from vid_000117": "vid_000117 파생",
+      "Recovered filesystem": "복구 파일시스템",
     },
   },
   en: {
@@ -345,7 +438,18 @@ const translations = {
     "sources.aria": "Evidence sources",
     "browser.aria": "Evidence browser",
     "filters.aria": "Evidence filters",
+    "inventory.controlsAria": "Inventory display options",
+    "inventory.density": "Density",
+    "inventory.focus": "Focus list",
+    "inventory.default": "Default view",
+    "inventory.results": "{count} matches",
+    "inventory.window": "showing {start}-{end}",
+    "inventory.latency": "{ms} ms",
+    "density.compact": "Compact",
+    "density.normal": "Normal",
+    "density.media": "Media",
     "table.aria": "Indexed evidence files",
+    "table.select": "Select",
     "viewer.aria": "Evidence viewer",
     "viewer.canvas": "Selected evidence preview",
     "inspector.aria": "Forensic inspector",
@@ -358,11 +462,18 @@ const translations = {
     "search.label": "Search",
     "search.placeholder": "path, hash, parser, note",
     "table.status": "Status",
+    "table.review": "Review",
+    "table.id": "ID",
+    "table.name": "Name",
+    "table.source": "Source",
     "table.time": "Time",
     "table.file": "File",
     "table.type": "Type",
     "table.preview": "Preview",
+    "table.validation": "Validation",
     "table.size": "Size",
+    "table.hash": "Hash",
+    "table.report": "Report",
     "table.previewFor": "{name} preview",
     "overlay.metadata": "Meta",
     "overlay.levels": "Levels",
@@ -379,7 +490,20 @@ const translations = {
     "action.report": "Report",
     "action.frame": "Frame",
     "action.queueVerify": "Queue Verify",
+    "bulk.reviewed": "Mark reviewed",
+    "bulk.report": "Report set",
+    "bulk.validation": "Validation queue",
+    "bulk.export": "Manifest",
+    "bulk.selected": "{count} selected",
+    "bulk.previewTitle": "Action preview",
+    "bulk.previewAction": "Action",
+    "bulk.previewFilter": "Filter",
+    "bulk.previewMutation": "Expected mutation",
+    "bulk.previewAudit": "Audit target",
+    "bulk.noSelection": "No rows selected",
     "stat.files": "Files",
+    "stat.matches": "Matches",
+    "stat.selected": "Selected",
     "stat.videos": "Videos",
     "stat.photos": "Photos",
     "stat.carved": "Carved",
@@ -452,6 +576,7 @@ const translations = {
     "activity.validationQueued": "Validation queued",
     "activity.synchronizedView": "Synchronized view",
     "activity.packageQueued": "Package queued",
+    "activity.bulkPreview": "Bulk preview generated",
     "activity.enabled": "enabled",
     "activity.disabled": "disabled",
     "activity.packageDetail": "review set, report set, manifests",
@@ -464,17 +589,24 @@ const translations = {
 };
 
 const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
+const rowHeights = { compact: 34, normal: 44, media: 64 };
 
 const state = {
   locale: localStorage.getItem("frametrace.locale") || "ko",
   activeFilter: "all",
   selectedId: records[0].id,
+  selectedIds: new Set([records[0].id]),
   playback: 0,
   playing: false,
   speed: 1,
   zoom: 1,
   activeOverlay: "metadata",
   activeSource: "all",
+  density: "normal",
+  inventoryFocused: false,
+  lastQueryMs: 0,
+  visibleWindow: { start: 0, end: 0 },
+  renderQueued: false,
   syncView: false,
   activity: [
     { titleKey: "activity.prototypeCaseOpened", detailKey: "activity.prototypeCaseOpenedDetail" },
@@ -488,7 +620,14 @@ const els = {
   queueList: document.getElementById("queueList"),
   filterTabs: document.getElementById("filterTabs"),
   searchInput: document.getElementById("searchInput"),
+  densitySelect: document.getElementById("densitySelect"),
+  focusModeButton: document.getElementById("focusModeButton"),
+  resultCount: document.getElementById("resultCount"),
+  visibleWindow: document.getElementById("visibleWindow"),
+  queryLatency: document.getElementById("queryLatency"),
   fileRows: document.getElementById("fileRows"),
+  selectionSummary: document.getElementById("selectionSummary"),
+  bulkPreview: document.getElementById("bulkPreview"),
   activeKind: document.getElementById("activeKind"),
   activeName: document.getElementById("activeName"),
   canvas: document.getElementById("viewerCanvas"),
@@ -584,8 +723,11 @@ function filteredRecords() {
 }
 
 function renderStats() {
+  const visible = filteredRecords();
   const counts = {
     total: records.length,
+    matches: visible.length,
+    selected: state.selectedIds.size,
     video: records.filter((r) => r.type === "video").length,
     photo: records.filter((r) => r.type === "photo").length,
     candidate: records.filter((r) => r.type === "candidate").length,
@@ -596,6 +738,8 @@ function renderStats() {
   };
   const stats = [
     ["stat.files", counts.total],
+    ["stat.matches", counts.matches],
+    ["stat.selected", counts.selected],
     ["stat.videos", counts.video],
     ["stat.photos", counts.photo],
     ["stat.carved", counts.candidate],
@@ -632,11 +776,13 @@ function renderSources() {
   els.sourceList.querySelectorAll(".source-item").forEach((item) => {
     item.addEventListener("click", () => {
       state.activeSource = item.dataset.source;
+      els.fileRows.scrollTop = 0;
       ensureSelectionVisible();
       renderAll();
     });
     item.addEventListener("keydown", activateOnKeyboard(() => {
       state.activeSource = item.dataset.source;
+      els.fileRows.scrollTop = 0;
       ensureSelectionVisible();
       renderAll();
     }));
@@ -659,11 +805,13 @@ function renderQueue() {
   els.queueList.querySelectorAll(".queue-item").forEach((item) => {
     item.addEventListener("click", () => {
       state.activeFilter = item.dataset.filter;
+      els.fileRows.scrollTop = 0;
       ensureSelectionVisible();
       renderAll();
     });
     item.addEventListener("keydown", activateOnKeyboard(() => {
       state.activeFilter = item.dataset.filter;
+      els.fileRows.scrollTop = 0;
       ensureSelectionVisible();
       renderAll();
     }));
@@ -672,11 +820,12 @@ function renderQueue() {
 
 function renderFilters() {
   els.filterTabs.innerHTML = filters.map((key) => (
-    `<button class="${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="tab" aria-selected="${state.activeFilter === key}">${t(`filter.${key}`)}</button>`
+    `<button type="button" class="${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="tab" aria-selected="${state.activeFilter === key}">${t(`filter.${key}`)}</button>`
   )).join("");
   els.filterTabs.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeFilter = button.dataset.filter;
+      els.fileRows.scrollTop = 0;
       ensureSelectionVisible();
       renderAll();
     });
@@ -684,29 +833,134 @@ function renderFilters() {
 }
 
 function renderFiles() {
+  const startedAt = performance.now();
   const visible = filteredRecords();
+  state.lastQueryMs = Math.max(0, Math.round(performance.now() - startedAt));
+  const rowHeight = rowHeights[state.density] || rowHeights.normal;
+  els.fileRows.className = `file-rows density-${state.density}`;
+  els.fileRows.style.setProperty("--row-height", `${rowHeight}px`);
   if (!visible.length) {
     els.fileRows.innerHTML = `<div class="empty-state">${t("empty.noMatches")}</div>`;
+    state.visibleWindow = { start: 0, end: 0 };
+    renderInventoryMetrics(0);
+    renderSelectionBar();
     return;
   }
-  els.fileRows.innerHTML = visible.map((record) => (
-    `<div class="file-row data-row ${record.id === state.selectedId ? "active" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
-      <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
-      <span class="time-cell">${escapeHtml(shortTimestamp(record.timestamp))}</span>
-      <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(record.path)}</span></span>
-      <span class="type-cell">${typeLabel(record.type)}</span>
-      <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-label="${escapeAttr(t("table.previewFor", { name: record.name }))}"></canvas>
-      <span class="size-cell">${escapeHtml(record.size)}</span>
-    </div>`
-  )).join("");
+  const viewportHeight = els.fileRows.clientHeight || 520;
+  const scrollTop = els.fileRows.scrollTop;
+  const overscan = 8;
+  const visibleCount = Math.ceil(viewportHeight / rowHeight);
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const endIndex = Math.min(visible.length, startIndex + visibleCount + overscan * 2);
+  state.visibleWindow = { start: startIndex + 1, end: endIndex };
+  const pageRows = visible.slice(startIndex, endIndex);
+  els.fileRows.innerHTML = `
+    <div class="virtual-spacer" style="height:${visible.length * rowHeight}px">
+      <div class="virtual-window" style="transform:translateY(${startIndex * rowHeight}px)">
+        ${pageRows.map(fileRowHtml).join("")}
+      </div>
+    </div>`;
   els.fileRows.querySelectorAll(".data-row").forEach((row) => {
-    row.addEventListener("click", () => selectRecord(row.dataset.id));
+    row.addEventListener("click", (event) => {
+      if (event.target.matches(".row-check")) return;
+      selectRecord(row.dataset.id, event.metaKey || event.ctrlKey || event.shiftKey);
+    });
     row.addEventListener("keydown", activateOnKeyboard(() => selectRecord(row.dataset.id)));
+  });
+  els.fileRows.querySelectorAll(".row-check").forEach((checkbox) => {
+    checkbox.addEventListener("change", (event) => {
+      event.stopPropagation();
+      selectRecord(checkbox.dataset.selectId, true);
+    });
   });
   els.fileRows.querySelectorAll("canvas[data-thumb]").forEach((canvas) => {
     const record = records.find((item) => item.id === canvas.dataset.thumb);
     if (record) drawScene(canvas, record, 0, 1, true);
   });
+  renderInventoryMetrics(visible.length);
+  renderSelectionBar();
+}
+
+function fileRowHtml(record) {
+  const checked = state.selectedIds.has(record.id) ? "checked" : "";
+  return `
+    <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""} ${state.selectedIds.has(record.id) ? "selected" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
+      <span class="select-cell"><input class="row-check" type="checkbox" ${checked} data-select-id="${escapeAttr(record.id)}" aria-label="${escapeAttr(record.id)}"></span>
+      <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
+      <span class="review-cell">${record.reviewed ? t("status.reviewed") : t("status.unreviewed")}</span>
+      <code class="id-cell">${escapeHtml(record.id)}</code>
+      <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(middleTruncate(record.path, 72))}</span></span>
+      <span class="source-cell">${escapeHtml(sourceLabel(record.source))}</span>
+      <span class="time-cell">${escapeHtml(shortTimestamp(record.timestamp))}</span>
+      <span class="type-cell">${typeLabel(record.type)} / ${escapeHtml(record.parser)}</span>
+      <span class="validation-cell">${escapeHtml(valueLabel(record.validation))}</span>
+      <span class="size-cell">${escapeHtml(record.size)}</span>
+      <span class="hash-cell">${escapeHtml(valueLabel(record.hashStatus))}</span>
+      <span class="report-cell">${record.report ? "IN" : "-"}</span>
+      <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-label="${escapeAttr(t("table.previewFor", { name: record.name }))}"></canvas>
+    </div>`;
+}
+
+function renderInventoryMetrics(total) {
+  els.resultCount.textContent = t("inventory.results", { count: total });
+  els.visibleWindow.textContent = t("inventory.window", state.visibleWindow);
+  els.queryLatency.textContent = t("inventory.latency", { ms: state.lastQueryMs });
+}
+
+function renderSelectionBar() {
+  els.selectionSummary.textContent = t("bulk.selected", { count: state.selectedIds.size });
+}
+
+function showBulkPreview(action) {
+  if (!state.selectedIds.size) {
+    els.bulkPreview.hidden = false;
+    els.bulkPreview.innerHTML = `<strong>${t("bulk.previewTitle")}</strong><span>${t("bulk.noSelection")}</span>`;
+    return;
+  }
+  const filter = activeFilterSummary();
+  const actionLabel = t(`bulk.${actionLabelKey(action)}`);
+  const preview = {
+    action: actionLabel,
+    selectedCount: state.selectedIds.size,
+    filter,
+    expectedMutation: expectedMutation(action),
+    auditPath: `evidence/logs/${action}-preview.jsonl`,
+  };
+  els.bulkPreview.hidden = false;
+  els.bulkPreview.innerHTML = `
+    <strong>${t("bulk.previewTitle")}</strong>
+    <dl>
+      <dt>${t("bulk.previewAction")}</dt><dd>${escapeHtml(preview.action)}</dd>
+      <dt>${t("bulk.selected", { count: preview.selectedCount })}</dt><dd>${escapeHtml([...state.selectedIds].slice(0, 6).join(", "))}${state.selectedIds.size > 6 ? " ..." : ""}</dd>
+      <dt>${t("bulk.previewFilter")}</dt><dd>${escapeHtml(preview.filter)}</dd>
+      <dt>${t("bulk.previewMutation")}</dt><dd>${escapeHtml(preview.expectedMutation)}</dd>
+      <dt>${t("bulk.previewAudit")}</dt><dd><code>${escapeHtml(preview.auditPath)}</code></dd>
+    </dl>`;
+  addActivity("activity.bulkPreview", `${actionLabel} · ${state.selectedIds.size}`);
+  renderInspector();
+}
+
+function actionLabelKey(action) {
+  if (action === "mark-reviewed") return "reviewed";
+  if (action === "report-set") return "report";
+  if (action === "queue-validation") return "validation";
+  return "export";
+}
+
+function expectedMutation(action) {
+  if (action === "mark-reviewed") return "review_state -> reviewed";
+  if (action === "report-set") return "report_state -> included";
+  if (action === "queue-validation") return "validation job queue preview";
+  return "export manifest rows only";
+}
+
+function activeFilterSummary() {
+  const query = els.searchInput.value.trim();
+  return [
+    `source=${state.activeSource}`,
+    `filter=${state.activeFilter}`,
+    query ? `query=${query}` : "query=<empty>",
+  ].join("; ");
 }
 
 function renderViewer() {
@@ -768,6 +1022,7 @@ function renderInspector() {
 
 function renderAll() {
   applyLocalization();
+  renderInventoryControls();
   renderStats();
   renderSources();
   renderQueue();
@@ -777,8 +1032,25 @@ function renderAll() {
   renderInspector();
 }
 
-function selectRecord(id) {
+function renderInventoryControls() {
+  document.body.classList.toggle("inventory-focused", state.inventoryFocused);
+  els.focusModeButton.classList.toggle("active", state.inventoryFocused);
+  els.focusModeButton.textContent = state.inventoryFocused ? t("inventory.default") : t("inventory.focus");
+  els.densitySelect.value = state.density;
+}
+
+function selectRecord(id, additive = false) {
   state.selectedId = id;
+  if (additive) {
+    if (state.selectedIds.has(id)) {
+      state.selectedIds.delete(id);
+    } else {
+      state.selectedIds.add(id);
+    }
+    if (!state.selectedIds.size) state.selectedIds.add(id);
+  } else {
+    state.selectedIds = new Set([id]);
+  }
   state.playback = 0;
   stopTimer();
   addActivity("activity.selectedEvidence", id);
@@ -789,8 +1061,18 @@ function ensureSelectionVisible() {
   const visible = filteredRecords();
   if (!visible.some((record) => record.id === state.selectedId) && visible[0]) {
     state.selectedId = visible[0].id;
+    state.selectedIds = new Set([visible[0].id]);
     state.playback = 0;
   }
+}
+
+function requestInventoryRender() {
+  if (state.renderQueued) return;
+  state.renderQueued = true;
+  window.requestAnimationFrame(() => {
+    state.renderQueued = false;
+    renderFiles();
+  });
 }
 
 function updateRecord(mutator) {
@@ -1149,6 +1431,13 @@ function escapeAttr(value) {
   return escapeHtml(value).replaceAll("'", "&#39;");
 }
 
+function middleTruncate(value, maxLength) {
+  const text = String(value);
+  if (text.length <= maxLength) return text;
+  const keep = Math.max(8, Math.floor((maxLength - 3) / 2));
+  return `${text.slice(0, keep)}...${text.slice(-keep)}`;
+}
+
 function activateOnKeyboard(callback) {
   return (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1158,8 +1447,23 @@ function activateOnKeyboard(callback) {
 }
 
 els.searchInput.addEventListener("input", () => {
+  els.fileRows.scrollTop = 0;
   ensureSelectionVisible();
   renderAll();
+});
+els.fileRows.addEventListener("scroll", requestInventoryRender);
+els.densitySelect.addEventListener("change", () => {
+  state.density = els.densitySelect.value;
+  els.fileRows.scrollTop = 0;
+  renderAll();
+});
+els.focusModeButton.addEventListener("click", () => {
+  state.inventoryFocused = !state.inventoryFocused;
+  els.fileRows.scrollTop = 0;
+  renderAll();
+});
+document.querySelectorAll("[data-bulk-action]").forEach((button) => {
+  button.addEventListener("click", () => showBulkPreview(button.dataset.bulkAction));
 });
 els.playButton.addEventListener("click", togglePlay);
 els.prevButton.addEventListener("click", () => moveSelection(-1));

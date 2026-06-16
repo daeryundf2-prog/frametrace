@@ -778,6 +778,7 @@ Scope:
 - SQLite scale.
 - Viewer scale.
 - Search/filter latency.
+- Large file inventory layout and virtualized review workflow.
 - Package creation.
 - Resume/retry behavior.
 - Large raw/E01-derived datasets.
@@ -803,13 +804,18 @@ Tasks:
 4. Run large raw/E01-derived dataset test when available.
 5. Measure RSS, CPU, throughput, query latency, viewer P95/P99 latency, package time, and completion success.
 6. Verify pagination/virtualization for large viewer datasets.
-7. File defects for metrics outside thresholds.
+7. Verify the large file inventory requirements in `docs/EVIDENCE_VIEWER_GUI.md`: dense rows, grouped source drill-down, stable sort, composable filters, bulk preview, row-state preservation, and engine-backed search.
+8. Execute the implementation sequence in `docs/GUI_LARGE_INVENTORY_EXECUTION_PLAN.md` and attach its QA evidence.
+9. File defects for metrics outside thresholds.
 
 Deliverables:
 
 - `performance-report.md`
 - `performance-report.json`
 - Query-plan evidence
+- `docs/GUI_LARGE_INVENTORY_EXECUTION_PLAN.md`
+- `docs/gui-large-inventory-traceability.md`
+- Large file inventory QA report
 - Large-case failure log
 
 Validation:
@@ -817,6 +823,8 @@ Validation:
 - Metrics from Section 8 are pass/fail.
 - Memory use remains within target.
 - Viewer does not load full large JSON indexes into memory.
+- Viewer satisfies the large file inventory acceptance criteria in `docs/EVIDENCE_VIEWER_GUI.md`.
+- Every `docs/gui-large-inventory-traceability.md` requirement is passed or explicitly release-scoped down.
 - Large-case failure mode is recoverable or release-blocked.
 
 Exit Criteria:
@@ -1058,6 +1066,8 @@ All metrics are pass/fail. If a metric cannot be measured, the phase fails until
 | Viewer search latency, 100k rows | P95 <= 1 second | Pass if P95 search response <= target | UX Owner |
 | Viewer search latency, 1M rows | P99 <= 3 seconds with SQLite-backed search | Pass if P99 search response <= target | UX Owner |
 | List scroll frame stability | P95 frame time <= 50 ms for virtualized list | Pass if measured P95 <= target | UX Owner |
+| Visible inventory density, 1440 px | >= 12 visible rows with default layout | Pass if default layout shows at least 12 rows without hiding viewer/inspector | UX Owner |
+| Visible inventory density, inventory-focused mode | >= 30 visible rows | Pass if focused mode shows at least 30 rows and preserves selection/filter state | UX Owner |
 | UI freeze threshold | 0 freezes > 5 seconds | Pass if no interaction block exceeds threshold | UX Owner |
 
 ### Large Scale Metrics
@@ -1315,7 +1325,7 @@ Allowed language:
 Disallowed language:
 
 - Any phrase that claims guaranteed legal readiness
-- Any phrase that claims legal-grade validation
+- Any phrase that claims legal superiority of validation
 - Any phrase that claims legal proof
 - Any claim that legal admissibility is guaranteed
 - Any claim that unsupported formats are fully recovered

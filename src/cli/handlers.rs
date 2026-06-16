@@ -7,6 +7,7 @@ use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
 use crate::package;
 use crate::report;
+use crate::review_bundle;
 use crate::scan;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
@@ -251,9 +252,7 @@ pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Resu
 
 pub fn make_review(case_dir: &Path) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let index_path = case_dir.join("db/video_index.json");
-    let index_json = read_to_string(&index_path)
-        .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
+    let index_json = review_bundle::bounded_review_index_json(case_dir)?;
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;

@@ -1,0 +1,118 @@
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 82 tests
+test artifacts::tests::default_proxy_is_review_sized ... ok
+test artifacts::tests::default_thumbnail_starts_at_zero ... ok
+test artifacts::tests::builds_artifact_command_args ... ok
+test audit::tests::hashes_files ... ok
+test carve::tests::explains_validation_boundary_by_signature ... ok
+test carve::tests::finds_avi_and_dhav_signatures ... ok
+test carve::tests::finds_mp4_ftyp_start_offset ... ok
+test audit::tests::rejects_tampered_audit_lines ... ok
+test audit::tests::appends_chained_json_lines ... ok
+test case_db::core_tests::initializes_new_databases_at_current_schema_version ... ok
+test case_db::metrics_tests::benchmark_rejects_zero_rows ... ok
+test case_db::core_tests::migrates_v2_schema_to_inventory_contract_with_backup ... ok
+test case_db::core_tests::migrates_v1_schema_to_current_with_ordered_backups ... ok
+test detector::tests::avoids_overbroad_common_word_matches ... ok
+test detector::tests::detects_blackvue_channel_suffixes ... ok
+test detector::tests::detects_dahua_dav_exports ... ok
+test detector::tests::detects_genetec_g64x_exports ... ok
+test detector::tests::detects_korean_dashcam_recording_folders ... ok
+test detector::tests::detects_raw_dvr_streams ... ok
+test detector::tests::detects_thinkware_style_event_folders ... ok
+test detector::tests::detects_urive_dashcam_paths ... ok
+test detector::tests::does_not_treat_digits_in_path_as_raw_stream_vendor ... ok
+test detector::tests::falls_back_to_generic_media ... ok
+test e01::tests::builds_default_raw_filename ... ok
+test e01::tests::builds_ewfexport_args ... ok
+test e01::tests::maps_requested_raw_path_to_ewfexport_target ... ok
+test e01::tests::missing_ewf_version_reports_unavailable ... ok
+test e01::tests::resolves_requested_ewfexport_output ... ok
+test ffprobe::tests::extracts_json_values_from_ffprobe_like_payload ... ok
+test html_report::tests::evidence_viewer_includes_filesystem_recovery_records ... ok
+test package::tests::creates_checksummed_package_directory ... ok
+test package::tests::rejects_missing_required_package_files ... ok
+test package::tests::rejects_output_inside_recursively_packaged_tree ... ok
+test case_db::inventory_tests::bulk_preview_is_auditable_and_does_not_mutate_database ... ok
+test package::tests::rejects_symlinked_package_inputs ... ok
+test qa::qa_tests::accuracy_report_includes_recovery_artifacts ... ok
+test qa::qa_tests::accuracy_report_passes_for_matching_manifest ... ok
+test case_db::jobs_tests::marks_running_jobs_interrupted_for_recovery_review ... ok
+test case_db::metrics_tests::benchmark_records_indexed_query_latency ... ok
+test case_db::jobs_tests::interrupt_running_jobs_does_not_overwrite_terminal_jobs ... ok
+test case_db::inventory_tests::lists_inventory_with_bounded_sqlite_pagination ... ok
+test case_db::tests::preserves_manual_source_id_when_auto_registering_same_path ... ok
+test qa::qa_tests::review_manifest_accepts_key_value_and_markdown_gates ... ok
+test resource_monitor::tests::average_cpu_percent_uses_elapsed_wall_time ... ok
+test resource_monitor::tests::parses_ps_cpu_time_variants ... ok
+test resource_monitor::tests::resource_usage_requires_available_metrics ... ok
+test qa::qa_tests::report_defense_rejects_disallowed_legal_claims ... ok
+test scan::tests::extracts_escaped_json_string_values ... ok
+test scan::tests::collect_candidates_skips_excluded_case_output_tree ... ok
+test scan::tests::recognizes_common_video_extensions ... ok
+test scan::tests::merges_scan_records_without_dropping_existing_case_index ... ok
+test scan::tests::recognizes_mp4_magic_without_extension ... ok
+test scan::tests::rejects_scanning_the_case_directory_as_source ... ok
+test sha256::tests::hashes_abc ... ok
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test sha256::tests::hashes_empty_input ... ok
+test case_db::tests::writes_scan_records_to_sqlite_without_duplicate_rows ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test tsk::tests::builds_tsk_command_args ... ok
+test tsk::tests::parses_deleted_fls_video_entries ... ok
+test tsk::tests::parses_mmls_allocated_partition_offsets ... ok
+test util::tests::compacts_only_well_formed_json_values ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test util::tests::creates_file_url ... ok
+test util::tests::escapes_json_control_characters ... ok
+test validation::tests::classifies_missing_video_stream_as_failed ... ok
+test validation::tests::classifies_successful_video_probe_as_ffprobe_confirmed ... ok
+test validation::tests::extracts_escaped_json_strings ... ok
+test video_export::tests::builds_export_command_args ... ok
+test video_export::tests::parses_export_formats ... ok
+test video_export::tests::sanitizes_clip_names ... ok
+test validation::tests::resolves_artifact_path_from_jsonl_log ... ok
+test video_export::tests::unescapes_tsv_paths ... ok
+test util::tests::creates_unique_path_with_suffix ... ok
+test case_db::inventory_tests::searches_facets_and_loads_detail_from_sqlite ... ok
+test qa::qa_tests::reproducibility_detects_recovery_validation_drift ... ok
+test qa::qa_tests::reproducibility_normalizes_case_paths_timestamps_and_package_times ... ok
+test qa::qa_tests::report_defense_rejects_cases_with_running_jobs ... ok
+test case_db::inventory_tests::caps_inventory_page_size_for_large_viewer_safety ... ok
+test qa::qa_tests::performance_report_records_query_latency_metrics ... ok
+test performance_qa::tests::performance_report_writes_query_plan_evidence ... ok
+
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 1 test
+test inventory_commands_emit_bounded_sqlite_backed_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 3 tests
+test help_command_succeeds ... ok
+test external_tool_failure_reports_install_guidance ... ok
+test case_lifecycle_smoke_test_uses_real_binary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+   Doc-tests frametrace
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

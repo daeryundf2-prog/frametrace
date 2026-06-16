@@ -1,0 +1,1 @@
+{"status":"not-applicable","reason":"inventory CLI QA used short-lived cargo subprocesses only; no server, browser, tmux, worker, or persistent runtime was spawned"}

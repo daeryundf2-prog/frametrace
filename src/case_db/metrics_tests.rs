@@ -12,9 +12,9 @@ fn benchmark_records_indexed_query_latency() {
     let result = benchmark_case_db(&root, 64).unwrap();
 
     assert_eq!(result.rows, 64);
-    assert_eq!(result.query_count, 4);
-    assert_eq!(result.query_rows_returned, 130);
-    assert_eq!(result.query_plans.len(), 4);
+    assert_eq!(result.query_count, 8);
+    assert_eq!(result.query_rows_returned, 386);
+    assert_eq!(result.query_plans.len(), 8);
     assert!(
         result
             .query_plans
@@ -22,6 +22,18 @@ fn benchmark_records_indexed_query_latency() {
             .all(|plan| !plan.detail.is_empty())
     );
     assert!(result.path.is_file());
+    assert!(
+        result
+            .query_plans
+            .iter()
+            .any(|plan| plan.label == "inventory_validation_candidates")
+    );
+    let hash_state_plan = result
+        .query_plans
+        .iter()
+        .find(|plan| plan.label == "inventory_hash_state")
+        .unwrap();
+    assert!(!hash_state_plan.detail.contains("TEMP B-TREE"));
 
     let _ = fs::remove_dir_all(root);
 }
