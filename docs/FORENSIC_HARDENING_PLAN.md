@@ -50,6 +50,7 @@ Ordering rules:
 9. Phase 9 must complete before large-case support is advertised.
 10. Phase 10 must complete before any tagged release.
 11. Phase 11 may start only after Phase 10 approves the hardened base or explicitly marks a feature as BACKLOG/DESIGN CANDIDATE.
+12. GUI Phase 1, SQLite-backed large inventory work, and WinUI shell work must not start until the P1 completion/evidence/Stop-hook contract gate passes with fresh evidence.
 
 ## 3. Program Roles
 
@@ -78,6 +79,7 @@ Ordering rules:
 8. No release may bypass release blockers in Section 12.
 9. No new recovery implementation may begin before Phase 5 exit criteria are satisfied.
 10. Large-scale support must be backed by Phase 9 results, not assumptions.
+11. Completion, resume, and Stop-hook state are release blockers: structured PASS evidence, cleanup receipts or not-applicable reasons, HEAVY quality-gate reviewer artifacts, session-scoped canonical paths, structured Stop blockers, and reconciliation backup/receipt evidence must pass before GUI or WinUI release work proceeds.
 
 ## 5. Phase Execution Template
 

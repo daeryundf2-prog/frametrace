@@ -27,6 +27,36 @@ Known gaps:
 - No bulk-action preview exists before review/report/hash/validation mutations.
 - Generated review HTML risks embedding too much case index data if scaled naively.
 
+## Pre-GUI P1 Contract Gate
+
+Large inventory GUI work is blocked until the completion, evidence, resume, and Stop hook contracts are passing. This gate is intentionally before SQLite-backed viewer work and before any WinUI shell implementation.
+
+Purpose:
+
+- Prevent the project from claiming a finished GUI or forensic workflow while ULW-loop, Stop hook, or resume state can still record false completion.
+
+Entry criteria:
+
+- `omo ulw-loop status --json` or an equivalent ULW-loop CLI surface returns session-scoped `briefPath`, `goalsPath`, `ledgerPath`, and `evidenceDir`.
+- No workflow instruction depends on hand-editing JSON state as a normal success path.
+- The official Stop hook reconciliation command exists and requires a session ID, complete canonical ULW-loop state, and fresh verification evidence.
+
+Required validation:
+
+- PASS evidence tests prove that text-only evidence, missing cleanup receipts, missing `cleanup:not-applicable` reasons, and remaining process/browser/worker flags cannot pass.
+- Checkpoint tests use the same PASS validator as `record-evidence`.
+- Quality gate tests prove `tier` is required, HEAVY cannot use the LIGHT self-review bypass, and HEAVY requires structured reviewer fields plus reviewer artifact.
+- Bootstrap smoke tests prove `omo`, `omo-ulw-loop`, executable wrappers, and `cli.js` fallback are probed distinctly.
+- Stop hook tests prove blocking output includes the blocking state file path, session ID, active status, and phase.
+- Reconciliation tests prove session mismatch, missing evidence, stale evidence, and incomplete canonical state do not mutate hook state.
+- Reconciliation tests prove every JSON mutation creates a timestamped backup, uses atomic write, and writes a receipt.
+
+Exit criteria:
+
+- A fresh verification artifact is recorded in the canonical ULW-loop `evidenceDir`.
+- The reconciliation receipt records the canonical `briefPath`, `goalsPath`, `ledgerPath`, and `evidenceDir`.
+- GUI Phase 1 or WinUI work does not start until this P1 gate is marked passing.
+
 ## Authoritative References
 
 - `docs/EVIDENCE_VIEWER_GUI.md`
@@ -40,6 +70,24 @@ Known gaps:
 - `src/html_report.rs`
 
 ## Execution Sequence
+
+### Phase P1: Completion/Evidence/Hook Contract Gate
+
+Purpose:
+
+- Close the false-PASS and stale Stop hook failure modes before GUI implementation.
+
+Tasks:
+
+1. Run ULW-loop PASS evidence, checkpoint, quality gate, bootstrap, and reconcile command tests.
+2. Run Stop hook runtime tests for structured blockers and reconciliation backup/receipt behavior.
+3. Capture one manual CLI scenario showing a complete canonical ULW-loop run reconciling stale session-scoped hook state.
+4. Record the evidence path, cleanup status, and reviewer result.
+
+Exit criteria:
+
+- P1 validation passes with fresh command output.
+- Any remaining P1 failure blocks GUI Phase 1 and WinUI work.
 
 ### Phase 0: Baseline Measurement
 
@@ -142,6 +190,52 @@ Exit criteria:
 - 100,000-row fixture search P95 <= 1 second.
 - 1,000,000-row synthetic SQLite search P99 <= 3 seconds.
 - Browser memory does not scale with total row count.
+
+## Production Data/API/Audit/Performance Contract
+
+Source of truth:
+
+- Rust engine and SQLite `case.db` are the authoritative production state.
+- Browser HTML, JSON, JSONL, TSV, thumbnails, proxies, frame captures, clips, and reports are derived artifacts.
+- Production search, filter, facet, sort, and bulk preview are engine-backed queries; they must not load 100k or 1M inventory rows into browser memory.
+
+Inventory API surfaces:
+
+| Surface | Purpose | Required behavior |
+| --- | --- | --- |
+| `list_inventory` | Page inventory rows. | Accepts `case_id`, projection, filters, sort, and `limit <= 500`; returns rows, `next_cursor`, `total_count`, `query_id`, `duration_ms`, and truncation state. |
+| `search_inventory` | Keyword and field search. | Uses SQLite indexes/FTS where available; returns page-sized results and exact or disclosed approximate counts. |
+| `inventory_facets` | Group counts. | Returns counts for source, partition/container, folder, parser lane, validation state, review state, report state, type, and hash state. |
+| `get_file_detail` | Inspect a row. | Returns full provenance, derived artifact chain, validation history, hashes, and report membership. |
+| `bulk_preview` | Preview mutations. | Returns target row count, filters, selected IDs, excluded IDs, warnings, expected mutation, audit preview ID, and output paths before mutation. |
+| `apply_bulk_action` | Apply reviewed mutation. | Requires a valid preview ID and writes audit events before durable case state changes. |
+| `export_manifest` | Export selected set. | Writes a manifest with file IDs, source IDs, hashes, paths, action history, and unsupported/partial states. |
+
+Audit contract:
+
+- Every durable mutation records operator, timestamp, command/tool version, case ID, preview ID when applicable, source file IDs, source hashes when available, row IDs or query/filter snapshot, before/after states, output paths, and output hashes.
+- Bulk action preview is mandatory before mark-reviewed, report-set, hash-queue, validation-queue, proxy/thumbnail generation, clip export, and manifest export mutations.
+- Candidate carved files remain `candidate-unvalidated` until a validation command records tool, method, operator, timestamp, source artifact, source hash when available, validation artifact, and audit chain.
+- Direct original media playback is an audited exception; the default playback target is a validated proxy.
+
+Performance contract:
+
+| Scenario | Pass/fail target |
+| --- | --- |
+| 10k prototype mock initial render | P95 <= 2 seconds |
+| 10k prototype scroll | P95 frame time <= 32 ms |
+| 100k SQLite fixture search | P95 <= 1 second |
+| 1M SQLite synthetic search | P99 <= 3 seconds |
+| Inventory row selection UI | P95 <= 100 ms |
+| Cached page filter/facet refresh | P95 <= 250 ms |
+| Browser inventory memory | Does not scale with total row count |
+| Bulk preview generation | 100% of durable mutations require preview |
+
+Implementation path:
+
+1. HTML prototype proves density, virtualization, filters, and preview interaction with deterministic mock data.
+2. SQLite-backed prototype replaces browser-array search/filter/facet/sort with engine-backed paged queries.
+3. WinUI 3 shell consumes the same SQLite-backed API contract and does not introduce a separate source of truth.
 
 ### Phase 5: Forensic Review QA
 
