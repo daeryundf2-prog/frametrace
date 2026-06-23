@@ -95,6 +95,7 @@ pub fn generate_proxy(
             created_unix
         )))
     };
+    require_case_output_path(case_dir, &output_path, "proxy")?;
     reject_source_output_path(&source_path, &output_path, "proxy")?;
     ensure_parent(&output_path)?;
 
@@ -156,6 +157,7 @@ pub fn generate_thumbnail(
             created_unix
         )))
     };
+    require_case_output_path(case_dir, &output_path, "thumbnail")?;
     reject_source_output_path(&source_path, &output_path, "thumbnail")?;
     ensure_parent(&output_path)?;
 
@@ -217,6 +219,7 @@ pub fn capture_frame(
             created_unix
         )))
     };
+    require_case_output_path(case_dir, &output_path, "frame capture")?;
     reject_source_output_path(&source_path, &output_path, "frame capture")?;
     ensure_parent(&output_path)?;
 
@@ -338,6 +341,7 @@ fn append_artifact_log(
     command_args: &[String],
 ) -> Result<(), String> {
     let path = case_dir.join(relative_log);
+    require_case_output_path(case_dir, &path, "derived artifact log")?;
     let source_sha256 =
         audit::indexed_source_hash(case_dir, &artifact.selector, &artifact.source_path);
     let output_sha256 = audit::digest_file(&artifact.output_path)?;

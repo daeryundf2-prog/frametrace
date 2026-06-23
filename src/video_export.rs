@@ -72,6 +72,7 @@ pub fn export_video(
             options.format.extension()
         )))
     };
+    require_case_output_path(case_dir, &output_path, "video export")?;
     reject_source_output_path(&source_path, &output_path, "video export")?;
 
     if let Some(parent) = output_path.parent() {
@@ -226,6 +227,7 @@ fn write_export_log(
     operator: &str,
 ) -> Result<(), String> {
     let path = case_dir.join("artifacts/clips/export-log.jsonl");
+    require_case_output_path(case_dir, &path, "video export log")?;
     let exported_unix = now_unix()?;
     let source_sha256 = audit::indexed_source_hash(case_dir, selector, source_path);
     let output_sha256 = audit::digest_file(output_path)?;

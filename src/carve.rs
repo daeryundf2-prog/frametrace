@@ -1,4 +1,5 @@
 use crate::audit;
+use crate::tool_policy::require_case_output_path;
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::collections::HashMap;
 use std::fs::File;
@@ -186,6 +187,7 @@ pub fn carve_file(
                 .join("artifacts/carved")
                 .join(format!("{}_{:012x}.{}", id, hit.offset, hit.extension)),
         );
+        require_case_output_path(case_dir, &output_path, "carved artifact")?;
         copy_range(&source_path, hit.offset, size_bytes, &output_path)
             .map_err(|err| format!("failed to carve {}: {err}", output_path.display()))?;
         let sha256 = audit::digest_file(&output_path)?;
@@ -327,10 +329,13 @@ fn copy_range(source: &Path, offset: u64, size_bytes: u64, output: &Path) -> io:
 }
 
 fn write_carve_outputs(case_dir: &Path, result: &CarveResult) -> Result<(), String> {
-    write_text(&case_dir.join("db/carve_results.json"), &result.to_json())
+    let results_path = case_dir.join("db/carve_results.json");
+    require_case_output_path(case_dir, &results_path, "carve results")?;
+    write_text(&results_path, &result.to_json())
         .map_err(|err| format!("failed to write carve results: {err}"))?;
 
     let log_path = case_dir.join("artifacts/carved/carve-log.jsonl");
+    require_case_output_path(case_dir, &log_path, "carve log")?;
     for artifact in &result.artifacts {
         audit::append_chained_jsonl(&log_path, &artifact.to_json())?;
     }

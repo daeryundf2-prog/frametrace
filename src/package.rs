@@ -1,6 +1,8 @@
 use crate::audit;
+use crate::tool_policy::require_case_output_path;
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     let output_dir = match output_dir {
         Some(path) => {
             reject_recursive_package_output(case_dir, path)?;
+            reject_package_output_symlink(path)?;
             if path.exists()
                 && path
                     .read_dir()
@@ -36,11 +39,15 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
             }
             path.to_path_buf()
         }
-        None => unique_path(
-            &case_dir
-                .join("reports")
-                .join(format!("package_{created_unix}")),
-        ),
+        None => {
+            let path = unique_path(
+                &case_dir
+                    .join("reports")
+                    .join(format!("package_{created_unix}")),
+            );
+            require_case_output_path(case_dir, &path, "case package")?;
+            path
+        }
     };
     validate_required_package_files(case_dir)?;
     fs::create_dir_all(&output_dir)
@@ -103,6 +110,21 @@ fn reject_recursive_package_output(case_dir: &Path, output_dir: &Path) -> Result
         }
     }
     Ok(())
+}
+
+fn reject_package_output_symlink(output_dir: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(output_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "package output cannot be a symlink: {}",
+            output_dir.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to inspect package output {}: {err}",
+            output_dir.display()
+        )),
+    }
 }
 
 fn required_package_files() -> &'static [&'static str] {
