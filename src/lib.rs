@@ -3,6 +3,8 @@ pub mod audit;
 pub mod carve;
 pub mod case_db;
 pub mod cli;
+#[cfg(test)]
+mod derived_output_policy_tests;
 pub mod detector;
 pub mod e01;
 pub mod ffprobe;

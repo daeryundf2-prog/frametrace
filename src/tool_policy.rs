@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
@@ -100,6 +101,7 @@ pub fn require_case_output_path(
             canonical_parent.display()
         ));
     }
+    reject_output_symlink_leaf(&absolute_output, label)?;
 
     Ok(())
 }
@@ -182,6 +184,21 @@ fn nearest_existing_parent(path: &Path) -> PathBuf {
     }
 }
 
+fn reject_output_symlink_leaf(output_path: &Path, label: &str) -> Result<(), String> {
+    match std::fs::symlink_metadata(output_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "{label} output cannot be a symlink: {}",
+            output_path.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to inspect {label} output path {}: {err}",
+            output_path.display()
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{reject_source_output_path, require_case_output_path, resolve_tool_binary};
@@ -225,6 +242,27 @@ mod tests {
         fs::create_dir_all(&case_dir).unwrap();
         let inside = case_dir.join("artifacts/out.mp4");
         require_case_output_path(&case_dir, &inside, "test").unwrap();
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_case_output_dangling_symlink_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!(
+            "frametrace-output-policy-symlink-test-{}",
+            std::process::id()
+        ));
+        let case_dir = base.join("case");
+        fs::create_dir_all(case_dir.join("artifacts")).unwrap();
+        let output = case_dir.join("artifacts/out.mp4");
+        let outside = base.join("outside.mp4");
+        symlink(&outside, &output).unwrap();
+
+        let err = require_case_output_path(&case_dir, &output, "test").unwrap_err();
+
+        assert!(err.contains("cannot be a symlink"));
         let _ = fs::remove_dir_all(base);
     }
 
