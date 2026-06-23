@@ -1,5 +1,7 @@
 use crate::audit;
-use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
+use crate::tool_policy::{
+    command_version, reject_source_output_path, require_case_output_path, resolve_tool_binary,
+};
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -43,16 +45,18 @@ pub struct E01ImportResult {
 pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Result<(), String> {
     let e01_path = canonical_e01_path(e01_path)?;
     let inspected_unix = now_unix()?;
-    let info = run_capture(
-        &options.ewfinfo_bin,
-        &["ewfinfo"],
-        &["-f", "text", &audit::path_string(&e01_path)],
-    )?;
     let info_log_path = unique_path(
         &case_dir
             .join("evidence/logs")
             .join(format!("e01-info-{inspected_unix}.txt")),
     );
+    require_e01_output_path(case_dir, &e01_path, &info_log_path, "E01 info log")?;
+    let audit_log_path = e01_audit_log_path(case_dir, &e01_path)?;
+    let info = run_capture(
+        &options.ewfinfo_bin,
+        &["ewfinfo"],
+        &["-f", "text", &audit::path_string(&e01_path)],
+    )?;
     write_text(&info_log_path, &info.stdout)
         .map_err(|err| format!("failed to write E01 info log: {err}"))?;
 
@@ -61,8 +65,8 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
     } else {
         None
     };
-    append_e01_audit(
-        case_dir,
+    append_e01_audit_at(
+        &audit_log_path,
         &format!(
             "{{\"schema_version\":1,\"event\":\"inspect-e01\",\"inspected_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"ewfinfo_version\":\"{}\",\"ewfinfo_log_path\":\"{}\"}}",
             inspected_unix,
@@ -81,20 +85,12 @@ pub fn import_e01(
 ) -> Result<E01ImportResult, String> {
     let e01_path = canonical_e01_path(e01_path)?;
     let imported_unix = now_unix()?;
-
-    let info = run_capture(
-        &options.ewfinfo_bin,
-        &["ewfinfo"],
-        &["-f", "text", &audit::path_string(&e01_path)],
-    )?;
     let info_log_path = unique_path(
         &case_dir
             .join("evidence/logs")
             .join(format!("e01-info-{imported_unix}.txt")),
     );
-    write_text(&info_log_path, &info.stdout)
-        .map_err(|err| format!("failed to write E01 info log: {err}"))?;
-
+    require_e01_output_path(case_dir, &e01_path, &info_log_path, "E01 info log")?;
     let verify_log_path = if options.skip_verify {
         None
     } else {
@@ -103,17 +99,36 @@ pub fn import_e01(
                 .join("evidence/logs")
                 .join(format!("e01-verify-{imported_unix}.txt")),
         );
+        require_e01_output_path(case_dir, &e01_path, &path, "E01 verify log")?;
+        Some(path)
+    };
+    let export_log_path = unique_path(
+        &case_dir
+            .join("evidence/logs")
+            .join(format!("e01-export-{imported_unix}.txt")),
+    );
+    require_e01_output_path(case_dir, &e01_path, &export_log_path, "E01 export log")?;
+    let audit_log_path = e01_audit_log_path(case_dir, &e01_path)?;
+
+    let info = run_capture(
+        &options.ewfinfo_bin,
+        &["ewfinfo"],
+        &["-f", "text", &audit::path_string(&e01_path)],
+    )?;
+    write_text(&info_log_path, &info.stdout)
+        .map_err(|err| format!("failed to write E01 info log: {err}"))?;
+
+    if let Some(path) = &verify_log_path {
         let args = vec![
             "-q".to_string(),
             "-d".to_string(),
             "sha256".to_string(),
             "-l".to_string(),
-            audit::path_string(&path),
+            audit::path_string(path),
             audit::path_string(&e01_path),
         ];
         run_status(&options.ewfverify_bin, &["ewfverify"], &args)?;
-        Some(path)
-    };
+    }
 
     let requested_raw_path = options.output_path.clone().unwrap_or_else(|| {
         case_dir
@@ -140,11 +155,6 @@ pub fn import_e01(
         ));
     }
 
-    let export_log_path = unique_path(
-        &case_dir
-            .join("evidence/logs")
-            .join(format!("e01-export-{imported_unix}.txt")),
-    );
     let export_args = ewfexport_args(&e01_path, &export_target, options, &export_log_path);
     run_status(&options.ewfexport_bin, &["ewfexport"], &export_args)?;
     let generated_raw_path = resolve_ewfexport_output(&generated_raw_path)?;
@@ -167,8 +177,8 @@ pub fn import_e01(
         None
     };
 
-    append_e01_audit(
-        case_dir,
+    append_e01_audit_at(
+        &audit_log_path,
         &format!(
             "{{\"schema_version\":1,\"event\":\"import-e01\",\"imported_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"raw_output_path\":\"{}\",\"raw_sha256\":\"{}\",\"max_bytes\":{},\"verified\":{},\"ewfinfo_version\":\"{}\",\"ewfverify_version\":\"{}\",\"ewfexport_version\":\"{}\",\"ewfinfo_log_path\":\"{}\",\"ewfverify_log_path\":{},\"ewfexport_log_path\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
             imported_unix,
@@ -338,8 +348,24 @@ fn ewf_command_version(binary: &str, allowed: &[&str]) -> String {
     command_version(binary, allowed, "-V")
 }
 
-fn append_e01_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/e01-audit.jsonl"), body_json)
+fn require_e01_output_path(
+    case_dir: &Path,
+    e01_path: &Path,
+    output_path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    require_case_output_path(case_dir, output_path, label)?;
+    reject_source_output_path(e01_path, output_path, label)
+}
+
+fn e01_audit_log_path(case_dir: &Path, e01_path: &Path) -> Result<PathBuf, String> {
+    let path = case_dir.join("evidence/logs/e01-audit.jsonl");
+    require_e01_output_path(case_dir, e01_path, &path, "E01 audit log")?;
+    Ok(path)
+}
+
+fn append_e01_audit_at(path: &Path, body_json: &str) -> Result<(), String> {
+    audit::append_chained_jsonl(path, body_json)
 }
 
 struct CommandOutput {

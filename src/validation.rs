@@ -2,7 +2,7 @@ use crate::audit;
 use crate::ffprobe;
 use crate::media_contract;
 use crate::model::ProbeSummary;
-use crate::tool_policy::command_version;
+use crate::tool_policy::{command_version, require_case_output_path};
 use crate::util::{json_escape, now_unix, read_to_string};
 use crate::video_export::resolve_video_source;
 use std::path::{Path, PathBuf};
@@ -203,7 +203,9 @@ fn append_validation_log(
 ) -> Result<(), String> {
     let operator = media_contract::resolve_operator(case_dir, options.operator.as_deref())?;
     let line = validation_log_body_json(result, options, &operator);
-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/validation-log.jsonl"), &line)
+    let log_path = case_dir.join("evidence/logs/validation-log.jsonl");
+    require_case_output_path(case_dir, &log_path, "validation log")?;
+    audit::append_chained_jsonl(&log_path, &line)
 }
 
 fn validation_log_body_json(

@@ -1,5 +1,6 @@
 use crate::audit;
 use crate::media_contract;
+use crate::tool_policy::require_case_output_path;
 use crate::util::{json_escape, now_unix, read_to_string};
 use std::path::{Path, PathBuf};
 
@@ -51,7 +52,9 @@ pub fn confirm_playback(
         confirmed_unix,
     };
     let body = playback_log_body_json(&result, &prior, options);
-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/validation-log.jsonl"), &body)?;
+    let log_path = case_dir.join("evidence/logs/validation-log.jsonl");
+    require_case_output_path(case_dir, &log_path, "validation log")?;
+    audit::append_chained_jsonl(&log_path, &body)?;
     Ok(result)
 }
 

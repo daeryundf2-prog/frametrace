@@ -1,5 +1,7 @@
 use crate::audit;
-use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
+use crate::tool_policy::{
+    command_version, reject_source_output_path, require_case_output_path, resolve_tool_binary,
+};
 use crate::util::{json_escape, now_unix, unique_path, write_text};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -133,6 +135,7 @@ pub fn inspect_image(
             .join("evidence/logs")
             .join(format!("tsk-mmls-{inspected_unix}.txt")),
     );
+    require_case_output_path(case_dir, &mmls_log_path, "mmls log")?;
     let mmls_args = vec![tsk_path_string(&image_path)];
     let mmls = run_capture(&options.mmls_bin, &["mmls"], &mmls_args);
     let partitions = match &mmls {
@@ -166,6 +169,7 @@ pub fn inspect_image(
             .join("evidence/logs")
             .join(format!("tsk-fls-{inspected_unix}.txt")),
     );
+    require_case_output_path(case_dir, &fls_log_path, "fls log")?;
     let fls_args = fls_args(&image_path, partition_offset);
     let fls = run_capture(&options.fls_bin, &["fls"], &fls_args)?;
     write_text(&fls_log_path, &fls.combined_text())
@@ -193,6 +197,7 @@ pub fn inspect_image(
             .join("db/filesystem")
             .join(format!("tsk-files-{inspected_unix}.jsonl")),
     );
+    require_case_output_path(case_dir, &entries_jsonl_path, "filesystem entries")?;
     let jsonl = entries
         .iter()
         .map(FlsEntry::to_json)
@@ -206,6 +211,8 @@ pub fn inspect_image(
             .join("db/filesystem")
             .join(format!("tsk-inspection-{inspected_unix}.json")),
     );
+    require_case_output_path(case_dir, &summary_path, "filesystem inspection summary")?;
+    let audit_log_path = tsk_audit_log_path(case_dir, Some(&image_path))?;
     let summary = inspect_summary_json(&InspectSummaryInput {
         image_path: &image_path,
         inspected_unix,
@@ -220,8 +227,8 @@ pub fn inspect_image(
     write_text(&summary_path, &summary)
         .map_err(|err| format!("failed to write filesystem inspection summary: {err}"))?;
 
-    append_tsk_audit(
-        case_dir,
+    append_tsk_audit_at(
+        &audit_log_path,
         &format!(
             "{{\"schema_version\":1,\"event\":\"inspect-image-filesystem\",\"inspected_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"partition_count\":{},\"entry_count\":{},\"deleted_count\":{},\"video_candidate_count\":{},\"mmls_version\":\"{}\",\"fls_version\":\"{}\",\"mmls_log_path\":\"{}\",\"fls_log_path\":\"{}\",\"entries_jsonl_path\":\"{}\",\"summary_path\":\"{}\",\"warnings\":{}}}",
             inspected_unix,
@@ -282,6 +289,7 @@ pub fn recover_inode(
         ),
     };
     require_case_output_path(case_dir, &output_path, "inode recovery")?;
+    let audit_log_path = tsk_audit_log_path(case_dir, Some(&image_path))?;
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create recovery output directory: {err}"))?;
@@ -317,8 +325,8 @@ pub fn recover_inode(
     let sha256 = audit::digest_file(&output_path)?;
     let validation_status = "candidate-unvalidated".to_string();
 
-    append_tsk_audit(
-        case_dir,
+    append_tsk_audit_at(
+        &audit_log_path,
         &format!(
             "{{\"schema_version\":1,\"event\":\"recover-inode\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
             recovered_unix,
@@ -390,8 +398,17 @@ fn inspect_summary_json(input: &InspectSummaryInput<'_>) -> String {
     )
 }
 
-fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/tsk-audit.jsonl"), body_json)
+fn tsk_audit_log_path(case_dir: &Path, source_path: Option<&Path>) -> Result<PathBuf, String> {
+    let path = case_dir.join("evidence/logs/tsk-audit.jsonl");
+    require_case_output_path(case_dir, &path, "filesystem audit log")?;
+    if let Some(source_path) = source_path {
+        reject_source_output_path(source_path, &path, "filesystem audit log")?;
+    }
+    Ok(path)
+}
+
+fn append_tsk_audit_at(path: &Path, body_json: &str) -> Result<(), String> {
+    audit::append_chained_jsonl(path, body_json)
 }
 
 fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {

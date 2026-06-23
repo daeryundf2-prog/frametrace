@@ -184,18 +184,20 @@ fn init_case(case_dir: &Path) {
 
 fn write_fake_ffmpeg(fake_bin: &Path) {
     fs::create_dir_all(fake_bin).expect("fake bin should be created");
-    let ffmpeg = fake_bin.join("ffmpeg");
-    fs::write(
-        &ffmpeg,
+    write_executable(
+        &fake_bin.join("ffmpeg"),
         "#!/bin/sh\ncase \"$1\" in -version|--version) echo 'ffmpeg fake 1.0'; exit 0 ;; esac\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncase \"$out\" in ''|-*) echo 'missing output' >&2; exit 2 ;; esac\nprintf 'derived media' > \"$out\"\n",
-    )
-    .expect("fake ffmpeg should be written");
-    let mut permissions = fs::metadata(&ffmpeg)
-        .expect("fake ffmpeg metadata should exist")
+    );
+}
+
+fn write_executable(path: &Path, contents: &str) {
+    fs::write(path, contents).expect("fake executable should be written");
+    let mut permissions = fs::metadata(path)
+        .expect("fake executable metadata should exist")
         .permissions();
     use std::os::unix::fs::PermissionsExt;
     permissions.set_mode(0o755);
-    fs::set_permissions(&ffmpeg, permissions).expect("fake ffmpeg should be executable");
+    fs::set_permissions(path, permissions).expect("fake executable should be executable");
 }
 
 fn test_path_with_fake_bin(fake_bin: &Path) -> String {
