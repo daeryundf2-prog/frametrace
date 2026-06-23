@@ -165,6 +165,41 @@ fn make_report_rejects_symlinked_reports_directory_without_writing_target() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside() {
+    let root = unique_temp_dir("cli-scan-db-dir-symlink");
+    let case_dir = root.join("case");
+    let media_dir = root.join("media");
+    fs::create_dir_all(&media_dir).expect("media dir should exist");
+    fs::write(media_dir.join("clip.mp4"), b"\0\0\0\x18ftypmp42payload")
+        .expect("fixture video should be written");
+    assert_success(&run(&[
+        "init-case",
+        path(&case_dir),
+        "--title",
+        "Output Policy",
+    ]));
+    fs::remove_dir_all(case_dir.join("db")).expect("db dir should be removed");
+    let outside = root.join("outside-db");
+    fs::create_dir_all(&outside).expect("outside db dir should exist");
+    symlink(&outside, case_dir.join("db")).expect("symlink should be created");
+
+    let output = run(&[
+        "scan-folder",
+        path(&case_dir),
+        path(&media_dir),
+        "--no-ffprobe",
+    ]);
+
+    assert_failure_contains(&output, "inside the case directory");
+    assert!(!outside.join("case.db").exists());
+    assert!(!outside.join("video_index.json").exists());
+    assert!(!outside.join("videos.jsonl").exists());
+    assert!(!outside.join("video_paths.tsv").exists());
+    assert!(!outside.join("scan_runs").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
 fn path(path: &Path) -> &str {
     path.to_str().expect("test paths should be UTF-8")
 }
