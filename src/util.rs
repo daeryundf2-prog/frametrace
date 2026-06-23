@@ -43,7 +43,7 @@ pub fn write_text(path: &Path, text: &str) -> io::Result<()> {
 }
 
 pub fn unique_path(path: &Path) -> PathBuf {
-    if !path.exists() {
+    if path_is_available(path) {
         return path.to_path_buf();
     }
 
@@ -62,12 +62,19 @@ pub fn unique_path(path: &Path) -> PathBuf {
             _ => format!("{stem}_{index:03}"),
         };
         let candidate = parent.join(filename);
-        if !candidate.exists() {
+        if path_is_available(&candidate) {
             return candidate;
         }
     }
 
     path.to_path_buf()
+}
+
+fn path_is_available(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(_) => false,
+        Err(err) => err.kind() == io::ErrorKind::NotFound,
+    }
 }
 
 pub fn read_to_string(path: &Path) -> io::Result<String> {
@@ -225,6 +232,26 @@ mod tests {
         assert_eq!(unique_path(&path), dir.join("clip_001.mp4"));
         fs::write(dir.join("clip_001.mp4"), b"two").unwrap();
         assert_eq!(unique_path(&path), dir.join("clip_002.mp4"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unique_path_treats_dangling_symlink_as_occupied() {
+        use std::os::unix::fs::symlink;
+
+        let dir = std::env::temp_dir().join(format!(
+            "frametrace-unique-path-symlink-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("clip.mp4");
+        let outside = dir.join("outside.mp4");
+        symlink(&outside, &path).unwrap();
+
+        assert_eq!(unique_path(&path), dir.join("clip_001.mp4"));
+        assert!(!outside.exists());
         let _ = fs::remove_dir_all(dir);
     }
 }
