@@ -145,7 +145,7 @@ fn looks_like_path(value: &str) -> bool {
         || Path::new(value).components().count() > 1
 }
 
-fn lexical_absolute_path(path: &Path) -> Result<PathBuf, std::io::Error> {
+pub(crate) fn lexical_absolute_path(path: &Path) -> Result<PathBuf, std::io::Error> {
     let raw = if path.is_absolute() {
         path.to_path_buf()
     } else {

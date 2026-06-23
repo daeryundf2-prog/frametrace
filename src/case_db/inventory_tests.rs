@@ -208,6 +208,82 @@ fn export_manifest_writes_selected_rows_with_output_hash() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn export_manifest_rejects_outputs_outside_case_or_over_existing_files() {
+    let root = test_root("frametrace-inventory-export-policy-test");
+    benchmark_case_db(&root, 1).unwrap();
+
+    let outside = root
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("/tmp"))
+        .join(format!(
+            "frametrace-inventory-export-outside-{}.json",
+            std::process::id()
+        ));
+    let outside_err = export_manifest(
+        &root,
+        &ExportManifestRequest {
+            file_ids: vec!["bench_00000000".to_string()],
+            operator: "qa".to_string(),
+            filters_json: None,
+            output_path: Some(outside),
+        },
+    )
+    .unwrap_err();
+    assert!(outside_err.contains("inside the case directory"));
+
+    let existing = root.join("reports/existing-inventory-export.json");
+    fs::create_dir_all(existing.parent().unwrap()).unwrap();
+    fs::write(&existing, b"existing").unwrap();
+    let existing_err = export_manifest(
+        &root,
+        &ExportManifestRequest {
+            file_ids: vec!["bench_00000000".to_string()],
+            operator: "qa".to_string(),
+            filters_json: None,
+            output_path: Some(existing),
+        },
+    )
+    .unwrap_err();
+    assert!(existing_err.contains("output already exists"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn export_manifest_rejects_registered_source_evidence_output() {
+    let root = test_root("frametrace-inventory-source-output-policy-test");
+    benchmark_case_db(&root, 1).unwrap();
+    let source_path = root.join("source-media/source.mp4");
+    fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+    fs::write(&source_path, b"source evidence").unwrap();
+    let conn = Connection::open(root.join("db/case.db")).unwrap();
+    conn.execute(
+        "UPDATE videos SET source_path = ?1 WHERE id = ?2",
+        rusqlite::params![source_path.to_string_lossy(), "bench_00000000"],
+    )
+    .unwrap();
+    let source_path = get_file_detail(&root, "bench_00000000")
+        .unwrap()
+        .unwrap()
+        .full_path;
+
+    let err = export_manifest(
+        &root,
+        &ExportManifestRequest {
+            file_ids: vec!["bench_00000000".to_string()],
+            operator: "qa".to_string(),
+            filters_json: None,
+            output_path: Some(std::path::PathBuf::from(source_path)),
+        },
+    )
+    .unwrap_err();
+
+    assert!(err.contains("registered source evidence path"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn test_root(prefix: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("{prefix}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);

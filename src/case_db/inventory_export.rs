@@ -1,10 +1,12 @@
 use super::inventory::get_file_detail;
-use super::inventory_query::existing_ids;
+use super::inventory_query::{existing_ids, open_inventory_db};
 use super::inventory_types::{ExportManifestRequest, ExportManifestResult, InventoryRow};
 use crate::audit::{digest_file, json_string_array};
+use crate::tool_policy::{lexical_absolute_path, require_case_output_path};
 use crate::util::{
     compact_json_value_if_well_formed, json_escape, now_unix, unique_path, write_text,
 };
+use rusqlite::params;
 use std::path::{Path, PathBuf};
 
 pub fn export_manifest(
@@ -30,7 +32,7 @@ pub fn export_manifest(
         }
     }
 
-    let output_path = manifest_output_path(case_dir, created_unix, request.output_path.as_ref());
+    let output_path = manifest_output_path(case_dir, created_unix, request.output_path.as_ref())?;
     let manifest_json = manifest_json(created_unix, request, &missing_ids, &rows);
     write_text(&output_path, &manifest_json).map_err(|err| {
         format!(
@@ -64,10 +66,65 @@ fn manifest_output_path(
     case_dir: &Path,
     created_unix: u64,
     requested: Option<&PathBuf>,
-) -> PathBuf {
-    requested.cloned().unwrap_or_else(|| {
+) -> Result<PathBuf, String> {
+    let output_path = requested.cloned().unwrap_or_else(|| {
         unique_path(&case_dir.join(format!("reports/inventory-export-{created_unix}.json")))
-    })
+    });
+    require_case_output_path(case_dir, &output_path, "inventory manifest")?;
+    reject_registered_source_output_path(case_dir, &output_path)?;
+    if output_path.exists() {
+        return Err(format!(
+            "inventory manifest output already exists: {} (choose a new --output path)",
+            output_path.display()
+        ));
+    }
+    Ok(output_path)
+}
+
+fn reject_registered_source_output_path(case_dir: &Path, output_path: &Path) -> Result<(), String> {
+    let output = resolved_output_path(output_path, "inventory manifest")?;
+    let Some(conn) = open_inventory_db(case_dir)? else {
+        return Ok(());
+    };
+    let mut stmt = conn
+        .prepare("SELECT id, source_path FROM videos")
+        .map_err(|err| format!("failed to prepare source path policy query: {err}"))?;
+    let rows = stmt
+        .query_map(params![], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| format!("failed to query source evidence paths: {err}"))?;
+    for row in rows {
+        let (file_id, source_path) =
+            row.map_err(|err| format!("failed to read source evidence path: {err}"))?;
+        let source = resolved_source_path(Path::new(&source_path));
+        if output == source {
+            return Err(format!(
+                "inventory manifest output cannot target registered source evidence path {} for file {}",
+                source.display(),
+                file_id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn resolved_output_path(output_path: &Path, label: &str) -> Result<PathBuf, String> {
+    if output_path.exists() {
+        output_path
+            .canonicalize()
+            .map_err(|err| format!("failed to canonicalize {label} output path: {err}"))
+    } else {
+        lexical_absolute_path(output_path)
+            .map_err(|err| format!("failed to resolve {label} output path: {err}"))
+    }
+}
+
+fn resolved_source_path(source_path: &Path) -> PathBuf {
+    source_path
+        .canonicalize()
+        .or_else(|_| lexical_absolute_path(source_path))
+        .unwrap_or_else(|_| source_path.to_path_buf())
 }
 
 fn manifest_json(

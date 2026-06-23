@@ -31,6 +31,24 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn assert_failure_contains(output: &Output, expected: &str) {
+    assert!(
+        !output.status.success(),
+        "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains(expected),
+        "expected output to contain {expected:?}\nactual:\n{combined}"
+    );
+}
+
 #[test]
 fn inventory_commands_emit_bounded_sqlite_backed_json() {
     let root = unique_temp_dir("cli-inventory");
@@ -125,7 +143,7 @@ fn inventory_commands_emit_bounded_sqlite_backed_json() {
     assert!(preview_stdout.contains("\"audit_path\":\"evidence/logs/bulk-preview-"));
     assert!(preview_stdout.contains("\"mutation_committed\":false"));
 
-    let manifest_path = root.join("inventory-export.json");
+    let manifest_path = case_dir.join("reports/inventory-export.json");
     let export = run(&[
         "inventory-export-manifest",
         path(&case_dir),
@@ -147,6 +165,40 @@ fn inventory_commands_emit_bounded_sqlite_backed_json() {
     assert!(manifest.contains("\"manifest_kind\":\"inventory-export\""));
     assert!(manifest.contains("\"browser_large_case_policy\":\"paged-query-only\""));
     assert!(manifest.contains("\"file_id\":\"vid_000001\""));
+
+    let outside_manifest_path = root.join("inventory-export-outside.json");
+    let outside_export = run(&[
+        "inventory-export-manifest",
+        path(&case_dir),
+        "--operator",
+        "qa",
+        "--output",
+        path(&outside_manifest_path),
+        "vid_000001",
+    ]);
+    assert_failure_contains(&outside_export, "inside the case directory");
+
+    let source_export = run(&[
+        "inventory-export-manifest",
+        path(&case_dir),
+        "--operator",
+        "qa",
+        "--output",
+        path(&media_dir.join("clip.mp4")),
+        "vid_000001",
+    ]);
+    assert_failure_contains(&source_export, "inside the case directory");
+
+    let existing_export = run(&[
+        "inventory-export-manifest",
+        path(&case_dir),
+        "--operator",
+        "qa",
+        "--output",
+        path(&manifest_path),
+        "vid_000001",
+    ]);
+    assert_failure_contains(&existing_export, "output already exists");
 
     let _ = fs::remove_dir_all(root);
 }
