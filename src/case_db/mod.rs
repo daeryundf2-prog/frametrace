@@ -4,6 +4,8 @@ mod core_tests;
 pub mod evidence;
 pub mod helpers;
 pub mod inventory;
+pub mod inventory_export;
+pub mod inventory_facets;
 mod inventory_query;
 #[cfg(test)]
 mod inventory_tests;
@@ -24,6 +26,8 @@ pub use core::*;
 pub use evidence::*;
 pub(crate) use helpers::*;
 pub use inventory::*;
+pub use inventory_export::*;
+pub use inventory_facets::*;
 pub use inventory_types::*;
 pub use jobs::*;
 pub use metrics::*;

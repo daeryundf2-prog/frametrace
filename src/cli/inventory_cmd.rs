@@ -1,12 +1,13 @@
-use crate::audit::json_string_array;
 use crate::case_db::{
-    BulkPreviewRequest, InventoryFacetCounts, InventoryListQuery, InventoryPage, InventoryRow,
-    bulk_preview, get_file_detail, inventory_facets, list_inventory, search_inventory,
+    BulkPreviewRequest, ExportManifestRequest, InventoryListQuery, bulk_preview, export_manifest,
+    get_file_detail, inventory_facets, list_inventory, search_inventory,
 };
-use crate::util::json_escape;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::commands::Commands;
+use super::inventory_json::{
+    bulk_preview_json, detail_json, export_manifest_json, facets_response_json, page_json,
+};
 
 #[derive(Debug, Clone)]
 pub struct InventoryCliOptions {
@@ -17,6 +18,7 @@ pub struct InventoryCliOptions {
     pub limit: usize,
     pub extension: Option<String>,
     pub validation_state: Option<String>,
+    pub sort: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,14 @@ pub struct BulkPreviewCliOptions {
     pub action: String,
     pub operator: String,
     pub filters_json: Option<String>,
+    pub file_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportManifestCliOptions {
+    pub operator: String,
+    pub filters_json: Option<String>,
+    pub output: Option<PathBuf>,
     pub file_ids: Vec<String>,
 }
 
@@ -38,6 +48,7 @@ pub fn run_inventory_command(command: Commands) -> Result<(), String> {
             limit,
             extension,
             validation_state,
+            sort,
         } => run_inventory(
             &case_dir,
             InventoryCliOptions {
@@ -48,6 +59,7 @@ pub fn run_inventory_command(command: Commands) -> Result<(), String> {
                 limit,
                 extension,
                 validation_state,
+                sort,
             },
         ),
         Commands::InventoryBulkPreview {
@@ -65,6 +77,21 @@ pub fn run_inventory_command(command: Commands) -> Result<(), String> {
                 file_ids,
             },
         ),
+        Commands::InventoryExportManifest {
+            case_dir,
+            operator,
+            filters_json,
+            output,
+            file_ids,
+        } => run_inventory_export_manifest(
+            &case_dir,
+            ExportManifestCliOptions {
+                operator,
+                filters_json,
+                output,
+                file_ids,
+            },
+        ),
         _ => Err("not an inventory command".to_string()),
     }
 }
@@ -78,10 +105,7 @@ pub fn run_inventory(case_dir: &Path, options: InventoryCliOptions) -> Result<()
     }
     let facets = inventory_facets(case_dir)?;
     if options.facets {
-        println!(
-            "{{\"schema_version\":1,\"view\":\"facets\",\"facets\":{}}}",
-            facets_json(&facets)
-        );
+        println!("{}", facets_response_json(&facets));
         return Ok(());
     }
     let page = match options.search.as_deref() {
@@ -93,6 +117,7 @@ pub fn run_inventory(case_dir: &Path, options: InventoryCliOptions) -> Result<()
                 page_size: options.limit,
                 extension: options.extension,
                 validation_state: options.validation_state,
+                sort: options.sort,
             },
         )?,
     };
@@ -114,13 +139,25 @@ pub fn run_inventory_bulk_preview(
             filters_json: options.filters_json,
         },
     )?;
-    println!(
-        "{{\"schema_version\":1,\"view\":\"bulk-preview\",\
-\"selected_count\":{},\"missing_ids\":{},\"audit_event\":{}}}",
-        preview.selected_count,
-        json_string_array(&preview.missing_ids),
-        preview.audit_event_json
-    );
+    println!("{}", bulk_preview_json(&preview));
+    Ok(())
+}
+
+pub fn run_inventory_export_manifest(
+    case_dir: &Path,
+    options: ExportManifestCliOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let manifest = export_manifest(
+        case_dir,
+        &ExportManifestRequest {
+            file_ids: options.file_ids,
+            operator: options.operator,
+            filters_json: options.filters_json,
+            output_path: options.output,
+        },
+    )?;
+    println!("{}", export_manifest_json(&manifest));
     Ok(())
 }
 
@@ -133,93 +170,4 @@ fn ensure_case(case_dir: &Path) -> Result<(), String> {
             case_dir.display()
         ))
     }
-}
-
-fn page_json(query: Option<&str>, page: &InventoryPage, facets: &InventoryFacetCounts) -> String {
-    format!(
-        "{{\"schema_version\":1,\"view\":\"inventory\",\"query\":{},\
-\"page_offset\":{},\"page_size\":{},\"total_rows\":{},\"facets\":{},\"rows\":[{}]}}",
-        optional_json_string(query),
-        page.page_offset,
-        page.page_size,
-        page.total_rows,
-        facets_json(facets),
-        page.rows.iter().map(row_json).collect::<Vec<_>>().join(",")
-    )
-}
-
-fn detail_json(file_id: &str, row: Option<&InventoryRow>) -> String {
-    let row_json = row.map(row_json).unwrap_or_else(|| "null".to_string());
-    format!(
-        "{{\"schema_version\":1,\"view\":\"detail\",\"file_id\":\"{}\",\"row\":{row_json}}}",
-        json_escape(file_id)
-    )
-}
-
-fn facets_json(facets: &InventoryFacetCounts) -> String {
-    format!(
-        "{{\"total_rows\":{},\"candidate_count\":{},\"confirmed_count\":{},\
-\"by_extension\":[{}]}}",
-        facets.total_rows,
-        facets.candidate_count,
-        facets.confirmed_count,
-        facets
-            .by_extension
-            .iter()
-            .map(|facet| format!(
-                "{{\"value\":\"{}\",\"count\":{}}}",
-                json_escape(&facet.value),
-                facet.count
-            ))
-            .collect::<Vec<_>>()
-            .join(",")
-    )
-}
-
-fn row_json(row: &InventoryRow) -> String {
-    format!(
-        "{{\"file_id\":\"{}\",\"source_id\":\"{}\",\"source_label\":\"{}\",\
-\"type_label\":\"{}\",\"parser_lane\":\"{}\",\"validation_state\":\"{}\",\
-\"review_state\":\"{}\",\"report_state\":\"{}\",\"display_name\":\"{}\",\
-\"relative_path\":\"{}\",\"source_path\":\"{}\",\"extension\":\"{}\",\
-\"timestamp_start\":{},\"timestamp_source\":\"{}\",\"size_bytes\":{},\
-\"hash_state\":\"{}\",\"sha256\":{},\"inode\":{},\"byte_offset\":{},\
-\"partition_offset\":{},\"parent_artifact_id\":{},\"duplicate_of\":{},\
-\"last_action_unix\":{}}}",
-        json_escape(&row.file_id),
-        json_escape(&row.source_id),
-        json_escape(&row.source_label),
-        json_escape(&row.type_label),
-        json_escape(&row.parser_lane),
-        json_escape(&row.validation_state),
-        json_escape(&row.review_state),
-        json_escape(&row.report_state),
-        json_escape(&row.display_name),
-        json_escape(&row.relative_path),
-        json_escape(&row.full_path),
-        json_escape(&row.extension),
-        optional_u64(row.timestamp_start),
-        json_escape(&row.timestamp_source),
-        row.size_bytes,
-        json_escape(&row.hash_state),
-        optional_json_string(row.sha256.as_deref()),
-        optional_json_string(row.inode.as_deref()),
-        optional_u64(row.byte_offset),
-        optional_u64(row.partition_offset),
-        optional_json_string(row.parent_artifact_id.as_deref()),
-        optional_json_string(row.duplicate_of.as_deref()),
-        row.last_action_unix
-    )
-}
-
-fn optional_json_string(value: Option<&str>) -> String {
-    value
-        .map(|inner| format!("\"{}\"", json_escape(inner)))
-        .unwrap_or_else(|| "null".to_string())
-}
-
-fn optional_u64(value: Option<u64>) -> String {
-    value
-        .map(|inner| inner.to_string())
-        .unwrap_or_else(|| "null".to_string())
 }

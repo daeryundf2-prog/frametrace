@@ -62,14 +62,22 @@ fn inventory_commands_emit_bounded_sqlite_backed_json() {
         "mp4",
         "--validation-state",
         "candidate-unvalidated",
+        "--sort",
+        "risk-timestamp-asc",
     ]);
     assert_success(&list);
     let list_stdout = String::from_utf8_lossy(&list.stdout);
     assert!(list_stdout.contains("\"schema_version\":1"));
     assert!(list_stdout.contains("\"page_size\":500"));
+    assert!(list_stdout.contains("\"next_cursor\":null"));
+    assert!(list_stdout.contains("\"query_id\":\"inventory-list-0-500-1\""));
+    assert!(list_stdout.contains("\"truncated\":false"));
     assert!(list_stdout.contains("\"total_rows\":1"));
     assert!(list_stdout.contains("\"validation_state\":\"candidate-unvalidated\""));
     assert!(list_stdout.contains("\"source_path\""));
+    assert!(list_stdout.contains("\"by_parser_lane\""));
+    assert!(list_stdout.contains("\"by_validation_state\""));
+    assert!(list_stdout.contains("\"by_hash_state\""));
 
     let search = run(&[
         "inventory",
@@ -109,9 +117,36 @@ fn inventory_commands_emit_bounded_sqlite_backed_json() {
     assert_success(&preview);
     let preview_stdout = String::from_utf8_lossy(&preview.stdout);
     assert!(preview_stdout.contains("\"view\":\"bulk-preview\""));
+    assert!(preview_stdout.contains("\"preview_id\":\"bulk-preview-"));
     assert!(preview_stdout.contains("\"selected_count\":1"));
     assert!(preview_stdout.contains("\"missing_ids\":[\"missing\"]"));
+    assert!(preview_stdout.contains("\"warnings\":[\"1 requested file ID was not found\"]"));
+    assert!(preview_stdout.contains("\"expected_mutation\":\"report_state -> excluded\""));
+    assert!(preview_stdout.contains("\"audit_path\":\"evidence/logs/bulk-preview-"));
     assert!(preview_stdout.contains("\"mutation_committed\":false"));
+
+    let manifest_path = root.join("inventory-export.json");
+    let export = run(&[
+        "inventory-export-manifest",
+        path(&case_dir),
+        "--operator",
+        "qa",
+        "--output",
+        path(&manifest_path),
+        "vid_000001",
+        "missing",
+    ]);
+    assert_success(&export);
+    let export_stdout = String::from_utf8_lossy(&export.stdout);
+    assert!(export_stdout.contains("\"view\":\"inventory-export-manifest\""));
+    assert!(export_stdout.contains("\"selected_count\":1"));
+    assert!(export_stdout.contains("\"missing_ids\":[\"missing\"]"));
+    assert!(export_stdout.contains("\"output_sha256\":\""));
+    let manifest =
+        fs::read_to_string(&manifest_path).expect("inventory manifest should be written");
+    assert!(manifest.contains("\"manifest_kind\":\"inventory-export\""));
+    assert!(manifest.contains("\"browser_large_case_policy\":\"paged-query-only\""));
+    assert!(manifest.contains("\"file_id\":\"vid_000001\""));
 
     let _ = fs::remove_dir_all(root);
 }

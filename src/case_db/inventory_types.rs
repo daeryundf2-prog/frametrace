@@ -6,6 +6,7 @@ pub struct InventoryListQuery {
     pub page_size: usize,
     pub extension: Option<String>,
     pub validation_state: Option<String>,
+    pub sort: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +42,10 @@ pub struct InventoryPage {
     pub rows: Vec<InventoryRow>,
     pub page_offset: usize,
     pub page_size: usize,
+    pub next_cursor: Option<usize>,
+    pub query_id: String,
+    pub duration_ms: u128,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +60,13 @@ pub struct InventoryFacetCounts {
     pub confirmed_count: usize,
     pub candidate_count: usize,
     pub by_extension: Vec<InventoryFacet>,
+    pub by_source: Vec<InventoryFacet>,
+    pub by_type: Vec<InventoryFacet>,
+    pub by_parser_lane: Vec<InventoryFacet>,
+    pub by_validation_state: Vec<InventoryFacet>,
+    pub by_review_state: Vec<InventoryFacet>,
+    pub by_report_state: Vec<InventoryFacet>,
+    pub by_hash_state: Vec<InventoryFacet>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +79,28 @@ pub struct BulkPreviewRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BulkPreview {
+    pub preview_id: String,
     pub selected_count: usize,
     pub missing_ids: Vec<String>,
+    pub warnings: Vec<String>,
+    pub expected_mutation: String,
+    pub audit_path: String,
+    pub audit_event_json: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExportManifestRequest {
+    pub file_ids: Vec<String>,
+    pub operator: String,
+    pub filters_json: Option<String>,
+    pub output_path: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportManifestResult {
+    pub selected_count: usize,
+    pub missing_ids: Vec<String>,
+    pub output_path: std::path::PathBuf,
+    pub output_sha256: String,
     pub audit_event_json: String,
 }

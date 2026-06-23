@@ -11,6 +11,43 @@ pub struct AuditChainVerification {
     pub last_entry_sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuditChainState {
+    Verified,
+    Missing,
+    Tampered,
+}
+
+impl AuditChainState {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Missing => "missing",
+            Self::Tampered => "tampered",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditLogStatus {
+    pub name: String,
+    pub relative_path: String,
+    pub state: AuditChainState,
+    pub entries: Option<usize>,
+    pub last_entry_sha256: Option<String>,
+    pub error: Option<String>,
+}
+
+const MEDIA_AUDIT_LOGS: &[(&str, &str)] = &[
+    ("clip export", "artifacts/clips/export-log.jsonl"),
+    ("proxy", "artifacts/proxies/proxy-log.jsonl"),
+    ("thumbnail", "artifacts/thumbnails/thumbnail-log.jsonl"),
+    ("frame capture", "artifacts/frames/frame-log.jsonl"),
+    ("carving", "artifacts/carved/carve-log.jsonl"),
+    ("filesystem recovery", "evidence/logs/tsk-audit.jsonl"),
+    ("validation", "evidence/logs/validation-log.jsonl"),
+];
+
 pub fn digest_file(path: &Path) -> Result<String, String> {
     let file = File::open(path)
         .map_err(|err| format!("failed to open {} for hashing: {err}", path.display()))?;
@@ -110,6 +147,51 @@ pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, Strin
     })
 }
 
+pub fn media_audit_chain_statuses(case_dir: &Path) -> Vec<AuditLogStatus> {
+    MEDIA_AUDIT_LOGS
+        .iter()
+        .map(|(name, relative_path)| audit_log_status(case_dir, name, relative_path))
+        .collect()
+}
+
+pub fn audit_chain_statuses_json(statuses: &[AuditLogStatus]) -> String {
+    let items = statuses
+        .iter()
+        .map(|status| {
+            let entries = status
+                .entries
+                .map(|entries| entries.to_string())
+                .unwrap_or_else(|| "null".to_string());
+            format!(
+                "{{\"name\":\"{}\",\"relative_path\":\"{}\",\"status\":\"{}\",\"entries\":{},\"last_entry_sha256\":{},\"error\":{}}}",
+                json_escape(&status.name),
+                json_escape(&status.relative_path),
+                status.state.as_str(),
+                entries,
+                optional_string(status.last_entry_sha256.as_deref()),
+                optional_string(status.error.as_deref())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{items}]")
+}
+
+pub fn tampered_audit_chain_messages(statuses: &[AuditLogStatus]) -> Vec<String> {
+    statuses
+        .iter()
+        .filter(|status| status.state == AuditChainState::Tampered)
+        .map(|status| {
+            format!(
+                "{}: {} ({})",
+                status.name,
+                status.relative_path,
+                status.error.as_deref().unwrap_or("audit chain failed")
+            )
+        })
+        .collect()
+}
+
 pub fn indexed_source_hash(case_dir: &Path, selector: &str, source_path: &Path) -> Option<String> {
     let source = source_path.to_string_lossy();
     let text = read_to_string(&case_dir.join("db/videos.jsonl")).ok()?;
@@ -149,6 +231,39 @@ pub fn path_string(path: &Path) -> String {
 
 pub fn canonical_or_original(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn audit_log_status(case_dir: &Path, name: &str, relative_path: &str) -> AuditLogStatus {
+    let path = case_dir.join(relative_path);
+    if !path.is_file() {
+        return AuditLogStatus {
+            name: name.to_string(),
+            relative_path: relative_path.to_string(),
+            state: AuditChainState::Missing,
+            entries: None,
+            last_entry_sha256: None,
+            error: Some("audit log is not present".to_string()),
+        };
+    }
+
+    match verify_chained_jsonl(&path) {
+        Ok(verification) => AuditLogStatus {
+            name: name.to_string(),
+            relative_path: relative_path.to_string(),
+            state: AuditChainState::Verified,
+            entries: Some(verification.entries),
+            last_entry_sha256: Some(verification.last_entry_sha256),
+            error: None,
+        },
+        Err(err) => AuditLogStatus {
+            name: name.to_string(),
+            relative_path: relative_path.to_string(),
+            state: AuditChainState::Tampered,
+            entries: None,
+            last_entry_sha256: None,
+            error: Some(err),
+        },
+    }
 }
 
 fn extract_json_string(line: &str, key: &str) -> Option<String> {
@@ -197,7 +312,10 @@ fn entry_without_recorded_hash(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_chained_jsonl, digest_file, verify_chained_jsonl};
+    use super::{
+        AuditChainState, append_chained_jsonl, audit_chain_statuses_json, digest_file,
+        media_audit_chain_statuses, tampered_audit_chain_messages, verify_chained_jsonl,
+    };
     use crate::util::read_to_string;
     use std::fs;
 
@@ -251,5 +369,54 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn media_audit_statuses_report_verified_missing_and_tampered_logs() {
+        let dir = std::env::temp_dir().join(format!(
+            "frametrace-audit-status-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("evidence/logs")).unwrap();
+        fs::create_dir_all(dir.join("artifacts/proxies")).unwrap();
+        append_chained_jsonl(
+            &dir.join("evidence/logs/validation-log.jsonl"),
+            r#"{"event":"validate-artifact"}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("artifacts/proxies/proxy-log.jsonl"),
+            r#"{"event":"make-proxy"}"#,
+        )
+        .unwrap();
+
+        let statuses = media_audit_chain_statuses(&dir);
+
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|status| status.relative_path == "evidence/logs/validation-log.jsonl")
+                .map(|status| &status.state),
+            Some(&AuditChainState::Verified)
+        );
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|status| status.relative_path == "artifacts/proxies/proxy-log.jsonl")
+                .map(|status| &status.state),
+            Some(&AuditChainState::Tampered)
+        );
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|status| status.relative_path == "artifacts/frames/frame-log.jsonl")
+                .map(|status| &status.state),
+            Some(&AuditChainState::Missing)
+        );
+        assert!(audit_chain_statuses_json(&statuses).contains(r#""status":"verified""#));
+        assert_eq!(tampered_audit_chain_messages(&statuses).len(), 1);
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

@@ -54,6 +54,15 @@
                   <option value="media" data-i18n="density.media">미디어</option>
                 </select>
               </label>
+              <label>
+                <span data-i18n="inventory.sort">정렬</span>
+                <select id="sortSelect">
+                  <option value="risk-timestamp-asc" selected data-i18n="sort.risk">위험/시각</option>
+                  <option value="timestamp-desc" data-i18n="sort.timeDesc">최신순</option>
+                  <option value="path-asc" data-i18n="sort.path">경로순</option>
+                  <option value="size-desc" data-i18n="sort.sizeDesc">크기순</option>
+                </select>
+              </label>
               <button id="focusModeButton" type="button" data-i18n="inventory.focus">목록 집중</button>
             </div>
             <label class="search-box">
@@ -65,6 +74,9 @@
               <span id="visibleWindow">0</span>
               <span id="queryLatency">0 ms</span>
             </div>
+          </div>
+          <div id="largeCasePolicy" class="large-case-policy" data-i18n="inventory.policy">
+            Production inventory uses SQLite paged queries. This prototype renders 10,000 deterministic mock rows with bounded DOM virtualization.
           </div>
           <div class="file-table" role="table" aria-label="색인된 증거 파일" data-i18n-aria-label="table.aria">
             <div class="file-row file-head" role="row">
@@ -90,6 +102,7 @@
             <button type="button" data-bulk-action="report-set" data-i18n="bulk.report">보고서 세트</button>
             <button type="button" data-bulk-action="queue-validation" data-i18n="bulk.validation">검증 큐</button>
             <button type="button" data-bulk-action="export-manifest" data-i18n="bulk.export">매니페스트</button>
+            <button id="clearSelectionButton" type="button" data-i18n="bulk.clear">선택 해제</button>
           </div>
           <div id="bulkPreview" class="bulk-preview" hidden></div>
         </section>

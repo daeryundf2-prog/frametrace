@@ -6,9 +6,11 @@ pub struct ReportInputs<'a> {
     pub export_log_jsonl: &'a str,
     pub proxy_log_jsonl: &'a str,
     pub thumbnail_log_jsonl: &'a str,
+    pub frame_log_jsonl: &'a str,
     pub carve_log_jsonl: &'a str,
     pub filesystem_log_jsonl: &'a str,
     pub validation_log_jsonl: &'a str,
+    pub audit_chain_status_json: &'a str,
 }
 
 pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
@@ -17,15 +19,18 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
     let export_lines = json_for_script(&jsonl_to_array(inputs.export_log_jsonl));
     let proxy_lines = json_for_script(&jsonl_to_array(inputs.proxy_log_jsonl));
     let thumbnail_lines = json_for_script(&jsonl_to_array(inputs.thumbnail_log_jsonl));
+    let frame_lines = json_for_script(&jsonl_to_array(inputs.frame_log_jsonl));
     let carve_lines = json_for_script(&jsonl_to_array(inputs.carve_log_jsonl));
     let filesystem_lines = json_for_script(&jsonl_to_array(inputs.filesystem_log_jsonl));
     let validation_lines = json_for_script(&jsonl_to_array(inputs.validation_log_jsonl));
+    let audit_chain_status = json_for_script(inputs.audit_chain_status_json);
     format!(
         r#"<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>FrameTrace 영상 포렌식 보고서</title>
   <style>
     body {{
@@ -131,6 +136,9 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
   <div id="processing"></div>
   <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
 
+  <h2>감사 체인 검증</h2>
+  <div id="audit-chain"></div>
+
   <h2>소스 / 파서 평가</h2>
   <div id="source-assessment"></div>
 
@@ -157,12 +165,15 @@ const scan = {index};
 const exportsLog = {export_lines};
 const proxyLog = {proxy_lines};
 const thumbnailLog = {thumbnail_lines};
+const frameLog = {frame_lines};
 const carveLog = {carve_lines};
 const filesystemLog = {filesystem_lines};
 const validationLog = {validation_lines};
+const auditChainStatus = {audit_chain_status};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
-const derivedLog = [...proxyLog, ...thumbnailLog];
+const derivedLog = [...exportsLog, ...proxyLog, ...thumbnailLog, ...frameLog];
+const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
 
 const escapeHtml = value => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -195,6 +206,30 @@ const fmtDuration = value => {{
 const fmtUnix = value => {{
   if (!Number.isFinite(value)) return "-";
   return new Date(value * 1000).toLocaleString();
+}};
+
+const chainStatus = relPath => {{
+  const status = auditStatusByPath.get(relPath);
+  if (!status) return "missing · not listed";
+  const last = status.last_entry_sha256 ? ` · ${{status.last_entry_sha256}}` : "";
+  const error = status.error ? ` · ${{status.error}}` : "";
+  return `${{status.status}} · entries=${{status.entries ?? "-"}}${{last}}${{error}}`;
+}};
+
+const auditPathForItem = item => {{
+  if (item.event === "export-video") return "artifacts/clips/export-log.jsonl";
+  if (item.event === "make-proxy" || item.kind === "proxy") return "artifacts/proxies/proxy-log.jsonl";
+  if (item.event === "make-thumbnail" || item.kind === "thumbnail") return "artifacts/thumbnails/thumbnail-log.jsonl";
+  if (item.event === "make-frame-capture" || item.kind === "frame-capture") return "artifacts/frames/frame-log.jsonl";
+  if (item.event === "carve-file") return "artifacts/carved/carve-log.jsonl";
+  if (item.event === "validate-artifact") return "evidence/logs/validation-log.jsonl";
+  if (item.event === "inspect-image" || item.event === "recover-inode") return "evidence/logs/tsk-audit.jsonl";
+  return "";
+}};
+
+const chainStatusForItem = (item, fallbackRelPath) => {{
+  const relPath = fallbackRelPath || auditPathForItem(item);
+  return relPath ? chainStatus(relPath) : "missing · unknown audit log";
 }};
 
 const sourceCounts = new Map();
@@ -232,6 +267,22 @@ document.getElementById("processing").innerHTML = `<table>
     <tr><th>경고</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}}</td></tr>
   </tbody>
 </table>`;
+
+document.getElementById("audit-chain").innerHTML = auditChainStatus.length ? `<table>
+  <thead>
+    <tr><th>로그</th><th>경로</th><th>상태</th><th>엔트리</th><th>마지막 엔트리 SHA-256</th><th>오류</th></tr>
+  </thead>
+  <tbody>
+    ${{auditChainStatus.map(item => `<tr>
+      <td>${{escapeHtml(item.name || "-")}}</td>
+      <td><code>${{escapeHtml(item.relative_path || "-")}}</code></td>
+      <td>${{escapeHtml(item.status || "-")}}</td>
+      <td>${{escapeHtml(item.entries ?? "-")}}</td>
+      <td><code>${{escapeHtml(item.last_entry_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(item.error || "-")}}</td>
+    </tr>`).join("")}}
+  </tbody>
+</table>` : "<p>감사 체인 상태 정보가 없습니다.</p>";
 
 document.getElementById("source-assessment").innerHTML = sourceCounts.size ? `<table>
   <thead>
@@ -282,22 +333,26 @@ document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.output_sha256 || "-")}}</code></td>
       <td>${{item.start_seconds ?? "-"}}, ${{item.duration_seconds ?? "-"}}</td>
-      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(chainStatusForItem(item, "artifacts/clips/export-log.jsonl"))}}<br><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>내보낸 클립이 없습니다.</p>";
 
 document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<table>
   <thead>
-    <tr><th>종류</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>감사 체인</th></tr>
+    <tr><th>종류</th><th>작업자</th><th>방법</th><th>원본 ID</th><th>파생 ID</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>감사 체인</th></tr>
   </thead>
   <tbody>
     ${{derivedLog.map(item => `<tr>
-      <td>${{escapeHtml(item.kind || "-")}}</td>
+      <td>${{escapeHtml(item.kind || item.format || "-")}}</td>
+      <td>${{escapeHtml(item.operator || "-")}}</td>
+      <td>${{escapeHtml(item.method || item.event || "-")}}</td>
+      <td><code>${{escapeHtml(item.source_artifact_id || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.derived_artifact_id || "-")}}</code></td>
       <td><code>${{escapeHtml(item.source_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
-      <td><code>${{escapeHtml(item.output_sha256 || "-")}}</code></td>
-      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+      <td><code>${{escapeHtml(item.output_artifact_sha256 || item.output_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(chainStatusForItem(item))}}<br><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>프록시 또는 썸네일 산출물이 없습니다.</p>";
@@ -315,7 +370,7 @@ document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<tabl
       <td>${{fmtBytes(item.size_bytes)}}</td>
       <td><code>${{escapeHtml(item.output_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.sha256 || "-")}}</code></td>
-      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(chainStatusForItem(item, "artifacts/carved/carve-log.jsonl"))}}<br><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>Carving 후보가 없습니다.</p>";
@@ -333,7 +388,7 @@ document.getElementById("validation-results").innerHTML = validationLog.length ?
       <td>${{fmtDuration(item.duration_seconds)}}</td>
       <td><code>${{escapeHtml(item.target_sha256 || "-")}}</code></td>
       <td>${{escapeHtml(item.validation_note || item.ffprobe_error || "-")}}</td>
-      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(chainStatusForItem(item, "evidence/logs/validation-log.jsonl"))}}<br><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>검증 기록이 없습니다.</p>";
@@ -350,7 +405,7 @@ document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length 
       <td><code>${{escapeHtml(item.inode || "-")}}</code></td>
       <td>${{escapeHtml(item.validation_status || `${{item.entry_count ?? "-"}} entries`)}}<br><code>${{escapeHtml(item.output_path || item.summary_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.sha256 || item.entries_jsonl_path || "-")}}</code></td>
-      <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
+      <td>${{escapeHtml(chainStatusForItem(item, "evidence/logs/tsk-audit.jsonl"))}}<br><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";

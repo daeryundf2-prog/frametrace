@@ -208,13 +208,13 @@ GUI 규칙:
 
 문제:
 
-- `verified-playable`은 `ffprobe`가 video stream을 본 상태이지 법정 제출 가능성을 뜻하지 않는다.
+- `ffprobe-video-stream-confirmed`는 `ffprobe`가 video stream을 본 상태이고, `playback-confirmed`는 examiner playback 확인 상태다. 둘 다 법정 제출 가능성을 뜻하지 않는다.
 - 복구 후보가 검증 완료 영상처럼 보이면 보고서 품질이 떨어진다.
 
 필요 기능:
 
 - UI 용어를 `컨테이너 재생 가능`처럼 보수적으로 표현
-- `candidate-unvalidated`, `duplicate-candidate`, `validation-failed`, `verified-playable` 구분
+- `candidate-unvalidated`, `duplicate-candidate`, `validation-failed`, `ffprobe-video-stream-confirmed`, `playback-confirmed` 구분
 - examiner playback review 체크 별도 저장
 - 보고서에 검증 한계 문구 유지
 

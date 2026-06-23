@@ -339,18 +339,30 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     )
 }
 
-pub fn render_evidence_viewer_html(
-    manifest_json: &str,
-    index_json: &str,
-    carve_log_jsonl: &str,
-    filesystem_log_jsonl: &str,
-    validation_log_jsonl: &str,
-) -> String {
-    let manifest = json_for_script(manifest_json);
-    let index = json_for_script(index_json);
-    let carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl));
-    let filesystem_lines = json_for_script(&jsonl_to_array(filesystem_log_jsonl));
-    let validation_lines = json_for_script(&jsonl_to_array(validation_log_jsonl));
+pub struct EvidenceViewerInputs<'a> {
+    pub manifest_json: &'a str,
+    pub index_json: &'a str,
+    pub carve_log_jsonl: &'a str,
+    pub filesystem_log_jsonl: &'a str,
+    pub validation_log_jsonl: &'a str,
+    pub export_log_jsonl: &'a str,
+    pub proxy_log_jsonl: &'a str,
+    pub thumbnail_log_jsonl: &'a str,
+    pub frame_log_jsonl: &'a str,
+    pub audit_chain_status_json: &'a str,
+}
+
+pub fn render_evidence_viewer_html(inputs: EvidenceViewerInputs<'_>) -> String {
+    let manifest = json_for_script(inputs.manifest_json);
+    let index = json_for_script(inputs.index_json);
+    let carve_lines = json_for_script(&jsonl_to_array(inputs.carve_log_jsonl));
+    let filesystem_lines = json_for_script(&jsonl_to_array(inputs.filesystem_log_jsonl));
+    let validation_lines = json_for_script(&jsonl_to_array(inputs.validation_log_jsonl));
+    let export_lines = json_for_script(&jsonl_to_array(inputs.export_log_jsonl));
+    let proxy_lines = json_for_script(&jsonl_to_array(inputs.proxy_log_jsonl));
+    let thumbnail_lines = json_for_script(&jsonl_to_array(inputs.thumbnail_log_jsonl));
+    let frame_lines = json_for_script(&jsonl_to_array(inputs.frame_log_jsonl));
+    let audit_chain_status = json_for_script(inputs.audit_chain_status_json);
     format!(
         r#"<!doctype html>
 <html lang="ko">
@@ -491,12 +503,27 @@ const scan = {index};
 const carveLog = {carve_lines};
 const filesystemLog = {filesystem_lines};
 const validationLog = {validation_lines};
+const exportLog = {export_lines};
+const proxyLog = {proxy_lines};
+const thumbnailLog = {thumbnail_lines};
+const frameLog = {frame_lines};
+const auditChainStatus = {audit_chain_status};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
-const validationsByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
+const validationByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
+const validationByArtifactId = new Map();
+const validationBySha256 = new Map();
+const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
+validationLog.forEach(item => {{
+  [item.selector, item.source_artifact_id, item.derived_artifact_id, item.target_artifact_id]
+    .filter(Boolean)
+    .forEach(id => validationByArtifactId.set(String(id), item));
+  if (item.target_sha256) validationBySha256.set(String(item.target_sha256).toLowerCase(), item);
+}});
 const recoveredFilesystemLog = filesystemLog.filter(item => item.event === "recover-inode" && item.output_path);
+const derivedLog = [...exportLog, ...proxyLog, ...thumbnailLog, ...frameLog];
 const records = [
   ...videos.map(video => {{
-    const validation = validationsByPath.get(normalizePath(video.source_path));
+    const validation = validationForFields(video.id, video.source_path, video.sha256, "", "");
     return {{
       id: video.id,
       kind: "video",
@@ -511,11 +538,42 @@ const records = [
       codec: validation?.video_codec || video.video_codec || "-",
       size: video.size_bytes,
       note: validation?.validation_note || video.source_profile?.recommended_action || "-",
-      validation
+      validation,
+      auditLogPath: ""
+    }};
+  }}),
+  ...derivedLog.map(item => {{
+    const outputPath = item.output_artifact_path || item.output_path;
+    const validation = validationForFields(
+      item.derived_artifact_id || item.selector,
+      outputPath,
+      item.output_artifact_sha256 || item.output_sha256,
+      item.derived_artifact_id,
+      item.source_artifact_id
+    );
+    return {{
+      id: item.derived_artifact_id || item.output_path || item.output_artifact_path,
+      kind: "derived",
+      name: outputPath ? outputPath.split(/[\\\\/]/).pop() : item.derived_artifact_id,
+      path: outputPath,
+      fileUrl: fileUrl(outputPath),
+      parser: item.method || item.event || "derived-artifact",
+      vendor: item.kind || item.format || "Derived artifact",
+      status: validation?.validation_status || item.artifact_state || "derived",
+      sha256: validation?.target_sha256 || item.output_artifact_sha256 || item.output_sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || item.format || "-",
+      size: item.size_bytes,
+      note: `${{item.operator || "-"}} · ${{item.source_artifact_id || "-"}}`,
+      offset: item.start_seconds ?? item.time_seconds,
+      validation,
+      sourceArtifactId: item.source_artifact_id,
+      derivedArtifactId: item.derived_artifact_id,
+      auditLogPath: auditPathForDerivedItem(item)
     }};
   }}),
   ...carveLog.map(item => {{
-    const validation = validationsByPath.get(normalizePath(item.output_path));
+    const validation = validationForFields(item.id, item.output_path, item.sha256, "", "");
     return {{
       id: item.id || item.output_path,
       kind: "carved",
@@ -531,11 +589,12 @@ const records = [
       size: item.size_bytes,
       note: validation?.validation_note || item.validation_note || "-",
       offset: item.offset,
-      validation
+      validation,
+      auditLogPath: "artifacts/carved/carve-log.jsonl"
     }};
   }}),
   ...recoveredFilesystemLog.map(item => {{
-    const validation = validationsByPath.get(normalizePath(item.output_path));
+    const validation = validationForFields(item.inode, item.output_path, item.sha256, "", "");
     return {{
       id: `inode:${{item.partition_offset ?? 0}}:${{item.inode || item.output_path}}`,
       kind: "filesystem",
@@ -551,7 +610,8 @@ const records = [
       size: item.size_bytes,
       note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
       offset: item.partition_offset,
-      validation
+      validation,
+      auditLogPath: "evidence/logs/tsk-audit.jsonl"
     }};
   }})
 ];
@@ -583,6 +643,7 @@ const els = {{
 }};
 
 function normalizePath(value) {{ return String(value || "").replaceAll("\\\\", "/").toLowerCase(); }}
+function normalizeHash(value) {{ return String(value || "").toLowerCase(); }}
 function fileUrl(path) {{
   if (!path) return "";
   if (String(path).startsWith("file:")) return path;
@@ -609,6 +670,45 @@ function statusClass(status) {{
   if (status === "ffprobe-video-stream-confirmed" || status === "ffprobe-confirmed") return "ok";
   if (status === "validation-failed") return "failed";
   return "candidate";
+}}
+function auditPathForDerivedItem(item) {{
+  if (item.event === "export-video") return "artifacts/clips/export-log.jsonl";
+  if (item.event === "make-proxy" || item.kind === "proxy") return "artifacts/proxies/proxy-log.jsonl";
+  if (item.event === "make-thumbnail" || item.kind === "thumbnail") return "artifacts/thumbnails/thumbnail-log.jsonl";
+  if (item.event === "make-frame-capture" || item.kind === "frame-capture") return "artifacts/frames/frame-log.jsonl";
+  return "";
+}}
+function chainStatus(relPath) {{
+  const status = auditStatusByPath.get(relPath);
+  if (!status) return "missing · not listed";
+  const error = status.error ? ` · ${{status.error}}` : "";
+  return `${{status.status}} · entries=${{status.entries ?? "-"}}${{error}}`;
+}}
+function validationForFields(id, path, sha256, derivedArtifactId, sourceArtifactId) {{
+  return validationByArtifactId.get(String(derivedArtifactId || ""))
+    || validationByArtifactId.get(String(id || ""))
+    || validationByArtifactId.get(String(sourceArtifactId || ""))
+    || validationBySha256.get(normalizeHash(sha256))
+    || validationByPath.get(normalizePath(path));
+}}
+function validationForRecord(record) {{
+  return validationForFields(
+    record.id,
+    record.path,
+    record.sha256,
+    record.derivedArtifactId,
+    record.sourceArtifactId
+  );
+}}
+function relatedValidationsForRecord(record) {{
+  return validationLog.filter(item =>
+    normalizePath(item.target_path) === normalizePath(record.path)
+    || item.selector === record.id
+    || item.derived_artifact_id === record.derivedArtifactId
+    || item.target_artifact_id === record.derivedArtifactId
+    || item.source_artifact_id === record.sourceArtifactId
+    || normalizeHash(item.target_sha256) === normalizeHash(record.sha256)
+  );
 }}
 function filteredRecords() {{
   const query = els.query.value.trim().toLowerCase();
@@ -647,9 +747,11 @@ function renderDetails() {{
   els.mediaTitle.textContent = record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${{statusClass(record.status)}}`;
-  els.mediaStage.innerHTML = record.fileUrl
-    ? `<video controls preload="metadata" src="${{escapeHtml(record.fileUrl)}}"></video>`
-    : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
+  els.mediaStage.innerHTML = `<div class="fallback">
+    <strong>자동 미디어 로딩 비활성화</strong>
+    <span>원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.</span>
+    ${{record.fileUrl ? `<a href="${{escapeHtml(record.fileUrl)}}" target="_blank" rel="noreferrer">수동으로 파일 열기</a>` : ""}}
+  </div>`;
   els.summaryList.innerHTML = [
     ["ID", record.id],
     ["상태", record.status],
@@ -663,12 +765,16 @@ function renderDetails() {{
     ["코덱", record.codec],
     ["크기", fmtBytes(record.size)],
     ["SHA-256", `<code>${{escapeHtml(record.sha256)}}</code>`],
+    ["원본 ID", `<code>${{escapeHtml(record.sourceArtifactId || "-")}}</code>`],
+    ["파생 ID", `<code>${{escapeHtml(record.derivedArtifactId || "-")}}</code>`],
+    ["감사 체인", `<code>${{escapeHtml(record.auditLogPath ? chainStatus(record.auditLogPath) : "-")}}</code>`],
     ["오프셋", record.offset ?? "-"]
   ].map(([k, v]) => `<dt>${{escapeHtml(k)}}</dt><dd>${{v}}</dd>`).join("");
-  const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
+  const related = relatedValidationsForRecord(record);
   els.validationList.innerHTML = related.length ? related.map(item => `<div class="validation-item">
     <strong>${{escapeHtml(item.validation_status || "-")}}</strong>
     <div class="muted">${{escapeHtml(item.validation_note || item.ffprobe_error || "-")}}</div>
+    <div class="muted">${{escapeHtml(chainStatus("evidence/logs/validation-log.jsonl"))}}</div>
     <code>${{escapeHtml(item.target_sha256 || "-")}}</code>
   </div>`).join("") : `<div class="validation-item">검증 로그 없음</div>`;
 }}
@@ -711,14 +817,25 @@ fn jsonl_to_array(jsonl: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_evidence_viewer_html;
+    use super::{EvidenceViewerInputs, render_evidence_viewer_html};
 
     #[test]
     fn evidence_viewer_includes_filesystem_recovery_records() {
         let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
         let index = r#"{"videos":[]}"#;
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
-        let html = render_evidence_viewer_html(manifest, index, "", filesystem, "");
+        let html = render_evidence_viewer_html(EvidenceViewerInputs {
+            manifest_json: manifest,
+            index_json: index,
+            carve_log_jsonl: "",
+            filesystem_log_jsonl: filesystem,
+            validation_log_jsonl: "",
+            export_log_jsonl: "",
+            proxy_log_jsonl: "",
+            thumbnail_log_jsonl: "",
+            frame_log_jsonl: "",
+            audit_chain_status_json: "[]",
+        });
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
         assert!(html.contains("inode_1304.bin"));
@@ -728,9 +845,88 @@ mod tests {
     fn evidence_viewer_discloses_bounded_inventory_subset() {
         let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
         let index = r#"{"video_count":502,"embedded_video_count":500,"inventory_truncated":true,"inventory_limit":500,"inventory_query_contract":"frametrace inventory <case_dir> --limit 500 --offset <n>","videos":[]}"#;
-        let html = render_evidence_viewer_html(manifest, index, "", "", "");
+        let html = render_evidence_viewer_html(EvidenceViewerInputs {
+            manifest_json: manifest,
+            index_json: index,
+            carve_log_jsonl: "",
+            filesystem_log_jsonl: "",
+            validation_log_jsonl: "",
+            export_log_jsonl: "",
+            proxy_log_jsonl: "",
+            thumbnail_log_jsonl: "",
+            frame_log_jsonl: "",
+            audit_chain_status_json: "[]",
+        });
         assert!(html.contains("id=\"inventoryNotice\""));
         assert!(html.contains("scan.inventory_truncated"));
         assert!(html.contains("inventory_query_contract"));
+    }
+
+    #[test]
+    fn evidence_viewer_includes_derived_artifact_records() {
+        let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
+        let index = r#"{"videos":[]}"#;
+        let frame_log = r#"{"event":"make-frame-capture","kind":"frame-capture","artifact_state":"derived","operator":"qa-operator","method":"ffmpeg-frame-capture","source_artifact_id":"source-vid_000001-aaaaaaaaaaaa","derived_artifact_id":"derived-frame-capture-bbbbbbbbbbbb","output_artifact_path":"/case/artifacts/frames/frame.jpg","output_artifact_sha256":"bbbb"}"#;
+        let html = render_evidence_viewer_html(EvidenceViewerInputs {
+            manifest_json: manifest,
+            index_json: index,
+            carve_log_jsonl: "",
+            filesystem_log_jsonl: "",
+            validation_log_jsonl: "",
+            export_log_jsonl: "",
+            proxy_log_jsonl: "",
+            thumbnail_log_jsonl: "",
+            frame_log_jsonl: frame_log,
+            audit_chain_status_json: "[]",
+        });
+        assert!(html.contains("derivedLog"));
+        assert!(html.contains("sourceArtifactId"));
+        assert!(html.contains("derived-frame-capture-bbbbbbbbbbbb"));
+        assert!(html.contains("ffmpeg-frame-capture"));
+    }
+
+    #[test]
+    fn evidence_viewer_matches_derived_validation_by_artifact_id_and_hash() {
+        let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
+        let index = r#"{"videos":[]}"#;
+        let frame_log = r#"{"event":"make-frame-capture","kind":"frame-capture","artifact_state":"derived","operator":"qa-operator","method":"ffmpeg-frame-capture","source_artifact_id":"source-vid_000001-aaaaaaaaaaaa","derived_artifact_id":"derived-frame-capture-bbbbbbbbbbbb","output_artifact_path":"/private/tmp/case/artifacts/frames/frame.jpg","output_artifact_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}"#;
+        let validation_log = r#"{"event":"validate-artifact","selector":"derived-frame-capture-bbbbbbbbbbbb","source_artifact_id":"source-vid_000001-aaaaaaaaaaaa","derived_artifact_id":"derived-frame-capture-bbbbbbbbbbbb","target_artifact_id":"derived-frame-capture-bbbbbbbbbbbb","target_path":"/tmp/case/artifacts/frames/frame.jpg","target_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","validation_status":"ffprobe-video-stream-confirmed"}"#;
+
+        let html = render_evidence_viewer_html(EvidenceViewerInputs {
+            manifest_json: manifest,
+            index_json: index,
+            carve_log_jsonl: "",
+            filesystem_log_jsonl: "",
+            validation_log_jsonl: validation_log,
+            export_log_jsonl: "",
+            proxy_log_jsonl: "",
+            thumbnail_log_jsonl: "",
+            frame_log_jsonl: frame_log,
+            audit_chain_status_json: "[]",
+        });
+
+        assert!(html.contains("validationByArtifactId"));
+        assert!(html.contains("validationForRecord(record)"));
+        assert!(html.contains("relatedValidationsForRecord(record)"));
+    }
+
+    #[test]
+    fn evidence_viewer_does_not_auto_load_original_media() {
+        let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
+        let index = r#"{"videos":[{"id":"vid_000001","source_path":"/case/source/clip.mp4","file_url":"file:///case/source/clip.mp4"}]}"#;
+        let html = render_evidence_viewer_html(EvidenceViewerInputs {
+            manifest_json: manifest,
+            index_json: index,
+            carve_log_jsonl: "",
+            filesystem_log_jsonl: "",
+            validation_log_jsonl: "",
+            export_log_jsonl: "",
+            proxy_log_jsonl: "",
+            thumbnail_log_jsonl: "",
+            frame_log_jsonl: "",
+            audit_chain_status_json: "[]",
+        });
+        assert!(!html.contains("<video"));
+        assert!(html.contains("자동 미디어 로딩 비활성화"));
     }
 }

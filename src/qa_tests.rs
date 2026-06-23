@@ -3,6 +3,7 @@ use super::{
     accuracy_report, performance_report, read_review_manifest, report_defense_check,
     reproducibility_report,
 };
+use crate::audit;
 use crate::case_db;
 use std::fs;
 use std::path::Path;
@@ -137,6 +138,42 @@ fn report_defense_rejects_cases_with_running_jobs() {
     assert!(err.contains("active job"));
     let checklist = fs::read_to_string(output_dir.join("report-defense-checklist.md")).unwrap();
     assert!(checklist.contains("running SQLite job"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn report_defense_rejects_tampered_media_audit_logs() {
+    let root = std::env::temp_dir().join(format!(
+        "frametrace-report-audit-chain-test-{}",
+        std::process::id()
+    ));
+    let case_dir = root.join("case");
+    let output_dir = root.join("qa");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(case_dir.join("db")).unwrap();
+    fs::create_dir_all(case_dir.join("reports")).unwrap();
+    fs::create_dir_all(case_dir.join("artifacts/proxies")).unwrap();
+    fs::write(case_dir.join("case.json"), "{}").unwrap();
+    fs::write(case_dir.join("db/video_index.json"), "{}").unwrap();
+    fs::write(case_dir.join("db/videos.jsonl"), "").unwrap();
+    fs::write(case_dir.join("db/video_paths.tsv"), "id\tsource_path\n").unwrap();
+    fs::write(case_dir.join("reports/case-report.html"), "<html></html>").unwrap();
+    let conn = case_db::open_case_db(&case_dir).unwrap();
+    case_db::init_schema(&conn).unwrap();
+    let proxy_log = case_dir.join("artifacts/proxies/proxy-log.jsonl");
+    audit::append_chained_jsonl(&proxy_log, r#"{"event":"make-proxy","kind":"proxy"}"#).unwrap();
+    let tampered = fs::read_to_string(&proxy_log)
+        .unwrap()
+        .replace("make-proxy", "make-proxy-tampered");
+    fs::write(&proxy_log, tampered).unwrap();
+
+    let err = report_defense_check(&case_dir, &output_dir).unwrap_err();
+
+    assert!(err.contains("audit chain"));
+    let checklist = fs::read_to_string(output_dir.join("report-defense-checklist.md")).unwrap();
+    assert!(checklist.contains("proxy"));
+    assert!(checklist.contains("tampered"));
 
     let _ = fs::remove_dir_all(root);
 }

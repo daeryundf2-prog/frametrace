@@ -27,13 +27,7 @@ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
     };
 
     let output = Command::new(&binary)
-        .arg("-v")
-        .arg("error")
-        .arg("-print_format")
-        .arg("json")
-        .arg("-show_format")
-        .arg("-show_streams")
-        .arg(path)
+        .args(probe_command_args(path))
         .output();
 
     let output = match output {
@@ -102,6 +96,18 @@ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
         raw_json: Some(raw),
         error: None,
     }
+}
+
+pub fn probe_command_args(path: &Path) -> Vec<String> {
+    vec![
+        "-v".to_string(),
+        "error".to_string(),
+        "-print_format".to_string(),
+        "json".to_string(),
+        "-show_format".to_string(),
+        "-show_streams".to_string(),
+        path.to_string_lossy().to_string(),
+    ]
 }
 
 fn stream_section(raw: &str, codec_type: &str) -> Option<String> {

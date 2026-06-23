@@ -36,6 +36,8 @@ PowerShell에서 아래 실행 파일들이 모두 잡혀야 한다.
 - FFmpeg for Windows
   - `ffmpeg.exe`
   - `ffprobe.exe`
+- .NET SDK for WinUI shell work
+  - `dotnet.exe`
 
 E01 / raw image / 삭제 파일 복구 작업에 필요:
 
@@ -56,6 +58,7 @@ rustc --version
 cargo --version
 ffmpeg -version
 ffprobe -version
+dotnet --info
 ewfinfo -V
 ewfverify -V
 ewfexport -V
@@ -76,6 +79,8 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release
 .\target\release\frametrace.exe --help
 .\target\release\frametrace.exe list-parsers
+.\target\release\frametrace.exe init-case C:\Temp\frametrace-empty-case --title "Windows prereq"
+.\target\release\frametrace.exe workstation-status C:\Temp\frametrace-empty-case
 ```
 
 통과 기준:
@@ -83,6 +88,8 @@ cargo build --release
 - 빌드, 테스트, clippy 실패가 없어야 한다.
 - `frametrace.exe --help`에 현재 명령들이 보여야 한다.
 - `list-parsers`가 제조사/소스 파서 카탈로그 JSON을 출력해야 한다.
+- GUI/릴리즈 전 단계에서는 `workstation-status`의 `windows_prerequisites.release_validation_host_ready`가 `true`여야 한다. `dotnet`, `ffmpeg`, `ffprobe`, Windows host, `gui/winui` 아래의 실제 `.sln`/`.csproj` 프로젝트 파일 중 하나라도 없으면 `qa release`가 `windows_prerequisites` blocker로 실패해야 한다.
+- 최종 `qa release` 전에 Windows validation script가 `dotnet build`와 `dotnet test`를 실행하고 `reports\qa\winui-build.json` receipt를 남겨야 한다. 이 receipt가 없으면 `missing-winui-build-receipt`로 release readiness가 차단된다.
 
 여기서 실패하면 GUI 작업을 시작하지 말고 Windows portability부터 고친다.
 
@@ -103,9 +110,11 @@ ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=160x90:rate=1 -t 1 
 .\target\release\frametrace.exe init-case C:\Temp\frametrace-case --title "Windows smoke"
 .\target\release\frametrace.exe scan-folder C:\Temp\frametrace-case C:\Temp\frametrace-source --hash
 .\target\release\frametrace.exe validate-artifact C:\Temp\frametrace-case vid_000001
+.\target\release\frametrace.exe confirm-playback C:\Temp\frametrace-case vid_000001 --playback-tool "Windows Media Player"
 .\target\release\frametrace.exe make-review C:\Temp\frametrace-case
 .\target\release\frametrace.exe make-report C:\Temp\frametrace-case
 .\target\release\frametrace.exe package-case C:\Temp\frametrace-case
+.\target\release\frametrace.exe workstation-status C:\Temp\frametrace-case
 ```
 
 생성 확인:
@@ -121,7 +130,8 @@ C:\Temp\frametrace-case\reports\case-report.html
 
 통과 기준:
 
-- `validation-log.jsonl`에 `verified-playable`이 있어야 한다.
+- `validation-log.jsonl`에 `ffprobe-video-stream-confirmed`와 `playback-confirmed`가 별도 entry로 있어야 한다.
+- `workstation-status` 출력에 `engine_source_of_truth`, `full_json_load_allowed:false`, `ffprobe_and_playback_are_separate_states:true`, `windows_prerequisites.release_validation_host_ready:true`, `windows_prerequisites.winui_project_files`가 있어야 한다.
 - `review\evidence-viewer.html`이 서버 없이 바로 열려야 한다.
 - 브라우저에서 영상 metadata 또는 재생이 확인되어야 한다.
 - 보고서에 검증 섹션이 보여야 한다.
@@ -214,6 +224,7 @@ raw workflow:
 ```powershell
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2
 .\target\release\frametrace.exe validate-artifact C:\Cases\case-001 vid_000001
+.\target\release\frametrace.exe confirm-playback C:\Cases\case-001 vid_000001 --playback-tool "Windows Media Player"
 .\target\release\frametrace.exe make-report C:\Cases\case-001
 .\target\release\frametrace.exe package-case C:\Cases\case-001
 ```
@@ -236,7 +247,7 @@ raw workflow:
 
 - C# / WinUI 3
 - Rust CLI는 evidence-processing source of truth로 유지
-- GUI는 `frametrace.exe` 명령을 실행하고 JSON/JSONL/SQLite 산출물을 읽는다
+- GUI는 `frametrace.exe` 명령을 실행하고 `workstation-status`, bounded inventory JSON, JSONL, SQLite 산출물을 읽는다
 - Tauri는 WinUI가 막힐 때의 fallback으로만 둔다
 
 최소 화면:
@@ -259,7 +270,8 @@ raw workflow:
   - image preview
   - timeline/range selection
   - proxy/thumbnail/export action
-  - validation status와 SHA-256 상시 표시
+- validation status와 SHA-256 상시 표시
+- `ffprobe-video-stream-confirmed`와 `playback-confirmed`를 다른 상태로 표시
 - Recovery workspace
   - image inspection 결과
   - deleted entry 목록
@@ -300,6 +312,7 @@ GUI 규칙:
 .\target\release\frametrace.exe --help
 .\target\release\frametrace.exe list-parsers
 .\target\release\frametrace.exe benchmark-db C:\Temp\frametrace-db-bench --rows 100000
+.\target\release\frametrace.exe workstation-status C:\Temp\frametrace-case
 ```
 
 패키징 원칙:

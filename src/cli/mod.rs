@@ -6,6 +6,7 @@ mod commands;
 mod e01_cmd;
 pub mod handlers;
 mod inventory_cmd;
+mod inventory_json;
 mod media_cmd;
 mod qa_cmd;
 mod tsk_cmd;
@@ -17,8 +18,8 @@ use e01_cmd::{ImportE01CliInput, run_import_e01, run_inspect_e01};
 use handlers::*;
 use inventory_cmd::run_inventory_command;
 use media_cmd::{
-    CarveCliInput, ExportVideoCliInput, run_carve_file, run_export_video, run_make_proxy,
-    run_make_thumbnail, run_validate_artifact,
+    CarveCliInput, ExportVideoCliInput, run_capture_frame, run_carve_file, run_confirm_playback,
+    run_export_video, run_make_proxy, run_make_thumbnail, run_validate_artifact,
 };
 use qa_cmd::run_qa;
 use tsk_cmd::{RecoverInodeCliInput, run_inspect_image, run_recover_inode};
@@ -136,6 +137,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             start,
             duration,
             output,
+            operator,
         } => run_export_video(
             &case_dir,
             &selector,
@@ -144,6 +146,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 start,
                 duration,
                 output,
+                operator,
             },
         ),
         Commands::MakeProxy {
@@ -151,13 +154,22 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             selector,
             max_width,
             output,
-        } => run_make_proxy(&case_dir, &selector, max_width, output),
+            operator,
+        } => run_make_proxy(&case_dir, &selector, max_width, output, operator),
         Commands::MakeThumbnail {
             case_dir,
             selector,
             time,
             output,
-        } => run_make_thumbnail(&case_dir, &selector, time, output),
+            operator,
+        } => run_make_thumbnail(&case_dir, &selector, time, output, operator),
+        Commands::CaptureFrame {
+            case_dir,
+            selector,
+            time,
+            output,
+            operator,
+        } => run_capture_frame(&case_dir, &selector, time, output, operator),
         Commands::CarveFile {
             case_dir,
             source_file,
@@ -213,7 +225,15 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             case_dir,
             selector,
             ffprobe,
-        } => run_validate_artifact(&case_dir, &selector, ffprobe),
+            operator,
+        } => run_validate_artifact(&case_dir, &selector, ffprobe, operator),
+        Commands::ConfirmPlayback {
+            case_dir,
+            selector,
+            playback_tool,
+            notes,
+            operator,
+        } => run_confirm_playback(&case_dir, &selector, playback_tool, notes, operator),
         Commands::VerifyAudit { log_path } => verify_audit(&log_path),
         Commands::MarkInterruptedJobs { case_dir, reason } => {
             mark_interrupted_jobs(&case_dir, &reason)
@@ -223,9 +243,10 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             benchmark_db(&output_dir, options)
         }
         Commands::Inspect { case_dir } => inspect(&case_dir),
-        command @ (Commands::Inventory { .. } | Commands::InventoryBulkPreview { .. }) => {
-            run_inventory_command(command)
-        }
+        Commands::WorkstationStatus { case_dir } => workstation_status(&case_dir),
+        command @ (Commands::Inventory { .. }
+        | Commands::InventoryBulkPreview { .. }
+        | Commands::InventoryExportManifest { .. }) => run_inventory_command(command),
         Commands::Qa { command } => run_qa(command),
     }
 }

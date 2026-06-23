@@ -1,4 +1,4 @@
-use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
+use crate::artifacts::{self, FrameCaptureOptions, ProxyOptions, ThumbnailOptions};
 use crate::audit;
 use crate::carve::{self, CarveOptions};
 use crate::case_db;
@@ -6,6 +6,7 @@ use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
 use crate::package;
+use crate::playback::{self, PlaybackConfirmationOptions};
 use crate::report;
 use crate::review_bundle;
 use crate::scan;
@@ -13,6 +14,7 @@ use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
+use crate::workstation;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -265,13 +267,29 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
-    let evidence_viewer = html_report::render_evidence_viewer_html(
-        &manifest_json,
-        &index_json,
-        &carve_log,
-        &filesystem_log,
-        &validation_log,
-    );
+    let export_log =
+        read_to_string(&case_dir.join("artifacts/clips/export-log.jsonl")).unwrap_or_default();
+    let proxy_log =
+        read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
+    let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
+        .unwrap_or_default();
+    let frame_log =
+        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
+    let audit_chain_status =
+        audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
+    let evidence_viewer =
+        html_report::render_evidence_viewer_html(html_report::EvidenceViewerInputs {
+            manifest_json: &manifest_json,
+            index_json: &index_json,
+            carve_log_jsonl: &carve_log,
+            filesystem_log_jsonl: &filesystem_log,
+            validation_log_jsonl: &validation_log,
+            export_log_jsonl: &export_log,
+            proxy_log_jsonl: &proxy_log,
+            thumbnail_log_jsonl: &thumbnail_log,
+            frame_log_jsonl: &frame_log,
+            audit_chain_status_json: &audit_chain_status,
+        });
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(&evidence_viewer_path, &evidence_viewer)
         .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
@@ -297,21 +315,27 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
     let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
         .unwrap_or_default();
+    let frame_log =
+        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
     let carve_log =
         read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
     let filesystem_log =
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let audit_chain_status =
+        audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
     let html = report::render_case_report(&report::ReportInputs {
         manifest_json: &manifest_json,
         index_json: &index_json,
         export_log_jsonl: &export_log,
         proxy_log_jsonl: &proxy_log,
         thumbnail_log_jsonl: &thumbnail_log,
+        frame_log_jsonl: &frame_log,
         carve_log_jsonl: &carve_log,
         filesystem_log_jsonl: &filesystem_log,
         validation_log_jsonl: &validation_log,
+        audit_chain_status_json: &audit_chain_status,
     });
     let report_path = case_dir.join("reports/case-report.html");
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
@@ -356,6 +380,19 @@ pub fn make_thumbnail(
     ensure_case(case_dir)?;
     let result = artifacts::generate_thumbnail(case_dir, selector, &options)?;
     println!("thumbnail generated");
+    println!("source: {}", result.source_path.display());
+    println!("output: {}", result.output_path.display());
+    Ok(())
+}
+
+pub fn capture_frame(
+    case_dir: &Path,
+    selector: &str,
+    options: FrameCaptureOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let result = artifacts::capture_frame(case_dir, selector, &options)?;
+    println!("frame captured");
     println!("source: {}", result.source_path.display());
     println!("output: {}", result.output_path.display());
     Ok(())
@@ -575,6 +612,28 @@ pub fn validate_artifact(
     Ok(())
 }
 
+pub fn confirm_playback(
+    case_dir: &Path,
+    selector: &str,
+    options: PlaybackConfirmationOptions,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let result = playback::confirm_playback(case_dir, selector, &options)?;
+    println!("playback confirmed");
+    println!("selector: {}", result.selector);
+    println!("target: {}", result.target_path.display());
+    println!("target sha256: {}", result.target_sha256);
+    println!("status: {}", result.validation_status);
+    println!("operator: {}", result.operator);
+    println!(
+        "validation log: {}",
+        case_dir
+            .join("evidence/logs/validation-log.jsonl")
+            .display()
+    );
+    Ok(())
+}
+
 pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), String> {
     let result = case_db::benchmark_case_db(output_dir, options.rows)?;
     println!("SQLite benchmark complete");
@@ -634,6 +693,12 @@ pub fn inspect(case_dir: &Path) -> Result<(), String> {
         }
         None => println!("sqlite: not created yet"),
     }
+    Ok(())
+}
+
+pub fn workstation_status(case_dir: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    println!("{}", workstation::workstation_status_json(case_dir)?);
     Ok(())
 }
 

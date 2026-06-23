@@ -22,6 +22,11 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Workstation command contract
+        shell: pwsh
+        run: |
+          cargo run --locked -- --help | Select-String "workstation-status"
+          cargo run --locked -- --help | Select-String "confirm-playback"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,3 +36,6 @@ jobs:
         run: cargo run --locked -- qa performance target/frametrace-ci-performance --rows 1000
       - name: Release build
         run: cargo build --release --locked
+      - name: Windows release validation smoke
+        shell: pwsh
+        run: scripts/windows/validate-release.ps1 -CaseRoot "$env:TEMP\frametrace-release-smoke" -PerformanceRows 1000

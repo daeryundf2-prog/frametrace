@@ -16,7 +16,7 @@
   --shadow: 0 14px 38px rgba(33, 43, 39, 0.14);
   --radius: 8px;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
@@ -157,6 +157,10 @@ body.inventory-focused .viewer-pane {
   display: none;
 }
 
+body.inventory-focused .stats-grid {
+  display: none;
+}
+
 .source-pane,
 .browser-pane,
 .viewer-pane,
@@ -281,6 +285,10 @@ body.inventory-focused .viewer-pane {
   min-width: 0;
 }
 
+.inventory-controls {
+  flex-wrap: wrap;
+}
+
 .inventory-controls label {
   display: flex;
   align-items: center;
@@ -292,6 +300,7 @@ body.inventory-focused .viewer-pane {
 
 .inventory-controls select {
   height: 30px;
+  min-width: 112px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: #fff;
@@ -305,6 +314,18 @@ body.inventory-focused .viewer-pane {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 11px;
+}
+
+.large-case-policy {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: #eef5f2;
+  color: #40504a;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .segmented {
@@ -373,14 +394,49 @@ body.inventory-focused .viewer-pane {
 }
 
 .file-rows {
-  height: calc(100vh - 322px);
+  height: calc(100vh - 352px);
   overflow: auto;
   position: relative;
   contain: strict;
 }
 
 body.inventory-focused .file-rows {
-  height: calc(100vh - 286px);
+  height: calc(100vh - 170px);
+}
+
+body.bulk-preview-open .file-rows {
+  height: calc(100vh - 500px);
+}
+
+body.inventory-focused.bulk-preview-open .file-rows {
+  height: calc(100vh - 324px);
+}
+
+body.inventory-focused .file-row {
+  gap: 4px;
+  padding: 0 8px;
+}
+
+body.inventory-focused .file-name span {
+  display: none;
+}
+
+body.inventory-focused .status-pill {
+  min-width: 56px;
+  height: 20px;
+  font-size: 10px;
+}
+
+body.inventory-focused .review-cell,
+body.inventory-focused .source-cell,
+body.inventory-focused .validation-cell,
+body.inventory-focused .type-cell,
+body.inventory-focused .time-cell,
+body.inventory-focused .size-cell,
+body.inventory-focused .id-cell,
+body.inventory-focused .hash-cell,
+body.inventory-focused .report-cell {
+  font-size: 11px;
 }
 
 .virtual-spacer {
@@ -538,11 +594,20 @@ body.inventory-focused .file-rows {
   font-size: 12px;
 }
 
+#clearSelectionButton {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
 .bulk-preview {
   border-top: 1px solid var(--line);
+  max-height: 154px;
+  overflow: auto;
   padding: 8px 10px;
   background: #fff;
   font-size: 12px;
+  box-shadow: 0 -8px 24px rgba(27, 35, 32, 0.08);
 }
 
 .bulk-preview strong {

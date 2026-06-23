@@ -1,19 +1,12 @@
 use crate::qa::{
-    QaReport, ReleaseReadinessOptions, accuracy_report, performance_report, report_defense_check,
-    reproducibility_report,
+    QaReport, REVIEW_GATES, ReleaseReadinessOptions, accuracy_report, performance_report,
+    report_defense_check, reproducibility_report, workstation_shell_contract_check,
 };
 use crate::util::{json_escape, read_to_string, write_text};
+use crate::windows_prerequisites;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const REVIEW_GATES: &[(&str, &str)] = &[
-    ("technical_review", "Technical Review"),
-    ("security_review", "Security Review"),
-    ("migration_validation", "Migration Validation"),
-    ("operator_review", "Operator Review"),
-    ("legal_review", "Legal Review"),
-];
 
 pub fn release_readiness_report(
     case_dir: &Path,
@@ -26,6 +19,12 @@ pub fn release_readiness_report(
 
     checks.push(run_release_check("report_defense", || {
         report_defense_check(case_dir, output_dir).map(|report| report.report_path)
+    }));
+    checks.push(run_release_check("workstation_shell_contract", || {
+        workstation_shell_contract_check(case_dir, output_dir)
+    }));
+    checks.push(run_release_check("windows_prerequisites", || {
+        windows_prerequisites::release_validation_check(output_dir)
     }));
     checks.extend(review_gate_checks(options.review_manifest.as_deref()));
 
@@ -143,7 +142,7 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
                     ReleaseCheck {
                         name: (*key).to_string(),
                         status: "FAIL".to_string(),
-                        evidence: format!("{label} is not approved in {}", path.display()),
+                        evidence: format!("{label} ({key}) is not approved in {}", path.display()),
                     }
                 }
             })

@@ -23,6 +23,7 @@ pub fn create_case_layout(case_dir: &Path) -> io::Result<()> {
         "artifacts/carved",
         "artifacts/proxies",
         "artifacts/thumbnails",
+        "artifacts/frames",
         "artifacts/clips",
         "db",
         "db/filesystem",

@@ -146,6 +146,7 @@ fn recursive_package_dirs() -> &'static [&'static str] {
         "artifacts/clips",
         "artifacts/proxies",
         "artifacts/thumbnails",
+        "artifacts/frames",
         "artifacts/carved",
         "artifacts/recovered",
         "db/filesystem",

@@ -110,6 +110,8 @@ pub enum Commands {
         duration: Option<f64>,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        operator: Option<String>,
     },
     /// Generate a lower-bitrate review proxy MP4
     MakeProxy {
@@ -119,6 +121,8 @@ pub enum Commands {
         max_width: Option<u32>,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        operator: Option<String>,
     },
     /// Generate a JPEG thumbnail for review/reporting
     MakeThumbnail {
@@ -128,6 +132,19 @@ pub enum Commands {
         time: Option<f64>,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        operator: Option<String>,
+    },
+    /// Capture a report still frame as a derived photo artifact
+    CaptureFrame {
+        case_dir: PathBuf,
+        selector: String,
+        #[arg(long)]
+        time: Option<f64>,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        operator: Option<String>,
     },
     /// Scan a raw file or forensic image for contiguous candidates and carve them
     CarveFile {
@@ -175,6 +192,19 @@ pub enum Commands {
         selector: String,
         #[arg(long)]
         ffprobe: Option<String>,
+        #[arg(long)]
+        operator: Option<String>,
+    },
+    /// Record examiner playback confirmation after ffprobe stream validation
+    ConfirmPlayback {
+        case_dir: PathBuf,
+        selector: String,
+        #[arg(long)]
+        playback_tool: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+        #[arg(long)]
+        operator: Option<String>,
     },
     /// Verify a chained JSONL audit log and report tamper status
     VerifyAudit { log_path: PathBuf },
@@ -195,6 +225,8 @@ pub enum Commands {
     },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
+    /// Print bounded engine-owned status for the Windows workstation shell
+    WorkstationStatus { case_dir: PathBuf },
     /// Query the SQLite-backed forensic inventory as bounded JSON
     Inventory {
         case_dir: PathBuf,
@@ -212,6 +244,8 @@ pub enum Commands {
         extension: Option<String>,
         #[arg(long)]
         validation_state: Option<String>,
+        #[arg(long)]
+        sort: Option<String>,
     },
     /// Build an auditable bulk-action preview without mutating evidence state
     InventoryBulkPreview {
@@ -222,6 +256,17 @@ pub enum Commands {
         operator: String,
         #[arg(long)]
         filters_json: Option<String>,
+        file_ids: Vec<String>,
+    },
+    /// Export selected inventory rows as a manifest artifact
+    InventoryExportManifest {
+        case_dir: PathBuf,
+        #[arg(long)]
+        operator: String,
+        #[arg(long)]
+        filters_json: Option<String>,
+        #[arg(long)]
+        output: Option<PathBuf>,
         file_ids: Vec<String>,
     },
     /// Run forensic QA validation checks

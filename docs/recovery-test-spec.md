@@ -72,9 +72,27 @@ Rules:
 ```text
 technical_review=pass
 security_review=pass
+privacy_review=pass
+supply_chain_review=pass
+accuracy_validation=pass
+reproducibility_validation=pass
+performance_validation=pass
 migration_validation=pass
 operator_review=pass
-legal_review=pass
+report_defensibility_review=pass
+legal_wording_review=pass
+installer_package_validation=pass
+windows_workstation_validation=pass
+known_limitations_review=pass
+release_notes_review=pass
+support_triage_policy=pass
+hotfix_policy=pass
+incident_response_plan=pass
+corpus_governance=pass
+feature_intake_governance=pass
+post_ga_monitoring=pass
+external_review_readiness=pass
+regression_schedule=pass
 ```
 
 Markdown checkboxes are also accepted:
@@ -82,9 +100,27 @@ Markdown checkboxes are also accepted:
 ```text
 - [x] Technical Review
 - [x] Security Review
+- [x] Privacy Review
+- [x] Supply-chain Review
+- [x] Accuracy Validation
+- [x] Reproducibility Validation
+- [x] Performance Validation
 - [x] Migration Validation
 - [x] Operator Review
-- [x] Legal Review
+- [x] Report-defensibility Review
+- [x] Legal Wording Review
+- [x] Installer/Package Validation
+- [x] Windows Workstation Validation
+- [x] Known Limitations Review
+- [x] Release Notes Review
+- [x] Support/Triage Policy
+- [x] Hotfix Policy
+- [x] Incident Response Plan
+- [x] Corpus Governance
+- [x] Feature Intake Governance
+- [x] Post-GA Monitoring
+- [x] External Review Readiness
+- [x] Regression Schedule
 ```
 
 Any missing, unchecked, or unapproved gate is a release blocker.

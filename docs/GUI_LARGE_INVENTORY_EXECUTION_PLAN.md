@@ -16,16 +16,19 @@ Build a GUI inventory experience that lets an examiner quickly answer:
 
 The prototype currently uses a small in-memory JavaScript `records` array and renders visible evidence rows directly into the DOM. That is acceptable for workflow demonstration, but not for real cases.
 
-Known gaps:
+Known gaps before this slice:
 
 - Too few rows are visible in the file list.
 - File list columns are hidden aggressively at normal widths.
-- No inventory-focused mode exists.
 - No grouped source/folder/parser drill-down exists.
-- Search/filter is browser-array based, not engine-backed.
-- No paging or virtualization contract exists in implementation.
-- No bulk-action preview exists before review/report/hash/validation mutations.
 - Generated review HTML risks embedding too much case index data if scaled naively.
+
+Current implementation boundaries:
+
+- The HTML prototype uses deterministic 10,000-row mock data, fixed-height virtualization, density modes, inventory-focused mode, stable sort controls, and non-mutating bulk preview UI.
+- The Rust/SQLite query layer exposes bounded page metadata for production paths.
+- The generated review HTML embeds only a bounded inventory subset and discloses the paging command for full review.
+- The remaining production gap is the SQLite-backed GUI adapter; the prototype must not be treated as the production large-case transport. Current SQLite performance QA passed at 100k and 1M synthetic rows.
 
 ## Pre-GUI P1 Contract Gate
 
@@ -203,13 +206,13 @@ Inventory API surfaces:
 
 | Surface | Purpose | Required behavior |
 | --- | --- | --- |
-| `list_inventory` | Page inventory rows. | Accepts `case_id`, projection, filters, sort, and `limit <= 500`; returns rows, `next_cursor`, `total_count`, `query_id`, `duration_ms`, and truncation state. |
+| `list_inventory` | Page inventory rows. | Accepts filters, sort, offset, and `limit <= 500`; returns rows, `next_cursor`, `total_rows`, `query_id`, `duration_ms`, and truncation state. CLI: `frametrace inventory <case_dir> --limit <n> --offset <n> --sort <sort>`. |
 | `search_inventory` | Keyword and field search. | Uses SQLite indexes/FTS where available; returns page-sized results and exact or disclosed approximate counts. |
-| `inventory_facets` | Group counts. | Returns counts for source, partition/container, folder, parser lane, validation state, review state, report state, type, and hash state. |
-| `get_file_detail` | Inspect a row. | Returns full provenance, derived artifact chain, validation history, hashes, and report membership. |
-| `bulk_preview` | Preview mutations. | Returns target row count, filters, selected IDs, excluded IDs, warnings, expected mutation, audit preview ID, and output paths before mutation. |
-| `apply_bulk_action` | Apply reviewed mutation. | Requires a valid preview ID and writes audit events before durable case state changes. |
-| `export_manifest` | Export selected set. | Writes a manifest with file IDs, source IDs, hashes, paths, action history, and unsupported/partial states. |
+| `inventory_facets` | Group counts. | Returns counts for source, type, parser lane, validation state, review state, report state, extension, and hash state. CLI: `frametrace inventory <case_dir> --facets`. |
+| `get_file_detail` | Inspect a row. | Returns full row projection for path, source, validation, hash, report, and timestamp fields. CLI: `frametrace inventory <case_dir> --file-id <file_id>`. |
+| `bulk_preview` | Preview mutations. | Returns selected count, missing IDs, warnings, expected mutation, audit preview ID, and output path before mutation. CLI: `frametrace inventory-bulk-preview ...`. |
+| `apply_bulk_action` | Apply reviewed mutation. | Requires a valid preview ID and writes audit events before durable case state changes. Not implemented in this HTML prototype slice. |
+| `export_manifest` | Export selected set. | Writes a manifest with selected file IDs, source IDs, hashes, paths, output SHA-256, missing IDs, filters, and large-case policy. CLI: `frametrace inventory-export-manifest ...`. |
 
 Audit contract:
 
@@ -217,6 +220,13 @@ Audit contract:
 - Bulk action preview is mandatory before mark-reviewed, report-set, hash-queue, validation-queue, proxy/thumbnail generation, clip export, and manifest export mutations.
 - Candidate carved files remain `candidate-unvalidated` until a validation command records tool, method, operator, timestamp, source artifact, source hash when available, validation artifact, and audit chain.
 - Direct original media playback is an audited exception; the default playback target is a validated proxy.
+
+Generated review HTML policy:
+
+- `make-review` embeds at most 500 inventory rows.
+- It must disclose total rows, embedded rows, truncation status, embed limit, and the full SQLite paging command.
+- It must not be used as the transport for full 100k or 1M inventory browsing.
+- Large-case browsing must use SQLite-backed page/search/facet queries.
 
 Performance contract:
 

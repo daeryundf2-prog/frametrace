@@ -128,6 +128,18 @@ The API/query layer must support:
 - `inventory_facets(filters)` for source/type/parser/validation/review/hash counts
 - `get_file_detail(file_id)` for full metadata and audit links
 - `bulk_preview(file_ids, action)` before any bulk mutation
+- `export_manifest(file_ids, filters, operator)` for selected set export with output hash
+
+Current CLI JSON contract:
+
+- `frametrace inventory <case_dir> --limit <n> --offset <n> --sort risk-timestamp-asc|timestamp-desc|path-asc|size-desc`
+- `frametrace inventory <case_dir> --search <query> --limit <n>`
+- `frametrace inventory <case_dir> --facets`
+- `frametrace inventory <case_dir> --file-id <file_id>`
+- `frametrace inventory-bulk-preview <case_dir> --action <action> --operator <operator> <file_id>...`
+- `frametrace inventory-export-manifest <case_dir> --operator <operator> [--output <path>] <file_id>...`
+
+Inventory page responses must include `next_cursor`, `query_id`, `duration_ms`, `total_rows`, and `truncated`. Production GUI adapters must use those fields instead of deriving large-case state from a full browser-loaded JSON array.
 
 ### Acceptance Criteria
 
@@ -150,8 +162,8 @@ Use `docs/gui-large-inventory-traceability.md` to confirm every large inventory 
 3. Add query-plan evidence for default filters, facet counts, search, and stable sorting.
 4. Add generated review HTML support for paged/chunked inventory instead of embedding a full large JSON array.
 5. Add keyboard and examiner workflow QA: arrow navigation, enter-to-open, shift multi-select, filter focus, and copy path/hash.
-6. Add performance tests for 10k, 100k, and 1M synthetic tiers and record results in the Phase 9 large-scale report.
-7. Only after those pass, carry the pattern into the WinUI 3 shell.
+6. Keep performance evidence for the 10k browser prototype and 100k/1M SQLite synthetic tiers current in the Phase 9 large-scale report.
+7. Only after the SQLite-backed GUI adapter passes the same contract, carry the pattern into the WinUI 3 shell.
 
 ## Viewer Rules
 
@@ -194,6 +206,13 @@ case/review/evidence-viewer.html
 
 That page reads the current video index, carving log, and validation log at generation time. It is still serverless, but unlike the GUI prototype it is tied to actual case data.
 
+Large-case policy:
+
+- Generated review HTML embeds a bounded subset only, currently at most 500 inventory rows.
+- The generated page discloses `video_count`, `embedded_video_count`, `inventory_truncated`, `inventory_limit`, and the paging command for full SQLite-backed review.
+- Generated review HTML is not the production transport for 100k or 1M inventory cases.
+- Full large-case review must use the SQLite-backed query contract.
+
 ## Localization
 
 The prototype defaults to Korean because examiner-facing review is expected to happen on Korean Windows workstations. The top-right `EN` / `KO` control switches the visible UI language without changing evidence values such as paths, hashes, parser IDs, or vendor names.
@@ -235,6 +254,7 @@ The final production shell should be WinUI 3 on Windows 10/11 x64. The Rust engi
 - SQLite case state reads
 - review annotations and report-set persistence
 - carved/container validation with durable audit
+- examiner playback confirmation with durable audit
 - proxy/thumbnail/frame/export generation
 - frame capture as a distinct derived artifact
 - report/package creation

@@ -104,6 +104,31 @@ pub fn require_case_output_path(
     Ok(())
 }
 
+pub fn reject_source_output_path(
+    source_path: &Path,
+    output_path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let canonical_source = source_path
+        .canonicalize()
+        .map_err(|err| format!("failed to canonicalize source evidence path: {err}"))?;
+    let resolved_output = if output_path.exists() {
+        output_path
+            .canonicalize()
+            .map_err(|err| format!("failed to canonicalize {label} output path: {err}"))?
+    } else {
+        lexical_absolute_path(output_path)
+            .map_err(|err| format!("failed to resolve {label} output path: {err}"))?
+    };
+    if resolved_output == canonical_source {
+        return Err(format!(
+            "{label} output cannot target the source evidence path {}",
+            canonical_source.display()
+        ));
+    }
+    Ok(())
+}
+
 fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
     allowed_names.iter().any(|allowed| {
         candidate == *allowed
@@ -159,7 +184,7 @@ fn nearest_existing_parent(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{require_case_output_path, resolve_tool_binary};
+    use super::{reject_source_output_path, require_case_output_path, resolve_tool_binary};
     use std::fs;
 
     #[test]
@@ -200,6 +225,23 @@ mod tests {
         fs::create_dir_all(&case_dir).unwrap();
         let inside = case_dir.join("artifacts/out.mp4");
         require_case_output_path(&case_dir, &inside, "test").unwrap();
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn rejects_output_that_targets_source_evidence_path() {
+        let base = std::env::temp_dir().join(format!(
+            "frametrace-source-output-policy-test-{}",
+            std::process::id()
+        ));
+        let case_dir = base.join("case");
+        fs::create_dir_all(&case_dir).unwrap();
+        let source = case_dir.join("source.mp4");
+        fs::write(&source, b"source").unwrap();
+
+        let err = reject_source_output_path(&source, &source, "proxy").unwrap_err();
+
+        assert!(err.contains("cannot target the source evidence path"));
         let _ = fs::remove_dir_all(base);
     }
 }

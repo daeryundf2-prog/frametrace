@@ -2,12 +2,16 @@
 mod qa_accuracy;
 #[path = "qa_release.rs"]
 mod qa_release;
+#[path = "qa_release_gates.rs"]
+mod qa_release_gates;
 #[path = "qa_report_defense.rs"]
 mod qa_report_defense;
 #[path = "qa_repro.rs"]
 mod qa_repro;
 #[path = "qa_repro_json.rs"]
 mod qa_repro_json;
+#[path = "qa_shell_contract.rs"]
+mod qa_shell_contract;
 #[cfg(test)]
 #[path = "qa_test_fixtures.rs"]
 mod qa_test_fixtures;
@@ -20,8 +24,10 @@ pub use qa_accuracy::accuracy_report;
 #[cfg(test)]
 pub(crate) use qa_release::read_review_manifest;
 pub use qa_release::release_readiness_report;
+pub(crate) use qa_release_gates::REVIEW_GATES;
 pub use qa_report_defense::report_defense_check;
 pub use qa_repro::reproducibility_report;
+pub(crate) use qa_shell_contract::workstation_shell_contract_check;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]

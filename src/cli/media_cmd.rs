@@ -1,8 +1,10 @@
-use crate::artifacts::{ProxyOptions, ThumbnailOptions};
+use crate::artifacts::{FrameCaptureOptions, ProxyOptions, ThumbnailOptions};
 use crate::carve::CarveOptions;
 use crate::cli::handlers::{
-    carve_file, export_video, make_proxy, make_thumbnail, validate_artifact,
+    capture_frame, carve_file, confirm_playback, export_video, make_proxy, make_thumbnail,
+    validate_artifact,
 };
+use crate::playback::PlaybackConfirmationOptions;
 use crate::validation::ValidationOptions;
 use crate::video_export::{ExportFormat, ExportOptions};
 use std::path::{Path, PathBuf};
@@ -12,6 +14,7 @@ pub struct ExportVideoCliInput {
     pub start: Option<f64>,
     pub duration: Option<f64>,
     pub output: Option<PathBuf>,
+    pub operator: Option<String>,
 }
 
 pub struct CarveCliInput {
@@ -32,6 +35,7 @@ pub fn run_export_video(
             start_seconds: input.start,
             duration_seconds: input.duration,
             output_path: input.output,
+            operator: input.operator,
         },
     )
 }
@@ -41,6 +45,7 @@ pub fn run_make_proxy(
     selector: &str,
     max_width: Option<u32>,
     output: Option<PathBuf>,
+    operator: Option<String>,
 ) -> Result<(), String> {
     make_proxy(
         case_dir,
@@ -48,6 +53,7 @@ pub fn run_make_proxy(
         ProxyOptions {
             max_width: max_width.unwrap_or_else(|| ProxyOptions::default().max_width),
             output_path: output,
+            operator,
         },
     )
 }
@@ -57,6 +63,7 @@ pub fn run_make_thumbnail(
     selector: &str,
     time: Option<f64>,
     output: Option<PathBuf>,
+    operator: Option<String>,
 ) -> Result<(), String> {
     make_thumbnail(
         case_dir,
@@ -64,6 +71,25 @@ pub fn run_make_thumbnail(
         ThumbnailOptions {
             time_seconds: time.unwrap_or(0.0),
             output_path: output,
+            operator,
+        },
+    )
+}
+
+pub fn run_capture_frame(
+    case_dir: &Path,
+    selector: &str,
+    time: Option<f64>,
+    output: Option<PathBuf>,
+    operator: Option<String>,
+) -> Result<(), String> {
+    capture_frame(
+        case_dir,
+        selector,
+        FrameCaptureOptions {
+            time_seconds: time.unwrap_or(0.0),
+            output_path: output,
+            operator,
         },
     )
 }
@@ -87,12 +113,32 @@ pub fn run_validate_artifact(
     case_dir: &Path,
     selector: &str,
     ffprobe: Option<String>,
+    operator: Option<String>,
 ) -> Result<(), String> {
     validate_artifact(
         case_dir,
         selector,
         ValidationOptions {
             ffprobe_bin: ffprobe.unwrap_or_else(|| "ffprobe".to_string()),
+            operator,
+        },
+    )
+}
+
+pub fn run_confirm_playback(
+    case_dir: &Path,
+    selector: &str,
+    playback_tool: Option<String>,
+    notes: Option<String>,
+    operator: Option<String>,
+) -> Result<(), String> {
+    confirm_playback(
+        case_dir,
+        selector,
+        PlaybackConfirmationOptions {
+            operator,
+            playback_tool,
+            notes,
         },
     )
 }

@@ -163,6 +163,10 @@ pub(crate) fn empty_page(page_offset: usize, page_size: usize) -> InventoryPage 
         rows: Vec::new(),
         page_offset,
         page_size,
+        next_cursor: None,
+        query_id: "inventory-empty".to_string(),
+        duration_ms: 0,
+        truncated: false,
     }
 }
 
