@@ -10,6 +10,7 @@ use crate::playback::{self, PlaybackConfirmationOptions};
 use crate::report;
 use crate::review_bundle;
 use crate::scan;
+use crate::tool_policy::require_case_output_path;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
 use crate::validation::{self, ValidationOptions};
@@ -260,6 +261,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
     let html = html_report::render_review_html(&manifest_json, &index_json);
     let review_path = case_dir.join("review/index.html");
+    require_case_output_path(case_dir, &review_path, "review html")?;
     write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
     let carve_log =
         read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
@@ -291,6 +293,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
             audit_chain_status_json: &audit_chain_status,
         });
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
+    require_case_output_path(case_dir, &evidence_viewer_path, "evidence viewer html")?;
     write_text(&evidence_viewer_path, &evidence_viewer)
         .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
     println!("review written: {}", review_path.display());
@@ -338,6 +341,7 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         audit_chain_status_json: &audit_chain_status,
     });
     let report_path = case_dir.join("reports/case-report.html");
+    require_case_output_path(case_dir, &report_path, "case report html")?;
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
     println!("report written: {}", report_path.display());
     Ok(())

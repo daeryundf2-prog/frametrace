@@ -39,6 +39,7 @@ pub fn write_text(path: &Path, text: &str) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    reject_symlink_leaf(path)?;
     fs::write(path, text)
 }
 
@@ -74,6 +75,18 @@ fn path_is_available(path: &Path) -> bool {
     match fs::symlink_metadata(path) {
         Ok(_) => false,
         Err(err) => err.kind() == io::ErrorKind::NotFound,
+    }
+}
+
+fn reject_symlink_leaf(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("output cannot be a symlink: {}", path.display()),
+        )),
+        Ok(_) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
     }
 }
 
