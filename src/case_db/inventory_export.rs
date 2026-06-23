@@ -7,6 +7,7 @@ use crate::util::{
     compact_json_value_if_well_formed, json_escape, now_unix, unique_path, write_text,
 };
 use rusqlite::params;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 pub fn export_manifest(
@@ -72,13 +73,26 @@ fn manifest_output_path(
     });
     require_case_output_path(case_dir, &output_path, "inventory manifest")?;
     reject_registered_source_output_path(case_dir, &output_path)?;
-    if output_path.exists() {
-        return Err(format!(
+    reject_existing_or_symlink_output_path(&output_path)?;
+    Ok(output_path)
+}
+
+fn reject_existing_or_symlink_output_path(output_path: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(output_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(format!(
+            "inventory manifest output cannot be a symlink: {}",
+            output_path.display()
+        )),
+        Ok(_) => Err(format!(
             "inventory manifest output already exists: {} (choose a new --output path)",
             output_path.display()
-        ));
+        )),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to inspect inventory manifest output path {}: {err}",
+            output_path.display()
+        )),
     }
-    Ok(output_path)
 }
 
 fn reject_registered_source_output_path(case_dir: &Path, output_path: &Path) -> Result<(), String> {

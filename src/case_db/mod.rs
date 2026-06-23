@@ -5,6 +5,8 @@ pub mod evidence;
 pub mod helpers;
 pub mod inventory;
 pub mod inventory_export;
+#[cfg(test)]
+mod inventory_export_tests;
 pub mod inventory_facets;
 mod inventory_query;
 #[cfg(test)]
