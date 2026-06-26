@@ -1,0 +1,36 @@
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running tests/cli_bounded_report.rs (target/debug/deps/cli_bounded_report-5bf2c1c95044fe2c)
+
+running 3 tests
+
+thread 'make_report_uses_bounded_sqlite_summary_when_legacy_json_index_is_absent' (106825507) panicked at tests/cli_bounded_report.rs:163:5:
+command failed
+stdout:
+
+stderr:
+error: failed to read /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-bounded-report-large-81921-1782464800004840000/case/db/video_index.json: No such file or directory (os error 2)
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test make_report_uses_bounded_sqlite_summary_when_legacy_json_index_is_absent ... FAILED
+
+thread 'make_report_rejects_legacy_json_only_case_with_migration_guidance' (106825506) panicked at tests/cli_bounded_report.rs:172:5:
+command unexpectedly succeeded
+stdout:
+report written: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-bounded-report-legacy-81921-1782464800004864000/case/reports/case-report.html
+
+stderr:
+
+test make_report_rejects_legacy_json_only_case_with_migration_guidance ... FAILED
+test make_report_preserves_small_case_video_rows_when_sqlite_is_available ... ok
+
+failures:
+
+failures:
+    make_report_rejects_legacy_json_only_case_with_migration_guidance
+    make_report_uses_bounded_sqlite_summary_when_legacy_json_index_is_absent
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+error: test failed, to rerun pass `--test cli_bounded_report`
+EXIT_CODE=101

@@ -1,0 +1,7 @@
+command: cargo test --locked review_manifest -- --nocapture
+    Updating crates.io index
+error: cannot update the lock file /Users/shinyoohag/Desktop/frametrace/Cargo.lock because --locked was passed to prevent this
+help: to generate the lock file without accessing the network, remove the --locked flag and use --offline instead.
+
+exit_code: 101
+elapsed_seconds: 0

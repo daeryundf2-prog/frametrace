@@ -1,0 +1,10 @@
+{
+  "innerWidth": 1440,
+  "clientWidth": 1440,
+  "scrollWidth": 1440,
+  "overflow": false,
+  "koreanFirst": true,
+  "forensicTerms": true,
+  "previewButtons": true,
+  "hasPreviewSurface": true
+}

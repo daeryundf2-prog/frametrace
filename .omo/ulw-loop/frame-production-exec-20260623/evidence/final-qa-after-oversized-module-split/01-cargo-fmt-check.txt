@@ -1,0 +1,4 @@
+COMMAND: cargo fmt --all -- --check
+START: 2026-06-23T13:26:41Z
+END: 2026-06-23T13:26:41Z
+EXIT_STATUS: 0

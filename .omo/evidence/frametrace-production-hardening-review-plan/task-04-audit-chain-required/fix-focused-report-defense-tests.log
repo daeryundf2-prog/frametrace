@@ -1,0 +1,70 @@
+
+running 10 tests
+test qa::qa_tests::report_defense_rejects_disallowed_legal_claims ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_proxy ... ok
+test qa::qa_tests::report_defense_allows_valid_required_proxy_audit_log ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_recovered_filesystem_artifact ... ok
+test qa::qa_tests::report_defense_blocks_missing_required_proxy_audit_log ... ok
+test qa::qa_tests::report_defense_rejects_tampered_media_audit_logs ... ok
+test qa::qa_tests::report_defense_blocks_empty_required_proxy_audit_log ... ok
+test qa::qa_tests::report_defense_displays_optional_audit_chain_states_without_pass_labels ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_validation ... ok
+test qa::qa_tests::report_defense_rejects_cases_with_running_jobs ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 134 filtered out; finished in 0.04s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

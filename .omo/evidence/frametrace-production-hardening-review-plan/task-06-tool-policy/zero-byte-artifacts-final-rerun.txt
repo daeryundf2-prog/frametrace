@@ -1,0 +1,6 @@
+timestamp: 2026-06-24T19:17:14+09:00
+cwd: /Users/shinyoohag/Desktop/frametrace
+command: find .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy -type f -size 0 -print
+output:
+<none>
+exit_code: 0

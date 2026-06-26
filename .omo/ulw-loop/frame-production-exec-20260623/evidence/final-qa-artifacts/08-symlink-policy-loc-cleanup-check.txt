@@ -1,0 +1,8 @@
+Invocation: rg -n "LOC|cleanup|not-applicable|not applicable|Changed-file|^[^ ]+ +[0-9]+$" evidence/inventory-export-symlink-policy-fix.txt
+4:Changed-file pure LOC after test split:
+5:src/case_db/inventory_export.rs      194
+6:src/case_db/inventory_tests.rs      159
+7:src/case_db/inventory_export_tests.rs      133
+8:tests/cli_inventory.rs      208
+9:tests/cli_review.rs       97
+339:cleanup: not-applicable; reason=validation commands spawned no persistent server/browser/worker/tmux resources; cargo test temp dirs self-clean or are test-owned OS temp artifacts.

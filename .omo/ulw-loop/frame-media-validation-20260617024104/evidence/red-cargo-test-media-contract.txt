@@ -1,0 +1,69 @@
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+error[E0432]: unresolved import `super::reject_source_output_path`
+   --> src/tool_policy.rs:162:17
+    |
+162 |     use super::{reject_source_output_path, require_case_output_path, resolve_tool_binary};
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ no `reject_source_output_path` in `tool_policy`
+
+error[E0432]: unresolved import `super::derived_artifact_log_body_json`
+   --> src/artifacts.rs:250:58
+    |
+250 |         DerivedArtifact, ProxyOptions, ThumbnailOptions, derived_artifact_log_body_json,
+    |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `derived_artifact_log_body_json` in `artifacts`
+
+error[E0432]: unresolved import `super::validation_log_body_json`
+   --> src/validation.rs:213:9
+    |
+213 |         validation_log_body_json, validation_status,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^ no `validation_log_body_json` in `validation`
+
+error[E0432]: unresolved import `super::export_log_body_json`
+   --> src/video_export.rs:286:38
+    |
+286 |         ExportFormat, ExportOptions, export_log_body_json, ffmpeg_export_args, sanitize_filename,
+    |                                      ^^^^^^^^^^^^^^^^^^^^ no `export_log_body_json` in `video_export`
+
+error[E0560]: struct `DerivedArtifact` has no field named `selector`
+   --> src/artifacts.rs:272:13
+    |
+272 |             selector: "vid_000001".to_string(),
+    |             ^^^^^^^^ `DerivedArtifact` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `DerivedArtifact` has no field named `operator`
+   --> src/artifacts.rs:273:13
+    |
+273 |             operator: "qa-operator".to_string(),
+    |             ^^^^^^^^ `DerivedArtifact` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ValidationOptions` has no field named `operator`
+   --> src/validation.rs:308:13
+    |
+308 |             operator: Some("qa-operator".to_string()),
+    |             ^^^^^^^^ `ValidationOptions` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ExportOptions` has no field named `operator`
+   --> src/video_export.rs:311:13
+    |
+311 |             operator: Some("qa-operator".to_string()),
+    |             ^^^^^^^^ `ExportOptions` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0560]: struct `ExportOptions` has no field named `operator`
+   --> src/video_export.rs:326:13
+    |
+326 |             operator: Some("qa-operator".to_string()),
+    |             ^^^^^^^^ `ExportOptions` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+Some errors have detailed explanations: E0432, E0560.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `frametrace` (lib test) due to 9 previous errors
+warning: build failed, waiting for other jobs to finish...

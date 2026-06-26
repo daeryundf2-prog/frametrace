@@ -1,0 +1,28 @@
+command: cargo test --locked review_manifest -- --nocapture
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.76s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 2 tests
+
+thread 'qa::qa_tests::review_manifest_rejects_done_status_without_typed_pass' (102885061) panicked at src/qa_tests.rs:298:5:
+assertion failed: err.contains("technical_review")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'qa::qa_tests::review_manifest_rejects_broad_text_only_gates' (102885060) panicked at src/qa_tests.rs:258:47:
+called `Result::unwrap_err()` on an `Ok` value: {"technical_review": true, "security_review": true, "operator_review": true, "legal_review": true, "migration_validation": true}
+test qa::qa_tests::review_manifest_rejects_done_status_without_typed_pass ... FAILED
+test qa::qa_tests::review_manifest_rejects_broad_text_only_gates ... FAILED
+
+failures:
+
+failures:
+    qa::qa_tests::review_manifest_rejects_broad_text_only_gates
+    qa::qa_tests::review_manifest_rejects_done_status_without_typed_pass
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+
+exit_code: 101
+elapsed_seconds: 4

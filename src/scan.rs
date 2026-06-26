@@ -4,10 +4,12 @@ use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
 use crate::sha256;
 use crate::tool_policy::require_case_output_path;
-use crate::util::{json_escape, now_unix, read_to_string, unique_path, write_text};
+use crate::util::{
+    create_text_writer, json_escape, now_unix, read_to_string, unique_path, write_text,
+};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, ErrorKind};
+use std::io::{self, BufRead, BufReader, BufWriter, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -254,26 +256,17 @@ fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String
         &index_json,
     )?;
 
-    let mut jsonl = String::new();
-    let mut paths_tsv = String::from(
-        "id\tsource_path\trelative_path\textension\tsize_bytes\tsha256\tvendor\tparser\tparser_confidence\n",
-    );
-    for record in &merged_records {
-        jsonl.push_str(&record.json_line);
-        jsonl.push('\n');
-        paths_tsv.push_str(&record.to_tsv_row());
-    }
-    write_case_text(
+    write_case_stream(
         case_dir,
         &case_dir.join("db/videos.jsonl"),
         "video jsonl",
-        &jsonl,
+        |writer| write_jsonl_records(writer, &merged_records),
     )?;
-    write_case_text(
+    write_case_stream(
         case_dir,
         &case_dir.join("db/video_paths.tsv"),
         "video path index",
-        &paths_tsv,
+        |writer| write_tsv_records(writer, &merged_records),
     )?;
 
     let db_records = merged_records
@@ -287,6 +280,40 @@ fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String
 fn write_case_text(case_dir: &Path, path: &Path, label: &str, text: &str) -> Result<(), String> {
     require_case_output_path(case_dir, path, label)?;
     write_text(path, text).map_err(|err| format!("failed to write {label}: {err}"))
+}
+
+fn write_case_stream(
+    case_dir: &Path,
+    path: &Path,
+    label: &str,
+    write_rows: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+) -> Result<(), String> {
+    require_case_output_path(case_dir, path, label)?;
+    let mut writer =
+        create_text_writer(path).map_err(|err| format!("failed to write {label}: {err}"))?;
+    write_rows(&mut writer).map_err(|err| format!("failed to write {label}: {err}"))?;
+    writer
+        .flush()
+        .map_err(|err| format!("failed to write {label}: {err}"))
+}
+
+fn write_jsonl_records<W: Write>(writer: &mut W, records: &[IndexedRecordLine]) -> io::Result<()> {
+    for record in records {
+        writer.write_all(record.json_line.as_bytes())?;
+        writer.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
+fn write_tsv_records<W: Write>(writer: &mut W, records: &[IndexedRecordLine]) -> io::Result<()> {
+    writer.write_all(
+        b"id\tsource_path\trelative_path\textension\tsize_bytes\tsha256\tvendor\tparser\tparser_confidence\n",
+    )?;
+    for record in records {
+        let row = record.to_tsv_row();
+        writer.write_all(row.as_bytes())?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -619,6 +646,13 @@ fn scan_index_json(result: &ScanResult, records: &[IndexedRecordLine]) -> String
         None => out.push_str("    \"max_depth\": null\n"),
     }
     out.push_str("  },\n");
+    out.push_str("  \"compatibility_json\": {\n");
+    out.push_str("    \"mode\": \"legacy_full_index\",\n");
+    out.push_str("    \"release_policy\": \"compatibility-only\",\n");
+    out.push_str(
+        "    \"streaming_alternatives\": [\"db/videos.jsonl\", \"db/video_paths.tsv\", \"db/case.db\"]\n",
+    );
+    out.push_str("  },\n");
     out.push_str("  \"videos\": [\n");
     for (index, record) in records.iter().enumerate() {
         out.push_str("    ");
@@ -834,10 +868,12 @@ fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
 mod tests {
     use super::{
         collect_video_candidates, excluded_case_dirs, extract_json_string, looks_like_video,
-        merge_existing_with_scan,
+        merge_existing_with_scan, scan_index_json, write_jsonl_records, write_scan_outputs,
+        write_tsv_records,
     };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
+    use std::io::{self, Write};
     use std::path::PathBuf;
 
     #[test]
@@ -982,5 +1018,157 @@ mod tests {
         assert!(merged[1].json_line.contains("\"sha256\":\"abc\""));
 
         let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn compatibility_outputs_keep_row_counts_after_repeated_scan() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-repeated-compat-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+
+        let first = test_record("vid_000001", root.join("source/one.mp4"), "one.mp4", 10);
+        let second = test_record("vid_000002", root.join("source/two.mp4"), "two.mp4", 20);
+        let first_result = scan_result(root.join("source"), 1, vec![first.clone(), second.clone()]);
+        write_scan_outputs(&case_dir, &first_result).unwrap();
+
+        let rescanned_second = VideoRecord {
+            size_bytes: 30,
+            ..second
+        };
+        let second_result = scan_result(root.join("source"), 2, vec![rescanned_second]);
+        write_scan_outputs(&case_dir, &second_result).unwrap();
+
+        let jsonl = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        let jsonl_rows = jsonl.lines().filter(|line| !line.trim().is_empty()).count();
+        let tsv = fs::read_to_string(case_dir.join("db/video_paths.tsv")).unwrap();
+        let tsv_rows = tsv.lines().skip(1).count();
+        let index = fs::read_to_string(case_dir.join("db/video_index.json")).unwrap();
+
+        assert_eq!(jsonl_rows, 2);
+        assert_eq!(tsv_rows, 2);
+        assert_eq!(index.matches("\"id\":\"vid_000001\"").count(), 1);
+        assert_eq!(index.matches("\"id\":\"vid_000002\"").count(), 1);
+        assert!(jsonl.contains("\"index_status\":\"stale\""));
+        assert!(jsonl.contains("\"size_bytes\":30"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn compatibility_json_declares_legacy_full_index_policy() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-compat-json-policy-test-{}",
+            std::process::id()
+        ));
+        let record = test_record("vid_000001", root.join("source/one.mp4"), "one.mp4", 10);
+        let result = scan_result(root.join("source"), 1, vec![record.clone()]);
+        let indexed = vec![super::IndexedRecordLine::from_record(&record)];
+
+        let json = scan_index_json(&result, &indexed);
+
+        assert!(json.contains("\"compatibility_json\""));
+        assert!(json.contains("\"mode\": \"legacy_full_index\""));
+        assert!(json.contains("\"release_policy\": \"compatibility-only\""));
+        assert!(json.contains("\"streaming_alternatives\": [\"db/videos.jsonl\", \"db/video_paths.tsv\", \"db/case.db\"]"));
+    }
+
+    #[test]
+    fn streaming_compatibility_writers_propagate_mid_stream_failures() {
+        let records = vec![
+            super::IndexedRecordLine::from_record(&test_record(
+                "vid_000001",
+                PathBuf::from("/evidence/one.mp4"),
+                "one.mp4",
+                10,
+            )),
+            super::IndexedRecordLine::from_record(&test_record(
+                "vid_000002",
+                PathBuf::from("/evidence/two.mp4"),
+                "two.mp4",
+                20,
+            )),
+        ];
+        let mut jsonl_writer = FailingWriter::new(1);
+        let mut tsv_writer = FailingWriter::new(2);
+
+        let jsonl_err = write_jsonl_records(&mut jsonl_writer, &records).unwrap_err();
+        let tsv_err = write_tsv_records(&mut tsv_writer, &records).unwrap_err();
+
+        assert_eq!(jsonl_err.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(tsv_err.kind(), io::ErrorKind::BrokenPipe);
+        assert_eq!(jsonl_writer.successful_writes, 1);
+        assert_eq!(tsv_writer.successful_writes, 2);
+    }
+
+    struct FailingWriter {
+        successful_writes: usize,
+        fail_after_successful_writes: usize,
+    }
+
+    impl FailingWriter {
+        fn new(fail_after_successful_writes: usize) -> Self {
+            Self {
+                successful_writes: 0,
+                fail_after_successful_writes,
+            }
+        }
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            if self.successful_writes >= self.fail_after_successful_writes {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "simulated streaming writer failure",
+                ));
+            }
+            self.successful_writes += 1;
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_record(
+        id: &str,
+        source_path: PathBuf,
+        relative_path: &str,
+        size_bytes: u64,
+    ) -> VideoRecord {
+        VideoRecord {
+            id: id.to_string(),
+            source_path,
+            relative_path: relative_path.to_string(),
+            extension: "mp4".to_string(),
+            size_bytes,
+            modified_unix: None,
+            sha256: None,
+            hash_status: "skipped".to_string(),
+            probe: ProbeSummary::skipped(),
+            confidence: "extension-candidate".to_string(),
+            source_profile: SourceProfile::generic_media("test"),
+        }
+    }
+
+    fn scan_result(
+        source_path: PathBuf,
+        scanned_unix: u64,
+        records: Vec<VideoRecord>,
+    ) -> ScanResult {
+        ScanResult {
+            source_path,
+            scanned_unix,
+            video_count: records.len(),
+            total_bytes: records.iter().map(|record| record.size_bytes).sum(),
+            warnings: Vec::new(),
+            options: ScanOptions::default(),
+            records,
+        }
     }
 }

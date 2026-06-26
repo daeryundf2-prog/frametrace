@@ -1,0 +1,3 @@
+SCENARIO fmt-apply
+INVOCATION cargo fmt --all
+exit_code=0

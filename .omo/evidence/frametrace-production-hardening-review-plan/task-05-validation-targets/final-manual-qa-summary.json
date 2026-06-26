@@ -1,0 +1,50 @@
+{
+  "qa_root": "/tmp/frametrace-t5-final-qa.cYvBrG",
+  "probes": {
+    "happy": {
+      "exit_code": 0,
+      "expected_exit": "zero",
+      "expected_text": "status: ffprobe-video-stream-confirmed",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-happy.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-happy.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-happy.exitcode"
+    },
+    "poison": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "audit",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-poison.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-poison.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-poison.exitcode"
+    },
+    "external-default": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "external-source",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-default.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-default.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-default.exitcode"
+    },
+    "external-explicit": {
+      "exit_code": 0,
+      "expected_exit": "zero",
+      "expected_text": "status: ffprobe-video-stream-confirmed",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-explicit.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-explicit.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-external-explicit.exitcode"
+    },
+    "stale-log": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "case directory",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-stale-log.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-stale-log.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-qa-stale-log.exitcode"
+    }
+  }
+}

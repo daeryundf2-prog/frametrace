@@ -1,0 +1,18 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on artifact directory
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+error[E0422]: cannot find struct, variant or union type `ExportLogBody` in this scope
+   --> src/video_export.rs:383:41
+    |
+383 |         let body = export_log_body_json(ExportLogBody {
+    |                                         ^^^^^^^^^^^^^ not found in this scope
+    |
+help: consider importing this struct
+    |
+336 +     use crate::video_export::ExportLogBody;
+    |
+
+For more information about this error, try `rustc --explain E0422`.
+error: could not compile `frametrace` (lib test) due to 1 previous error

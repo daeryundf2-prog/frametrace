@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "lineCounts": {
+    "index.html": 150,
+    "app.js": 921,
+    "styles.css": 933,
+    "workflow.css": 243,
+    "translations.js": 351,
+    "data.js": 263
+  },
+  "scriptsOrder": true,
+  "forbiddenRenderedAbsent": true,
+  "failedForbidden": [],
+  "requiredPresent": true,
+  "missingRequired": [],
+  "appUnder1000": true,
+  "stylesUnder1000": true,
+  "checkedAt": "2026-06-26T12:52:58.339Z"
+}

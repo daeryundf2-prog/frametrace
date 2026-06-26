@@ -1,0 +1,11 @@
+01-head-status exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/01-head-status.txt
+02-cargo-fmt exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/02-cargo-fmt.txt
+03-cargo-clippy exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/03-cargo-clippy.txt
+04-cli-default-output-policy exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/04-cli-default-output-policy.txt
+05-cli-tsk-log-output-policy exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/05-cli-tsk-log-output-policy.txt
+06-cli-e01-validation-log-output-policy exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/06-cli-e01-validation-log-output-policy.txt
+07-cli-output-policy exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/07-cli-output-policy.txt
+08-media-contract exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/08-media-contract.txt
+09-cargo-test-locked exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/09-cargo-test-locked.txt
+10-node-check-evidence-viewer exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/10-node-check-evidence-viewer.txt
+11-git-diff-check exit_code=0 artifact=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/11-git-diff-check.txt

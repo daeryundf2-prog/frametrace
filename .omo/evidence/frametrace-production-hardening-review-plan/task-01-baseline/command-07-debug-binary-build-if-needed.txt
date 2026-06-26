@@ -1,0 +1,7 @@
+Command: test -x target/debug/frametrace || cargo build --locked
+CWD: /Users/shinyoohag/Desktop/frametrace
+Started: 2026-06-24T06:47:12Z
+target/debug/frametrace already present and executable; cargo build --locked not run.
+Finished: 2026-06-24T06:47:12Z
+ElapsedSeconds: 0
+ExitCode: 0

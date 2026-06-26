@@ -1,0 +1,4 @@
+SCENARIO done-claim-artifact
+INVOCATION test -s done-claim.json && sed -n 1,220p done-claim.json
+BINARY_OBSERVABLE PASS if artifact exists and is non-empty
+exit_code=0

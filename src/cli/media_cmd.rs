@@ -15,6 +15,7 @@ pub struct ExportVideoCliInput {
     pub duration: Option<f64>,
     pub output: Option<PathBuf>,
     pub operator: Option<String>,
+    pub ffmpeg: Option<String>,
 }
 
 pub struct CarveCliInput {
@@ -36,6 +37,7 @@ pub fn run_export_video(
             duration_seconds: input.duration,
             output_path: input.output,
             operator: input.operator,
+            ffmpeg_bin: input.ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
         },
     )
 }
@@ -46,6 +48,7 @@ pub fn run_make_proxy(
     max_width: Option<u32>,
     output: Option<PathBuf>,
     operator: Option<String>,
+    ffmpeg: Option<String>,
 ) -> Result<(), String> {
     make_proxy(
         case_dir,
@@ -54,6 +57,7 @@ pub fn run_make_proxy(
             max_width: max_width.unwrap_or_else(|| ProxyOptions::default().max_width),
             output_path: output,
             operator,
+            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
         },
     )
 }
@@ -64,6 +68,7 @@ pub fn run_make_thumbnail(
     time: Option<f64>,
     output: Option<PathBuf>,
     operator: Option<String>,
+    ffmpeg: Option<String>,
 ) -> Result<(), String> {
     make_thumbnail(
         case_dir,
@@ -72,6 +77,7 @@ pub fn run_make_thumbnail(
             time_seconds: time.unwrap_or(0.0),
             output_path: output,
             operator,
+            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
         },
     )
 }
@@ -82,6 +88,7 @@ pub fn run_capture_frame(
     time: Option<f64>,
     output: Option<PathBuf>,
     operator: Option<String>,
+    ffmpeg: Option<String>,
 ) -> Result<(), String> {
     capture_frame(
         case_dir,
@@ -90,6 +97,7 @@ pub fn run_capture_frame(
             time_seconds: time.unwrap_or(0.0),
             output_path: output,
             operator,
+            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
         },
     )
 }
@@ -114,6 +122,7 @@ pub fn run_validate_artifact(
     selector: &str,
     ffprobe: Option<String>,
     operator: Option<String>,
+    allow_external_source: bool,
 ) -> Result<(), String> {
     validate_artifact(
         case_dir,
@@ -121,6 +130,7 @@ pub fn run_validate_artifact(
         ValidationOptions {
             ffprobe_bin: ffprobe.unwrap_or_else(|| "ffprobe".to_string()),
             operator,
+            allow_external_source,
         },
     )
 }

@@ -1,0 +1,15 @@
+$ target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a .omo/evidence/.../t12-fix-bad-manifest-case/bad-hash-manifest.json --output-dir .omo/evidence/.../manual-qa/t12-fix-bad-accuracy-output
+error: accuracy QA failed: precision=1.000000, recall=0.666667, false_positive=0, false_negative=1, hash_mismatch=1
+EXIT_CODE=1
+{
+  "passed": false,
+  "precision": 1.0,
+  "recall": 0.6666666666666666,
+  "false_positives": 0,
+  "false_negatives": 1,
+  "hash_mismatch": 1,
+  "expected_hash": "9999999999999999999999999999999999999999999999999999999999999999"
+}
+$ target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a .omo/evidence/.../t12-fix-bad-manifest-case/missing-source-artifact-id-manifest.json --output-dir .omo/evidence/.../manual-qa/t12-fix-missing-field-output
+error: corpus manifest .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-bad-manifest-case/missing-source-artifact-id-manifest.json must be typed JSON with required ground truth fields: missing field `source_artifact_id` at line 86 column 7
+EXIT_CODE=1

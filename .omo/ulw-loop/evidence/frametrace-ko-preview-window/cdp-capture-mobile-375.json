@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "path": ".omo/ulw-loop/evidence/frametrace-ko-preview-window/mobile-preview.png",
+  "target": {
+    "id": "4ACB94CEDAAC9E62EEF4FC2DE0C4820B",
+    "url": "http://127.0.0.1:4192/index.html",
+    "title": "FrameTrace 증거 뷰어"
+  },
+  "prep": {
+    "selected": "carve_000365",
+    "previewOpen": true,
+    "windowMode": true,
+    "hasKorean": true,
+    "hasCandidate": true,
+    "hasVerify": true,
+    "actions": [
+      "보고서 포함",
+      "MP4 내보내기 대기",
+      "검증 대기"
+    ]
+  },
+  "viewport": {
+    "innerWidth": 375,
+    "innerHeight": 900,
+    "clientWidth": 375,
+    "scrollWidth": 375,
+    "overflow": false,
+    "previewOpen": true,
+    "windowMode": true,
+    "report": true,
+    "export": true,
+    "verify": true,
+    "selectedTitle": "candidate-unvalidated 후보\ncarved_000009_offset_771751936_000365.mp4\n\n연속 후보, 검증 대기\n\n검증 상태\ncandidate-unvalidated 후보 · candidate-unvalidated\n소스/경로\nSD001 BlackVue microSD · SD001 BlackVue microSD/case-folder...carved_000009_offset_771751936.mp4\n코덱\nMP4 ftyp/moov candidate\n길이\n00:18\n해시\n완료\n출력 상태\n대기 중 작업 없음"
+  }
+}

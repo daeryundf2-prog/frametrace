@@ -1,0 +1,12 @@
+[browser] CDP connect attempt 1/4 failed, retrying in 1000ms...
+[browser] CDP connect attempt 2/4 failed, retrying in 2000ms...
+[browser] CDP connect attempt 3/4 failed, retrying in 4000ms...
+❌ CDP connection failed after 4 attempts: browserType.connectOverCDP: Protocol error (Browser.setDownloadBehavior): Browser context management is not supported.
+Call log:
+[2m  - <ws preparing> retrieving websocket url from http://127.0.0.1:9222[22m
+[2m  - <ws connecting> ws://127.0.0.1:9222/devtools/browser/18c2a117-d4a8-4d43-9fe5-5f8d818a481d[22m
+[2m  - <ws connected> ws://127.0.0.1:9222/devtools/browser/18c2a117-d4a8-4d43-9fe5-5f8d818a481d[22m
+[2m  - <ws disconnecting> ws://127.0.0.1:9222/devtools/browser/18c2a117-d4a8-4d43-9fe5-5f8d818a481d[22m
+[2m  - <ws disconnected> ws://127.0.0.1:9222/devtools/browser/18c2a117-d4a8-4d43-9fe5-5f8d818a481d code=1000 reason=[22m
+
+  💡 Fix: Ensure Chrome is running (agbrowse start) or check port 9222

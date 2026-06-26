@@ -1,0 +1,9 @@
+$ jq manifest contract and fixture hash check
+true
+true
+true
+55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6  tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4
+ef3a5de39c0ed485326829d7f67b9cf549b9efb48178b15ed8d2e4b9215d191a  tests/fixtures/corpus/synthetic-video-case-a/artifacts/carved/carve_000001.mp4
+b5ee70eb142b46156451840b2fa954c10a11916112768a0dfb448ac244ceb5fc  tests/fixtures/corpus/synthetic-video-case-a/artifacts/recovered/inode_42.mp4
+$ git diff --check
+EXIT_CODE=0

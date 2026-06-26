@@ -1,0 +1,5 @@
+error: unexpected argument 'derived_artifact_log_body_records_provenance_operator_and_ids' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.

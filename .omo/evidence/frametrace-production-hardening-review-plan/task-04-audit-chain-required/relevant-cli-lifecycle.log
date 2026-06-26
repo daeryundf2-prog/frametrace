@@ -1,0 +1,12 @@
+SCENARIO relevant-cli-report-defense-tests
+INVOCATION cargo test --locked --test cli_lifecycle case_lifecycle_smoke_test_uses_real_binary -- --nocapture
+BINARY_OBSERVABLE PASS if lifecycle report-defense surface still works
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-934feedf83cb3895)
+
+running 1 test
+test case_lifecycle_smoke_test_uses_real_binary ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+
+exit_code=0

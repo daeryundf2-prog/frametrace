@@ -1,0 +1,32 @@
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.88s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 6 tests
+test validation::target::tests::extracts_escaped_json_strings ... ok
+
+thread 'validation::target::tests::rejects_external_direct_path_by_default' (103323518) panicked at src/validation/target.rs:274:78:
+called `Result::unwrap_err()` on an `Ok` value: ValidationTarget { path: "/private/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-validation-target-direct-external-1782287154160324000/external.mp4", source_artifact_id: None, source_artifact_path: None, source_artifact_sha256: None, derived_artifact_id: None, target_artifact_id: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test validation::target::tests::resolves_artifact_path_from_jsonl_log ... ok
+
+thread 'validation::target::tests::rejects_stale_audit_entry_when_signed_path_leaves_case' (103323520) panicked at src/validation/target.rs:258:82:
+called `Result::unwrap_err()` on an `Ok` value: ValidationTarget { path: "/private/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-validation-target-stale-external-1782287154160946000/frame.jpg", source_artifact_id: None, source_artifact_path: None, source_artifact_sha256: None, derived_artifact_id: Some("derived-frame-capture-stale"), target_artifact_id: Some("derived-frame-capture-stale") }
+test validation::target::tests::rejects_external_direct_path_by_default ... FAILED
+
+thread 'validation::target::tests::rejects_poisoned_jsonl_records_with_provenance_error' (103323519) panicked at src/validation/target.rs:232:83:
+called `Result::unwrap_err()` on an `Ok` value: ValidationTarget { path: "/private/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-validation-target-poisoned-jsonl-1782287154159619000/artifacts/frames/frame.jpg", source_artifact_id: None, source_artifact_path: None, source_artifact_sha256: None, derived_artifact_id: Some("derived-frame-capture-poison"), target_artifact_id: Some("derived-frame-capture-poison") }
+test validation::target::tests::rejects_poisoned_jsonl_records_with_provenance_error ... FAILED
+test validation::target::tests::rejects_stale_audit_entry_when_signed_path_leaves_case ... FAILED
+test validation::target::tests::resolves_case_contained_derived_artifact_with_verified_chain ... ok
+
+failures:
+
+failures:
+    validation::target::tests::rejects_external_direct_path_by_default
+    validation::target::tests::rejects_poisoned_jsonl_records_with_provenance_error
+    validation::target::tests::rejects_stale_audit_entry_when_signed_path_leaves_case
+
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 119 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

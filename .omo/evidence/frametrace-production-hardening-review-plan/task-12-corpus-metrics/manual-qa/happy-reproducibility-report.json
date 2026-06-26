@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "qa_type": "reproducibility",
+  "passed": true,
+  "left_case": "tests/fixtures/corpus/synthetic-video-case-a",
+  "right_case": "tests/fixtures/corpus/synthetic-video-case-b",
+  "normalized_left_bytes": 2165,
+  "normalized_right_bytes": 2165,
+  "allowed_diff_thresholds": {
+    "normalized_core_differences": 0
+  },
+  "diff_metrics": {
+    "normalized_core_differences": 0,
+    "normalized_left_bytes": 2165,
+    "normalized_right_bytes": 2165
+  }
+}

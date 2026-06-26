@@ -1,0 +1,7 @@
+checked_at=2026-06-17T03:43:07Z
+port_8767_listeners=none
+matching_processes=none
+cleanup_status=done
+no_remaining_processes=true
+no_open_browsers=true
+no_workers=true

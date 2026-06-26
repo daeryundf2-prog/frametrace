@@ -1,0 +1,18 @@
+surface: CLI
+invocation: cargo test --locked --test cli_output_policy -- --nocapture
+criterion: output path policy integration tests exit 0
+--- output ---
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 5 tests
+test make_review_rejects_symlinked_review_outputs_without_writing_target ... ok
+test scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside ... ok
+test make_review_rejects_symlinked_review_directory_without_writing_target ... ok
+test make_report_rejects_symlinked_report_outputs_without_writing_target ... ok
+test make_report_rejects_symlinked_reports_directory_without_writing_target ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+
+--- exit_code: 0 ---

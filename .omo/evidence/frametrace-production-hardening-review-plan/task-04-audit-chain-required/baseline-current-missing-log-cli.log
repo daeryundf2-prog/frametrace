@@ -1,0 +1,41 @@
+SCENARIO baseline-current-missing-required-proxy-log
+INVOCATION cargo run --locked -- init-case <case>; cargo run --locked -- scan-folder <case> <empty-source> --no-ffprobe; cargo run --locked -- qa report-defense <case>
+BINARY_OBSERVABLE current bug if exit_code=0 while artifacts/proxies/proxy-log.jsonl is absent and proxy artifact is present
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running `target/debug/frametrace init-case .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case --title T4Baseline --operator qa`
+case created: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case
+case id: FT-1782290589
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/frametrace scan-folder .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/source --no-ffprobe`
+scan complete
+source registered: src_90d8e3c15f88ceb9 (folder)
+job: job_1782290590_000001 (scan-folder)
+videos indexed: 0
+bytes indexed: 0
+index: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/video_index.json
+sqlite: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/case.db
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/frametrace qa report-defense .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case`
+report-defense QA passed: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/reports/qa/report-defense-checklist.md
+exit_code=0
+proxy log absent
+proxy artifact exists
+CHECKLIST:
+# Report Defensibility Checklist
+
+- [PASS] case manifest: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/case.json`
+- [PASS] case database: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/case.db`
+- [PASS] video JSON index: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/video_index.json`
+- [PASS] video JSONL index: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/videos.jsonl`
+- [PASS] video path TSV: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/db/video_paths.tsv`
+- [PASS] case report: `.omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-missing-log-case-real/case/reports/case-report.html`
+
+## Audit Chain Validation
+
+- [missing] clip export: `artifacts/clips/export-log.jsonl` entries=- last=- error=audit log is not present
+- [missing] proxy: `artifacts/proxies/proxy-log.jsonl` entries=- last=- error=audit log is not present
+- [missing] thumbnail: `artifacts/thumbnails/thumbnail-log.jsonl` entries=- last=- error=audit log is not present
+- [missing] frame capture: `artifacts/frames/frame-log.jsonl` entries=- last=- error=audit log is not present
+- [missing] carving: `artifacts/carved/carve-log.jsonl` entries=- last=- error=audit log is not present
+- [missing] filesystem recovery: `evidence/logs/tsk-audit.jsonl` entries=- last=- error=audit log is not present
+- [missing] validation: `evidence/logs/validation-log.jsonl` entries=- last=- error=audit log is not present

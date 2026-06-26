@@ -1,0 +1,72 @@
+$ cargo test --locked accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.84s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 1 test
+test qa::qa_tests::accuracy::accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape ... FAILED
+
+failures:
+
+---- qa::qa_tests::accuracy::accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape stdout ----
+
+thread 'qa::qa_tests::accuracy::accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape' (107971415) panicked at src/qa_tests/accuracy.rs:136:69:
+called `Result::unwrap()` on an `Err` value: "accuracy QA failed: precision=0.000000, recall=0.000000, false_positive=1, false_negative=44, hash_mismatch=0"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    qa::qa_tests::accuracy::accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+EXIT_CODE=101
+$ cargo test --locked accuracy_report_rejects_synthetic_only_mixed_real_world_release_key
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 1 test
+test qa::qa_tests::accuracy::accuracy_report_rejects_synthetic_only_mixed_real_world_release_key ... FAILED
+
+failures:
+
+---- qa::qa_tests::accuracy::accuracy_report_rejects_synthetic_only_mixed_real_world_release_key stdout ----
+
+thread 'qa::qa_tests::accuracy::accuracy_report_rejects_synthetic_only_mixed_real_world_release_key' (107971458) panicked at src/qa_tests/accuracy.rs:198:5:
+assertion failed: err.contains("mixed_real_world_like")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    qa::qa_tests::accuracy::accuracy_report_rejects_synthetic_only_mixed_real_world_release_key
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+EXIT_CODE=101
+$ cargo test --locked reproducibility_report_records_diff_threshold_metrics
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 1 test
+test qa::qa_tests::reproducibility_performance::reproducibility_report_records_diff_threshold_metrics ... FAILED
+
+failures:
+
+---- qa::qa_tests::reproducibility_performance::reproducibility_report_records_diff_threshold_metrics stdout ----
+
+thread 'qa::qa_tests::reproducibility_performance::reproducibility_report_records_diff_threshold_metrics' (107971516) panicked at src/qa_tests/reproducibility_performance.rs:72:5:
+assertion `left == right` failed
+  left: Null
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    qa::qa_tests::reproducibility_performance::reproducibility_report_records_diff_threshold_metrics
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 158 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
+EXIT_CODE=101

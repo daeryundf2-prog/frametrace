@@ -1,0 +1,16 @@
+SCENARIO manual-failure-disallowed-tool
+invocation: target/debug/frametrace export-video <case> vid_000001 --format mp4 --ffmpeg <fake-bin/fake-ffmpeg> --output <case>/artifacts/clips/rejected.mp4
+observable: command exits non-zero with unsupported tool binary and rejected output path does not exist
+qa_root=/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-failure.xBGEQT
+case created: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-failure.xBGEQT/case
+case id: FT-1782290921
+scan complete
+source registered: src_66fd829057f7b95a (folder)
+job: job_1782290921_000001 (scan-folder)
+videos indexed: 1
+bytes indexed: 19
+index: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-failure.xBGEQT/case/db/video_index.json
+sqlite: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-failure.xBGEQT/case/db/case.db
+command_status=1
+error: unsupported tool binary '/private/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-t6-failure.xBGEQT/fake-bin/fake-ffmpeg'; allowed tools: ffmpeg
+rejected_output_absent=/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-failure.xBGEQT/case/artifacts/clips/rejected.mp4

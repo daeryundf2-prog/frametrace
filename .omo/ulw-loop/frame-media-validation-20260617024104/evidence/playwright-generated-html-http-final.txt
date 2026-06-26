@@ -1,0 +1,461 @@
+### Browser `frametrace-phase3-http-2` opened with pid 72385.
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/review/evidence-viewer.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/review/evidence-viewer.html
+- Page Title: FrameTrace Evidence Viewer
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T03-39-02-136Z.yml)
+### Ran Playwright code
+```js
+await page.setViewportSize({ width: 1440, height: 1000 });
+```
+### Page
+- Page URL: http://127.0.0.1:8767/review/evidence-viewer.html
+- Page Title: FrameTrace Evidence Viewer
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading "FrameTrace Evidence Viewer" [level=1] [ref=e3]
+    - generic [ref=e4]: FT-1781667081 · Phase 3 real surface · SQLite-backed bounded review inventory
+    - generic [ref=e5]: 실제 케이스 데이터
+  - main [ref=e6]:
+    - complementary [ref=e7]:
+      - generic [ref=e8]:
+        - text: 증거 목록
+        - generic [ref=e9]: "5"
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - text: 영상
+          - strong [ref=e12]: "1"
+        - generic [ref=e13]:
+          - text: 복구 후보
+          - strong [ref=e14]: "0"
+        - generic [ref=e15]:
+          - text: 검증됨
+          - strong [ref=e16]: "0"
+        - generic [ref=e17]:
+          - text: 검증 실패
+          - strong [ref=e18]: "0"
+      - generic [ref=e19]:
+        - searchbox "경로, ID, 파서, 해시 검색" [ref=e20]
+        - combobox [ref=e21]:
+          - option "전체 유형" [selected]
+          - option "색인 영상"
+          - option "carving 후보"
+          - option "파일시스템 복구"
+        - combobox [ref=e22]:
+          - option "전체 검증 상태" [selected]
+          - option "ffprobe-video-stream-confirmed"
+          - option "validation-failed"
+          - option "candidate-unvalidated"
+          - option "duplicate-candidate"
+      - generic [ref=e23]:
+        - generic [ref=e24] [cursor=pointer]:
+          - generic [ref=e25]: candidate-unvalidated
+          - generic [ref=e26]:
+            - strong [ref=e27]: clip.mp4
+            - code [ref=e28]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+            - text: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 · video-index
+          - generic [ref=e29]: video
+        - generic [ref=e30] [cursor=pointer]:
+          - generic [ref=e31]: derived
+          - generic [ref=e32]:
+            - strong [ref=e33]: vid_000001_1781667081.mp4
+            - code [ref=e34]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4
+            - text: mp4 · ffmpeg-clip-export
+          - generic [ref=e35]: derived
+        - generic [ref=e36] [cursor=pointer]:
+          - generic [ref=e37]: derived
+          - generic [ref=e38]:
+            - strong [ref=e39]: vid_000001_proxy_1781667082.mp4
+            - code [ref=e40]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/proxies/vid_000001_proxy_1781667082.mp4
+            - text: proxy · ffmpeg-proxy
+          - generic [ref=e41]: derived
+        - generic [ref=e42] [cursor=pointer]:
+          - generic [ref=e43]: derived
+          - generic [ref=e44]:
+            - strong [ref=e45]: vid_000001_thumb_1781667082.jpg
+            - code [ref=e46]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/thumbnails/vid_000001_thumb_1781667082.jpg
+            - text: thumbnail · ffmpeg-thumbnail
+          - generic [ref=e47]: derived
+        - generic [ref=e48] [cursor=pointer]:
+          - generic [ref=e49]: derived
+          - generic [ref=e50]:
+            - strong [ref=e51]: vid_000001_frame_1781667082.jpg
+            - code [ref=e52]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg
+            - text: frame-capture · ffmpeg-frame-capture
+          - generic [ref=e53]: derived
+      - generic [ref=e54]:
+        - button "이전" [disabled] [ref=e55] [cursor=pointer]
+        - generic [ref=e56]: 1 / 1
+        - button "다음" [disabled] [ref=e57] [cursor=pointer]
+    - generic [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - strong [ref=e61]: clip.mp4
+          - generic [ref=e62]: candidate-unvalidated
+        - generic [ref=e64]:
+          - strong [ref=e65]: 자동 미디어 로딩 비활성화
+          - generic [ref=e66]: 원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.
+          - link "수동으로 파일 열기" [ref=e67] [cursor=pointer]:
+            - /url: file:///private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+      - generic [ref=e68]:
+        - generic [ref=e69]: 선택 증거 메모
+        - generic [ref=e70]:
+          - term [ref=e71]: ID
+          - definition [ref=e72]: vid_000001
+          - term [ref=e73]: 상태
+          - definition [ref=e74]: candidate-unvalidated
+          - term [ref=e75]: 메모
+          - definition [ref=e76]: unreviewed
+          - term [ref=e77]: 길이
+          - definition [ref=e78]: "-"
+    - complementary [ref=e79]:
+      - generic [ref=e80]:
+        - generic [ref=e81]: 포렌식 인스펙터
+        - generic [ref=e82]:
+          - term [ref=e83]: 경로
+          - definition [ref=e84]:
+            - code [ref=e85]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+          - term [ref=e86]: 제조사
+          - definition [ref=e87]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+          - term [ref=e88]: 파서
+          - definition [ref=e89]:
+            - code [ref=e90]: video-index
+          - term [ref=e91]: 코덱
+          - definition [ref=e92]: "-"
+          - term [ref=e93]: 크기
+          - definition [ref=e94]: 35 B
+          - term [ref=e95]: SHA-256
+          - definition [ref=e96]:
+            - code [ref=e97]: 5fd9d260a71e81722a89815b67892cf017d847a74ccb994b60f00d172eecd4c7
+          - term [ref=e98]: 원본 ID
+          - definition [ref=e99]:
+            - code [ref=e100]: "-"
+          - term [ref=e101]: 파생 ID
+          - definition [ref=e102]:
+            - code [ref=e103]: "-"
+          - term [ref=e104]: 오프셋
+          - definition [ref=e105]: "-"
+      - generic [ref=e106]:
+        - generic [ref=e107]: 검증 로그
+        - generic [ref=e109]: 검증 로그 없음
+      - generic [ref=e110]:
+        - generic [ref=e111]: 운영 원칙
+        - generic [ref=e112]:
+          - term [ref=e113]: 원본
+          - definition [ref=e114]: 원본 경로는 수정하지 않음
+          - term [ref=e115]: 복구물
+          - definition [ref=e116]: 검증 전까지 후보 상태 유지
+          - term [ref=e117]: 보고서
+          - definition [ref=e118]: 검증 로그와 SHA-256 기준으로 판단
+```
+### Result
+Total messages: 0 (Errors: 0, Warnings: 0)
+
+### Result
+- [Screenshot of full page](output/playwright/phase3-evidence-viewer-final.png)
+### Ran Playwright code
+```js
+// Screenshot full page and save it as output/playwright/phase3-evidence-viewer-final.png
+await page.screenshot({
+  fullPage: true,
+  path: 'output/playwright/phase3-evidence-viewer-final.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+### Result
+"FrameTrace Evidence Viewer\nFT-1781667081 · Phase 3 real surface · SQLite-backed bounded review inventory\n실제 케이스 데이터\n증거 목록\n5\n영상\n1\n복구 후보\n0\n검증됨\n0\n검증 실패\n0\n전체 유형\n색인 영상\ncarving 후보\n파일시스템 복구\n전체 검증 상태\nffprobe-video-stream-confirmed\nvalidation-failed\ncandidate-unvalidated\nduplicate-candidate\ncandidate-unvalidated\nclip.mp4\n/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4\n/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 · video-index\nvideo\nderived\nvid_000001_1781667081.mp4\n/tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4\nmp4 · ffmpeg-clip-export\nderived\nderived\nvid_000001_proxy_1781667082.mp4\n/tmp/frametrace-real-surface.eyKaFA/case/artifacts/proxies/vid_000001_proxy_1781667082.mp4\nproxy · ffmpeg-proxy\nderived\nderived\nvid_000001_thumb_1781667082.jpg\n/tmp/frametrace-real-surface.eyKaFA/case/artifacts/thumbnails/vid_000001_thumb_1781667082.jpg\nthumbnail · ffmpeg-thumbnail\nderived\nderived\nvid_000001_frame_1781667082.jpg\n/tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg\nframe-capture · ffmpeg-frame-capture\nderived\n이전\n1 / 1\n다음\nclip.mp4\ncandidate-unvalidated\n자동 미디어 로딩 비활성화\n원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.\n수동으로 파일 열기\n선택 증거 메모\nID\nvid_000001\n상태\ncandidate-unvalidated\n메모\nunreviewed\n길이\n-\n포렌식 인스펙터\n경로\n/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4\n제조사\n/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4\n파서\nvideo-index\n코덱\n-\n크기\n35 B\nSHA-256\n5fd9d260a71e81722a89815b67892cf017d847a74ccb994b60f00d172eecd4c7\n원본 ID\n-\n파생 ID\n-\n오프셋\n-\n검증 로그\n검증 로그 없음\n운영 원칙\n원본\n원본 경로는 수정하지 않음\n복구물\n검증 전까지 후보 상태 유지\n보고서\n검증 로그와 SHA-256 기준으로 판단"
+### Ran Playwright code
+```js
+await (async (page) => await page.locator('body').innerText())(page);
+```
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/reports/case-report.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/reports/case-report.html
+- Page Title: FrameTrace 영상 포렌식 보고서
+- Console: 1 errors, 0 warnings
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T03-39-04-607Z.yml)
+### Events
+- New console entries: .playwright-cli/console-2026-06-17T03-39-04-558Z.log#L1
+### Page
+- Page URL: http://127.0.0.1:8767/reports/case-report.html
+- Page Title: FrameTrace 영상 포렌식 보고서
+- Console: 1 errors, 0 warnings
+### Snapshot
+```yaml
+- main [ref=e2]:
+  - heading "Phase 3 real surface" [level=1] [ref=e3]
+  - generic [ref=e4]: FT-1781667081 · 로컬 케이스 데이터 기반 생성 · frametrace 0.1.0
+  - generic [ref=e5]:
+    - generic [ref=e6]:
+      - text: 색인 영상
+      - strong [ref=e7]: "1"
+    - generic [ref=e8]:
+      - text: 증거 총 용량
+      - strong [ref=e9]: 35 B
+    - generic [ref=e10]:
+      - text: ffprobe 확인
+      - strong [ref=e11]: "0"
+    - generic [ref=e12]:
+      - text: 추정 소스
+      - strong [ref=e13]: "1"
+    - generic [ref=e14]:
+      - text: 스캔 경고
+      - strong [ref=e15]: "0"
+    - generic [ref=e16]:
+      - text: 내보낸 클립
+      - strong [ref=e17]: "1"
+    - generic [ref=e18]:
+      - text: 리뷰 산출물
+      - strong [ref=e19]: "4"
+    - generic [ref=e20]:
+      - text: 복구 후보
+      - strong [ref=e21]: "0"
+    - generic [ref=e22]:
+      - text: 파일시스템 작업
+      - strong [ref=e23]: "0"
+    - generic [ref=e24]:
+      - text: 검증 기록
+      - strong [ref=e25]: "1"
+  - heading "처리 요약" [level=2] [ref=e26]
+  - table [ref=e28]:
+    - rowgroup [ref=e29]:
+      - row "케이스 ID FT-1781667081" [ref=e30]:
+        - rowheader "케이스 ID" [ref=e31]
+        - cell "FT-1781667081" [ref=e32]
+      - row "작업자 / 호스트 qa-operator / -" [ref=e33]:
+        - rowheader "작업자 / 호스트" [ref=e34]
+        - cell "qa-operator / -" [ref=e35]
+      - row "플랫폼 / 도구 macos / frametrace 0.1.0" [ref=e36]:
+        - rowheader "플랫폼 / 도구" [ref=e37]
+        - cell "macos / frametrace 0.1.0" [ref=e38]
+      - 'row "장치 - · serial: - · write-protect: test fixture" [ref=e39]':
+        - rowheader "장치" [ref=e40]
+        - 'cell "- · serial: - · write-protect: test fixture" [ref=e41]'
+      - 'row "취득 - · evidence hash: -" [ref=e42]':
+        - rowheader "취득" [ref=e43]
+        - 'cell "- · evidence hash: -" [ref=e44]':
+          - text: "- · evidence hash:"
+          - code [ref=e45]: "-"
+      - row "비고 -" [ref=e46]:
+        - rowheader "비고" [ref=e47]
+        - cell "-" [ref=e48]
+      - row "소스 경로 /private/tmp/frametrace-real-surface.eyKaFA/media" [ref=e49]:
+        - rowheader "소스 경로" [ref=e50]
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media" [ref=e51]:
+          - code [ref=e52]: /private/tmp/frametrace-real-surface.eyKaFA/media
+      - row "스캔 시각 6/17/2026, 12:31:21 PM (1781667081)" [ref=e53]:
+        - rowheader "스캔 시각" [ref=e54]
+        - cell "6/17/2026, 12:31:21 PM (1781667081)" [ref=e55]
+      - row "해시 모드 파일별 SHA-256 계산" [ref=e56]:
+        - rowheader "해시 모드" [ref=e57]
+        - cell "파일별 SHA-256 계산" [ref=e58]
+      - row "메타데이터 모드 ffprobe 생략" [ref=e59]:
+        - rowheader "메타데이터 모드" [ref=e60]
+        - cell "ffprobe 생략" [ref=e61]
+      - row "경고 없음" [ref=e62]:
+        - rowheader "경고" [ref=e63]
+        - cell "없음" [ref=e64]
+  - generic [ref=e65]: 이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.
+  - heading "소스 / 파서 평가" [level=2] [ref=e66]
+  - table [ref=e68]:
+    - rowgroup [ref=e69]:
+      - row "추정 소스 파서 레인 신뢰도 파일 수 처리 메모" [ref=e70]:
+        - columnheader "추정 소스" [ref=e71]
+        - columnheader "파서 레인" [ref=e72]
+        - columnheader "신뢰도" [ref=e73]
+        - columnheader "파일 수" [ref=e74]
+        - columnheader "처리 메모" [ref=e75]
+    - rowgroup [ref=e76]:
+      - row "Generic media generic-video generic_media medium 1 Use ffprobe/FFmpeg first; preserve original and export derived clips only when requested." [ref=e77]:
+        - cell "Generic media" [ref=e78]
+        - cell "generic-video generic_media" [ref=e79]:
+          - text: generic-video
+          - code [ref=e80]: generic_media
+        - cell "medium" [ref=e81]
+        - cell "1" [ref=e82]
+        - cell "Use ffprobe/FFmpeg first; preserve original and export derived clips only when requested." [ref=e83]
+  - heading "영상 색인" [level=2] [ref=e84]
+  - table [ref=e86]:
+    - rowgroup [ref=e87]:
+      - row "ID 경로 소스 포맷 길이 크기 해시" [ref=e88]:
+        - columnheader "ID" [ref=e89]
+        - columnheader "경로" [ref=e90]
+        - columnheader "소스" [ref=e91]
+        - columnheader "포맷" [ref=e92]
+        - columnheader "길이" [ref=e93]
+        - columnheader "크기" [ref=e94]
+        - columnheader "해시" [ref=e95]
+    - rowgroup [ref=e96]:
+      - row "vid_000001 clip.mp4 Generic media generic_media mp4 - 35 B 5fd9d260a71e81722a89815b67892cf017d847a74ccb994b60f00d172eecd4c7" [ref=e97]:
+        - cell "vid_000001" [ref=e98]
+        - cell "clip.mp4" [ref=e99]:
+          - code [ref=e100]: clip.mp4
+        - cell "Generic media generic_media" [ref=e101]:
+          - text: Generic media
+          - code [ref=e102]: generic_media
+        - cell "mp4" [ref=e103]
+        - cell "-" [ref=e104]
+        - cell "35 B" [ref=e105]
+        - cell "5fd9d260a71e81722a89815b67892cf017d847a74ccb994b60f00d172eecd4c7" [ref=e106]:
+          - code [ref=e107]: 5fd9d260a71e81722a89815b67892cf017d847a74ccb994b60f00d172eecd4c7
+  - heading "MP4/AVI 내보내기 산출물" [level=2] [ref=e108]
+  - table [ref=e110]:
+    - rowgroup [ref=e111]:
+      - row "포맷 원본 산출물 산출물 SHA-256 범위 감사 체인" [ref=e112]:
+        - columnheader "포맷" [ref=e113]
+        - columnheader "원본" [ref=e114]
+        - columnheader "산출물" [ref=e115]
+        - columnheader "산출물 SHA-256" [ref=e116]
+        - columnheader "범위" [ref=e117]
+        - columnheader "감사 체인" [ref=e118]
+    - rowgroup [ref=e119]:
+      - row "mp4 /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 /tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4 9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f -, - 5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c" [ref=e120]:
+        - cell "mp4" [ref=e121]
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4" [ref=e122]:
+          - code [ref=e123]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+        - cell "/tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4" [ref=e124]:
+          - code [ref=e125]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4
+        - cell "9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f" [ref=e126]:
+          - code [ref=e127]: 9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f
+        - cell "-, -" [ref=e128]
+        - cell "5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c" [ref=e129]:
+          - code [ref=e130]: 5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c
+  - heading "리뷰 산출물" [level=2] [ref=e131]
+  - table [ref=e133]:
+    - rowgroup [ref=e134]:
+      - row "종류 작업자 방법 원본 ID 파생 ID 원본 산출물 산출물 SHA-256 감사 체인" [ref=e135]:
+        - columnheader "종류" [ref=e136]
+        - columnheader "작업자" [ref=e137]
+        - columnheader "방법" [ref=e138]
+        - columnheader "원본 ID" [ref=e139]
+        - columnheader "파생 ID" [ref=e140]
+        - columnheader "원본" [ref=e141]
+        - columnheader "산출물" [ref=e142]
+        - columnheader "산출물 SHA-256" [ref=e143]
+        - columnheader "감사 체인" [ref=e144]
+    - rowgroup [ref=e145]:
+      - row "mp4 qa-operator ffmpeg-clip-export source-vid_000001-5fd9d260a71e derived-clip-9364b1861f28 /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 /tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4 9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f 5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c" [ref=e146]:
+        - cell "mp4" [ref=e147]
+        - cell "qa-operator" [ref=e148]
+        - cell "ffmpeg-clip-export" [ref=e149]
+        - cell "source-vid_000001-5fd9d260a71e" [ref=e150]:
+          - code [ref=e151]: source-vid_000001-5fd9d260a71e
+        - cell "derived-clip-9364b1861f28" [ref=e152]:
+          - code [ref=e153]: derived-clip-9364b1861f28
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4" [ref=e154]:
+          - code [ref=e155]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+        - cell "/tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4" [ref=e156]:
+          - code [ref=e157]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/clips/vid_000001_1781667081.mp4
+        - cell "9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f" [ref=e158]:
+          - code [ref=e159]: 9364b1861f282d7bd49809d7f58debc705020bcf9022f639628b2c3293d8d17f
+        - cell "5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c" [ref=e160]:
+          - code [ref=e161]: 5bb0e9d6e2b3b5309108087ae36740e738631347140fe68d430a541ddcdee38c
+      - row "proxy qa-operator ffmpeg-proxy source-vid_000001-5fd9d260a71e derived-proxy-add999c0c272 /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 /tmp/frametrace-real-surface.eyKaFA/case/artifacts/proxies/vid_000001_proxy_1781667082.mp4 add999c0c272e401a8fb4389f35c27ec1e7dbcf05f5160ee5cf7f1171c523728 140b68749ab0c47945b8977d31d214b529bd14efeb094c5b7e45284cf8973d5d" [ref=e162]:
+        - cell "proxy" [ref=e163]
+        - cell "qa-operator" [ref=e164]
+        - cell "ffmpeg-proxy" [ref=e165]
+        - cell "source-vid_000001-5fd9d260a71e" [ref=e166]:
+          - code [ref=e167]: source-vid_000001-5fd9d260a71e
+        - cell "derived-proxy-add999c0c272" [ref=e168]:
+          - code [ref=e169]: derived-proxy-add999c0c272
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4" [ref=e170]:
+          - code [ref=e171]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+        - cell "/tmp/frametrace-real-surface.eyKaFA/case/artifacts/proxies/vid_000001_proxy_1781667082.mp4" [ref=e172]:
+          - code [ref=e173]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/proxies/vid_000001_proxy_1781667082.mp4
+        - cell "add999c0c272e401a8fb4389f35c27ec1e7dbcf05f5160ee5cf7f1171c523728" [ref=e174]:
+          - code [ref=e175]: add999c0c272e401a8fb4389f35c27ec1e7dbcf05f5160ee5cf7f1171c523728
+        - cell "140b68749ab0c47945b8977d31d214b529bd14efeb094c5b7e45284cf8973d5d" [ref=e176]:
+          - code [ref=e177]: 140b68749ab0c47945b8977d31d214b529bd14efeb094c5b7e45284cf8973d5d
+      - row "thumbnail qa-operator ffmpeg-thumbnail source-vid_000001-5fd9d260a71e derived-thumbnail-321eabe8257a /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 /tmp/frametrace-real-surface.eyKaFA/case/artifacts/thumbnails/vid_000001_thumb_1781667082.jpg 321eabe8257aa4dd08b019b0373e3b4877822c79799e12dbeeee0c85f9a29405 3fa835d20b7cae5185e01d06d7c61549c05a4d532db69c3c9e1c5e5881e50b39" [ref=e178]:
+        - cell "thumbnail" [ref=e179]
+        - cell "qa-operator" [ref=e180]
+        - cell "ffmpeg-thumbnail" [ref=e181]
+        - cell "source-vid_000001-5fd9d260a71e" [ref=e182]:
+          - code [ref=e183]: source-vid_000001-5fd9d260a71e
+        - cell "derived-thumbnail-321eabe8257a" [ref=e184]:
+          - code [ref=e185]: derived-thumbnail-321eabe8257a
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4" [ref=e186]:
+          - code [ref=e187]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+        - cell "/tmp/frametrace-real-surface.eyKaFA/case/artifacts/thumbnails/vid_000001_thumb_1781667082.jpg" [ref=e188]:
+          - code [ref=e189]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/thumbnails/vid_000001_thumb_1781667082.jpg
+        - cell "321eabe8257aa4dd08b019b0373e3b4877822c79799e12dbeeee0c85f9a29405" [ref=e190]:
+          - code [ref=e191]: 321eabe8257aa4dd08b019b0373e3b4877822c79799e12dbeeee0c85f9a29405
+        - cell "3fa835d20b7cae5185e01d06d7c61549c05a4d532db69c3c9e1c5e5881e50b39" [ref=e192]:
+          - code [ref=e193]: 3fa835d20b7cae5185e01d06d7c61549c05a4d532db69c3c9e1c5e5881e50b39
+      - row "frame-capture qa-operator ffmpeg-frame-capture source-vid_000001-5fd9d260a71e derived-frame-capture-ae343d3b8f06 /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4 /tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88 e2e0f1220563febbcfc7719ac94cee167288e42f9dce8fd430269073b0ec5d74" [ref=e194]:
+        - cell "frame-capture" [ref=e195]
+        - cell "qa-operator" [ref=e196]
+        - cell "ffmpeg-frame-capture" [ref=e197]
+        - cell "source-vid_000001-5fd9d260a71e" [ref=e198]:
+          - code [ref=e199]: source-vid_000001-5fd9d260a71e
+        - cell "derived-frame-capture-ae343d3b8f06" [ref=e200]:
+          - code [ref=e201]: derived-frame-capture-ae343d3b8f06
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4" [ref=e202]:
+          - code [ref=e203]: /private/tmp/frametrace-real-surface.eyKaFA/media/clip.mp4
+        - cell "/tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg" [ref=e204]:
+          - code [ref=e205]: /tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg
+        - cell "ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88" [ref=e206]:
+          - code [ref=e207]: ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88
+        - cell "e2e0f1220563febbcfc7719ac94cee167288e42f9dce8fd430269073b0ec5d74" [ref=e208]:
+          - code [ref=e209]: e2e0f1220563febbcfc7719ac94cee167288e42f9dce8fd430269073b0ec5d74
+  - heading "복구 / Carving 후보" [level=2] [ref=e210]
+  - paragraph [ref=e212]: Carving 후보가 없습니다.
+  - heading "재생 / 컨테이너 검증" [level=2] [ref=e213]
+  - table [ref=e215]:
+    - rowgroup [ref=e216]:
+      - row "상태 대상 포맷 코덱 길이 SHA-256 검증 메모 감사 체인" [ref=e217]:
+        - columnheader "상태" [ref=e218]
+        - columnheader "대상" [ref=e219]
+        - columnheader "포맷" [ref=e220]
+        - columnheader "코덱" [ref=e221]
+        - columnheader "길이" [ref=e222]
+        - columnheader "SHA-256" [ref=e223]
+        - columnheader "검증 메모" [ref=e224]
+        - columnheader "감사 체인" [ref=e225]
+    - rowgroup [ref=e226]:
+      - row "ffprobe-video-stream-confirmed /private/tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg mov,mp4 h264 / - 0:12 ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88 ffprobe parsed a video stream; examiner playback review is still required before final reporting. a5808bd97322a5e91d21115142b03f84897271d587e52846a0ad415f4e3cffdf" [ref=e227]:
+        - cell "ffprobe-video-stream-confirmed" [ref=e228]
+        - cell "/private/tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg" [ref=e229]:
+          - code [ref=e230]: /private/tmp/frametrace-real-surface.eyKaFA/case/artifacts/frames/vid_000001_frame_1781667082.jpg
+        - cell "mov,mp4" [ref=e231]
+        - cell "h264 / -" [ref=e232]
+        - cell "0:12" [ref=e233]
+        - cell "ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88" [ref=e234]:
+          - code [ref=e235]: ae343d3b8f0654e3a399b8c860de0a7591946c6611f667302afd5cf8eac31e88
+        - cell "ffprobe parsed a video stream; examiner playback review is still required before final reporting." [ref=e236]
+        - cell "a5808bd97322a5e91d21115142b03f84897271d587e52846a0ad415f4e3cffdf" [ref=e237]:
+          - code [ref=e238]: a5808bd97322a5e91d21115142b03f84897271d587e52846a0ad415f4e3cffdf
+  - heading "파일시스템 조사 / Inode 복구" [level=2] [ref=e239]
+  - paragraph [ref=e241]: 파일시스템 조사 또는 inode 복구 기록이 없습니다.
+```
+### Result
+Total messages: 1 (Errors: 1, Warnings: 0)
+
+[ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8767/favicon.ico:0
+### Result
+- [Screenshot of full page](output/playwright/phase3-case-report-final.png)
+### Ran Playwright code
+```js
+// Screenshot full page and save it as output/playwright/phase3-case-report-final.png
+await page.screenshot({
+  fullPage: true,
+  path: 'output/playwright/phase3-case-report-final.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+Browser 'frametrace-phase3-http-2' closed
+
+-rw-r--r--@ 1 shinyoohag  staff  313215 Jun 17 12:39 output/playwright/phase3-case-report-final.png
+-rw-r--r--@ 1 shinyoohag  staff  153854 Jun 17 12:39 output/playwright/phase3-evidence-viewer-final.png

@@ -1,0 +1,11 @@
+{
+  "status": "done",
+  "checkedAt": "2026-06-22T13:13:31Z",
+  "receiptPath": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/cleanup-receipt.json",
+  "scenario": "CLI-only Windows prereq release gate verification",
+  "tempDirectoriesRemoved": ["/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/tmp.30nMRqA0bf"],
+  "noRemainingProcesses": true,
+  "noOpenBrowsers": true,
+  "noWorkers": true,
+  "notes": "No server, browser, tmux session, or long-running worker was spawned by this CLI QA. Existing user/Codex/Chrome/MCP processes were not touched. Planner and reviewer subagents were closed."
+}

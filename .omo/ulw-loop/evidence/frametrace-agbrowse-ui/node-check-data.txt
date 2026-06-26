@@ -1,0 +1,2 @@
+$ node --check gui/evidence-viewer/data.js
+exit=0

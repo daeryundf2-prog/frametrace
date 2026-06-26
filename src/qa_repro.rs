@@ -11,17 +11,23 @@ pub fn reproducibility_report(
 ) -> Result<QaReport, String> {
     let left = normalized_case_core(left_case_dir)?;
     let right = normalized_case_core(right_case_dir)?;
-    let passed = left == right;
+    let normalized_core_differences = normalized_core_differences(&left, &right);
+    let allowed_normalized_core_differences = 0usize;
+    let passed = normalized_core_differences <= allowed_normalized_core_differences;
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create QA output directory: {err}"))?;
     let report_path = output_dir.join("reproducibility-report.json");
     write_text(
         &report_path,
         &format!(
-            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"reproducibility\",\n  \"passed\": {},\n  \"left_case\": \"{}\",\n  \"right_case\": \"{}\",\n  \"normalized_left_bytes\": {},\n  \"normalized_right_bytes\": {}\n}}\n",
+            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"reproducibility\",\n  \"passed\": {},\n  \"left_case\": \"{}\",\n  \"right_case\": \"{}\",\n  \"normalized_left_bytes\": {},\n  \"normalized_right_bytes\": {},\n  \"allowed_diff_thresholds\": {{\n    \"normalized_core_differences\": {}\n  }},\n  \"diff_metrics\": {{\n    \"normalized_core_differences\": {},\n    \"normalized_left_bytes\": {},\n    \"normalized_right_bytes\": {}\n  }}\n}}\n",
             passed,
             json_escape(&left_case_dir.to_string_lossy()),
             json_escape(&right_case_dir.to_string_lossy()),
+            left.len(),
+            right.len(),
+            allowed_normalized_core_differences,
+            normalized_core_differences,
             left.len(),
             right.len()
         ),
@@ -35,6 +41,22 @@ pub fn reproducibility_report(
     } else {
         Err("reproducibility QA failed: normalized core outputs differ".to_string())
     }
+}
+
+fn normalized_core_differences(left: &str, right: &str) -> usize {
+    if left == right {
+        return 0;
+    }
+    let left_lines = left.lines().collect::<Vec<_>>();
+    let right_lines = right.lines().collect::<Vec<_>>();
+    let shared = left_lines.len().min(right_lines.len());
+    let changed = left_lines
+        .iter()
+        .zip(right_lines.iter())
+        .take(shared)
+        .filter(|(left, right)| left != right)
+        .count();
+    changed + left_lines.len().abs_diff(right_lines.len())
 }
 
 fn normalized_case_core(case_dir: &Path) -> Result<String, String> {

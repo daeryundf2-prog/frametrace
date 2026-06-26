@@ -1,0 +1,1 @@
+EMPTY OUTPUT: `cargo fmt --all -- --check` completed with no stdout/stderr; later non-empty rerun evidence is `cargo-fmt-check-after-gate-fix.log`.

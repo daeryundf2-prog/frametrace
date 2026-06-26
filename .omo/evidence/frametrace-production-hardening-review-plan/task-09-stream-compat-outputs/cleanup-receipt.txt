@@ -1,0 +1,13 @@
+$ cleanup T9 temp roots
+roots_before_cleanup:
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-failure.6RIxbF
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-failure.NekVRv
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-happy.DxL1ER
+removed=/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-failure.6RIxbF
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-failure.NekVRv
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t9-happy.DxL1ER
+$ verify T9 temp roots absent
+$ pgrep -af frametrace-t9
+14723
+14732
+remaining_root_count=0

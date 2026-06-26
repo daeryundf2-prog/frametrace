@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "errors": [],
+  "initial": {
+    "rows": 32,
+    "count": "10000개 일치",
+    "active": "20260519_120000_F.mp4"
+  },
+  "emptySearch": {
+    "rows": 0,
+    "count": "0개 일치",
+    "visible": "0-0 표시"
+  },
+  "filtered": {
+    "rows": 0,
+    "count": "0개 일치",
+    "firstRowText": ""
+  },
+  "afterScroll": {
+    "rows": 32,
+    "firstId": "img_003598",
+    "scrollTop": 200000
+  },
+  "noSelectionPreview": {
+    "visible": true,
+    "text": "작업 미리보기\n선택된 행 없음",
+    "bodyClass": "bulk-preview-open"
+  }
+}

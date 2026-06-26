@@ -1,5 +1,5 @@
-use std::fs;
-use std::io;
+use std::fs::{self, File};
+use std::io::{self, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -41,6 +41,14 @@ pub fn write_text(path: &Path, text: &str) -> io::Result<()> {
     }
     reject_symlink_leaf(path)?;
     fs::write(path, text)
+}
+
+pub fn create_text_writer(path: &Path) -> io::Result<BufWriter<File>> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    reject_symlink_leaf(path)?;
+    File::create(path).map(BufWriter::new)
 }
 
 pub fn unique_path(path: &Path) -> PathBuf {

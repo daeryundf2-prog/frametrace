@@ -1,0 +1,46 @@
+diff --git a/src/qa_tests.rs b/src/qa_tests.rs
+index 61d5ddd..7bbafb8 100644
+--- a/src/qa_tests.rs
++++ b/src/qa_tests.rs
+@@ -1,8 +1,5 @@
+ use super::qa_test_fixtures::seed_repro_case;
+-use super::{
+-    accuracy_report, performance_report, read_review_manifest, report_defense_check,
+-    reproducibility_report,
+-};
++use super::{accuracy_report, performance_report, report_defense_check, reproducibility_report};
+ use crate::audit;
+ use crate::case_db;
+ use std::fs;
+@@ -236,31 +233,3 @@ fn performance_report_records_query_latency_metrics() {
+ 
+     let _ = fs::remove_dir_all(root);
+ }
+-
+-#[test]
+-fn review_manifest_accepts_key_value_and_markdown_gates() {
+-    let root = std::env::temp_dir().join(format!("frametrace-review-test-{}", std::process::id()));
+-    let _ = fs::remove_dir_all(&root);
+-    fs::create_dir_all(&root).unwrap();
+-    let manifest = root.join("release-review.txt");
+-    fs::write(
+-        &manifest,
+-        "\
+-technical_review=pass
+-security review: approved
+-- [x] Migration Validation
+-- [x] Operator Review
+-legal-review=done
+-",
+-    )
+-    .unwrap();
+-
+-    let gates = read_review_manifest(&manifest).unwrap();
+-    assert_eq!(gates.get("technical_review"), Some(&true));
+-    assert_eq!(gates.get("security_review"), Some(&true));
+-    assert_eq!(gates.get("migration_validation"), Some(&true));
+-    assert_eq!(gates.get("operator_review"), Some(&true));
+-    assert_eq!(gates.get("legal_review"), Some(&true));
+-
+-    let _ = fs::remove_dir_all(root);
+-}

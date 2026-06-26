@@ -1,0 +1,115 @@
+FrameTrace evidence: scan-folder db parent symlink policy fix
+Date: 2026-06-23
+Branch: codex/frametrace-forensic-hardening
+
+Scope
+- Fixes the code review blocker recorded in:
+  .omo/ulw-loop/frame-production-exec-20260623/reviews/final-code-review-after-write-text-symlink-fix.md
+- The blocker showed that scan-folder could write durable case state through a symlinked case/db parent directory outside the canonical case tree.
+- The fix validates SQLite case db output path before opening/creating it and validates scan JSON/TSV output paths before write_text.
+
+Red evidence before fix
+- Added regression:
+  tests/cli_output_policy.rs::scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside
+- Before the fix:
+  cargo test --locked --test cli_output_policy scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside -- --nocapture
+  failed because the command unexpectedly succeeded:
+    scan complete
+    source registered: src_... (folder)
+    job: job_... (scan-folder)
+    videos indexed: 1
+    index: .../case/db/video_index.json
+    sqlite: .../case/db/case.db
+
+Implementation summary
+- src/case_db/core.rs:
+  - open_case_db now creates the case root if needed, validates db/case.db with require_case_output_path, then creates the db directory and opens SQLite.
+  - This blocks case/db symlink parent escape before register_evidence_source, start_job, or write_scan_index can write SQLite state.
+- src/scan.rs:
+  - write_scan_outputs uses write_case_text for db/scan_runs, db/video_index.json, db/videos.jsonl, and db/video_paths.tsv.
+  - write_case_text applies require_case_output_path before write_text.
+- tests/cli_output_policy.rs:
+  - Adds scan-folder case/db symlink regression and asserts no outside case.db, video_index.json, videos.jsonl, video_paths.tsv, or scan_runs are created.
+
+Size / locality
+- wc -l src/case_db/core.rs src/scan.rs tests/cli_output_policy.rs:
+  - 33 src/case_db/core.rs
+  - 986 src/scan.rs
+  - 205 tests/cli_output_policy.rs
+  - 1224 total
+- git diff --stat:
+  - src/case_db/core.rs        | 11 ++++++++---
+  - src/scan.rs                | 33 +++++++++++++++++++++++++--------
+  - tests/cli_output_policy.rs | 35 +++++++++++++++++++++++++++++++++++
+  - 3 files changed, 68 insertions(+), 11 deletions(-)
+
+Validation commands and results
+
+1. cargo fmt --all -- --check
+Result: PASS, exit 0.
+
+2. cargo clippy --locked --all-targets --all-features -- -D warnings
+Result: PASS, exit 0.
+Output summary:
+    Checking frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.06s
+
+3. cargo test --locked --test cli_output_policy -- --nocapture
+Result: PASS, exit 0.
+Output summary:
+    running 5 tests
+    make_review_rejects_symlinked_review_directory_without_writing_target ... ok
+    scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside ... ok
+    make_review_rejects_symlinked_review_outputs_without_writing_target ... ok
+    make_report_rejects_symlinked_report_outputs_without_writing_target ... ok
+    make_report_rejects_symlinked_reports_directory_without_writing_target ... ok
+    test result: ok. 5 passed; 0 failed
+
+4. cargo test --locked symlink -- --nocapture
+Result: PASS, exit 0.
+Output summary:
+    running 9 tests
+    all symlink-filtered tests passed, including scan_folder output policy regression.
+
+5. cargo test --locked --test cli_inventory -- --nocapture
+Result: PASS, exit 0.
+Output summary:
+    running 1 test
+    inventory_commands_emit_bounded_sqlite_backed_json ... ok
+    test result: ok. 1 passed; 0 failed
+
+6. cargo test --locked case_db:: -- --nocapture
+Result: PASS, exit 0.
+Output summary:
+    running 18 tests
+    case_db core, jobs, inventory, export, metrics tests all passed.
+
+7. cargo test --locked
+Result: PASS, exit 0.
+Output summary:
+    src/lib.rs: 117 passed; 0 failed
+    tests/cli_inventory.rs: 1 passed; 0 failed
+    tests/cli_lifecycle.rs: 1 passed; 0 failed
+    tests/cli_output_policy.rs: 5 passed; 0 failed
+    tests/cli_review.rs: 2 passed; 0 failed
+    tests/cli_smoke.rs: 2 passed; 0 failed
+    tests/cli_windows_prereq.rs: 3 passed; 0 failed
+    tests/media_contract.rs: 3 passed; 0 failed
+    doc-tests: 0 passed; 0 failed
+
+8. git diff --check
+Result: PASS, exit 0.
+
+9. LSP diagnostics
+Result: NOT RUN / unavailable.
+Evidence:
+    mcp__lsp.diagnostics(filePath=/Users/shinyoohag/Desktop/frametrace/src/scan.rs)
+    returned: Transport closed.
+
+Cleanup receipt
+- status: done
+- checked_at: 2026-06-23
+- no_remaining_frametrace_processes: true
+- no_open_browsers_spawned_by_this_fix: true
+- no_workers_spawned_by_this_fix: true
+- note: no browser/dev server was started for this fix; cargo commands completed. Pre-existing/peer QA headless Chrome processes are handled separately before final gate.

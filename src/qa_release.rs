@@ -1,10 +1,12 @@
+use super::qa_release_manifest::evaluate_review_manifest;
 use crate::qa::{
     QaReport, REVIEW_GATES, ReleaseReadinessOptions, accuracy_report, performance_report,
-    report_defense_check, reproducibility_report, workstation_shell_contract_check,
+    privacy_review_check, report_defense_check, reproducibility_report,
+    workstation_shell_contract_check,
 };
-use crate::util::{json_escape, read_to_string, write_text};
+use crate::util::{json_escape, write_text};
 use crate::windows_prerequisites;
-use std::collections::HashMap;
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -17,9 +19,18 @@ pub fn release_readiness_report(
         .map_err(|err| format!("failed to create QA output directory: {err}"))?;
     let mut checks = Vec::new();
 
-    checks.push(run_release_check("report_defense", || {
-        report_defense_check(case_dir, output_dir).map(|report| report.report_path)
-    }));
+    checks.push(run_typed_qa_input(
+        "privacy_review",
+        "privacy_review",
+        output_dir.join("privacy-review.json"),
+        || privacy_review_check(case_dir, output_dir),
+    ));
+    checks.push(run_typed_qa_input(
+        "report_defense",
+        "report_defense",
+        output_dir.join("report-defense-report.json"),
+        || report_defense_check(case_dir, output_dir),
+    ));
     checks.push(run_release_check("workstation_shell_contract", || {
         workstation_shell_contract_check(case_dir, output_dir)
     }));
@@ -120,6 +131,60 @@ fn run_release_check(name: &str, run: impl FnOnce() -> Result<PathBuf, String>) 
     }
 }
 
+fn run_typed_qa_input(
+    name: &str,
+    expected_qa_type: &str,
+    artifact_path: PathBuf,
+    run: impl FnOnce() -> Result<QaReport, String>,
+) -> ReleaseCheck {
+    match run() {
+        Ok(_) => release_check_from_typed_artifact(name, expected_qa_type, &artifact_path),
+        Err(run_error) => match read_typed_qa_artifact(&artifact_path, expected_qa_type) {
+            Ok(artifact) if !artifact.passed => {
+                typed_artifact_failure(name, &artifact_path, &artifact)
+            }
+            _ => ReleaseCheck {
+                name: name.to_string(),
+                status: "FAIL".to_string(),
+                evidence: run_error,
+            },
+        },
+    }
+}
+
+fn release_check_from_typed_artifact(
+    name: &str,
+    expected_qa_type: &str,
+    artifact_path: &Path,
+) -> ReleaseCheck {
+    match read_typed_qa_artifact(artifact_path, expected_qa_type) {
+        Ok(artifact) if artifact.passed => ReleaseCheck {
+            name: name.to_string(),
+            status: "PASS".to_string(),
+            evidence: artifact_path.to_string_lossy().to_string(),
+        },
+        Ok(artifact) => typed_artifact_failure(name, artifact_path, &artifact),
+        Err(err) => ReleaseCheck {
+            name: name.to_string(),
+            status: "FAIL".to_string(),
+            evidence: err,
+        },
+    }
+}
+
+fn typed_artifact_failure(
+    name: &str,
+    artifact_path: &Path,
+    artifact: &TypedQaArtifact,
+) -> ReleaseCheck {
+    let failing_keys = artifact.failing_keys().join(",");
+    ReleaseCheck {
+        name: name.to_string(),
+        status: "FAIL".to_string(),
+        evidence: format!("{}: finding_keys={failing_keys}", artifact_path.display()),
+    }
+}
+
 fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
     let Some(path) = manifest_path else {
         return REVIEW_GATES
@@ -128,23 +193,25 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
             .collect();
     };
 
-    match read_review_manifest(path) {
-        Ok(gates) => REVIEW_GATES
+    match evaluate_review_manifest(path) {
+        Ok(evaluation) => REVIEW_GATES
             .iter()
-            .map(|(key, label)| {
-                if gates.get(*key).copied().unwrap_or(false) {
-                    ReleaseCheck {
-                        name: (*key).to_string(),
-                        status: "PASS".to_string(),
-                        evidence: path.to_string_lossy().to_string(),
-                    }
-                } else {
-                    ReleaseCheck {
-                        name: (*key).to_string(),
-                        status: "FAIL".to_string(),
-                        evidence: format!("{label} ({key}) is not approved in {}", path.display()),
-                    }
-                }
+            .map(|(key, label)| match evaluation.errors.get(*key) {
+                Some(err) => ReleaseCheck {
+                    name: (*key).to_string(),
+                    status: "FAIL".to_string(),
+                    evidence: err.clone(),
+                },
+                None if evaluation.gates.get(*key).copied().unwrap_or(false) => ReleaseCheck {
+                    name: (*key).to_string(),
+                    status: "PASS".to_string(),
+                    evidence: path.to_string_lossy().to_string(),
+                },
+                None => ReleaseCheck {
+                    name: (*key).to_string(),
+                    status: "FAIL".to_string(),
+                    evidence: format!("{label} ({key}) is not approved in {}", path.display()),
+                },
             })
             .collect(),
         Err(err) => REVIEW_GATES
@@ -156,77 +223,6 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
             })
             .collect(),
     }
-}
-
-pub(crate) fn read_review_manifest(path: &Path) -> Result<HashMap<String, bool>, String> {
-    let text = read_to_string(path).map_err(|err| {
-        format!(
-            "failed to read release review manifest {}: {err}",
-            path.display()
-        )
-    })?;
-    let mut gates = HashMap::new();
-    for (line_index, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((checked, label)) = parse_markdown_checkbox(line) {
-            gates.insert(normalize_review_gate(label), checked);
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            gates.insert(normalize_review_gate(key), review_value_is_pass(value));
-            continue;
-        }
-        if let Some((key, value)) = line.split_once(':') {
-            gates.insert(normalize_review_gate(key), review_value_is_pass(value));
-            continue;
-        }
-        return Err(format!(
-            "invalid review manifest row {} in {}",
-            line_index + 1,
-            path.display()
-        ));
-    }
-    Ok(gates)
-}
-
-fn parse_markdown_checkbox(line: &str) -> Option<(bool, &str)> {
-    let rest = line.strip_prefix('-')?.trim_start();
-    let checked = rest
-        .strip_prefix("[x]")
-        .or_else(|| rest.strip_prefix("[X]"));
-    if let Some(label) = checked {
-        return Some((true, label.trim()));
-    }
-    rest.strip_prefix("[ ]").map(|label| (false, label.trim()))
-}
-
-fn normalize_review_gate(value: &str) -> String {
-    value
-        .trim()
-        .trim_matches(|ch: char| !ch.is_alphanumeric())
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() {
-                ch.to_ascii_lowercase()
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("_")
-}
-
-fn review_value_is_pass(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "pass" | "passed" | "approved" | "true" | "yes" | "complete" | "completed" | "done" | "x"
-    )
 }
 
 fn release_json(passed: bool, checks: &[ReleaseCheck]) -> String {
@@ -262,4 +258,54 @@ fn release_markdown(passed: bool, checks: &[ReleaseCheck]) -> String {
         ));
     }
     text
+}
+
+#[derive(Debug, Deserialize)]
+struct TypedQaArtifact {
+    schema_version: u64,
+    qa_type: String,
+    passed: bool,
+    findings: Vec<TypedQaFinding>,
+}
+
+impl TypedQaArtifact {
+    fn failing_keys(&self) -> Vec<String> {
+        self.findings
+            .iter()
+            .filter(|finding| matches!(finding.status.as_str(), "failed" | "partial" | "skipped"))
+            .map(|finding| finding.key.clone())
+            .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TypedQaFinding {
+    key: String,
+    status: String,
+}
+
+fn read_typed_qa_artifact(path: &Path, expected_qa_type: &str) -> Result<TypedQaArtifact, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read typed QA input {}: {err}", path.display()))?;
+    let artifact = serde_json::from_str::<TypedQaArtifact>(&text).map_err(|err| {
+        format!(
+            "typed QA input {} must be machine-readable JSON: {err}",
+            path.display()
+        )
+    })?;
+    if artifact.schema_version != 1 {
+        return Err(format!(
+            "typed QA input {} has unsupported schema_version {}; expected 1",
+            path.display(),
+            artifact.schema_version
+        ));
+    }
+    if artifact.qa_type != expected_qa_type {
+        return Err(format!(
+            "typed QA input {} has qa_type `{}`; expected `{expected_qa_type}`",
+            path.display(),
+            artifact.qa_type
+        ));
+    }
+    Ok(artifact)
 }

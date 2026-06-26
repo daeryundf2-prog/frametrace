@@ -1,0 +1,2 @@
+$ node --check gui/evidence-viewer/translations.js
+exit=0

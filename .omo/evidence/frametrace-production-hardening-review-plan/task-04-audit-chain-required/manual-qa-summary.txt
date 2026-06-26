@@ -1,0 +1,2 @@
+happy_assertion_exit=0
+failure_assertion_exit=0

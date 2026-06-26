@@ -1,0 +1,4 @@
+SCENARIO hook3-report-written
+INVOCATION test -s hook-verification-report.md && test -s hook-verification-report.json
+BINARY_OBSERVABLE PASS if report artifacts are non-empty
+exit_code=0

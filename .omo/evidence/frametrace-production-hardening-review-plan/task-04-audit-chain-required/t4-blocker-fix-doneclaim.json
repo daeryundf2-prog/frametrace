@@ -1,0 +1,90 @@
+{
+  "task": "T4 blocker fix: validation and filesystem recovery required audit chains",
+  "status": "DONE_FOR_GATE_REVIEW",
+  "changed_files": [
+    "src/qa_report_defense.rs",
+    "src/qa_tests.rs",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/size-gate-disposition.md"
+  ],
+  "behavior_changes": [
+    "Report-defense now treats concrete validation result claims as requiring evidence/logs/validation-log.jsonl.",
+    "Report-defense now treats artifacts/recovered/filesystem artifacts and report claims as requiring evidence/logs/tsk-audit.jsonl.",
+    "Static generated validation UI text and empty const validationLog payloads do not require a validation chain."
+  ],
+  "tests": [
+    {
+      "scenario": "focused report-defense regressions",
+      "invocation": "cargo test --locked report_defense_ -- --nocapture",
+      "observable": "10 passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-focused-report-defense-tests-final.log"
+    },
+    {
+      "scenario": "lifecycle smoke regression guard",
+      "invocation": "cargo test --locked --test cli_lifecycle case_lifecycle_smoke_test_uses_real_binary -- --nocapture",
+      "observable": "1 passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-cli-lifecycle-regression.log"
+    },
+    {
+      "scenario": "full cargo test",
+      "invocation": "cargo test --locked",
+      "observable": "T4 and lifecycle pass; unrelated tests/tool_policy_api.rs failure remains",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-cargo-test-full.log"
+    }
+  ],
+  "manual_qa": [
+    {
+      "scenario": "validation report claim with missing validation log",
+      "invocation": "target/debug/frametrace qa report-defense <validation-claimed-case> --output-dir <case>/reports/qa",
+      "observable": "exit_code=1; validation: evidence/logs/validation-log.jsonl [missing]; required=yes",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/validation-claimed-missing-log.log"
+    },
+    {
+      "scenario": "recovered filesystem artifact with missing TSK log",
+      "invocation": "target/debug/frametrace qa report-defense <recovered-filesystem-case> --output-dir <case>/reports/qa",
+      "observable": "exit_code=1; filesystem recovery: evidence/logs/tsk-audit.jsonl [missing]; required=yes",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/recovered-filesystem-missing-tsk-log.log"
+    }
+  ],
+  "verification": [
+    {
+      "scenario": "clippy",
+      "invocation": "cargo clippy --locked --all-targets --all-features -- -D warnings",
+      "observable": "exit_code=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-clippy.log"
+    },
+    {
+      "scenario": "target rustfmt",
+      "invocation": "rustfmt --check src/qa_report_defense.rs src/qa_tests.rs",
+      "observable": "exit_code=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-rustfmt-target-check.log"
+    },
+    {
+      "scenario": "full cargo fmt",
+      "invocation": "cargo fmt --all -- --check",
+      "observable": "exit_code=1 due unrelated tests/tool_policy_api.rs formatting drift",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-fmt-check-all-preexisting-drift.log"
+    },
+    {
+      "scenario": "git whitespace",
+      "invocation": "git diff --check",
+      "observable": "exit_code=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-git-diff-check.log"
+    },
+    {
+      "scenario": "LSP diagnostics",
+      "invocation": "mcp__lsp.diagnostics on src/qa_report_defense.rs and src/qa_tests.rs",
+      "observable": "No diagnostics found",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-blocker-fix-doneclaim.json"
+    }
+  ],
+  "cleanup": {
+    "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-cleanup-receipt.md",
+    "size_gate_disposition": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/size-gate-disposition.md",
+    "diff": ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-t4-diff-current.patch"
+  },
+  "risks": [
+    "Full cargo test is not green because unrelated tests/tool_policy_api.rs::resolved_external_tool_cannot_be_forged_by_downstream_crates fails; T6 tool-policy files were intentionally not changed.",
+    "Full cargo fmt is not green because unrelated tests/tool_policy_api.rs has formatting drift; T4 files are formatted.",
+    "Oversized modules remain deferred to T11 and are explicitly listed in size-gate-disposition.md."
+  ]
+}

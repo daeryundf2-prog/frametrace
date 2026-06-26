@@ -1,0 +1,32 @@
+## happy setup and generation
+case created: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case
+case id: FT-1782298172
+scan complete
+source registered: src_d96fc085394a1903 (folder)
+job: job_1782298172_000001 (scan-folder)
+videos indexed: 1
+bytes indexed: 19
+index: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/db/video_index.json
+sqlite: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/db/case.db
+review written: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/review/index.html
+evidence viewer written: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/review/evidence-viewer.html
+report written: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/reports/case-report.html
+privacy review QA passed: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/reports/qa/privacy-review.json
+report-defense QA passed: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/reports/qa/report-defense-checklist.md
+## banned wording failure
+banned privacy exit=1
+banned report-defense exit=1
+## full path leakage failure
+leakage privacy exit=1
+## qa release consumes typed privacy/report-defense JSON
+release banned exit=1
+## adversarial malformed_input
+malformed exit=1
+## adversarial stale_state
+privacy review QA passed: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/adversarial-stale-state/reports/qa/privacy-review.json
+stale rerun exit=1
+## adversarial dirty_worktree
+privacy review QA passed: /Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy/case/reports/qa/privacy-review.json
+## adversarial misleading_success_output
+## adversarial flaky_tests
+## adversarial hung_or_long_commands

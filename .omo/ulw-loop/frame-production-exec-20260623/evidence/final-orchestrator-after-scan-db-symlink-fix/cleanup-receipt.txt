@@ -1,0 +1,14 @@
+Cleanup receipt for final orchestrator validation after scan db symlink fix
+timestamp: 2026-06-23T12:26:27Z
+head: f589deaafa1ef8d8c036b1734b6ca3230a266db3
+
+## forbidden QA process patterns
+
+## forbidden QA temp paths
+
+cleanup_status:
+no_remaining_headless_puppeteer_processes: true
+no_remaining_frametrace_temp_paths: true
+no_open_browsers_spawned_by_current_fix: true
+no_workers_spawned_by_root_validation: true
+normal_user_chrome_ignored: true

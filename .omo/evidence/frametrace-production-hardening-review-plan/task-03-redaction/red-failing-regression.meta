@@ -1,0 +1,3 @@
+command=cargo test --locked review_bundle::tests::default_review_bundle_redacts_absolute_source_paths -- --nocapture
+exit_code=101
+elapsed_seconds=6

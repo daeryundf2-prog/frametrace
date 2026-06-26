@@ -69,6 +69,97 @@ fn external_tool_failure_reports_install_guidance() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn release_gate_reports_typed_review_manifest_blockers() {
+    let root = unique_temp_dir("cli-release-gate");
+    let case_dir = root.join("case");
+    let output_dir = root.join("qa");
+    let manifest = root.join("release-review.json");
+    let artifact = root.join("technical-review.json");
+    fs::create_dir_all(&case_dir).expect("case dir should be created");
+    fs::create_dir_all(&output_dir).expect("output dir should be created");
+    fs::write(&artifact, "{}").expect("review artifact should be written");
+    fs::write(
+        &manifest,
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "gates": [
+    {{
+      "key": "technical_review",
+      "status": "done",
+      "artifact_path": "{}",
+      "tool": "manual-review-recorder",
+      "timestamp": "2026-06-24T00:00:00Z",
+      "reviewer": "qa",
+      "cleanup_status": "clean"
+    }}
+  ]
+}}"#,
+            artifact.display()
+        ),
+    )
+    .expect("manifest should be written");
+
+    let output = run(&[
+        "qa",
+        "release",
+        path(&case_dir),
+        "--review-manifest",
+        path(&manifest),
+        "--output-dir",
+        path(&output_dir),
+    ]);
+
+    assert!(!output.status.success());
+    let readiness = fs::read_to_string(output_dir.join("release-readiness.json"))
+        .expect("release readiness JSON should be written");
+    assert!(readiness.contains(r#""name":"technical_review""#));
+    assert!(readiness.contains(r#""status":"FAIL""#));
+    assert!(readiness.contains("expected typed PASS artifact"));
+    assert!(readiness.contains(r#""name":"privacy_review""#));
+
+    fs::write(
+        &manifest,
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "gates": [
+    {{
+      "key": "technical_review",
+      "status": "PASS",
+      "artifact_path": "{}",
+      "tool": "manual-review-recorder",
+      "timestamp": "2026-06-24T00:00:00Z",
+      "reviewer": "qa",
+      "cleanup_status": "clean"
+    }}
+  ]
+}}"#,
+            artifact.display()
+        ),
+    )
+    .expect("valid manifest should be written");
+
+    let output = run(&[
+        "qa",
+        "release",
+        path(&case_dir),
+        "--review-manifest",
+        path(&manifest),
+        "--output-dir",
+        path(&output_dir),
+    ]);
+
+    assert!(!output.status.success());
+    let readiness = fs::read_to_string(output_dir.join("release-readiness.json"))
+        .expect("release readiness JSON should be written");
+    assert!(readiness.contains(r#"{"name":"technical_review","status":"PASS""#));
+    assert!(readiness.contains(r#"{"name":"privacy_review","status":"FAIL""#));
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn path(path: &Path) -> &str {
     path.to_str().expect("test paths should be UTF-8")
 }

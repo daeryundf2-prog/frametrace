@@ -1,0 +1,129 @@
+{
+  "DoneClaim": {
+    "task": "T5 validation targets - typed, case-scoped, audit-chain-aware validation target resolution",
+    "changed_files": [
+      "src/validation/target.rs",
+      "src/validation/target_tests.rs",
+      "src/validation.rs",
+      "src/validation/log.rs",
+      "src/cli/commands.rs",
+      "src/cli/mod.rs",
+      "src/cli/media_cmd.rs",
+      "src/cli/handlers.rs",
+      "tests/cli_e01_validation_log_output_policy.rs",
+      "src/distributable_redaction.rs (clippy-only shared-worktree unblock)",
+      "src/package.rs (cargo fmt shared-worktree unblock)"
+    ],
+    "tests": [
+      {
+        "scenario": "failing-first resolver proof",
+        "invocation": "cargo test --locked validation::target -- --nocapture",
+        "result": "RED captured: 3 expected failures before implementation",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/red-validation-target-tests.log"
+      },
+      {
+        "scenario": "focused validation target tests",
+        "invocation": "cargo test --locked validation::target -- --nocapture",
+        "result": "PASS: 7 passed",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/focused-validation-target-tests.log"
+      },
+      {
+        "scenario": "media contract integration tests",
+        "invocation": "cargo test --locked --test media_contract -- --nocapture",
+        "result": "PASS: 3 passed",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/focused-media-contract-tests.log"
+      },
+      {
+        "scenario": "format gate",
+        "invocation": "cargo fmt --all -- --check",
+        "result": "PASS exit 0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-fmt-check.log"
+      },
+      {
+        "scenario": "clippy gate",
+        "invocation": "cargo clippy --locked --all-targets --all-features -- -D warnings",
+        "result": "PASS exit 0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-clippy.log"
+      },
+      {
+        "scenario": "full locked test suite",
+        "invocation": "cargo test --locked",
+        "result": "PASS: full suite exit 0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-test-full.log"
+      },
+      {
+        "scenario": "diff whitespace gate",
+        "invocation": "git diff --check",
+        "result": "PASS exit 0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-git-diff-check.log"
+      }
+    ],
+    "manual_qa": [
+      {
+        "scenario": "happy logged derived artifact selector from inside a case",
+        "invocation": "target/debug/frametrace validate-artifact <tmp>/happy-case derived-frame-capture-t5-final --ffprobe <tmp>/bin/ffprobe --operator qa-operator",
+        "binary_observable": "exit_code == 0 and stdout contains status: ffprobe-video-stream-confirmed",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      },
+      {
+        "scenario": "poisoned JSONL rejection",
+        "invocation": "target/debug/frametrace validate-artifact <tmp>/poison-case derived-frame-capture-t5-final --ffprobe <tmp>/bin/ffprobe --operator qa-operator",
+        "binary_observable": "exit_code != 0 and stderr contains audit rejection",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      },
+      {
+        "scenario": "explicit external direct path mode",
+        "invocation": "target/debug/frametrace validate-artifact <tmp>/happy-case <external-file> --external-source --ffprobe <tmp>/bin/ffprobe --operator qa-operator",
+        "binary_observable": "exit_code == 0 and stdout contains status: ffprobe-video-stream-confirmed",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      }
+    ],
+    "adversarial_classes": [
+      {
+        "class": "malformed_input",
+        "result": "PASS: malformed/poisoned JSONL rejected; external direct path and traversal rejected by default",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      },
+      {
+        "class": "stale_state",
+        "result": "PASS: stale signed log entry pointing outside case rejected",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      },
+      {
+        "class": "dirty_worktree",
+        "result": "PASS: touched files listed; unrelated T1/T2 state not reverted",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-git-status.txt"
+      },
+      {
+        "class": "misleading_success_output",
+        "result": "PASS: every QA probe records exit-code artifacts and stdout/stderr, not prose only",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json"
+      },
+      {
+        "class": "flaky_tests/hung_or_long_commands",
+        "result": "PASS: command transcripts include elapsed time for fmt, clippy, focused tests, full tests",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-test-full.log"
+      },
+      {
+        "class": "prompt_injection",
+        "result": "not-applicable: no LLM/user-authored prompt content is interpreted by validation target resolution"
+      },
+      {
+        "class": "cancel_resume",
+        "result": "not-applicable: validation target resolution is a single synchronous CLI/library operation with no resumable state"
+      },
+      {
+        "class": "repeated_interruptions",
+        "result": "not-applicable: no resumable multi-step mutation is introduced by T5"
+      }
+    ],
+    "cleanup": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/cleanup-receipt.md"
+    ],
+    "risks": [
+      "Shared worktree contains concurrent T1/T2/T3 edits; T5 preserved and worked with them.",
+      "To unblock required workspace verification, cargo fmt/clippy applied mechanical fixes to pre-existing T3-owned files: src/package.rs and src/distributable_redaction.rs.",
+      "LSP reported target_tests.rs as unlinked under non-test analysis, but cargo test compiled and ran it through #[cfg(test)] mod target_tests. No compiler/clippy/test failure remains."
+    ]
+  }
+}

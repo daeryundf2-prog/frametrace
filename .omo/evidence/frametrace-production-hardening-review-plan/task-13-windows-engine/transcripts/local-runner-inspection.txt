@@ -1,0 +1,11 @@
+surface: local runner/process inspection via terminal
+exact invocation: find .. -maxdepth 3 ...; ps aux | rg ...; launchctl list | rg ...
+
+--- candidate runner dirs ---
+
+--- runner processes ---
+shinyoohag       60324   0.2  0.0 410248848   2320   ??  Ss    9:15PM   0:00.01 /bin/zsh -lc {\012  printf 'surface: local runner/process inspection via terminal\n';\012  printf 'exact invocation: find .. -maxdepth 3 ...; ps aux | rg ...; launchctl list | rg ...\n';\012  printf '\n--- candidate runner dirs ---\n';\012  find .. "$HOME" -maxdepth 3 \( -name '.runner' -o -name 'actions-runner' -o -name 'Runner.Listener' \) -print 2>/dev/null | head -100;\012  printf '\n--- runner processes ---\n';\012  ps aux | rg -i 'actions[.-]runner|Runner.Listener|Runner.Worker' || true;\012  printf '\n--- launchctl runner services ---\n';\012  launchctl list 2>/dev/null | rg -i 'actions|runner|github' || true;\012} > .omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-runner-inspection.txt 2>&1\012wc -c .omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-runner-inspection.txt
+shinyoohag       60423   0.0  0.0 410065776    208   ??  R     9:15PM   0:00.00 rg -i actions[.-]runner|Runner.Listener|Runner.Worker
+
+--- launchctl runner services ---
+-	-9	com.apple.siriactionsd

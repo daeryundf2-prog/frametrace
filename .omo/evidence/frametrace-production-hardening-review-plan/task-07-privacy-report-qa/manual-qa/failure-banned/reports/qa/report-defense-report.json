@@ -1,0 +1,216 @@
+{
+  "active_job_count": 0,
+  "audit_chains": [
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_clip_export",
+      "last_entry_sha256": null,
+      "name": "clip export",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "artifacts/clips/export-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_proxy",
+      "last_entry_sha256": null,
+      "name": "proxy",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "artifacts/proxies/proxy-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_thumbnail",
+      "last_entry_sha256": null,
+      "name": "thumbnail",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "artifacts/thumbnails/thumbnail-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_frame_capture",
+      "last_entry_sha256": null,
+      "name": "frame capture",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "artifacts/frames/frame-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_carving",
+      "last_entry_sha256": null,
+      "name": "carving",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "artifacts/carved/carve-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_filesystem_recovery",
+      "last_entry_sha256": null,
+      "name": "filesystem recovery",
+      "reason": "optional chain unsupported for this case surface",
+      "relative_path": "evidence/logs/tsk-audit.jsonl",
+      "required": false,
+      "state": "unsupported",
+      "status": "unsupported"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_validation",
+      "last_entry_sha256": null,
+      "name": "validation",
+      "reason": "no reported artifacts for this chain",
+      "relative_path": "evidence/logs/validation-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    }
+  ],
+  "audit_violations": [],
+  "claim_violations": [
+    "reports/case-report.html: contains disallowed claim `court-grade`"
+  ],
+  "findings": [
+    {
+      "key": "required_artifact_case_manifest",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/case.json",
+      "status": "pass"
+    },
+    {
+      "key": "required_artifact_case_database",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/db/case.db",
+      "status": "pass"
+    },
+    {
+      "key": "required_artifact_video_json_index",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/db/video_index.json",
+      "status": "pass"
+    },
+    {
+      "key": "required_artifact_video_jsonl_index",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/db/videos.jsonl",
+      "status": "pass"
+    },
+    {
+      "key": "required_artifact_video_path_tsv",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/db/video_paths.tsv",
+      "status": "pass"
+    },
+    {
+      "key": "required_artifact_case_report",
+      "message": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned/reports/case-report.html",
+      "status": "pass"
+    },
+    {
+      "key": "banned_legal_wording",
+      "message": "reports/case-report.html: contains disallowed claim `court-grade`",
+      "status": "failed"
+    },
+    {
+      "key": "active_jobs",
+      "message": "no running SQLite jobs",
+      "status": "pass"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_clip_export",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "artifacts/clips/export-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_proxy",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "artifacts/proxies/proxy-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_thumbnail",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "artifacts/thumbnails/thumbnail-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_frame_capture",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "artifacts/frames/frame-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_carving",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "artifacts/carved/carve-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_filesystem_recovery",
+      "last_entry_sha256": null,
+      "message": "optional chain unsupported for this case surface",
+      "relative_path": "evidence/logs/tsk-audit.jsonl",
+      "required": false,
+      "state": "unsupported",
+      "status": "unsupported"
+    },
+    {
+      "entries": null,
+      "error": "audit log is not present",
+      "key": "audit_chain_validation",
+      "last_entry_sha256": null,
+      "message": "no reported artifacts for this chain",
+      "relative_path": "evidence/logs/validation-log.jsonl",
+      "required": false,
+      "state": "not-applicable",
+      "status": "not-applicable"
+    }
+  ],
+  "missing": [],
+  "passed": false,
+  "qa_type": "report_defense",
+  "schema_version": 1
+}

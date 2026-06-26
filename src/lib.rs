@@ -6,6 +6,7 @@ pub mod cli;
 #[cfg(test)]
 mod derived_output_policy_tests;
 pub mod detector;
+pub mod distributable_redaction;
 pub mod e01;
 pub mod ffprobe;
 pub mod html_report;

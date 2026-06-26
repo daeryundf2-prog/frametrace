@@ -2,6 +2,7 @@ use crate::audit;
 use crate::media_contract;
 use crate::util::read_to_string;
 use crate::video_export::resolve_video_source;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -17,12 +18,31 @@ pub(super) struct ValidationTarget {
 pub(super) fn resolve_validation_target(
     case_dir: &Path,
     selector: &str,
+    allow_external_source: bool,
 ) -> Result<ValidationTarget, String> {
     let direct = PathBuf::from(selector);
-    if direct.is_file() {
-        let path = direct
+    let case_relative_direct = if direct.is_absolute() {
+        direct.clone()
+    } else {
+        case_dir.join(&direct)
+    };
+    let direct_candidate = if case_relative_direct.is_file() {
+        Some(case_relative_direct)
+    } else if direct.is_file() {
+        Some(direct)
+    } else {
+        None
+    };
+    if let Some(direct_candidate) = direct_candidate {
+        let path = direct_candidate
             .canonicalize()
             .map_err(|err| format!("failed to canonicalize validation target: {err}"))?;
+        if !allow_external_source && !is_case_contained(case_dir, &path)? {
+            return Err(format!(
+                "direct validation target is outside the case directory; rerun with explicit external-source validation mode: {}",
+                path.display()
+            ));
+        }
         return Ok(ValidationTarget {
             path,
             source_artifact_id: None,
@@ -51,6 +71,7 @@ pub(super) fn resolve_validation_target(
         });
     }
 
+    let mut provenance_errors = Vec::new();
     for rel_log in [
         "artifacts/carved/carve-log.jsonl",
         "artifacts/clips/export-log.jsonl",
@@ -59,149 +80,145 @@ pub(super) fn resolve_validation_target(
         "artifacts/frames/frame-log.jsonl",
         "evidence/logs/tsk-audit.jsonl",
     ] {
-        let Some(mut target) = resolve_from_log(&case_dir.join(rel_log), selector) else {
-            continue;
-        };
-        if target.path.is_file() {
-            target.path = target
-                .path
-                .canonicalize()
-                .map_err(|err| format!("failed to canonicalize validation target: {err}"))?;
-            return Ok(target);
+        match resolve_from_log(&case_dir.join(rel_log), selector) {
+            Ok(Some(mut target)) => {
+                target.path = canonical_case_target(case_dir, &target.path)?;
+                return Ok(target);
+            }
+            Ok(None) => {}
+            Err(err) => provenance_errors.push(err),
         }
+    }
+
+    if !provenance_errors.is_empty() {
+        return Err(format!(
+            "validation target provenance rejected for {selector}: {}",
+            provenance_errors.join("; ")
+        ));
     }
 
     Err(format!(
-        "validation target not found: {selector} (use an indexed video id, artifact id, inode recovery path, or direct file path)"
+        "validation target not found: {selector} (use an indexed video id, audited artifact id, inode recovery path, or explicit external-source direct file path)"
     ))
 }
 
-pub(super) fn resolve_from_log(log_path: &Path, selector: &str) -> Option<ValidationTarget> {
-    let text = read_to_string(log_path).ok()?;
+pub(super) fn resolve_from_log(
+    log_path: &Path,
+    selector: &str,
+) -> Result<Option<ValidationTarget>, String> {
+    if !log_path.is_file() {
+        return Ok(None);
+    }
+    audit::verify_chained_jsonl(log_path)
+        .map_err(|err| format!("audit chain rejected {}: {err}", log_path.display()))?;
+    let text = read_to_string(log_path).map_err(|err| {
+        format!(
+            "failed to read validation provenance log {}: {err}",
+            log_path.display()
+        )
+    })?;
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let id = extract_json_string(line, "id");
-        let inode = extract_json_string(line, "inode");
-        let output_path = extract_json_string(line, "output_path");
-        let output_artifact_path = extract_json_string(line, "output_artifact_path");
-        let selector_field = extract_json_string(line, "selector");
-        let derived_artifact_id = extract_json_string(line, "derived_artifact_id");
-        let source_artifact_id = extract_json_string(line, "source_artifact_id");
-        let source_artifact_path = extract_json_string(line, "source_artifact_path")
-            .or_else(|| extract_json_string(line, "source_path"));
-        let source_artifact_sha256 = extract_json_string(line, "source_artifact_sha256")
-            .or_else(|| extract_json_string(line, "source_index_sha256"));
-        let matches = id.as_deref() == Some(selector)
-            || inode.as_deref() == Some(selector)
-            || selector_field.as_deref() == Some(selector)
-            || derived_artifact_id.as_deref() == Some(selector)
-            || source_artifact_id.as_deref() == Some(selector)
-            || output_path.as_deref() == Some(selector)
-            || output_artifact_path.as_deref() == Some(selector);
-        if matches {
-            let target_artifact_id = derived_artifact_id
-                .clone()
-                .or_else(|| id.clone())
-                .or_else(|| inode.clone())
-                .or_else(|| selector_field.clone());
-            return output_path
-                .or(output_artifact_path)
-                .map(|path| ValidationTarget {
-                    path: PathBuf::from(path),
-                    source_artifact_id,
-                    source_artifact_path: source_artifact_path.map(PathBuf::from),
-                    source_artifact_sha256,
-                    derived_artifact_id,
-                    target_artifact_id,
-                });
+        let record: ValidationTargetRecord = serde_json::from_str(line).map_err(|err| {
+            format!(
+                "typed provenance parse failed in {} for selector {selector}: {err}",
+                log_path.display()
+            )
+        })?;
+        if record.matches(selector) {
+            return record.into_target(log_path).map(Some);
         }
     }
-    None
+    Ok(None)
 }
 
-fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'b' => out.push('\u{08}'),
-                'f' => out.push('\u{0C}'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                'u' => {
-                    let mut code = String::new();
-                    for _ in 0..4 {
-                        code.push(chars.next()?);
-                    }
-                    let code = u32::from_str_radix(&code, 16).ok()?;
-                    out.push(char::from_u32(code)?);
-                }
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
+#[derive(Debug, Deserialize)]
+struct ValidationTargetRecord {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    inode: Option<String>,
+    #[serde(default)]
+    output_path: Option<String>,
+    #[serde(default)]
+    output_artifact_path: Option<String>,
+    #[serde(default)]
+    selector: Option<String>,
+    #[serde(default)]
+    derived_artifact_id: Option<String>,
+    #[serde(default)]
+    source_artifact_id: Option<String>,
+    #[serde(default)]
+    source_artifact_path: Option<String>,
+    #[serde(default)]
+    source_path: Option<String>,
+    #[serde(default)]
+    source_artifact_sha256: Option<String>,
+    #[serde(default)]
+    source_index_sha256: Option<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{extract_json_string, resolve_from_log};
-    use std::fs;
+impl ValidationTargetRecord {
+    fn matches(&self, selector: &str) -> bool {
+        self.id.as_deref() == Some(selector)
+            || self.inode.as_deref() == Some(selector)
+            || self.selector.as_deref() == Some(selector)
+            || self.derived_artifact_id.as_deref() == Some(selector)
+            || self.source_artifact_id.as_deref() == Some(selector)
+            || self.output_path.as_deref() == Some(selector)
+            || self.output_artifact_path.as_deref() == Some(selector)
+    }
 
-    #[test]
-    fn resolves_artifact_path_from_jsonl_log() {
-        let dir = std::env::temp_dir().join(format!(
-            "frametrace-validation-log-test-{}",
-            std::process::id()
+    fn into_target(self, log_path: &Path) -> Result<ValidationTarget, String> {
+        let path = self
+            .output_path
+            .or(self.output_artifact_path)
+            .ok_or_else(|| {
+                format!(
+                    "matched provenance record in {} has no output path",
+                    log_path.display()
+                )
+            })?;
+        let target_artifact_id = self
+            .derived_artifact_id
+            .clone()
+            .or_else(|| self.id.clone())
+            .or_else(|| self.inode.clone())
+            .or_else(|| self.selector.clone());
+        Ok(ValidationTarget {
+            path: PathBuf::from(path),
+            source_artifact_id: self.source_artifact_id,
+            source_artifact_path: self
+                .source_artifact_path
+                .or(self.source_path)
+                .map(PathBuf::from),
+            source_artifact_sha256: self.source_artifact_sha256.or(self.source_index_sha256),
+            derived_artifact_id: self.derived_artifact_id,
+            target_artifact_id,
+        })
+    }
+}
+
+fn canonical_case_target(case_dir: &Path, target_path: &Path) -> Result<PathBuf, String> {
+    let candidate = if target_path.is_absolute() {
+        target_path.to_path_buf()
+    } else {
+        case_dir.join(target_path)
+    };
+    let path = candidate
+        .canonicalize()
+        .map_err(|err| format!("failed to canonicalize validation target: {err}"))?;
+    if !is_case_contained(case_dir, &path)? {
+        return Err(format!(
+            "audited validation target is outside the case directory: {}",
+            path.display()
         ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("log.jsonl");
-        fs::write(
-            &log,
-            r#"{"id":"carve_000001","output_path":"/tmp/out.mp4"}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            resolve_from_log(&log, "carve_000001")
-                .unwrap()
-                .path
-                .to_string_lossy(),
-            "/tmp/out.mp4"
-        );
-        fs::write(
-            &log,
-            r#"{"derived_artifact_id":"derived-frame-capture-bbbbbbbbbbbb","output_artifact_path":"/tmp/frame.jpg"}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            resolve_from_log(&log, "derived-frame-capture-bbbbbbbbbbbb")
-                .unwrap()
-                .path
-                .to_string_lossy(),
-            "/tmp/frame.jpg"
-        );
-        let _ = fs::remove_dir_all(dir);
     }
+    Ok(path)
+}
 
-    #[test]
-    fn extracts_escaped_json_strings() {
-        assert_eq!(
-            extract_json_string(r#"{"output_path":"C:\\Cases\\a.mp4"}"#, "output_path").as_deref(),
-            Some("C:\\Cases\\a.mp4")
-        );
-    }
+fn is_case_contained(case_dir: &Path, target_path: &Path) -> Result<bool, String> {
+    let case_dir = case_dir
+        .canonicalize()
+        .map_err(|err| format!("failed to canonicalize case directory: {err}"))?;
+    Ok(target_path.starts_with(case_dir))
 }

@@ -1,0 +1,58 @@
+{
+  "DoneClaim": {
+    "task": "T4. Make missing required audit chains block report-defense",
+    "changed_files": [
+      "src/audit.rs",
+      "src/qa_report_defense.rs",
+      "src/qa_tests.rs",
+      "tests/media_contract.rs",
+      ".omo/plans/frametrace-production-hardening-review-plan.md",
+      ".omo/start-work/ledger.jsonl",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/"
+    ],
+    "tests": [
+      "RED: cargo test --locked report_defense_ -- --nocapture -> exit_code=101; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/red-report-defense-tests.log",
+      "GREEN: cargo test --locked report_defense_ -- --nocapture -> exit_code=0; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-focused-report-defense-tests.log",
+      "cargo fmt --all -- --check -> exit_code=0; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-fmt-check.log",
+      "cargo clippy --locked --all-targets --all-features -- -D warnings -> exit_code=0; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-clippy.log",
+      "cargo test --locked -> exit_code=0; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-cargo-test-full.log",
+      "git diff --check -> exit_code=0; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-git-diff-check.log"
+    ],
+    "manual_qa": [
+      "BASELINE BUG: cargo run --locked -- qa report-defense <case> passed despite present proxy artifact and absent artifacts/proxies/proxy-log.jsonl; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/baseline-current-missing-log-cli.log",
+      "HAPPY: target/debug/frametrace qa report-defense <case> -> exit_code=0 and checklist contains [valid] proxy required=yes; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-manual-qa-happy.log",
+      "FAILURE: target/debug/frametrace qa report-defense <case missing proxy log> -> exit_code=1 and stderr contains artifacts/proxies/proxy-log.jsonl [missing]; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-manual-qa-failure.log",
+      "Manual QA assertions summary; .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-manual-qa-summary.txt"
+    ],
+    "adversarial_classes": {
+      "malformed_input": "probed; tampered required audit log fails report-defense; adversarial-malformed-input.log",
+      "stale_state": "probed; present proxy artifact with withheld log fails exact key; adversarial-stale-state.log",
+      "dirty_worktree": "probed; shared dirty worktree captured; adversarial-dirty-worktree.log",
+      "misleading_success_output": "probed; assertions use exit code and blocker key, not success text; adversarial-misleading-success-output.log",
+      "flaky_tests": "probed; focused report-defense tests reran cleanly; adversarial-flaky-tests-rerun.log",
+      "hung_or_long_commands": "probed; bounded commands completed; adversarial-hung-or-long-commands.log",
+      "prompt_injection": "not applicable: no untrusted LLM/prompt text processing in T4",
+      "cancel_resume": "not applicable: no resumable workflow added or changed",
+      "repeated_interruptions": "not applicable: no interrupt/recovery surface added or changed"
+    },
+    "cleanup": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/cleanup-receipt.md"
+    ],
+    "risks": [
+      "Post-implementation subagent review gate could not run because multi_agent_v1.spawn_agent returned agent thread limit reached; see review-gate-spawn-blocked.log.",
+      "Shared worktree contains unrelated T1-T3/T5/T6 changes; T4 did not intentionally revert or own those files. Dirty state captured in adversarial-dirty-worktree.log.",
+      "src/audit.rs, src/qa_report_defense.rs, and src/qa_tests.rs exceed the programming skill's 250 pure LOC threshold; plan T11 owns oversized module splits, so T4 kept scope limited. Size receipt: post-write-size-review.log."
+    ]
+  },
+  "AdversarialVerify": {
+    "verdict": "confirmed-with-review-gate-tooling-limitation",
+    "evidence": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-cargo-test-full.log",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-manual-qa-happy.log",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-manual-qa-failure.log",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/adversarial-summary.md"
+    ],
+    "repro": "target/debug/frametrace qa report-defense <case>; remove artifacts/proxies/proxy-log.jsonl for a case with a proxy artifact to reproduce the required-chain failure",
+    "confidence": 0.86
+  }
+}

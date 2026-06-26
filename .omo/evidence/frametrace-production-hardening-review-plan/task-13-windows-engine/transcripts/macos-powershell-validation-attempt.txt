@@ -1,0 +1,3 @@
+surface: PowerShell Windows validation script on local host
+exact invocation: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/validate-release.ps1 -CaseRoot /tmp/frametrace-release-smoke-t13 -PerformanceRows 10
+pwsh_missing=true

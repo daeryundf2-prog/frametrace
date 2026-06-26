@@ -1,0 +1,17 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 7 tests
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test tool_policy::tests::rejects_output_that_targets_source_evidence_path ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test tool_policy::tests::resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 135 filtered out; finished in 0.21s
+

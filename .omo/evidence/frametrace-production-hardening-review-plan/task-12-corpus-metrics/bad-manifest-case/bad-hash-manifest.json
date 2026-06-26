@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "corpus_id": "synthetic-video-corpus",
+  "corpus_kind": "synthetic",
+  "release_keys": {
+    "mixed_real_world_like": "unsupported"
+  },
+  "domains": [
+    {
+      "key": "video_recovery",
+      "status": "supported",
+      "ground_truth_schema": [
+        "source_path",
+        "source_sha256",
+        "expected_status"
+      ],
+      "expected_outputs_schema": [
+        "db/videos.jsonl",
+        "evidence/logs/validation-log.jsonl"
+      ]
+    },
+    {
+      "key": "deleted_file_recovery",
+      "status": "supported",
+      "ground_truth_schema": [
+        "source_path",
+        "source_sha256",
+        "inode",
+        "expected_status"
+      ],
+      "expected_outputs_schema": [
+        "evidence/logs/tsk-audit.jsonl",
+        "evidence/logs/validation-log.jsonl"
+      ]
+    },
+    {
+      "key": "browser_artifacts",
+      "status": "unsupported",
+      "reason": "Browser artifact parser is outside the current recovery PRD and has no approved corpus."
+    },
+    {
+      "key": "windows_event_logs",
+      "status": "unsupported",
+      "reason": "EVTX parser is outside the current recovery PRD and has no approved corpus."
+    },
+    {
+      "key": "timeline_reconstruction",
+      "status": "unsupported",
+      "reason": "Timeline reconstruction remains a future corpus until event-source parsers are approved."
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "SYN-VID-001",
+      "domain": "video_recovery",
+      "source_path": "/non-client/synthetic/video-a.mp4",
+      "source_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "ground_truth": {
+        "expected_status": "ffprobe-video-stream-confirmed",
+        "fixture_case": "tests/fixtures/corpus/synthetic-video-case-a",
+        "evidence_class": "non-client synthetic media reference"
+      },
+      "expected_outputs": {
+        "indexed": true,
+        "validation_status": "ffprobe-video-stream-confirmed",
+        "report_paths": [
+          "db/videos.jsonl",
+          "evidence/logs/validation-log.jsonl"
+        ]
+      }
+    },
+    {
+      "case_id": "SYN-VID-002",
+      "domain": "video_recovery",
+      "source_path": "tests/fixtures/corpus/synthetic-video-case-a/artifacts/carved/carve_000001.mp4",
+      "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "ground_truth": {
+        "expected_status": "candidate-unvalidated",
+        "fixture_case": "tests/fixtures/corpus/synthetic-video-case-a",
+        "evidence_class": "non-client synthetic carved media candidate"
+      },
+      "expected_outputs": {
+        "indexed": true,
+        "validation_status": "candidate-unvalidated",
+        "report_paths": [
+          "artifacts/carved/carve-log.jsonl"
+        ]
+      }
+    },
+    {
+      "case_id": "SYN-DEL-001",
+      "domain": "deleted_file_recovery",
+      "source_path": "tests/fixtures/corpus/synthetic-video-case-a/artifacts/recovered/inode_42.mp4",
+      "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "ground_truth": {
+        "inode": "42",
+        "expected_status": "candidate-unvalidated",
+        "fixture_case": "tests/fixtures/corpus/synthetic-video-case-a",
+        "evidence_class": "non-client synthetic inode recovery"
+      },
+      "expected_outputs": {
+        "indexed": true,
+        "validation_status": "candidate-unvalidated",
+        "report_paths": [
+          "evidence/logs/tsk-audit.jsonl"
+        ]
+      }
+    }
+  ],
+  "external_references": [
+    {
+      "corpus_id": "large-non-client-video-reference",
+      "description": "Large external validation corpus retained outside git; hash-only reference prevents private media inclusion.",
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "hash_only": true
+    }
+  ]
+}

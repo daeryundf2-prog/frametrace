@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/tool_policy_api.rs (target/debug/deps/tool_policy_api-1c20501e5fb96502)
+
+running 1 test
+
+thread 'resolved_external_tool_cannot_be_forged_by_downstream_crates' (104733509) panicked at tests/tool_policy_api.rs:51:5:
+forged ResolvedExternalTool unexpectedly compiled
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test resolved_external_tool_cannot_be_forged_by_downstream_crates ... FAILED
+
+failures:
+
+failures:
+    resolved_external_tool_cannot_be_forged_by_downstream_crates
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.50s
+
+error: test failed, to rerun pass `--test tool_policy_api`

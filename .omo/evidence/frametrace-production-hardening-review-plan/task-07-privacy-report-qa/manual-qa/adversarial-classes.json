@@ -1,0 +1,11 @@
+{
+  "malformed_input": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/adversarial-malformed-output/privacy-review.json contains status skipped and command exits nonzero"},
+  "stale_state": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/adversarial-stale-state/reports/qa/privacy-review.json changes from passed true to passed false after leakage injection"},
+  "dirty_worktree": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/dirty-worktree-before.txt and dirty-worktree-after.txt captured while QA still uses case artifacts"},
+  "misleading_success_output": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/leakage-privacy.stderr contains full_path_leakage and exit code is nonzero"},
+  "flaky_tests": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/flaky-privacy-tests-run-1.log and run-2.log both report 2 passed"},
+  "hung_or_long_commands": {"result": "probed", "observable": "/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/timeout-privacy.stdout captured through perl alarm 30s wrapper"},
+  "prompt_injection": {"result": "not-applicable", "reason": "T7 QA parses local report artifacts and does not execute or follow untrusted natural-language instructions"},
+  "cancel_resume": {"result": "not-applicable", "reason": "T7 commands are short synchronous CLI checks with no resumable job state"},
+  "repeated_interruptions": {"result": "not-applicable", "reason": "T7 does not add interrupt/resume behavior or long-running background processes"}
+}

@@ -1,0 +1,12 @@
+cleanup_receipt=T7 privacy/report QA
+receipt_updated_at=2026-06-24T20:14:29+09:00
+retained_evidence_cases=/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/happy,/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-banned,/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-leakage,/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/adversarial-stale-state
+persistent_t7_temp_cases_outside_evidence=none_after_targeted_cleanup
+removed_t7_temp_roots=/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-leakage-test-39342,/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-redacted-test-39342,/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-release-stale-report-defense-test-37403
+non_t7_frametrace_temp_roots_retained=present_unmodified
+cleanup_transcript=/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/t7-temp-cleanup-transcript.log
+post_cleanup_find_command=find "${TMPDIR:-/tmp}" -maxdepth 1 -type d -name 'frametrace-*' -print | sort
+post_cleanup_find_result=the_three_removed_t7_roots_are_absent; unrelated frametrace temp roots remain outside T7 scope
+persistent_processes=none
+ports_opened=none
+manual_qa_status=complete

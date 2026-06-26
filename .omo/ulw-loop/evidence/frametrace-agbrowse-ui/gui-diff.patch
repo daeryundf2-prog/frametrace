@@ -1,0 +1,1753 @@
+diff --git a/gui/evidence-viewer/app.js b/gui/evidence-viewer/app.js
+index 42072f1..615ecc7 100644
+--- a/gui/evidence-viewer/app.js
++++ b/gui/evidence-viewer/app.js
+@@ -3,7 +3,7 @@ const seedRecords = [
+     id: "vid_000001",
+     type: "video",
+     name: "20260519_120000_F.mp4",
+-    path: "E:/BLACKVUE/Record/20260519_120000_F.mp4",
++    path: "[redacted-source:vid_000001]",
+     source: "SD001 BlackVue microSD",
+     sourceKind: "mounted-volume",
+     vendor: "BlackVue",
+@@ -31,7 +31,7 @@ const seedRecords = [
+     id: "vid_000002",
+     type: "video",
+     name: "20260519_120000_R.mp4",
+-    path: "E:/BLACKVUE/Record/20260519_120000_R.mp4",
++    path: "[redacted-source:vid_000002]",
+     source: "SD001 BlackVue microSD",
+     sourceKind: "mounted-volume",
+     vendor: "BlackVue",
+@@ -59,7 +59,7 @@ const seedRecords = [
+     id: "vid_000117",
+     type: "video",
+     name: "ch02_20260519_115830.dav",
+-    path: "D:/EXPORT/Dahua/ch02_20260519_115830.dav",
++    path: "[redacted-source:vid_000117]",
+     source: "HDD001 NVR export",
+     sourceKind: "folder",
+     vendor: "Dahua",
+@@ -87,7 +87,7 @@ const seedRecords = [
+     id: "img_000041",
+     type: "photo",
+     name: "frame_capture_20260519_120027.jpg",
+-    path: "C:/Cases/FT-2026-0519/artifacts/thumbnails/frame_capture_20260519_120027.jpg",
++    path: "artifacts/thumbnails/frame_capture_20260519_120027.jpg",
+     source: "Derived from vid_000001",
+     sourceKind: "derived",
+     vendor: "Derived",
+@@ -115,7 +115,7 @@ const seedRecords = [
+     id: "carve_000009",
+     type: "candidate",
+     name: "carved_000009_offset_771751936.mp4",
+-    path: "C:/Cases/FT-2026-0519/artifacts/carved/carved_000009_offset_771751936.mp4",
++    path: "artifacts/carved/carved_000009_offset_771751936.mp4",
+     source: "E01 exported raw image",
+     sourceKind: "raw-image",
+     vendor: "Generic",
+@@ -143,7 +143,7 @@ const seedRecords = [
+     id: "img_000088",
+     type: "photo",
+     name: "parking_lot_plate_crop.jpg",
+-    path: "C:/Cases/FT-2026-0519/artifacts/derived/parking_lot_plate_crop.jpg",
++    path: "artifacts/derived/parking_lot_plate_crop.jpg",
+     source: "Derived from vid_000117",
+     sourceKind: "derived",
+     vendor: "Derived",
+@@ -169,7 +169,7 @@ const seedRecords = [
+   },
+ ];
+ 
+-const records = generateMockInventory(seedRecords, 10000);
++const records = generateMockInventory(seedRecords, 10000).map(applyDefaultPathRedaction);
+ 
+ function generateMockInventory(seed, count) {
+   const statuses = ["unreviewed", "reviewed", "important", "needs_verification", "candidate"];
+@@ -213,6 +213,24 @@ function generateMockInventory(seed, count) {
+   });
+ }
+ 
++function applyDefaultPathRedaction(record) {
++  return {
++    ...record,
++    path: distributablePathLabel(record.path, record.id),
++  };
++}
++
++function distributablePathLabel(path, id) {
++  const value = String(path || "");
++  const normalized = value.replaceAll("\\", "/");
++  const artifactIndex = normalized.indexOf("/artifacts/");
++  if (artifactIndex >= 0) return normalized.slice(artifactIndex + 1);
++  if (/^(file:)?\/\//.test(normalized) || /^\/|^[A-Za-z]:\//.test(normalized)) {
++    return `[redacted-source:${id || "record"}]`;
++  }
++  return value;
++}
++
+ function pseudoHash(index) {
+   const alphabet = "0123456789abcdef";
+   let value = (index + 1) * 2654435761;
+@@ -243,14 +261,32 @@ function parseSize(value) {
+ const translations = {
+   ko: {
+     "app.title": "FrameTrace 증거 뷰어",
+-    "app.subtitle": "증거 뷰어",
++    "app.subtitle": "Local evidence review workstation",
+     "case.summaryAria": "사건 요약",
+     "case.id": "사건 FT-2026-0519",
+-    "case.description": "의뢰인 CCTV/블랙박스 입수",
+-    "case.prototype": "프로토타입 세션",
++    "case.description": "Local case only",
++    "case.prototype": "Source evidence read-only · Prototype: queued actions are previews",
+     "lang.switch": "언어 전환",
+     "sync.title": "동기화 채널 보기 전환",
+     "package.title": "사건 패키징",
++    "workflow.aria": "증거 처리 흐름",
++    "workflow.intake": "소스 증거 입수",
++    "workflow.candidates": "복구 영상 후보",
++    "workflow.validation": "검증 상태",
++    "workflow.export": "출력 대기",
++    "workflow.report": "보고서 패키지",
++    "workflow.promise": "소스 증거는 local-first 읽기전용으로 보존하고, 프로토타입 출력은 preview/queued 상태만 생성합니다.",
++    "summary.aria": "포렌식 작업 요약",
++    "summary.sources": "Evidence sources",
++    "summary.sourcesDetail": "{count} local-first/read-only · {names}",
++    "summary.candidates": "Video candidates",
++    "summary.candidatesDetail": "{count} candidate-unvalidated",
++    "summary.validation": "Validation queue",
++    "summary.validationDetail": "{count} verification required",
++    "summary.export": "Export preview",
++    "summary.exportDetail": "Queue MP4/AVI only",
++    "summary.report": "Report package",
++    "summary.reportDetail": "{count} report set",
+     "sources.aria": "증거 소스",
+     "browser.aria": "증거 브라우저",
+     "filters.aria": "증거 필터",
+@@ -262,7 +298,7 @@ const translations = {
+     "inventory.results": "{count}개 일치",
+     "inventory.window": "{start}-{end} 표시",
+     "inventory.latency": "{ms} ms",
+-    "inventory.policy": "Production은 SQLite page query(limit <= 500)로 조회합니다. 이 프로토타입은 10,000개 결정론 mock row와 bounded DOM virtualization만 검증합니다.",
++    "inventory.policy": "Local prototype: 10,000 mock rows. Production review uses SQLite paged queries, max 500 rows per request.",
+     "density.compact": "압축",
+     "density.normal": "표준",
+     "density.media": "미디어",
+@@ -274,10 +310,26 @@ const translations = {
+     "table.select": "선택",
+     "viewer.aria": "증거 뷰어",
+     "viewer.canvas": "선택 증거 미리보기",
++    "viewer.railAria": "선택 증거 검토 작업",
++    "rail.selectedEvidence": "Selected source evidence",
++    "rail.readOnly": "local-first · source evidence read-only",
++    "rail.validation": "Validation queue",
++    "rail.validationDetail": "verification required before reliance",
++    "rail.export": "Export preview",
++    "rail.exportDetail": "MP4/AVI preview queued only",
++    "rail.report": "Report set",
++    "rail.reportDetail": "candidate package item",
++    "rail.package": "Package preview",
++    "rail.packageDetail": "queued only; review before report",
++    "rail.queued": "queued",
++    "rail.required": "required",
++    "rail.preview": "preview",
++    "rail.included": "included",
++    "rail.notIncluded": "not set",
+     "inspector.aria": "포렌식 인스펙터",
+     "panel.evidence": "증거",
+     "panel.reviewQueue": "검토 큐",
+-    "panel.fileState": "파일 상태",
++    "panel.fileState": "Forensic decision gate",
+     "panel.metadata": "메타데이터",
+     "panel.outputQueue": "출력 큐",
+     "panel.sessionActivity": "세션 활동",
+@@ -307,15 +359,17 @@ const translations = {
+     "transport.nextFile": "다음 파일",
+     "transport.speed": "재생 속도",
+     "transport.zoom": "확대",
+-    "action.reviewed": "검토완료",
++    "action.reviewed": "검토자 확인",
+     "action.important": "중요",
+-    "action.report": "보고서",
+-    "action.frame": "프레임",
+-    "action.queueVerify": "검증 대기",
++    "action.report": "보고서 세트",
++    "action.frame": "Queue frame capture",
++    "action.exportMp4": "Queue MP4 export",
++    "action.exportAvi": "Queue AVI export",
++    "action.queueVerify": "검증 대기열",
+     "bulk.reviewed": "검토 표시",
+     "bulk.report": "보고서 세트",
+-    "bulk.validation": "검증 큐",
+-    "bulk.export": "매니페스트",
++    "bulk.validation": "검증 대기열",
++    "bulk.export": "내보내기 미리보기",
+     "bulk.clear": "선택 해제",
+     "bulk.selected": "{count}개 선택",
+     "bulk.previewTitle": "작업 미리보기",
+@@ -334,11 +388,11 @@ const translations = {
+     "stat.selected": "선택",
+     "stat.videos": "영상",
+     "stat.photos": "사진",
+-    "stat.carved": "복구 후보",
++    "stat.carved": "Recovered candidates",
+     "stat.important": "중요",
+-    "stat.verify": "검증 필요",
+-    "stat.report": "보고서",
+-    "stat.reviewed": "검토완료",
++    "stat.verify": "Needs validation",
++    "stat.report": "Report set",
++    "stat.reviewed": "Reviewed by examiner",
+     "filter.all": "전체",
+     "filter.video": "영상",
+     "filter.photo": "사진",
+@@ -346,23 +400,30 @@ const translations = {
+     "filter.needs_verification": "검증",
+     "filter.important": "중요",
+     "filter.report": "보고서",
+-    "queue.unreviewed": "미검토",
++    "queue.unreviewed": "Needs validation",
+     "queue.important": "중요",
+     "queue.report": "보고서 포함",
+-    "queue.needs_verification": "검증 필요",
++    "queue.needs_verification": "Needs validation",
+     "queue.triage": "1차 검토",
+     "queue.active": "활성 검토",
+     "source.all": "전체 증거",
+-    "source.caseWideIndex": "사건 전체 색인",
++    "source.caseWideIndex": "case-wide index · local-first · read-only review",
++    "source.readonly": "{kind} · local-first · source evidence read-only",
++    "source.derived": "{kind} · derived artifact · preview output",
+     "empty.noMatches": "이 보기와 일치하는 증거가 없습니다.",
+-    "status.unreviewed": "열림",
+-    "status.reviewed": "완료",
++    "status.unreviewed": "Needs validation",
++    "status.reviewed": "Reviewed by examiner",
+     "status.important": "중요",
+-    "status.needs_verification": "검증",
+-    "status.candidate": "후보",
++    "status.needs_verification": "verification required",
++    "status.candidate": "Candidate - unvalidated",
++    "status.row.unreviewed": "Needs validation",
++    "status.row.reviewed": "Reviewed",
++    "status.row.important": "Important",
++    "status.row.needs_verification": "Verify",
++    "status.row.candidate": "Candidate",
+     "type.video": "영상",
+     "type.photo": "사진",
+-    "type.candidate": "복구",
++    "type.candidate": "Recovered candidates",
+     "badge.original": "원본",
+     "badge.derived": "파생",
+     "badge.candidate": "후보",
+@@ -383,10 +444,19 @@ const translations = {
+     "meta.still": "정지 이미지",
+     "meta.notRecorded": "기록 없음",
+     "output.noneQueued": "대기 중 작업 없음",
+-    "output.mp4Queued": "MP4 출력 대기",
+-    "output.aviQueued": "AVI 출력 대기",
++    "output.mp4Queued": "Queue MP4 export",
++    "output.aviQueued": "Queue AVI export",
+     "output.frameQueued": "프레임 캡처 대기",
+     "output.validationQueued": "검증 대기",
++    "gate.title": "Forensic decision gate",
++    "gate.indexed": "Indexed",
++    "gate.container": "Container checked",
++    "gate.playback": "Playback confirmed",
++    "gate.report": "Report selected",
++    "gate.export": "Exported",
++    "gate.complete": "complete",
++    "gate.pending": "verification required",
++    "gate.queued": "preview queued",
+     "activity.prototypeCaseOpened": "프로토타입 사건 열림",
+     "activity.prototypeCaseOpenedDetail": "GUI 검토용 mock 사건 색인 로드",
+     "activity.parserCatalogStaged": "파서 카탈로그 준비",
+@@ -398,16 +468,16 @@ const translations = {
+     "activity.markedImportant": "중요 표시",
+     "activity.addedToReport": "보고서 포함",
+     "activity.removedFromReport": "보고서 제외",
+-    "activity.mp4Queued": "MP4 출력 대기",
+-    "activity.aviQueued": "AVI 출력 대기",
++    "activity.mp4Queued": "Queue MP4 export",
++    "activity.aviQueued": "Queue AVI export",
+     "activity.frameQueued": "프레임 캡처 대기",
+     "activity.validationQueued": "검증 대기",
+     "activity.synchronizedView": "동기화 보기",
+-    "activity.packageQueued": "패키지 대기",
++    "activity.packageQueued": "Package case",
+     "activity.bulkPreview": "작업 미리보기 생성",
+     "activity.enabled": "활성화",
+     "activity.disabled": "비활성화",
+-    "activity.packageDetail": "검토 세트, 보고서 세트, 매니페스트",
++    "activity.packageDetail": "preview queued: review set, report set, manifests",
+     "canvas.derivedView": "파생 보기",
+     "syncPane.a": "A",
+     "syncPane.b": "B",
+@@ -423,7 +493,7 @@ const translations = {
+       "Native DAV export, preserve original and export derived MP4": "DAV 원본은 보존하고 파생 MP4 출력 필요",
+       "derived artifact": "파생 산출물",
+       "Report still frame, original clip linked": "보고서용 정지 프레임, 원본 클립 연결됨",
+-      "candidate-unvalidated": "미검증 후보",
++      "candidate-unvalidated": "candidate-unvalidated",
+       "Contiguous MP4 signature; verify moov/mdat and playback": "연속 MP4 시그니처, moov/mdat 및 재생 검증 필요",
+       "Contrast-adjusted copy, original frame retained": "대비 보정 사본, 원본 프레임 보존",
+       "Contiguous candidate awaiting validation": "연속 후보, 검증 대기",
+@@ -451,14 +521,32 @@ const translations = {
+   },
+   en: {
+     "app.title": "FrameTrace Evidence Viewer",
+-    "app.subtitle": "Evidence Viewer",
++    "app.subtitle": "Local evidence review workstation",
+     "case.summaryAria": "Case summary",
+     "case.id": "Case FT-2026-0519",
+-    "case.description": "Client CCTV and dashcam intake",
+-    "case.prototype": "Prototype session",
++    "case.description": "Local case only",
++    "case.prototype": "Source evidence read-only · Prototype: queued actions are previews",
+     "lang.switch": "Switch language",
+     "sync.title": "Toggle synchronized channel view",
+     "package.title": "Package case",
++    "workflow.aria": "Evidence workflow",
++    "workflow.intake": "Read-only local source",
++    "workflow.candidates": "Recovered candidates",
++    "workflow.validation": "verification required",
++    "workflow.export": "preview queued",
++    "workflow.report": "package preview",
++    "workflow.promise": "Source evidence stays local-first and read-only; prototype export and package actions are previews or queued only.",
++    "summary.aria": "Forensic workbench summary",
++    "summary.sources": "Evidence sources",
++    "summary.sourcesDetail": "{count} local-first/read-only · {names}",
++    "summary.candidates": "Video candidates",
++    "summary.candidatesDetail": "{count} candidate-unvalidated",
++    "summary.validation": "Validation queue",
++    "summary.validationDetail": "{count} verification required",
++    "summary.export": "Export preview",
++    "summary.exportDetail": "Queue MP4/AVI only",
++    "summary.report": "Report package",
++    "summary.reportDetail": "{count} report set",
+     "sources.aria": "Evidence sources",
+     "browser.aria": "Evidence browser",
+     "filters.aria": "Evidence filters",
+@@ -470,7 +558,7 @@ const translations = {
+     "inventory.results": "{count} matches",
+     "inventory.window": "showing {start}-{end}",
+     "inventory.latency": "{ms} ms",
+-    "inventory.policy": "Production uses SQLite page queries with limit <= 500. This prototype validates 10,000 deterministic mock rows and bounded DOM virtualization only.",
++    "inventory.policy": "Local prototype: 10,000 mock rows. Production review uses SQLite paged queries, max 500 rows per request.",
+     "density.compact": "Compact",
+     "density.normal": "Normal",
+     "density.media": "Media",
+@@ -482,10 +570,26 @@ const translations = {
+     "table.select": "Select",
+     "viewer.aria": "Evidence viewer",
+     "viewer.canvas": "Selected evidence preview",
++    "viewer.railAria": "Selected evidence review actions",
++    "rail.selectedEvidence": "Selected source evidence",
++    "rail.readOnly": "local-first · source evidence read-only",
++    "rail.validation": "Validation queue",
++    "rail.validationDetail": "verification required before reliance",
++    "rail.export": "Export preview",
++    "rail.exportDetail": "MP4/AVI preview queued only",
++    "rail.report": "Report set",
++    "rail.reportDetail": "candidate package item",
++    "rail.package": "Package preview",
++    "rail.packageDetail": "queued only; review before report",
++    "rail.queued": "queued",
++    "rail.required": "required",
++    "rail.preview": "preview",
++    "rail.included": "included",
++    "rail.notIncluded": "not set",
+     "inspector.aria": "Forensic inspector",
+     "panel.evidence": "Evidence",
+     "panel.reviewQueue": "Review Queue",
+-    "panel.fileState": "File State",
++    "panel.fileState": "Forensic decision gate",
+     "panel.metadata": "Metadata",
+     "panel.outputQueue": "Output Queue",
+     "panel.sessionActivity": "Session Activity",
+@@ -515,15 +619,17 @@ const translations = {
+     "transport.nextFile": "Next file",
+     "transport.speed": "Playback speed",
+     "transport.zoom": "Zoom",
+-    "action.reviewed": "Reviewed",
++    "action.reviewed": "Reviewed by examiner",
+     "action.important": "Important",
+-    "action.report": "Report",
+-    "action.frame": "Frame",
+-    "action.queueVerify": "Queue Verify",
++    "action.report": "Report set",
++    "action.frame": "Queue frame capture",
++    "action.exportMp4": "Queue MP4 export",
++    "action.exportAvi": "Queue AVI export",
++    "action.queueVerify": "Queue validation",
+     "bulk.reviewed": "Mark reviewed",
+     "bulk.report": "Report set",
+     "bulk.validation": "Validation queue",
+-    "bulk.export": "Manifest",
++    "bulk.export": "Export preview",
+     "bulk.clear": "Clear",
+     "bulk.selected": "{count} selected",
+     "bulk.previewTitle": "Action preview",
+@@ -542,11 +648,11 @@ const translations = {
+     "stat.selected": "Selected",
+     "stat.videos": "Videos",
+     "stat.photos": "Photos",
+-    "stat.carved": "Carved",
++    "stat.carved": "Recovered candidates",
+     "stat.important": "Important",
+-    "stat.verify": "Verify",
+-    "stat.report": "Report",
+-    "stat.reviewed": "Reviewed",
++    "stat.verify": "Needs validation",
++    "stat.report": "Report set",
++    "stat.reviewed": "Reviewed by examiner",
+     "filter.all": "All",
+     "filter.video": "Video",
+     "filter.photo": "Photo",
+@@ -554,23 +660,30 @@ const translations = {
+     "filter.needs_verification": "Verify",
+     "filter.important": "Important",
+     "filter.report": "Report",
+-    "queue.unreviewed": "Unreviewed",
++    "queue.unreviewed": "Needs validation",
+     "queue.important": "Important",
+     "queue.report": "Report set",
+     "queue.needs_verification": "Needs verification",
+     "queue.triage": "triage lane",
+     "queue.active": "active review lane",
+     "source.all": "All evidence",
+-    "source.caseWideIndex": "case-wide index",
++    "source.caseWideIndex": "case-wide index · local-first · read-only review",
++    "source.readonly": "{kind} · local-first · source evidence read-only",
++    "source.derived": "{kind} · derived artifact · preview output",
+     "empty.noMatches": "No matching evidence in this view.",
+-    "status.unreviewed": "Open",
+-    "status.reviewed": "Done",
++    "status.unreviewed": "Needs validation",
++    "status.reviewed": "Reviewed by examiner",
+     "status.important": "Key",
+-    "status.needs_verification": "Verify",
+-    "status.candidate": "Candidate",
++    "status.needs_verification": "verification required",
++    "status.candidate": "Candidate - unvalidated",
++    "status.row.unreviewed": "Needs validation",
++    "status.row.reviewed": "Reviewed",
++    "status.row.important": "Important",
++    "status.row.needs_verification": "Verify",
++    "status.row.candidate": "Candidate",
+     "type.video": "Video",
+     "type.photo": "Photo",
+-    "type.candidate": "Carved",
++    "type.candidate": "Recovered candidates",
+     "badge.original": "ORIGINAL",
+     "badge.derived": "DERIVED",
+     "badge.candidate": "CANDIDATE",
+@@ -591,10 +704,19 @@ const translations = {
+     "meta.still": "still",
+     "meta.notRecorded": "not recorded",
+     "output.noneQueued": "none queued",
+-    "output.mp4Queued": "MP4 export queued",
+-    "output.aviQueued": "AVI export queued",
++    "output.mp4Queued": "Queue MP4 export",
++    "output.aviQueued": "Queue AVI export",
+     "output.frameQueued": "frame capture queued",
+     "output.validationQueued": "validation queued",
++    "gate.title": "Forensic decision gate",
++    "gate.indexed": "Indexed",
++    "gate.container": "Container checked",
++    "gate.playback": "Playback confirmed",
++    "gate.report": "Report selected",
++    "gate.export": "Exported",
++    "gate.complete": "complete",
++    "gate.pending": "verification required",
++    "gate.queued": "preview queued",
+     "activity.prototypeCaseOpened": "Prototype case opened",
+     "activity.prototypeCaseOpenedDetail": "mock case index loaded for GUI review",
+     "activity.parserCatalogStaged": "Parser catalog staged",
+@@ -606,16 +728,16 @@ const translations = {
+     "activity.markedImportant": "Marked important",
+     "activity.addedToReport": "Added to report",
+     "activity.removedFromReport": "Removed from report",
+-    "activity.mp4Queued": "MP4 export queued",
+-    "activity.aviQueued": "AVI export queued",
++    "activity.mp4Queued": "Queue MP4 export",
++    "activity.aviQueued": "Queue AVI export",
+     "activity.frameQueued": "Frame capture queued",
+     "activity.validationQueued": "Validation queued",
+     "activity.synchronizedView": "Synchronized view",
+-    "activity.packageQueued": "Package queued",
++    "activity.packageQueued": "Package case",
+     "activity.bulkPreview": "Bulk preview generated",
+     "activity.enabled": "enabled",
+     "activity.disabled": "disabled",
+-    "activity.packageDetail": "review set, report set, manifests",
++    "activity.packageDetail": "preview queued: review set, report set, manifests",
+     "canvas.derivedView": "DERIVED VIEW",
+     "syncPane.a": "A",
+     "syncPane.b": "B",
+@@ -626,12 +748,13 @@ const translations = {
+ 
+ const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
+ const rowHeights = { compact: 32, normal: 40, media: 64, focus: 24 };
++const defaultSelectedId = defaultSelectedRecordId();
+ 
+ const state = {
+   locale: localStorage.getItem("frametrace.locale") || "ko",
+   activeFilter: "all",
+-  selectedId: records[0].id,
+-  selectedIds: new Set([records[0].id]),
++  selectedId: defaultSelectedId,
++  selectedIds: new Set([defaultSelectedId]),
+   playback: 0,
+   playing: false,
+   speed: 1,
+@@ -645,6 +768,7 @@ const state = {
+   visibleWindow: { start: 0, end: 0 },
+   renderQueued: false,
+   syncView: false,
++  packagePreviewQueued: false,
+   dataVersion: 0,
+   queryCache: { key: "", rows: [] },
+   activity: [
+@@ -654,6 +778,7 @@ const state = {
+ };
+ 
+ const els = {
++  workbenchFlow: document.getElementById("workbenchFlow"),
+   statsGrid: document.getElementById("statsGrid"),
+   sourceList: document.getElementById("sourceList"),
+   queueList: document.getElementById("queueList"),
+@@ -671,6 +796,7 @@ const els = {
+   bulkPreview: document.getElementById("bulkPreview"),
+   activeKind: document.getElementById("activeKind"),
+   activeName: document.getElementById("activeName"),
++  selectedEvidenceRail: document.getElementById("selectedEvidenceRail"),
+   canvas: document.getElementById("viewerCanvas"),
+   timelineHead: document.getElementById("timelineHead"),
+   timelineRail: document.getElementById("timelineRail"),
+@@ -795,6 +921,19 @@ function compareInventoryRows(a, b) {
+   );
+ }
+ 
++function defaultSelectedRecordId() {
++  const first = [...records].sort(compareDefaultInventoryRows)[0];
++  return first ? first.id : records[0].id;
++}
++
++function compareDefaultInventoryRows(a, b) {
++  return (
++    compareNumber(riskRank(b), riskRank(a))
++    || compareNumber(timestampValue(a.timestamp), timestampValue(b.timestamp))
++    || compareText(a.id, b.id)
++  );
++}
++
+ function riskRank(record) {
+   if (record.status === "candidate") return 50;
+   if (record.status === "needs_verification") return 40;
+@@ -817,6 +956,30 @@ function compareText(a, b) {
+   return String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
+ }
+ 
++function renderWorkbenchFlow() {
++  const sources = [...new Set(records.map((record) => sourceLabel(record.source)))];
++  const sourceNames = sources.slice(0, 3).join(" · ");
++  const counts = {
++    sources: sources.length,
++    candidates: records.filter((record) => record.type === "candidate").length,
++    validation: records.filter((record) => record.status === "needs_verification" || record.status === "candidate").length,
++    report: records.filter((record) => record.report).length,
++  };
++  const cards = [
++    ["summary.sources", t("summary.sourcesDetail", { count: counts.sources, names: sourceNames })],
++    ["summary.candidates", t("summary.candidatesDetail", { count: counts.candidates })],
++    ["summary.validation", t("summary.validationDetail", { count: counts.validation })],
++    ["summary.export", t("summary.exportDetail")],
++    ["summary.report", t("summary.reportDetail", { count: counts.report })],
++  ];
++  els.workbenchFlow.innerHTML = cards.map(([titleKey, detail]) => `
++    <div class="workbench-card">
++      <strong>${escapeHtml(t(titleKey))}</strong>
++      <span>${escapeHtml(detail)}</span>
++    </div>
++  `).join("");
++}
++
+ function renderStats() {
+   const visible = filteredRecords();
+   const counts = {
+@@ -854,11 +1017,12 @@ function renderSources() {
+     { name: "all", label: t("source.all"), count: records.length, sub: t("source.caseWideIndex") },
+     ...sources.map((source) => {
+       const sourceRecords = records.filter((record) => record.source === source);
++      const sourceKind = sourceRecords[0].sourceKind;
+       return {
+         name: source,
+         label: sourceLabel(source),
+         count: sourceRecords.length,
+-        sub: valueLabel(sourceRecords[0].sourceKind),
++        sub: sourceSubLabel(sourceKind),
+       };
+     }),
+   ];
+@@ -884,6 +1048,12 @@ function renderSources() {
+   });
+ }
+ 
++function sourceSubLabel(sourceKind) {
++  const kind = valueLabel(sourceKind);
++  const key = sourceKind === "derived" ? "source.derived" : "source.readonly";
++  return t(key, { kind });
++}
++
+ function renderQueue() {
+   const queues = [
+     ["unreviewed", records.filter((r) => !r.reviewed).length],
+@@ -981,7 +1151,7 @@ function fileRowHtml(record) {
+   return `
+     <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""} ${state.selectedIds.has(record.id) ? "selected" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
+       <span class="select-cell"><input class="row-check" type="checkbox" ${checked} data-select-id="${escapeAttr(record.id)}" aria-label="${escapeAttr(record.id)}"></span>
+-      <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
++      <span class="status-pill status-${record.status}">${rowStatusLabel(record.status)}</span>
+       <span class="review-cell">${record.reviewed ? t("status.reviewed") : t("status.unreviewed")}</span>
+       <code class="id-cell">${escapeHtml(record.id)}</code>
+       <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(middleTruncate(record.path, 72))}</span></span>
+@@ -1102,6 +1272,41 @@ function renderViewer() {
+   document.querySelectorAll("[data-overlay]").forEach((button) => {
+     button.classList.toggle("active", button.dataset.overlay === state.activeOverlay);
+   });
++  renderSelectedEvidenceRail(record);
++}
++
++function renderSelectedEvidenceRail(record) {
++  const validationQueued = record.validationQueued || record.outputStateKey === "output.validationQueued";
++  const outputQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
++  const validationBadge = validationQueued ? t("rail.queued") : t("rail.required");
++  const reportBadge = record.report ? t("rail.included") : t("rail.notIncluded");
++  els.selectedEvidenceRail.innerHTML = `
++    <div class="rail-summary">
++      <span class="rail-kicker">${escapeHtml(t("rail.selectedEvidence"))}</span>
++      <strong>${escapeHtml(sourceLabel(record.source))}</strong>
++      <span class="status-pill status-${record.status}">${escapeHtml(statusLabel(record.status))}</span>
++      <code>${escapeHtml(record.id)} · ${escapeHtml(valueLabel(record.readMode || t("meta.notRecorded")))}</code>
++      <span>${escapeHtml(t("rail.readOnly"))} · ${escapeHtml(valueLabel(record.validation))}</span>
++    </div>
++    <div class="rail-actions">
++      ${railActionHtml("queue-validation", "rail.validation", "rail.validationDetail", validationBadge, !validationQueued)}
++      ${railActionHtml("export-mp4", "rail.export", "rail.exportDetail", outputQueued ? t("rail.queued") : t("rail.preview"), outputQueued)}
++      ${railActionHtml("report-set", "rail.report", "rail.reportDetail", reportBadge, record.report)}
++      ${railActionHtml("package-case", "rail.package", "rail.packageDetail", state.packagePreviewQueued ? t("rail.queued") : t("rail.preview"), state.packagePreviewQueued)}
++    </div>
++  `;
++}
++
++function railActionHtml(action, titleKey, detailKey, badge, emphasized) {
++  const stateClass = emphasized ? "is-queued" : "is-required";
++  return `
++    <button class="rail-action ${stateClass}" type="button" data-rail-action="${action}">
++      <span class="rail-action-copy">
++        <strong>${escapeHtml(t(titleKey))}</strong>
++        <small>${escapeHtml(t(detailKey))}</small>
++      </span>
++      <em>${escapeHtml(badge)}</em>
++    </button>`;
+ }
+ 
+ function renderInspector() {
+@@ -1110,6 +1315,14 @@ function renderInspector() {
+     <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
+     <strong>${escapeHtml(valueLabel(record.validation))}</strong>
+     <span class="state-note">${escapeHtml(valueLabel(record.note))}</span>
++    <div class="decision-gate" aria-label="${escapeAttr(t("gate.title"))}">
++      ${decisionGateItems(record).map((item) => `
++        <div class="decision-gate-row gate-${item.state}">
++          <span>${escapeHtml(t(item.labelKey))}</span>
++          <strong>${escapeHtml(t(item.stateKey))}</strong>
++        </div>
++      `).join("")}
++    </div>
+   `;
+   const fields = [
+     [t("meta.id"), `<code>${escapeHtml(record.id)}</code>`],
+@@ -1133,9 +1346,23 @@ function renderInspector() {
+   )).join("");
+ }
+ 
++function decisionGateItems(record) {
++  const validationComplete = record.status !== "candidate" && record.status !== "needs_verification";
++  const playbackConfirmed = String(record.validation || "").includes("confirmed") || record.reviewed;
++  const exportQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
++  return [
++    { labelKey: "gate.indexed", state: "complete", stateKey: "gate.complete" },
++    { labelKey: "gate.container", state: validationComplete ? "complete" : "pending", stateKey: validationComplete ? "gate.complete" : "gate.pending" },
++    { labelKey: "gate.playback", state: playbackConfirmed ? "complete" : "pending", stateKey: playbackConfirmed ? "gate.complete" : "gate.pending" },
++    { labelKey: "gate.report", state: record.report ? "complete" : "pending", stateKey: record.report ? "gate.complete" : "gate.pending" },
++    { labelKey: "gate.export", state: exportQueued ? "queued" : "pending", stateKey: exportQueued ? "gate.queued" : "gate.pending" },
++  ];
++}
++
+ function renderAll() {
+   applyLocalization();
+   renderInventoryControls();
++  renderWorkbenchFlow();
+   renderStats();
+   renderSources();
+   renderQueue();
+@@ -1145,6 +1372,10 @@ function renderAll() {
+   renderInspector();
+ }
+ 
++function rowStatusLabel(status) {
++  return t(`status.row.${status}`);
++}
++
+ function renderInventoryControls() {
+   document.body.classList.toggle("inventory-focused", state.inventoryFocused);
+   els.focusModeButton.classList.toggle("active", state.inventoryFocused);
+@@ -1196,6 +1427,71 @@ function updateRecord(mutator) {
+   renderAll();
+ }
+ 
++function markRecordReviewed() {
++  updateRecord((record) => {
++    record.reviewed = true;
++    if (record.status === "needs_verification") record.status = "reviewed";
++    addActivity("activity.markedReviewed", record.id);
++  });
++}
++
++function markRecordImportant() {
++  updateRecord((record) => {
++    record.status = "important";
++    addActivity("activity.markedImportant", record.id);
++  });
++}
++
++function toggleRecordReportSet() {
++  updateRecord((record) => {
++    record.report = !record.report;
++    addActivity(record.report ? "activity.addedToReport" : "activity.removedFromReport", record.id);
++  });
++}
++
++function queueMp4Export() {
++  updateRecord((record) => {
++    record.outputStateKey = "output.mp4Queued";
++    record.outputStateTime = formatTimecode(state.playback);
++    addActivity("activity.mp4Queued", record.id);
++  });
++}
++
++function queueAviExport() {
++  updateRecord((record) => {
++    record.outputStateKey = "output.aviQueued";
++    record.outputStateTime = formatTimecode(state.playback);
++    addActivity("activity.aviQueued", record.id);
++  });
++}
++
++function queueFrameCapture() {
++  updateRecord((record) => {
++    record.outputStateKey = "output.frameQueued";
++    record.outputStateTime = formatTimecode(state.playback);
++    addActivity("activity.frameQueued", `${record.id} ${formatTimecode(state.playback)}`);
++  });
++}
++
++function queueValidation() {
++  updateRecord((record) => {
++    if (record.status === "candidate" || record.status === "needs_verification") {
++      record.validationQueued = true;
++      if (!record.outputStateKey) {
++        record.outputStateKey = "output.validationQueued";
++        record.outputStateTime = null;
++      }
++    }
++    addActivity("activity.validationQueued", record.id);
++  });
++}
++
++function queuePackagePreview() {
++  state.packagePreviewQueued = true;
++  addActivity("activity.packageQueued", null, "activity.packageDetail");
++  renderAll();
++}
++
+ function addActivity(titleKey, detail, detailKey = null) {
+   state.activity.unshift({ titleKey, detail, detailKey });
+ }
+@@ -1618,41 +1914,22 @@ document.querySelectorAll("[data-overlay]").forEach((button) => {
+     renderViewer();
+   });
+ });
+-document.getElementById("markReviewedButton").addEventListener("click", () => updateRecord((record) => {
+-  record.reviewed = true;
+-  if (record.status === "needs_verification") record.status = "reviewed";
+-  addActivity("activity.markedReviewed", record.id);
+-}));
+-document.getElementById("markImportantButton").addEventListener("click", () => updateRecord((record) => {
+-  record.status = "important";
+-  addActivity("activity.markedImportant", record.id);
+-}));
+-document.getElementById("addReportButton").addEventListener("click", () => updateRecord((record) => {
+-  record.report = !record.report;
+-  addActivity(record.report ? "activity.addedToReport" : "activity.removedFromReport", record.id);
+-}));
+-document.getElementById("exportMp4Button").addEventListener("click", () => updateRecord((record) => {
+-  record.outputStateKey = "output.mp4Queued";
+-  record.outputStateTime = formatTimecode(state.playback);
+-  addActivity("activity.mp4Queued", record.id);
+-}));
+-document.getElementById("exportAviButton").addEventListener("click", () => updateRecord((record) => {
+-  record.outputStateKey = "output.aviQueued";
+-  record.outputStateTime = formatTimecode(state.playback);
+-  addActivity("activity.aviQueued", record.id);
+-}));
+-document.getElementById("captureFrameButton").addEventListener("click", () => updateRecord((record) => {
+-  record.outputStateKey = "output.frameQueued";
+-  record.outputStateTime = formatTimecode(state.playback);
+-  addActivity("activity.frameQueued", `${record.id} ${formatTimecode(state.playback)}`);
+-}));
+-document.getElementById("verifyButton").addEventListener("click", () => updateRecord((record) => {
+-  if (record.status === "candidate" || record.status === "needs_verification") {
+-    record.outputStateKey = "output.validationQueued";
+-    record.outputStateTime = null;
+-  }
+-  addActivity("activity.validationQueued", record.id);
+-}));
++els.selectedEvidenceRail.addEventListener("click", (event) => {
++  if (!(event.target instanceof Element)) return;
++  const button = event.target.closest("[data-rail-action]");
++  if (!button) return;
++  if (button.dataset.railAction === "queue-validation") queueValidation();
++  if (button.dataset.railAction === "export-mp4") queueMp4Export();
++  if (button.dataset.railAction === "report-set") toggleRecordReportSet();
++  if (button.dataset.railAction === "package-case") queuePackagePreview();
++});
++document.getElementById("markReviewedButton").addEventListener("click", markRecordReviewed);
++document.getElementById("markImportantButton").addEventListener("click", markRecordImportant);
++document.getElementById("addReportButton").addEventListener("click", toggleRecordReportSet);
++document.getElementById("exportMp4Button").addEventListener("click", queueMp4Export);
++document.getElementById("exportAviButton").addEventListener("click", queueAviExport);
++document.getElementById("captureFrameButton").addEventListener("click", queueFrameCapture);
++document.getElementById("verifyButton").addEventListener("click", queueValidation);
+ document.getElementById("syncViewButton").addEventListener("click", (event) => {
+   state.syncView = !state.syncView;
+   event.currentTarget.classList.toggle("active", state.syncView);
+@@ -1664,7 +1941,7 @@ els.languageButton.addEventListener("click", () => {
+   localStorage.setItem("frametrace.locale", state.locale);
+   renderAll();
+ });
+-document.getElementById("packageButton").addEventListener("click", () => addActivity("activity.packageQueued", null, "activity.packageDetail"));
++document.getElementById("packageButton").addEventListener("click", queuePackagePreview);
+ document.addEventListener("keydown", (event) => {
+   if (event.target && ["INPUT", "SELECT"].includes(event.target.tagName)) return;
+   if (event.key === " ") {
+diff --git a/gui/evidence-viewer/index.html b/gui/evidence-viewer/index.html
+index 46eba57..b32ef41 100644
+--- a/gui/evidence-viewer/index.html
++++ b/gui/evidence-viewer/index.html
+@@ -25,7 +25,7 @@
+         <div class="top-actions">
+           <button class="icon-button" id="languageButton" type="button" title="Switch language" aria-label="Switch language" data-i18n-title="lang.switch" data-i18n-aria-label="lang.switch">EN</button>
+           <button class="icon-button" id="syncViewButton" type="button" title="동기화 채널 보기 전환" aria-label="동기화 채널 보기 전환" data-i18n-title="sync.title" data-i18n-aria-label="sync.title">2ch</button>
+-          <button class="icon-button" id="packageButton" type="button" title="사건 패키징" aria-label="사건 패키징" data-i18n-title="package.title" data-i18n-aria-label="package.title">PKG</button>
++          <button class="icon-button package-action" id="packageButton" type="button" title="사건 패키징" aria-label="사건 패키징" data-i18n-title="package.title" data-i18n-aria-label="package.title" data-i18n="package.title">사건 패키징</button>
+         </div>
+       </header>
+ 
+@@ -42,6 +42,50 @@
+         </aside>
+ 
+         <section class="browser-pane" aria-label="증거 브라우저" data-i18n-aria-label="browser.aria">
++          <section class="workflow-band" aria-label="증거 처리 흐름" data-i18n-aria-label="workflow.aria">
++            <div class="workflow-step">
++              <span class="workflow-index">01</span>
++              <div>
++                <strong>Evidence intake</strong>
++                <span data-i18n="workflow.intake">소스 증거 입수</span>
++              </div>
++            </div>
++            <div class="workflow-step">
++              <span class="workflow-index">02</span>
++              <div>
++                <strong>Video candidates</strong>
++                <span data-i18n="workflow.candidates">복구 영상 후보</span>
++              </div>
++            </div>
++            <div class="workflow-step">
++              <span class="workflow-index">03</span>
++              <div>
++                <strong>Validation state</strong>
++                <span data-i18n="workflow.validation">검증 상태</span>
++              </div>
++            </div>
++            <div class="workflow-step">
++              <span class="workflow-index">04</span>
++              <div>
++                <strong>Export</strong>
++                <span data-i18n="workflow.export">출력 대기</span>
++              </div>
++            </div>
++            <div class="workflow-step">
++              <span class="workflow-index">05</span>
++              <div>
++                <strong>Report</strong>
++                <span data-i18n="workflow.report">보고서 패키지</span>
++              </div>
++            </div>
++            <p class="workflow-promise">
++              <span class="promise-token">local-first</span>
++              <span data-i18n="workflow.promise">소스 증거는 로컬 읽기전용으로 보존하고, 프로토타입 출력은 미리보기/대기열만 생성합니다.</span>
++              <span class="promise-token">verification required</span>
++              <span class="promise-token candidate">candidate-unvalidated</span>
++            </p>
++          </section>
++          <div class="workbench-flow" id="workbenchFlow" aria-label="포렌식 작업 요약" data-i18n-aria-label="summary.aria"></div>
+           <div class="stats-grid" id="statsGrid"></div>
+           <div class="browser-toolbar">
+             <div class="segmented" id="filterTabs" role="tablist" aria-label="증거 필터" data-i18n-aria-label="filters.aria"></div>
+@@ -127,6 +171,7 @@
+                 <span id="frameBadge">ORIGINAL</span>
+               </div>
+             </div>
++            <div class="viewer-evidence-rail" id="selectedEvidenceRail" aria-label="선택 증거 검토 작업" data-i18n-aria-label="viewer.railAria"></div>
+             <div class="timeline">
+               <div class="timeline-rail" id="timelineRail">
+                 <div class="timeline-range" id="timelineRange"></div>
+@@ -174,8 +219,8 @@
+           <section class="inspector-section">
+             <div class="panel-title" data-i18n="panel.outputQueue">출력 큐</div>
+             <div class="output-grid">
+-              <button id="exportMp4Button" type="button">MP4</button>
+-              <button id="exportAviButton" type="button">AVI</button>
++              <button id="exportMp4Button" type="button" data-i18n="action.exportMp4">MP4 출력 대기</button>
++              <button id="exportAviButton" type="button" data-i18n="action.exportAvi">AVI 출력 대기</button>
+               <button id="captureFrameButton" type="button" data-i18n="action.frame">프레임</button>
+               <button id="verifyButton" type="button" data-i18n="action.queueVerify">검증 대기</button>
+             </div>
+diff --git a/gui/evidence-viewer/styles.css b/gui/evidence-viewer/styles.css
+index 2c27e55..a03b55e 100644
+--- a/gui/evidence-viewer/styles.css
++++ b/gui/evidence-viewer/styles.css
+@@ -8,6 +8,7 @@
+   --line: #d8dedb;
+   --line-strong: #bdc9c4;
+   --accent: #0f7c71;
++  --accent-strong: #0a5c53;
+   --accent-2: #1c5d8f;
+   --danger: #b14d42;
+   --warn: #b4802a;
+@@ -25,8 +26,8 @@
+ 
+ body {
+   margin: 0;
+-  min-width: 1260px;
+   min-height: 100vh;
++  overflow-x: hidden;
+   background: var(--bg);
+   color: var(--ink);
+   font-family: var(--sans);
+@@ -63,7 +64,7 @@ button.primary {
+ .app-shell {
+   min-height: 100vh;
+   display: grid;
+-  grid-template-rows: 64px minmax(720px, 1fr);
++  grid-template-rows: 64px minmax(0, 1fr);
+ }
+ 
+ .topbar {
+@@ -141,16 +142,25 @@ button.primary {
+   font-size: 12px;
+ }
+ 
++.package-action {
++  min-width: 104px;
++  font-family: var(--sans);
++  font-weight: 700;
++}
++
+ .workspace {
+   display: grid;
+-  grid-template-columns: 172px minmax(700px, 1.7fr) minmax(330px, 0.75fr) 250px;
++  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr) 260px;
++  grid-template-areas: "viewer browser inspector";
+   gap: 10px;
+   padding: 10px;
++  height: calc(100vh - 64px);
+   min-height: 0;
+ }
+ 
+ body.inventory-focused .workspace {
+-  grid-template-columns: 172px minmax(0, 1fr) 270px;
++  grid-template-columns: minmax(0, 1fr) 270px;
++  grid-template-areas: "browser inspector";
+ }
+ 
+ body.inventory-focused .viewer-pane {
+@@ -165,6 +175,7 @@ body.inventory-focused .stats-grid {
+ .browser-pane,
+ .viewer-pane,
+ .inspector-pane {
++  min-width: 0;
+   min-height: 0;
+ }
+ 
+@@ -190,6 +201,31 @@ body.inventory-focused .stats-grid {
+   grid-template-rows: auto auto auto minmax(0, 1fr);
+ }
+ 
++.source-pane,
++.workflow-band,
++.stats-grid,
++.selection-bar,
++.large-case-policy,
++.inventory-controls,
++.activity-section {
++  display: none;
++}
++
++.browser-pane {
++  grid-area: browser;
++  display: grid;
++  grid-template-rows: auto auto minmax(0, 1fr);
++  overflow: hidden;
++}
++
++.viewer-pane {
++  grid-area: viewer;
++}
++
++.inspector-pane {
++  grid-area: inspector;
++}
++
+ .panel-title {
+   height: 36px;
+   display: flex;
+@@ -247,6 +283,130 @@ body.inventory-focused .stats-grid {
+   border-bottom: 1px solid var(--line);
+ }
+ 
++.workflow-band {
++  display: grid;
++  grid-template-columns: repeat(5, minmax(0, 1fr));
++  gap: 6px;
++  padding: 8px;
++  border-bottom: 1px solid var(--line);
++  background: #f5f8f6;
++}
++
++.workflow-step {
++  min-width: 0;
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  align-items: center;
++  gap: 7px;
++  min-height: 42px;
++  padding: 7px 8px;
++  border: 1px solid var(--line);
++  border-radius: 7px;
++  background: var(--panel-strong);
++}
++
++.workflow-index {
++  display: grid;
++  place-items: center;
++  width: 24px;
++  height: 24px;
++  border-radius: 5px;
++  background: #e3ebe8;
++  color: #35413d;
++  font-family: var(--mono);
++  font-size: 11px;
++  font-weight: 800;
++}
++
++.workflow-step strong,
++.workflow-step span:not(.workflow-index) {
++  display: block;
++  min-width: 0;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++
++.workflow-step strong {
++  font-size: 12px;
++}
++
++.workflow-step span:not(.workflow-index) {
++  margin-top: 2px;
++  color: var(--muted);
++  font-size: 11px;
++}
++
++.workflow-promise {
++  grid-column: 1 / -1;
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  gap: 6px;
++  margin: 0;
++  padding: 2px 4px 0;
++  color: #40504a;
++  font-size: 12px;
++  line-height: 18px;
++}
++
++.promise-token {
++  display: inline-flex;
++  align-items: center;
++  min-height: 20px;
++  padding: 0 7px;
++  border-radius: 999px;
++  background: rgba(180, 128, 42, 0.14);
++  color: #6b4d1f;
++  font-family: var(--mono);
++  font-size: 11px;
++  font-weight: 800;
++}
++
++.promise-token.candidate {
++  background: rgba(108, 93, 153, 0.14);
++  color: var(--candidate);
++}
++
++.workbench-flow {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 6px;
++  padding: 8px;
++  border-bottom: 1px solid var(--line);
++  background: #fbfcfb;
++}
++
++.workbench-card {
++  min-width: 0;
++  min-height: 44px;
++  padding: 7px 8px 6px;
++  border: 1px solid var(--line);
++  border-radius: 7px;
++  background: var(--panel-strong);
++}
++
++.workbench-card strong,
++.workbench-card span {
++  display: block;
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.workbench-card strong {
++  color: #26302d;
++  font-size: 12px;
++}
++
++.workbench-card span {
++  margin-top: 4px;
++  color: var(--muted);
++  font-size: 11px;
++  line-height: 14px;
++}
++
+ .stat {
+   min-height: 46px;
+   border: 1px solid var(--line);
+@@ -271,9 +431,9 @@ body.inventory-focused .stats-grid {
+ .browser-toolbar {
+   display: grid;
+   grid-template-columns: 1fr;
+-  gap: 8px;
++  gap: 7px;
+   align-items: center;
+-  padding: 9px 10px;
++  padding: 8px 10px;
+   border-bottom: 1px solid var(--line);
+ }
+ 
+@@ -369,7 +529,10 @@ body.inventory-focused .stats-grid {
+ }
+ 
+ .file-table {
++  display: grid;
++  grid-template-rows: 34px minmax(0, 1fr);
+   min-height: 0;
++  overflow: hidden;
+ }
+ 
+ .file-row {
+@@ -394,7 +557,7 @@ body.inventory-focused .stats-grid {
+ }
+ 
+ .file-rows {
+-  height: calc(100vh - 352px);
++  height: auto;
+   overflow: auto;
+   position: relative;
+   contain: strict;
+@@ -487,13 +650,22 @@ body.inventory-focused .report-cell {
+ .status-pill {
+   display: inline-flex;
+   align-items: center;
+-  justify-content: center;
++  justify-content: flex-start;
+   min-width: 64px;
++  max-width: 100%;
+   height: 24px;
++  padding: 0 8px;
+   border-radius: 999px;
+   font-size: 11px;
+   font-weight: 800;
+   color: #fff;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++
++.file-row .status-pill {
++  width: 100%;
+ }
+ 
+ .status-unreviewed { background: #69736f; }
+@@ -641,7 +813,7 @@ body.inventory-focused .report-cell {
+   min-width: 0;
+   height: 100%;
+   display: grid;
+-  grid-template-rows: 46px minmax(0, 1fr) 82px 48px;
++  grid-template-rows: 46px minmax(0, 1fr) auto 82px 48px;
+   overflow: hidden;
+ }
+ 
+@@ -701,6 +873,139 @@ body.inventory-focused .report-cell {
+   font-size: 12px;
+ }
+ 
++.viewer-evidence-rail {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);
++  gap: 8px;
++  padding: 8px 10px;
++  border-bottom: 1px solid var(--line);
++  border-top: 1px solid var(--line);
++  background: #f6f9f7;
++}
++
++.rail-summary {
++  min-width: 0;
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  gap: 6px 8px;
++  align-content: start;
++}
++
++.rail-kicker {
++  grid-column: 1 / -1;
++  color: var(--muted);
++  font-family: var(--mono);
++  font-size: 10.5px;
++  font-weight: 800;
++  text-transform: uppercase;
++}
++
++.rail-summary strong {
++  min-width: 0;
++  overflow: hidden;
++  color: #25312d;
++  font-size: 13px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.rail-summary code {
++  color: var(--muted);
++  font-family: var(--mono);
++  font-size: 10.5px;
++}
++
++.rail-summary span:not(.status-pill) {
++  grid-column: 1 / -1;
++  min-width: 0;
++  overflow: hidden;
++  color: var(--muted);
++  font-size: 11px;
++  line-height: 15px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.rail-summary .status-pill {
++  justify-content: center;
++  min-width: 118px;
++  height: 22px;
++  font-size: 10.5px;
++}
++
++.rail-actions {
++  min-width: 0;
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 6px;
++}
++
++.rail-action {
++  min-width: 0;
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 6px;
++  height: 42px;
++  padding: 0 7px;
++  border-color: var(--line);
++  background: var(--panel-strong);
++  color: #2b3733;
++  text-align: left;
++}
++
++.rail-action:hover {
++  background: #edf7f4;
++}
++
++.rail-action-copy {
++  min-width: 0;
++  display: grid;
++  gap: 1px;
++}
++
++.rail-action strong,
++.rail-action small {
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.rail-action strong {
++  font-size: 11.5px;
++}
++
++.rail-action small {
++  color: var(--muted);
++  font-size: 10.5px;
++}
++
++.rail-action em {
++  display: inline-flex;
++  align-items: center;
++  height: 20px;
++  padding: 0 6px;
++  border-radius: 5px;
++  background: #e5ece9;
++  color: #42504b;
++  font-family: var(--mono);
++  font-size: 10px;
++  font-style: normal;
++  font-weight: 800;
++  text-transform: uppercase;
++}
++
++.rail-action.is-queued em {
++  background: rgba(15, 124, 113, 0.14);
++  color: var(--accent-strong);
++}
++
++.rail-action.is-required em {
++  background: rgba(180, 128, 42, 0.15);
++  color: #79551e;
++}
++
+ .media-frame {
+   position: relative;
+   display: grid;
+@@ -708,11 +1013,13 @@ body.inventory-focused .report-cell {
+   min-height: 0;
+   padding: 6px;
+   background: #151d1a;
++  overflow: hidden;
+ }
+ 
+ #viewerCanvas {
+   width: 100%;
+-  height: auto;
++  height: 100%;
++  max-width: 100%;
+   max-height: 100%;
+   aspect-ratio: 16 / 9;
+   display: block;
+@@ -867,6 +1174,43 @@ body.inventory-focused .report-cell {
+   color: #fff;
+ }
+ 
++.decision-gate {
++  display: grid;
++  gap: 6px;
++  margin-top: 12px;
++}
++
++.decision-gate-row {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr);
++  align-items: start;
++  gap: 3px;
++  min-height: 36px;
++  padding: 6px 8px;
++  border: 1px solid var(--line);
++  border-radius: 6px;
++  background: #f7f9f8;
++  font-size: 11px;
++}
++
++.decision-gate-row span {
++  min-width: 0;
++  overflow: visible;
++  color: #35413d;
++  font-weight: 800;
++  white-space: normal;
++}
++
++.decision-gate-row strong {
++  font-family: var(--mono);
++  font-size: 10px;
++  text-transform: uppercase;
++}
++
++.gate-complete strong { color: var(--ok); }
++.gate-pending strong { color: var(--warn); }
++.gate-queued strong { color: var(--accent-strong); }
++
+ .review-actions,
+ .output-grid {
+   display: grid;
+@@ -943,17 +1287,323 @@ body.inventory-focused .report-cell {
+   font-size: 11px;
+ }
+ 
++.source-pane,
++.browser-pane > .workflow-band,
++.browser-pane > .stats-grid,
++.browser-pane > .large-case-policy,
++.browser-pane > .selection-bar,
++.browser-pane .inventory-controls,
++.activity-section {
++  display: none;
++}
++
+ @media (max-width: 1320px) {
+-  body {
+-    min-width: 1180px;
++  .workspace {
++    grid-template-columns: minmax(0, 1.08fr) minmax(330px, 0.92fr) 220px;
+   }
+ 
+-  .workspace {
+-    grid-template-columns: 162px minmax(650px, 1.6fr) minmax(300px, 0.7fr) 220px;
++  .stats-grid {
++    grid-template-columns: repeat(5, minmax(0, 1fr));
++  }
++
++  .workflow-band {
++    grid-template-columns: repeat(3, minmax(0, 1fr));
++  }
++
++  .workbench-flow {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .file-row {
++    grid-template-columns: 28px 96px minmax(120px, 1fr) 54px;
++  }
++
++  .file-row > :nth-child(3),
++  .file-row > :nth-child(4),
++  .file-row > :nth-child(6),
++  .file-row > :nth-child(7),
++  .file-row > :nth-child(8),
++  .file-row > :nth-child(9),
++  .file-row > :nth-child(10),
++  .file-row > :nth-child(11),
++  .file-row > :nth-child(13) {
++    display: none;
++  }
++}
++
++@media (max-width: 980px) {
++  .app-shell {
++    grid-template-rows: auto 1fr;
++  }
++
++  .topbar {
++    grid-template-columns: minmax(0, 1fr) auto;
++    gap: 8px;
++    min-height: 64px;
++    padding: 8px 10px;
++  }
++
++  .case-strip {
++    grid-column: 1 / -1;
++    order: 3;
++    flex-wrap: wrap;
++    gap: 6px 10px;
++    font-size: 12px;
++  }
++
++  .workspace,
++  body.inventory-focused .workspace {
++    grid-template-columns: minmax(0, 1fr);
++    grid-template-areas:
++      "viewer"
++      "browser"
++      "inspector";
++    grid-auto-rows: auto;
++    height: auto;
++  }
++
++  .browser-pane {
++    order: 2;
++  }
++
++  .source-pane {
++    order: 2;
++    grid-template-columns: 1fr 1fr;
++    grid-template-rows: auto;
++  }
++
++  .viewer-pane {
++    order: 1;
++  }
++
++  .inspector-pane {
++    order: 4;
++    grid-template-columns: 1fr 1fr;
++    grid-template-rows: auto auto;
++  }
++
++  body.inventory-focused .viewer-pane {
++    display: block;
++  }
++
++  .workflow-band {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .workbench-flow {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .stats-grid {
++    display: none;
++  }
++
++  .file-rows,
++  body.inventory-focused .file-rows,
++  body.bulk-preview-open .file-rows,
++  body.inventory-focused.bulk-preview-open .file-rows {
++    height: 420px;
++  }
++
++  .viewer-stage {
++    height: 540px;
++  }
++
++  .activity-list {
++    max-height: 260px;
++  }
++}
++
++@media (max-width: 720px) {
++  button {
++    padding: 0 9px;
++  }
++
++  .topbar {
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .top-actions,
++  .selection-bar,
++  .transport {
++    flex-wrap: wrap;
++  }
++
++  .top-actions {
++    gap: 6px;
+   }
+ 
++  .icon-button {
++    min-width: 0;
++  }
++
++  .package-action {
++    min-width: 132px;
++  }
++
++  .workflow-band,
++  .source-pane,
++  .inspector-pane,
+   .stats-grid {
+-    grid-template-columns: repeat(2, 1fr);
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .workbench-flow {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .workflow-step {
++    min-height: 38px;
++  }
++
++  .file-row,
++  .density-media .file-row {
++    grid-template-columns: 24px 92px minmax(96px, 1fr) 82px;
++    gap: 5px;
++    padding: 0 7px;
++  }
++
++  .file-row > :nth-child(3),
++  .file-row > :nth-child(4),
++  .file-row > :nth-child(6),
++  .file-row > :nth-child(7),
++  .file-row > :nth-child(8),
++  .file-row > :nth-child(10),
++  .file-row > :nth-child(11),
++  .file-row > :nth-child(12),
++  .file-row > :nth-child(13) {
++    display: none;
++  }
++
++  .file-name strong {
++    font-size: 12px;
++  }
++
++  .file-name span,
++  .validation-cell {
++    font-size: 10.5px;
++  }
++
++  .selection-bar span {
++    width: 100%;
++    margin-right: 0;
++  }
++
++  .viewer-toolbar {
++    width: 100%;
++    grid-template-columns: minmax(0, 1fr);
++    min-height: 74px;
++    padding: 7px 10px;
++  }
++
++  .viewer-stage {
++    height: 620px;
++    grid-template-rows: 58px minmax(0, 1fr) auto 70px auto;
++  }
++
++  .viewer-evidence-rail {
++    grid-template-columns: minmax(0, 1fr);
++    gap: 7px;
++  }
++
++  .rail-actions {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .range-input {
++    width: 100%;
++    margin-left: 0;
++  }
++
++  .range-input input {
++    width: 100%;
++  }
++
++  .meta-list {
++    grid-template-columns: minmax(0, 1fr);
++  }
++}
++
++@media (max-width: 430px) {
++  .brand {
++    grid-template-columns: 34px minmax(0, 1fr);
++  }
++
++  .brand-mark {
++    width: 34px;
++    height: 34px;
++  }
++
++  .package-action {
++    min-width: 100%;
++  }
++
++  .case-strip span {
++    white-space: normal;
++    overflow: visible;
++    text-overflow: clip;
++  }
++
++  .workflow-promise {
++    font-size: 11px;
++  }
++
++  .workflow-band {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .viewer-stage {
++    height: 700px;
++    grid-template-rows: 54px minmax(0, 1fr) auto 56px auto;
++  }
++
++  .transport {
++    display: grid;
++    grid-template-columns: repeat(5, minmax(0, 1fr));
++  }
++
++  .transport .round-button {
++    width: 100%;
++    min-width: 0;
++  }
++
++  .transport select {
++    grid-column: 1 / 3;
++    width: 100%;
++  }
++
++  .range-input {
++    grid-column: 3 / -1;
++    display: grid;
++    grid-template-columns: auto minmax(0, 1fr);
++    min-width: 0;
++    white-space: nowrap;
++  }
++
++  .rail-actions {
++    grid-template-columns: minmax(0, 1fr);
++  }
++
++  .stats-grid {
++    display: none;
++  }
++
++  .large-case-policy {
++    display: none;
++  }
++
++  .inventory-controls {
++    display: none;
++  }
++
++  .browser-toolbar {
++    gap: 6px;
++    padding: 8px 10px;
++  }
++
++  .review-actions,
++  .output-grid {
++    grid-template-columns: minmax(0, 1fr);
+   }
+ }
+ 

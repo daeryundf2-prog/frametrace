@@ -1,0 +1,4 @@
+53:    let confirmed_count = confirmed_count(&conn)?;
+57:\"confirmed_count\":{},\"candidate_count\":{},\"source_count\":{},\"warnings\":{},\
+67:        page.total_rows.saturating_sub(confirmed_count),
+EXIT_CODE=0

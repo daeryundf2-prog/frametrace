@@ -1,0 +1,17 @@
+Command: target/debug/frametrace qa release <tmp-case> --output-dir <tmp-case>/reports/qa-review-audit
+ExpandedCommand: target/debug/frametrace qa release /tmp/frametrace-t1-empty-case.bc1ba9 --output-dir /tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit
+CWD: /Users/shinyoohag/Desktop/frametrace
+TempCase: /tmp/frametrace-t1-empty-case.bc1ba9
+Started: 2026-06-24T06:47:24Z
+error: release readiness failed: 28 blocker(s): report_defense: report defensibility QA failed: missing 6 required artifacts, 0 disallowed claim(s), 0 audit chain failure(s), 0 active job(s); workstation_shell_contract: failed to read case manifest /tmp/frametrace-t1-empty-case.bc1ba9/case.json: No such file or directory (os error 2); windows_prerequisites: windows_prerequisites failed: unsupported-host, missing-tool:dotnet, missing-winui-project, missing-winui-build-receipt; see /tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/windows-prerequisites.json; technical_review: missing --review-manifest; security_review: missing --review-manifest; privacy_review: missing --review-manifest; supply_chain_review: missing --review-manifest; accuracy_validation: missing --review-manifest; reproducibility_validation: missing --review-manifest; performance_validation: missing --review-manifest; migration_validation: missing --review-manifest; operator_review: missing --review-manifest; report_defensibility_review: missing --review-manifest; legal_wording_review: missing --review-manifest; installer_package_validation: missing --review-manifest; windows_workstation_validation: missing --review-manifest; known_limitations_review: missing --review-manifest; release_notes_review: missing --review-manifest; support_triage_policy: missing --review-manifest; hotfix_policy: missing --review-manifest; incident_response_plan: missing --review-manifest; corpus_governance: missing --review-manifest; feature_intake_governance: missing --review-manifest; post_ga_monitoring: missing --review-manifest; external_review_readiness: missing --review-manifest; regression_schedule: missing --review-manifest; accuracy: missing --corpus-manifest; reproducibility: missing --comparison-case; see /tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/release-readiness.md
+Finished: 2026-06-24T06:47:30Z
+ElapsedSeconds: 6
+ExitCode: 1
+GeneratedFiles:
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/performance/performance-report.json
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/performance/performance-report.md
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/release-readiness.json
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/release-readiness.md
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/report-defense-checklist.md
+/tmp/frametrace-t1-empty-case.bc1ba9/reports/qa-review-audit/windows-prerequisites.json
+TempCleanup: removed /tmp/frametrace-t1-empty-case.bc1ba9

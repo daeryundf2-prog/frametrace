@@ -1,0 +1,4 @@
+SCENARIO final-git-diff-check
+INVOCATION git diff --check
+BINARY_OBSERVABLE PASS if exit_code=0
+exit_code=0

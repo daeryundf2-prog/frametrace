@@ -1,0 +1,15 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/debug/frametrace make-proxy --help`
+Generate a lower-bitrate review proxy MP4
+
+Usage: frametrace make-proxy [OPTIONS] <CASE_DIR> <SELECTOR>
+
+Arguments:
+  <CASE_DIR>  
+  <SELECTOR>  
+
+Options:
+      --max-width <MAX_WIDTH>  
+      --output <OUTPUT>        
+      --operator <OPERATOR>    
+  -h, --help                   Print help

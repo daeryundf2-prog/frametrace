@@ -1,0 +1,11 @@
+$ for f in src/qa_tests/accuracy.rs src/qa_accuracy.rs src/qa_accuracy/*.rs; do printf "%s " "$f"; awk ... "$f"; done
+src/qa_tests/accuracy.rs 244
+src/qa_accuracy.rs 75
+src/qa_accuracy/contract.rs 108
+src/qa_accuracy/indexed.rs 96
+src/qa_accuracy/manifest.rs 166
+src/qa_accuracy/metrics.rs 56
+src/qa_accuracy/report.rs 86
+src/qa_accuracy/schema.rs 75
+src/qa_accuracy/types.rs 51
+EXIT_CODE=0

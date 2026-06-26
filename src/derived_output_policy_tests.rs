@@ -76,6 +76,7 @@ fn proxy_rejects_dangling_symlink_output_before_ffmpeg() {
             output_path: Some(output),
             max_width: 640,
             operator: Some("qa".to_string()),
+            ffmpeg_bin: "ffmpeg".to_string(),
         },
     );
 
@@ -94,6 +95,7 @@ fn thumbnail_rejects_dangling_symlink_output_before_ffmpeg() {
             output_path: Some(output),
             time_seconds: 0.0,
             operator: Some("qa".to_string()),
+            ffmpeg_bin: "ffmpeg".to_string(),
         },
     );
 
@@ -112,6 +114,7 @@ fn frame_capture_rejects_dangling_symlink_output_before_ffmpeg() {
             output_path: Some(output),
             time_seconds: 0.0,
             operator: Some("qa".to_string()),
+            ffmpeg_bin: "ffmpeg".to_string(),
         },
     );
 
@@ -132,6 +135,7 @@ fn video_export_rejects_dangling_symlink_output_before_ffmpeg() {
             duration_seconds: None,
             output_path: Some(output),
             operator: Some("qa".to_string()),
+            ffmpeg_bin: "ffmpeg".to_string(),
         },
     );
 

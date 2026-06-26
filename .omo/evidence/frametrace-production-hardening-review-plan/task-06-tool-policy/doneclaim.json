@@ -1,0 +1,203 @@
+{
+  "task": "T6. Route all ffmpeg execution through external tool policy",
+  "status": "done",
+  "doneclaim_created_at": "2026-06-24T18:45:00+09:00",
+  "evidence_dir": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy",
+  "claims": [
+    {
+      "claim": "ResolvedExternalTool is unforgeable outside the tool_policy module",
+      "status": "pass",
+      "implementation": [
+        "src/tool_policy.rs is a facade over private submodules",
+        "src/tool_policy/execution.rs defines ResolvedExternalTool with private fields and public read-only accessors",
+        "run_external_tool accepts a ResolvedExternalTool reference produced by resolve_external_tool"
+      ],
+      "evidence": [
+        {
+          "scenario": "downstream crate attempts to construct ResolvedExternalTool with public fields",
+          "invocation": "cargo test --locked --test tool_policy_api resolved_external_tool_cannot_be_forged_by_downstream_crates -- --nocapture",
+          "observable": "test passed after cargo check rejected the forged construction",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-tool-policy-api-forge-final.log"
+        },
+        {
+          "scenario": "static search for ResolvedExternalTool construction and resolver call sites",
+          "invocation": "rg 'ResolvedExternalTool\\s*\\{|ResolvedExternalTool::new|resolve_external_tool\\(' src tests",
+          "observable": "only internal constructor in src/tool_policy/execution.rs plus resolver-based legitimate call sites and compile-fail fixture",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-resolved-tool-construction-sites.log"
+        }
+      ]
+    },
+    {
+      "claim": "src/tool_policy.rs size gate is resolved",
+      "status": "pass",
+      "implementation": [
+        "tool policy execution moved to src/tool_policy/execution.rs",
+        "derived output path policy moved to src/tool_policy/output_paths.rs",
+        "tool policy tests moved to src/tool_policy/tests.rs"
+      ],
+      "evidence": [
+        {
+          "scenario": "pure LOC measurement for T6-touched Rust files",
+          "invocation": "awk pure-LOC count over src/tool_policy.rs, src/tool_policy/*, T6 call-site modules, and tests/tool_policy_api.rs",
+          "observable": "src/tool_policy.rs is 9 pure LOC; every listed T6-touched Rust file is below 250 pure LOC",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-tool-policy-size.log"
+        }
+      ]
+    },
+    {
+      "claim": "No direct ffmpeg or ffprobe command sites bypass policy",
+      "status": "pass",
+      "evidence": [
+        {
+          "scenario": "static scan for direct Command::new ffmpeg/ffprobe use",
+          "invocation": "rg 'Command::new\\(\"ffmpeg\"|Command::new\\(\"ffprobe\"|Command::new\\(\"(ffmpeg|ffprobe)\"' src tests",
+          "observable": "PASS receipt reports no direct Command::new(\"ffmpeg\") or Command::new(\"ffprobe\") sites in src/ or tests/",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-direct-ffmpeg-ffprobe-command-sites.log"
+        }
+      ]
+    },
+    {
+      "claim": "Approved ffmpeg and ffprobe paths work through policy; rejected fake paths fail",
+      "status": "pass",
+      "evidence": [
+        {
+          "scenario": "tool policy unit tests cover approved executable resolution and rejected fake executable names",
+          "invocation": "cargo test --locked --lib tool_policy::tests -- --nocapture",
+          "observable": "policy unit tests passed",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-tool-policy-tests-final.log"
+        },
+        {
+          "scenario": "derived media CLI commands require policy-approved ffmpeg and log resolved metadata",
+          "invocation": "cargo test --locked --test cli_default_output_policy derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata -- --nocapture",
+          "observable": "CLI policy test passed for approved ffmpeg path and rejected fake path",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-cli-ffmpeg-policy-final.log"
+        },
+        {
+          "scenario": "validate-artifact requires policy-approved ffprobe and logs resolved metadata",
+          "invocation": "cargo test --locked --test cli_e01_validation_log_output_policy validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata -- --nocapture",
+          "observable": "CLI policy test passed for approved ffprobe path and rejected fake path",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-cli-ffprobe-policy-final.log"
+        }
+      ]
+    },
+    {
+      "claim": "Derived output policy and metadata behavior still pass after API split",
+      "status": "pass",
+      "evidence": [
+        {
+          "scenario": "derived output policy regression tests",
+          "invocation": "cargo test --locked --lib derived_output_policy_tests -- --nocapture",
+          "observable": "derived output policy tests passed",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-derived-output-policy-tests-final.log"
+        },
+        {
+          "scenario": "ffmpeg/ffprobe log metadata regression tests",
+          "invocation": "cargo test --locked --lib log_body_records -- --nocapture",
+          "observable": "metadata log tests passed",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-log-metadata-tests-final.log"
+        },
+        {
+          "scenario": "validation log preserves derived artifact source relation",
+          "invocation": "cargo test --locked --lib validation_log_preserves_source_relation_for_derived_artifact_targets -- --nocapture",
+          "observable": "validation relation metadata test passed",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-validation-relation-metadata-final.log"
+        }
+      ]
+    },
+    {
+      "claim": "Global verification passes after the T4 blocker fix",
+      "status": "pass",
+      "evidence": [
+        {
+          "scenario": "repository formatting",
+          "invocation": "cargo fmt --all -- --check",
+          "observable": "fmt check exited 0",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-fmt-check-final.log"
+        },
+        {
+          "scenario": "repository clippy with warnings denied",
+          "invocation": "cargo clippy --locked --all-targets --all-features -- -D warnings",
+          "observable": "clippy exited 0",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-clippy-final.log"
+        },
+        {
+          "scenario": "full locked cargo test suite",
+          "invocation": "cargo test --locked",
+          "observable": "full cargo test suite exited 0",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-full-cargo-test-final.log"
+        },
+        {
+          "scenario": "git whitespace and conflict-marker diff check",
+          "invocation": "git diff --check",
+          "observable": "git diff check exited 0",
+          "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-git-diff-check-final.log"
+        }
+      ]
+    }
+  ],
+  "changed_files": [
+    "src/tool_policy.rs",
+    "src/tool_policy/execution.rs",
+    "src/tool_policy/output_paths.rs",
+    "src/tool_policy/tests.rs",
+    "src/artifacts.rs",
+    "src/artifacts/ffmpeg.rs",
+    "src/artifacts/tests.rs",
+    "src/video_export.rs",
+    "src/video_export/log.rs",
+    "src/video_export/tests.rs",
+    "src/validation/log.rs",
+    "src/validation/log/tests.rs",
+    "tests/tool_policy_api.rs"
+  ],
+  "manual_qa": [
+    {
+      "scenario": "CLI happy and failure paths for ffmpeg policy on derived media commands",
+      "invocation": "cargo test --locked --test cli_default_output_policy derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata -- --nocapture",
+      "observable": "test exercised CLI command paths with approved ffmpeg shim and rejected fake ffmpeg path",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-cli-ffmpeg-policy-final.log"
+    },
+    {
+      "scenario": "CLI happy and failure paths for ffprobe policy on validation metadata",
+      "invocation": "cargo test --locked --test cli_e01_validation_log_output_policy validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata -- --nocapture",
+      "observable": "test exercised CLI command paths with approved ffprobe shim and rejected fake ffprobe path",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/verify-cli-ffprobe-policy-final.log"
+    }
+  ],
+  "adversarial_classes": [
+    "forged ResolvedExternalTool construction by downstream crate",
+    "direct ffmpeg/ffprobe Command::new bypass",
+    "PATH lookup to fake executable with rejected basename",
+    "absolute fake executable path with rejected basename",
+    "derived output writes outside case policy",
+    "metadata omission for resolved tool path/version and command args",
+    "oversized touched Rust module after security split",
+    "zero-byte or stale evidence artifact"
+  ],
+  "cleanup": {
+    "status": "pass",
+    "receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/cleanup-receipt.json",
+    "zero_byte_check": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/zero-byte-artifacts-final.txt",
+    "diff_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/t6-security-size-final.diff",
+    "artifact_index": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/artifact-index-security-size-final.txt",
+    "git_status": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/git-status-short-security-size-final.txt"
+  },
+  "review_rechecks": [
+    {
+      "reviewer": "code-reviewer",
+      "status": "pass",
+      "observable": "no critical, high, medium, or low findings after size/API/evidence repair",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy-recheck-code-review.md"
+    },
+    {
+      "reviewer": "gate-reviewer",
+      "status": "pass",
+      "observable": "prior gate issues closed: DoneClaim, complete diff artifact, zero-byte hygiene, API opacity, size gate, and global verification",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan-task-06-tool-policy-gate-review.md"
+    }
+  ],
+  "risks": [
+    "The shared worktree contains unrelated dirty files from other tasks; the T6 diff artifact scopes the security/size changes and does not resolve unrelated review work.",
+    "Historical evidence files from earlier attempts remain for auditability; stale zero-byte closeout receipts were repaired and current final evidence files are non-empty."
+  ]
+}

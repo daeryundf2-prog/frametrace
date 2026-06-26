@@ -16,7 +16,7 @@ fn report_discloses_derived_provenance_and_validation_failures() {
         carve_log_jsonl: "",
         filesystem_log_jsonl: "",
         validation_log_jsonl: r#"{"event":"validate-artifact","operator":"qa-operator","method":"ffprobe-container-video-stream","source_artifact_id":"source-carve_000001-dddddddddddd","target_path":"/case/artifacts/carved/bad.mp4","target_sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","validation_status":"validation-failed","validation_note":"ffprobe could not parse the file","entry_sha256":"chain"}"#,
-        audit_chain_status_json: r#"[{"name":"validation","relative_path":"evidence/logs/validation-log.jsonl","status":"verified","entries":1,"last_entry_sha256":"chain","error":null}]"#,
+        audit_chain_status_json: r#"[{"name":"validation","relative_path":"evidence/logs/validation-log.jsonl","status":"valid","entries":1,"last_entry_sha256":"chain","error":null}]"#,
     });
 
     assert!(html.contains("qa-operator"));
@@ -29,7 +29,7 @@ fn report_discloses_derived_provenance_and_validation_failures() {
     assert!(html.contains("validation-failed"));
     assert!(html.contains("ffprobe could not parse the file"));
     assert!(html.contains("감사 체인 검증"));
-    assert!(html.contains("verified"));
+    assert!(html.contains("valid"));
 }
 
 #[test]

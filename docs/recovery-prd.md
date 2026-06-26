@@ -38,8 +38,8 @@ Out of scope until a feature-specific PRD and corpus exist:
 ## Acceptance Criteria
 
 - `cargo test` passes with recovery, package, migration, QA, and CLI smoke coverage.
-- `qa accuracy` passes against a ground-truth TSV manifest with precision and recall >= 0.98.
-- `qa reproducibility` passes for deterministic reruns against the same corpus.
+- `qa accuracy` passes against a typed ground-truth corpus manifest with the plan-required ground-truth fields, source hashes, expected outputs, precision, recall, false positives, and false negatives.
+- `qa reproducibility` passes for deterministic reruns against the same corpus and records normalized diff metrics against explicit allowed thresholds.
 - `qa report-defense` passes after `init-case`, `scan-folder`, `make-report`.
 - `qa performance` passes at the configured row target.
 - Recovered artifacts are visible in `review/evidence-viewer.html` and `reports/case-report.html`.

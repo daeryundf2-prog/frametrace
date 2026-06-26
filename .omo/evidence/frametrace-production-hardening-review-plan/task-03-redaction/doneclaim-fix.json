@@ -1,0 +1,126 @@
+{
+  "doneclaim_type": "fix",
+  "task": "T3 redaction compile blocker after gate review needs-fix",
+  "status": "done",
+  "recorded_utc": "2026-06-24T08:29:40Z",
+  "workspace": "/Users/shinyoohag/Desktop/frametrace",
+  "plan": ".omo/plans/frametrace-production-hardening-review-plan.md",
+  "evidence_dir": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/",
+  "fix_summary": "Passed the source case_dir into redact_sqlite_copy_for_distributable when packaging db/case.db, matching the helper API that redacts SQLite JSON path fields relative to the case root. Applied rustfmt to the adjacent redaction file after fmt --check surfaced an existing formatting diff.",
+  "changed_files": [
+    {
+      "path": "src/package.rs",
+      "kind": "code",
+      "summary": "Changed the db/case.db package redaction call from redact_sqlite_copy_for_distributable(&target, policy) to redact_sqlite_copy_for_distributable(&target, case_dir, policy)."
+    },
+    {
+      "path": "src/distributable_redaction.rs",
+      "kind": "format-only",
+      "summary": "cargo fmt wrapped the SQLite JSON redaction error branch reported by cargo fmt --all -- --check. No behavioral change."
+    },
+    {
+      "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-compile-package-test.log",
+      "kind": "evidence",
+      "summary": "Exact blocker test rerun transcript."
+    },
+    {
+      "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log",
+      "kind": "evidence",
+      "summary": "Focused package/redaction tests plus fmt, clippy, full locked tests, and git diff --check transcript."
+    },
+    {
+      "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-manual-sqlite-redaction-pass.md",
+      "kind": "evidence",
+      "summary": "Manual CLI SQLite package redaction QA transcript."
+    },
+    {
+      "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-cleanup-receipt.md",
+      "kind": "evidence",
+      "summary": "Temp-root cleanup receipt for manual QA."
+    },
+    {
+      "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/doneclaim-fix.json",
+      "kind": "evidence",
+      "summary": "This DoneClaim fix artifact."
+    }
+  ],
+  "stale_evidence_superseded": [
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/doneclaim.json",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/verification-gates-rerun.log",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/verification-gates.log",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-redaction-pass-v2.md"
+  ],
+  "verification": [
+    {
+      "scenario": "T3 compile blocker regression for package default redaction",
+      "invocation": "cargo test --locked package::tests::package_redacts_distributable_copies_by_default -- --nocapture",
+      "binary_observable": "exit_status=0; package::tests::package_redacts_distributable_copies_by_default ... ok; 1 passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-compile-package-test.log"
+    },
+    {
+      "scenario": "Focused package tests",
+      "invocation": "cargo test --locked package::tests:: -- --nocapture",
+      "binary_observable": "exit_status=0; 6 package tests passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Focused distributable redaction tests",
+      "invocation": "cargo test --locked distributable_redaction::tests:: -- --nocapture",
+      "binary_observable": "exit_status=0; 5 distributable_redaction tests passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Rust formatting gate",
+      "invocation": "cargo fmt --all -- --check",
+      "binary_observable": "exit_status=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Clippy all targets/all features with warnings denied",
+      "invocation": "cargo clippy --locked --all-targets --all-features -- -D warnings",
+      "binary_observable": "exit_status=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Full locked Rust test suite",
+      "invocation": "cargo test --locked",
+      "binary_observable": "exit_status=0; lib tests 136 passed; integration tests passed; doc-tests passed",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Git whitespace diff check",
+      "invocation": "git diff --check",
+      "binary_observable": "exit_status=0",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-verification-gates.log"
+    },
+    {
+      "scenario": "Manual CLI SQLite package redaction with source path and case-relative artifact path in videos.record_json",
+      "invocation": "cargo build --locked; target/debug/frametrace init-case; target/debug/frametrace scan-folder --no-ffprobe; sqlite3 UPDATE videos.record_json; target/debug/frametrace make-report; target/debug/frametrace make-review; target/debug/frametrace package-case --output; sqlite3 SELECT record_json assertions",
+      "binary_observable": "final_exit=0; active_record_source_path_exit=0; package_record_tmp_root_grep_exit=1; package_record_source_path_grep_exit=1; package_record_redacted_source_exit=0; package_record_case_relative_artifact_exit=0; package_text_tmp_root_grep_exit=1; package_text_source_path_grep_exit=1",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-manual-sqlite-redaction-pass.md"
+    },
+    {
+      "scenario": "Manual QA cleanup",
+      "invocation": "rm -rf temp root plus transient /tmp/frametrace-* files; test ! -e temp root",
+      "binary_observable": "temp_root_removed_exit=0; temp_root_removed: true; persistent_processes_started: none",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-cleanup-receipt.md"
+    }
+  ],
+  "manual_qa": {
+    "rerun": true,
+    "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-manual-sqlite-redaction-pass.md",
+    "result": "pass"
+  },
+  "cleanup": {
+    "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/fix-cleanup-receipt.md",
+    "result": "pass",
+    "temp_dirs_removed": [
+      "/tmp/FrameTrace Client ACME SQLite fix QA.TOiqBj"
+    ],
+    "persistent_processes_started": false
+  },
+  "risks": [
+    "The worktree already contains broad unrelated T1/T2/T5/T3 changes and untracked .omo evidence; this fix intentionally did not revert or reshape them.",
+    "src/package.rs remains above the programming skill pure-LOC threshold due to pre-existing T3 package/redaction work; splitting it would exceed the narrow compile-blocker scope."
+  ]
+}

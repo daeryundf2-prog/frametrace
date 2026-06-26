@@ -1,0 +1,7 @@
+surface: CLI
+invocation: git rev-parse HEAD
+criterion: HEAD matches requested f589dea
+--- output ---
+f589deaafa1ef8d8c036b1734b6ca3230a266db3
+
+--- exit_code: 0 ---

@@ -1,0 +1,54 @@
+# post-commit validation
+checked_at=2026-06-23T10:55:37Z
+commit=a42a320
+
+## git log -1
+a42a320 Harden forensic workstation release gates
+
+## git status --short
+?? .omo/plans/
+?? .omo/ulw-loop/.current-media-session
+?? .omo/ulw-loop/frame-full-ga-20260617222935/
+?? .omo/ulw-loop/frame-gui-20260617102845/
+?? .omo/ulw-loop/frame-master-rcga-cleanup-receipt.txt
+?? .omo/ulw-loop/frame-master-rcga-review-blocker.md
+?? .omo/ulw-loop/frame-media-validation-20260617024104/
+?? .omo/ulw-loop/frame-production-exec-20260623-brief.md
+?? .omo/ulw-loop/frame-production-exec-20260623/
+?? .omo/ulw-loop/frame-production-seq-20260623-brief.md
+?? .omo/ulw-loop/frame-production-seq-20260623/
+?? .omo/ulw-loop/frame-windows-prereq-gate-20260622/
+?? .omo/ulw-loop/frame-winui-20260617-playback-cli.txt
+?? .omo/ulw-loop/frame-winui-cleanup-receipt.txt
+?? .omo/ulw-loop/frame-winui-latest-playback-case.txt
+?? .omo/ulw-loop/frame-winui-playback-cli-pass.txt
+?? .omo/ulw-loop/frame-winui-workstation-status-release.json
+?? .omo/ulw-loop/frame-winui-workstation-status.json
+
+## cargo test --locked --test cli_windows_prereq -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 3 tests
+test windows_release_script_enforces_native_exit_and_winui_receipt ... ok
+test workstation_status_reports_windows_prerequisite_gate ... ok
+test release_readiness_blocks_when_windows_prerequisites_are_missing ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+
+## cargo test --locked --test media_contract -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 3 tests
+test report_discloses_derived_provenance_and_validation_failures ... ok
+test playback_confirmation_rejects_missing_ffprobe_validation ... ok
+test playback_confirmation_requires_prior_ffprobe_validation_and_records_separate_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+## node --check gui/evidence-viewer/app.js
+
+cleanup: no spawned server/browser/tmux/container; cargo/node exited; no temp dirs created by this script

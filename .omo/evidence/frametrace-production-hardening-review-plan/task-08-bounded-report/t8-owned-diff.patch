@@ -1,0 +1,306 @@
+diff --git a/src/case_db/mod.rs b/src/case_db/mod.rs
+index 8ba78ba..16a610d 100644
+--- a/src/case_db/mod.rs
++++ b/src/case_db/mod.rs
+@@ -21,6 +21,7 @@ mod metrics_queries;
+ mod metrics_tests;
+ pub mod models;
+ mod query_plan;
++pub mod report_summary;
+ pub mod scan;
+ pub mod schema;
+ 
+@@ -35,6 +36,7 @@ pub use jobs::*;
+ pub use metrics::*;
+ pub use models::*;
+ pub(crate) use query_plan::*;
++pub use report_summary::*;
+ pub use scan::*;
+ pub(crate) use schema::*;
+ 
+diff --git a/src/cli/handlers.rs b/src/cli/handlers.rs
+index 6c70177..d383d7a 100644
+--- a/src/cli/handlers.rs
++++ b/src/cli/handlers.rs
+@@ -2,6 +2,10 @@ use crate::artifacts::{self, FrameCaptureOptions, ProxyOptions, ThumbnailOptions
+ use crate::audit;
+ use crate::carve::{self, CarveOptions};
+ use crate::case_db;
++use crate::distributable_redaction::{
++    RedactionPolicy, redact_json_for_distributable, redact_jsonl_for_distributable,
++    write_full_path_disclosure_artifact,
++};
+ use crate::e01::{self, E01Options};
+ use crate::html_report;
+ use crate::model::{CaseManifest, ScanOptions};
+@@ -44,6 +48,7 @@ pub struct RegisterSourceOptions {
+ #[derive(Debug, Clone, Default)]
+ pub struct PackageOptions {
+     pub output_dir: Option<PathBuf>,
++    pub redaction_policy: RedactionPolicy,
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -253,9 +258,10 @@ pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Resu
+     Ok(())
+ }
+ 
+-pub fn make_review(case_dir: &Path) -> Result<(), String> {
++pub fn make_review(case_dir: &Path, redaction_policy: RedactionPolicy) -> Result<(), String> {
+     ensure_case(case_dir)?;
+-    let index_json = review_bundle::bounded_review_index_json(case_dir)?;
++    let index_json =
++        review_bundle::bounded_review_index_json_with_policy(case_dir, redaction_policy)?;
+     let manifest_path = case_dir.join("case.json");
+     let manifest_json = read_to_string(&manifest_path)
+         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+@@ -263,20 +269,41 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
+     let review_path = case_dir.join("review/index.html");
+     require_case_output_path(case_dir, &review_path, "review html")?;
+     write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
+-    let carve_log =
+-        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
+-    let filesystem_log =
+-        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
+-    let validation_log =
+-        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+-    let export_log =
+-        read_to_string(&case_dir.join("artifacts/clips/export-log.jsonl")).unwrap_or_default();
+-    let proxy_log =
+-        read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
+-    let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
+-        .unwrap_or_default();
+-    let frame_log =
+-        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
++    let carve_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/carved/carve-log.jsonl"),
++        redaction_policy,
++    )?;
++    let filesystem_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("evidence/logs/tsk-audit.jsonl"),
++        redaction_policy,
++    )?;
++    let validation_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("evidence/logs/validation-log.jsonl"),
++        redaction_policy,
++    )?;
++    let export_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/clips/export-log.jsonl"),
++        redaction_policy,
++    )?;
++    let proxy_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/proxies/proxy-log.jsonl"),
++        redaction_policy,
++    )?;
++    let thumbnail_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"),
++        redaction_policy,
++    )?;
++    let frame_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/frames/frame-log.jsonl"),
++        redaction_policy,
++    )?;
+     let audit_chain_status =
+         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
+     let evidence_viewer =
+@@ -296,6 +323,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
+     require_case_output_path(case_dir, &evidence_viewer_path, "evidence viewer html")?;
+     write_text(&evidence_viewer_path, &evidence_viewer)
+         .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
++    write_full_path_disclosure_artifact(&case_dir.join("review"), "review", redaction_policy)?;
+     println!("review written: {}", review_path.display());
+     println!(
+         "evidence viewer written: {}",
+@@ -304,28 +332,50 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
+     Ok(())
+ }
+ 
+-pub fn make_report(case_dir: &Path) -> Result<(), String> {
++pub fn make_report(case_dir: &Path, redaction_policy: RedactionPolicy) -> Result<(), String> {
+     ensure_case(case_dir)?;
+-    let index_path = case_dir.join("db/video_index.json");
+-    let index_json = read_to_string(&index_path)
+-        .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
++    let index_json = case_db::bounded_report_index_json(case_dir)?.ok_or_else(|| {
++        "SQLite case db required for bounded report generation; rerun scan-folder to create db/case.db before make-report".to_string()
++    })?;
++    let index_json = redact_json_for_distributable(case_dir, &index_json, redaction_policy)?;
+     let manifest_path = case_dir.join("case.json");
+     let manifest_json = read_to_string(&manifest_path)
+         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+-    let export_log =
+-        read_to_string(&case_dir.join("artifacts/clips/export-log.jsonl")).unwrap_or_default();
+-    let proxy_log =
+-        read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
+-    let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
+-        .unwrap_or_default();
+-    let frame_log =
+-        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
+-    let carve_log =
+-        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
+-    let filesystem_log =
+-        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
+-    let validation_log =
+-        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
++    let export_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/clips/export-log.jsonl"),
++        redaction_policy,
++    )?;
++    let proxy_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/proxies/proxy-log.jsonl"),
++        redaction_policy,
++    )?;
++    let thumbnail_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"),
++        redaction_policy,
++    )?;
++    let frame_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/frames/frame-log.jsonl"),
++        redaction_policy,
++    )?;
++    let carve_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("artifacts/carved/carve-log.jsonl"),
++        redaction_policy,
++    )?;
++    let filesystem_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("evidence/logs/tsk-audit.jsonl"),
++        redaction_policy,
++    )?;
++    let validation_log = read_redacted_jsonl(
++        case_dir,
++        &case_dir.join("evidence/logs/validation-log.jsonl"),
++        redaction_policy,
++    )?;
+     let audit_chain_status =
+         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
+     let html = report::render_case_report(&report::ReportInputs {
+@@ -343,13 +393,18 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
+     let report_path = case_dir.join("reports/case-report.html");
+     require_case_output_path(case_dir, &report_path, "case report html")?;
+     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
++    write_full_path_disclosure_artifact(&case_dir.join("reports"), "report", redaction_policy)?;
+     println!("report written: {}", report_path.display());
+     Ok(())
+ }
+ 
+ pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {
+     ensure_case(case_dir)?;
+-    let result = package::package_case(case_dir, options.output_dir.as_deref())?;
++    let result = package::package_case(
++        case_dir,
++        options.output_dir.as_deref(),
++        options.redaction_policy,
++    )?;
+     println!("case package written");
+     println!("output: {}", result.output_dir.display());
+     println!("files: {}", result.file_count);
+@@ -357,6 +412,15 @@ pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), Stri
+     Ok(())
+ }
+ 
++fn read_redacted_jsonl(
++    case_dir: &Path,
++    path: &Path,
++    policy: RedactionPolicy,
++) -> Result<String, String> {
++    let raw = read_to_string(path).unwrap_or_default();
++    redact_jsonl_for_distributable(case_dir, &raw, policy)
++}
++
+ pub fn export_video(case_dir: &Path, selector: &str, options: ExportOptions) -> Result<(), String> {
+     ensure_case(case_dir)?;
+     let result = video_export::export_video(case_dir, selector, &options)?;
+@@ -786,8 +850,9 @@ fn tsk_recover_options_json(options: &TskRecoverOptions) -> String {
+ 
+ fn validation_options_json(options: &ValidationOptions) -> String {
+     format!(
+-        "{{\"ffprobe_bin\":\"{}\"}}",
+-        crate::util::json_escape(&options.ffprobe_bin)
++        "{{\"ffprobe_bin\":\"{}\",\"external_source\":{}}}",
++        crate::util::json_escape(&options.ffprobe_bin),
++        options.allow_external_source
+     )
+ }
+ 
+diff --git a/src/report.rs b/src/report.rs
+index 02e8c76..9e30143 100644
+--- a/src/report.rs
++++ b/src/report.rs
+@@ -107,6 +107,10 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
+       margin-top: 12px;
+       font-size: 13px;
+     }}
++    .boundary {{
++      border-left-color: #b45309;
++      background: #fff7ed;
++    }}
+     @media print {{
+       main {{ padding: 0; }}
+       .box {{ break-inside: avoid; }}
+@@ -133,7 +137,8 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
+   </section>
+ 
+   <h2>처리 요약</h2>
+-  <div id="processing"></div>
++    <div id="processing"></div>
++  <div class="note" id="privacy-disclosure"></div>
+   <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
+ 
+   <h2>감사 체인 검증</h2>
+@@ -143,6 +148,7 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
+   <div id="source-assessment"></div>
+ 
+   <h2>영상 색인</h2>
++  <div class="note boundary" id="report-boundary"></div>
+   <div id="videos"></div>
+ 
+   <h2>MP4/AVI 내보내기 산출물</h2>
+@@ -172,6 +178,10 @@ const validationLog = {validation_lines};
+ const auditChainStatus = {audit_chain_status};
+ const videos = Array.isArray(scan.videos) ? scan.videos : [];
+ const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
++const reportSummary = scan.report_summary || {{}};
++const videoTotal = Number.isFinite(scan.video_count) ? scan.video_count : videos.length;
++const videoSampleLimit = Number.isFinite(scan.sample_limit) ? scan.sample_limit : videos.length;
++const videosTruncated = Boolean(scan.videos_truncated || (videoTotal > videos.length));
+ const derivedLog = [...exportsLog, ...proxyLog, ...thumbnailLog, ...frameLog];
+ const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
+ 
+@@ -241,10 +251,10 @@ videos.forEach(video => {{
+ 
+ document.getElementById("title").textContent = manifest.title || "FrameTrace 영상 포렌식 보고서";
+ document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · 로컬 케이스 데이터 기반 생성 · ${{manifest.tool_name || "frametrace"}} ${{manifest.tool_version || ""}}`;
+-document.getElementById("count").textContent = scan.video_count ?? videos.length;
++document.getElementById("count").textContent = videoTotal;
+ document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
+-document.getElementById("confirmed").textContent = videos.filter(video => video.ffprobe_ok).length;
+-document.getElementById("sources").textContent = sourceCounts.size;
++document.getElementById("confirmed").textContent = scan.confirmed_count ?? videos.filter(video => video.ffprobe_ok).length;
++document.getElementById("sources").textContent = scan.source_count ?? sourceCounts.size;
+ document.getElementById("warnings-count").textContent = warnings.length;
+ document.getElementById("exports").textContent = exportsLog.length;
+ document.getElementById("derived").textContent = derivedLog.length;
+@@ -267,6 +277,10 @@ document.getElementById("processing").innerHTML = `<table>
+     <tr><th>경고</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}}</td></tr>
+   </tbody>
+ </table>`;
++document.getElementById("privacy-disclosure").textContent = `${{scan.path_disclosure_mode || "redacted"}} · ${{scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}}`;
++document.getElementById("report-boundary").innerHTML = videosTruncated
++  ? `bounded SQLite report summary: showing ${{videos.length}} of ${{videoTotal}} videos (sample limit ${{videoSampleLimit}}). Full row-level review remains outside this HTML appendix; use <code>${{escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}}</code> for bounded inventory pages or <code>${{escapeHtml(reportSummary.review_command || "frametrace make-review <case_dir>")}}</code> for review workflow. Appendix boundary: remaining ${{Math.max(videoTotal - videos.length, 0)}} video rows intentionally omitted.`
++  : `bounded SQLite report summary: showing all ${{videos.length}} indexed video rows in this small case. Use <code>${{escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}}</code> for repeatable bounded inventory review.`;
+ 
+ document.getElementById("audit-chain").innerHTML = auditChainStatus.length ? `<table>
+   <thead>

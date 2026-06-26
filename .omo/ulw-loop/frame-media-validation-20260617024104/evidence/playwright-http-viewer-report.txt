@@ -1,0 +1,155 @@
+case: /tmp/frametrace-real-surface-sourcepath.5ne1lU/case
+port: 8767
+server_pid: 1912
+--- open evidence viewer ---
+### Browser `frametrace-phase3-http` opened with pid 1937.
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/review/evidence-viewer.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/review/evidence-viewer.html
+- Page Title: FrameTrace Evidence Viewer
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T07-28-54-479Z.yml)
+### Ran Playwright code
+```js
+await page.setViewportSize({ width: 1600, height: 1000 });
+```
+### Page
+- Page URL: http://127.0.0.1:8767/review/evidence-viewer.html
+- Page Title: FrameTrace Evidence Viewer
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading "FrameTrace Evidence Viewer" [level=1] [ref=e3]
+    - generic [ref=e4]: FT-1781681232 · Phase 3 source path proof · SQLite-backed bounded review inventory
+    - generic [ref=e5]: 실제 케이스 데이터
+  - main [ref=e6]:
+    - complementary [ref=e7]:
+      - generic [ref=e8]:
+        - text: 증거 목록
+        - generic [ref=e9]: "2"
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - text: 영상
+          - strong [ref=e12]: "1"
+        - generic [ref=e13]:
+          - text: 복구 후보
+          - strong [ref=e14]: "0"
+        - generic [ref=e15]:
+          - text: 검증됨
+          - strong [ref=e16]: "2"
+        - generic [ref=e17]:
+          - text: 검증 실패
+          - strong [ref=e18]: "0"
+      - generic [ref=e19]:
+        - searchbox "경로, ID, 파서, 해시 검색" [ref=e20]
+        - combobox [ref=e21]:
+          - option "전체 유형" [selected]
+          - option "색인 영상"
+          - option "carving 후보"
+          - option "파일시스템 복구"
+        - combobox [ref=e22]:
+          - option "전체 검증 상태" [selected]
+          - option "ffprobe-video-stream-confirmed"
+          - option "validation-failed"
+          - option "candidate-unvalidated"
+          - option "duplicate-candidate"
+      - generic [ref=e23]:
+        - generic [ref=e24] [cursor=pointer]:
+          - generic [ref=e25]: ffprobe-confirmed
+          - generic [ref=e26]:
+            - strong [ref=e27]: source.mp4
+            - code [ref=e28]: /private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media/source.mp4
+            - text: /private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media/source.mp4 · video-index
+          - generic [ref=e29]: video
+        - generic [ref=e30] [cursor=pointer]:
+          - generic [ref=e31]: ffprobe-video-stream-confirmed
+          - generic [ref=e32]:
+            - strong [ref=e33]: vid_000001_frame_1781681232.jpg
+            - code [ref=e34]: /tmp/frametrace-real-surface-sourcepath.5ne1lU/case/artifacts/frames/vid_000001_frame_1781681232.jpg
+            - text: frame-capture · ffmpeg-frame-capture
+          - generic [ref=e35]: derived
+      - generic [ref=e36]:
+        - button "이전" [disabled] [ref=e37] [cursor=pointer]
+        - generic [ref=e38]: 1 / 1
+        - button "다음" [disabled] [ref=e39] [cursor=pointer]
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - strong [ref=e43]: source.mp4
+          - generic [ref=e44]: ffprobe-confirmed
+        - generic [ref=e46]:
+          - strong [ref=e47]: 자동 미디어 로딩 비활성화
+          - generic [ref=e48]: 원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.
+          - link "수동으로 파일 열기" [ref=e49] [cursor=pointer]:
+            - /url: file:///private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media/source.mp4
+      - generic [ref=e50]:
+        - generic [ref=e51]: 선택 증거 메모
+        - generic [ref=e52]:
+          - term [ref=e53]: ID
+          - definition [ref=e54]: vid_000001
+          - term [ref=e55]: 상태
+          - definition [ref=e56]: ffprobe-confirmed
+          - term [ref=e57]: 메모
+          - definition [ref=e58]: unreviewed
+          - term [ref=e59]: 길이
+### Result
+"{\"title\":\"FrameTrace Evidence Viewer\",\"verified\":\"2\",\"failed\":\"0\",\"hasArtifactIndex\":true,\"hasRelated\":true,\"bodyText\":\"FrameTrace Evidence Viewer\\nFT-1781681232 · Phase 3 source path proof · SQLite-backed bounded review inventory\\n실제 케이스 데이터\\n증거 목록\\n2\\n영상\\n1\\n복구 후보\\n0\\n검증됨\\n2\\n검증 실패\\n0\\n전체 유형\\n색인 영상\\ncarving 후보\\n파일시스템 복구\\n전체 검증 상태\\nffprobe-video-stream-confirmed\\nvalidation-failed\\ncandidate-unvalidated\\nduplicate-candidate\\nffprobe-confirmed\\nsource.mp4\\n/private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media/source.mp4\\n/private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media/source.mp4 · video-index\\nvideo\\nffprobe-video-stream-confirmed\\nvid_000001_frame_1781681232.jpg\\n/tmp/frametrace-real-surface-sourcepath.5ne1lU/case/arti\"}"
+### Ran Playwright code
+```js
+await page.evaluate('() => (JSON.stringify({title:document.title, verified:document.querySelector("#metricVerified")?.textContent, failed:document.querySelector("#metricFailed")?.textContent, hasArtifactIndex:!!document.documentElement.innerHTML.includes("validationByArtifactId"), hasRelated:!!document.documentElement.innerHTML.includes("relatedValidationsForRecord"), bodyText:document.body.innerText.slice(0,600)}))');
+```
+### Result
+- [Screenshot of viewport](.playwright-cli/page-2026-06-17T07-28-56-368Z.png)
+### Ran Playwright code
+```js
+// Screenshot viewport and save it as .playwright-cli/page-2026-06-17T07-28-56-368Z.png
+await page.screenshot({
+  path: '.playwright-cli/page-2026-06-17T07-28-56-368Z.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+### Result
+Total messages: 0 (Errors: 0, Warnings: 0)
+
+--- open report ---
+### Browser `frametrace-phase3-http` opened with pid 2057.
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/reports/case-report.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/reports/case-report.html
+- Page Title: FrameTrace 영상 포렌식 보고서
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T07-28-57-776Z.yml)
+### Ran Playwright code
+```js
+await page.setViewportSize({ width: 1600, height: 1000 });
+```
+### Result
+"{\"title\":\"FrameTrace 영상 포렌식 보고서\",\"hasAuditHeading\":true,\"hasVerified\":true,\"hasSourcePath\":true,\"hasDerivedId\":true,\"text\":\"Phase 3 source path proof\\nFT-1781681232 · 로컬 케이스 데이터 기반 생성 · frametrace 0.1.0\\n색인 영상\\n1\\n증거 총 용량\\n8.5 KB\\nffprobe 확인\\n1\\n추정 소스\\n1\\n스캔 경고\\n0\\n내보낸 클립\\n0\\n리뷰 산출물\\n1\\n복구 후보\\n0\\n파일시스템 작업\\n0\\n검증 기록\\n1\\n처리 요약\\n케이스 ID\\tFT-1781681232\\n작업자 / 호스트\\tqa-operator / -\\n플랫폼 / 도구\\tmacos / frametrace 0.1.0\\n장치\\t- · serial: - · write-protect: test fixture\\n취득\\t- · evidence hash: -\\n비고\\t-\\n소스 경로\\t/private/tmp/frametrace-real-surface-sourcepath.5ne1lU/media\\n스캔 시각\\t6/17/2026, 4:27:12 PM (1781681232)\\n해시 모드\\t파일별 SHA-256 계산\\n메타데이터 모드\\tffprobe 사용\\n경고\\t없음\\n이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.\\n감사 체인 검증\\n로그\\t경로\\t상태\\t엔트리\\t마지막 엔트리 SHA-256\\t오류\\nclip export\\tartifacts/clips/export-log.jsonl\\tmissing\\t-\\t-\\taudit log is not present\\nproxy\\tartifacts/proxies/proxy-log.jsonl\\tmissing\\t-\\t-\\taudit log is not present\\nthumbnail\\ta\"}"
+### Ran Playwright code
+```js
+await page.evaluate('() => (JSON.stringify({title:document.title, hasAuditHeading:document.body.innerText.includes("감사 체인 검증"), hasVerified:document.body.innerText.includes("verified"), hasSourcePath:document.body.innerText.includes("media/source.mp4"), hasDerivedId:document.body.innerText.includes("derived-frame-capture"), text:document.body.innerText.slice(0,800)}))');
+```
+### Result
+- [Screenshot of viewport](.playwright-cli/page-2026-06-17T07-28-59-331Z.png)
+### Ran Playwright code
+```js
+// Screenshot viewport and save it as .playwright-cli/page-2026-06-17T07-28-59-331Z.png
+await page.screenshot({
+  path: '.playwright-cli/page-2026-06-17T07-28-59-331Z.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+### Result
+Total messages: 0 (Errors: 0, Warnings: 0)
+
+--- cleanup probe before trap ---
+ 1912 /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python

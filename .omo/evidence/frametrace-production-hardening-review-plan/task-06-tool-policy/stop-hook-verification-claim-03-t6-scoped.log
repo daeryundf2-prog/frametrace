@@ -1,0 +1,216 @@
+T6 scoped verification after claim-03 shared-worktree failure
+started_at=2026-06-24T09:26:05Z
+Context: stop-hook-verification-claim-03.log records full cargo test failures in report-defense tests and global fmt failure in src/qa_tests.rs, both outside T6 ownership. This pass verifies T6-specific claims only.
+
+## COMMAND_EXPECT_NO_MATCHES: rg Command::new\\\(\"ffmpeg\"\\\)\|Command::new\\\(\"ffprobe\"\\\)\|command_version\\\(\"ffmpeg\"\\\) src tests
+## EXIT: 1 (expected no matches)
+
+## COMMAND: cargo test --locked tool_policy --lib -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 7 tests
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test tool_policy::tests::rejects_output_that_targets_source_evidence_path ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 137 filtered out; finished in 0.14s
+
+## EXIT: 0
+
+## COMMAND: cargo test --locked derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata --test cli_default_output_policy -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/cli_default_output_policy.rs (target/debug/deps/cli_default_output_policy-f632a477c5f9e529)
+
+running 1 test
+test derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.30s
+
+## EXIT: 0
+
+## COMMAND: cargo test --locked validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata --test cli_e01_validation_log_output_policy -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/cli_e01_validation_log_output_policy.rs (target/debug/deps/cli_e01_validation_log_output_policy-865ed60b137c80f3)
+
+running 1 test
+test validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.28s
+
+## EXIT: 0
+
+## COMMAND: rustfmt --check src/tool_policy.rs src/video_export.rs src/artifacts.rs src/ffprobe.rs src/validation.rs src/validation/log.rs src/derived_output_policy_tests.rs src/cli/commands.rs src/cli/mod.rs src/cli/media_cmd.rs tests/cli_default_output_policy.rs tests/cli_e01_validation_log_output_policy.rs
+Diff in /Users/shinyoohag/Desktop/frametrace/src/video_export.rs:1:
+ use crate::audit;
+ use crate::media_contract;
+ use crate::tool_policy::{
+-    ResolvedExternalTool, reject_source_output_path, require_case_output_path,
+-    resolve_external_tool, run_external_tool,
++    reject_source_output_path, require_case_output_path, resolve_external_tool, run_external_tool,
++    ResolvedExternalTool,
+ };
+ use crate::util::{json_escape, now_unix, read_to_string, unique_path};
+ use std::path::{Path, PathBuf};
+Diff in /Users/shinyoohag/Desktop/frametrace/src/video_export.rs:342:
+ #[cfg(test)]
+ mod tests {
+     use super::{
+-        ExportFormat, ExportLogBody, ExportOptions, export_log_body_json, ffmpeg_export_args,
+-        sanitize_filename, tsv_unescape,
++        export_log_body_json, ffmpeg_export_args, sanitize_filename, tsv_unescape, ExportFormat,
++        ExportLogBody, ExportOptions,
+     };
+     use crate::tool_policy::ResolvedExternalTool;
+     use std::path::Path;
+Diff in /Users/shinyoohag/Desktop/frametrace/src/artifacts.rs:1:
+ use crate::audit;
+ use crate::media_contract;
+ use crate::tool_policy::{
+-    ResolvedExternalTool, reject_source_output_path, require_case_output_path,
+-    resolve_external_tool, run_external_tool,
++    reject_source_output_path, require_case_output_path, resolve_external_tool, run_external_tool,
++    ResolvedExternalTool,
+ };
+ use crate::util::{json_escape, now_unix, unique_path};
+ use crate::video_export::{resolve_video_source, sanitize_filename};
+Diff in /Users/shinyoohag/Desktop/frametrace/src/artifacts.rs:388:
+ #[cfg(test)]
+ mod tests {
+     use super::{
+-        DerivedArtifact, ProxyOptions, ThumbnailOptions, derived_artifact_log_body_json,
+-        frame_capture_ffmpeg_args, proxy_ffmpeg_args, thumbnail_ffmpeg_args,
++        derived_artifact_log_body_json, frame_capture_ffmpeg_args, proxy_ffmpeg_args,
++        thumbnail_ffmpeg_args, DerivedArtifact, ProxyOptions, ThumbnailOptions,
+     };
+     use crate::tool_policy::ResolvedExternalTool;
+     use std::path::{Path, PathBuf};
+Diff in /Users/shinyoohag/Desktop/frametrace/src/ffprobe.rs:1:
+ use crate::model::ProbeSummary;
+-use crate::tool_policy::{ResolvedExternalTool, resolve_external_tool, run_external_tool};
++use crate::tool_policy::{resolve_external_tool, run_external_tool, ResolvedExternalTool};
+ use crate::util::compact_json_value_if_well_formed;
+ use std::path::Path;
+ 
+Diff in /Users/shinyoohag/Desktop/frametrace/src/validation/log.rs:192:
+         ));
+         assert!(body.contains(r#""source_artifact_id":"source-carve_000001-aaaaaaaaaaaa""#));
+         assert!(body.contains(r#""source_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#));
+-        assert!(
+-            body.contains(r#""validation_artifact_path":"evidence/logs/validation-log.jsonl""#)
+-        );
++        assert!(body.contains(r#""validation_artifact_path":"evidence/logs/validation-log.jsonl""#));
+     }
+ 
+     #[test]
+Diff in /Users/shinyoohag/Desktop/frametrace/src/validation.rs:6:
+ use crate::audit;
+ use crate::ffprobe;
+ use crate::model::ProbeSummary;
+-use crate::tool_policy::{ResolvedExternalTool, resolve_external_tool};
++use crate::tool_policy::{resolve_external_tool, ResolvedExternalTool};
+ use crate::util::now_unix;
+ use log::{append_validation_log, validation_status};
+ use std::path::{Path, PathBuf};
+Diff in /Users/shinyoohag/Desktop/frametrace/src/validation/log.rs:192:
+         ));
+         assert!(body.contains(r#""source_artifact_id":"source-carve_000001-aaaaaaaaaaaa""#));
+         assert!(body.contains(r#""source_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#));
+-        assert!(
+-            body.contains(r#""validation_artifact_path":"evidence/logs/validation-log.jsonl""#)
+-        );
++        assert!(body.contains(r#""validation_artifact_path":"evidence/logs/validation-log.jsonl""#));
+     }
+ 
+     #[test]
+Diff in /Users/shinyoohag/Desktop/frametrace/src/derived_output_policy_tests.rs:1:
+ #![cfg(unix)]
+ 
+ use crate::artifacts::{
+-    FrameCaptureOptions, ProxyOptions, ThumbnailOptions, capture_frame, generate_proxy,
+-    generate_thumbnail,
++    capture_frame, generate_proxy, generate_thumbnail, FrameCaptureOptions, ProxyOptions,
++    ThumbnailOptions,
+ };
+-use crate::tsk::{TskRecoverOptions, recover_inode};
+-use crate::video_export::{ExportFormat, ExportOptions, export_video};
++use crate::tsk::{recover_inode, TskRecoverOptions};
++use crate::video_export::{export_video, ExportFormat, ExportOptions};
+ use std::fmt::Debug;
+ use std::fs;
+ use std::os::unix::fs::symlink;
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/case_cmd.rs:1:
+ use crate::cli::handlers::{
+-    InitCaseOptions, RegisterSourceOptions, init_case, register_source, scan_folder,
++    init_case, register_source, scan_folder, InitCaseOptions, RegisterSourceOptions,
+ };
+ use crate::model::ScanOptions;
+ use std::path::Path;
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/handlers.rs:3:
+ use crate::carve::{self, CarveOptions};
+ use crate::case_db;
+ use crate::distributable_redaction::{
+-    RedactionPolicy, redact_json_for_distributable, redact_jsonl_for_distributable,
+-    write_full_path_disclosure_artifact,
++    redact_json_for_distributable, redact_jsonl_for_distributable,
++    write_full_path_disclosure_artifact, RedactionPolicy,
+ };
+ use crate::e01::{self, E01Options};
+ use crate::html_report;
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/inventory_cmd.rs:1:
+ use crate::case_db::{
+-    BulkPreviewRequest, ExportManifestRequest, InventoryListQuery, bulk_preview, export_manifest,
+-    get_file_detail, inventory_facets, list_inventory, search_inventory,
++    bulk_preview, export_manifest, get_file_detail, inventory_facets, list_inventory,
++    search_inventory, BulkPreviewRequest, ExportManifestRequest, InventoryListQuery,
+ };
+ use std::path::{Path, PathBuf};
+ 
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/mod.rs:1:
+ use crate::distributable_redaction::RedactionPolicy;
+-use clap::Parser;
+ use clap::error::ErrorKind;
++use clap::Parser;
+ 
+ mod case_cmd;
+ mod commands;
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/mod.rs:12:
+ mod qa_cmd;
+ mod tsk_cmd;
+ use case_cmd::{
+-    InitCaseCliInput, RegisterSourceCliInput, run_init_case, run_register_source, run_scan_folder,
++    run_init_case, run_register_source, run_scan_folder, InitCaseCliInput, RegisterSourceCliInput,
+ };
+ use commands::{Cli, Commands};
+-use e01_cmd::{ImportE01CliInput, run_import_e01, run_inspect_e01};
++use e01_cmd::{run_import_e01, run_inspect_e01, ImportE01CliInput};
+ use handlers::*;
+ use inventory_cmd::run_inventory_command;
+ use media_cmd::{
+Diff in /Users/shinyoohag/Desktop/frametrace/src/cli/mod.rs:22:
+-    CarveCliInput, ExportVideoCliInput, run_capture_frame, run_carve_file, run_confirm_playback,
+-    run_export_video, run_make_proxy, run_make_thumbnail, run_validate_artifact,
++    run_capture_frame, run_carve_file, run_confirm_playback, run_export_video, run_make_proxy,
++    run_make_thumbnail, run_validate_artifact, CarveCliInput, ExportVideoCliInput,
+ };
+ use qa_cmd::run_qa;
+-use tsk_cmd::{RecoverInodeCliInput, run_inspect_image, run_recover_inode};
++use tsk_cmd::{run_inspect_image, run_recover_inode, RecoverInodeCliInput};
+ 
+ pub fn run(args: Vec<String>) -> Result<(), String> {
+     let cli = match Cli::try_parse_from(args) {
+## EXIT: 1
+
+## COMMAND: git diff --check
+## EXIT: 0
+
+## COMMAND: python3 - .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/manual-happy-log-summary.json .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/manual-failure-command.stderr
+T6 manual metadata assertions PASS
+## EXIT: 0
+
+finished_at=2026-06-24T09:26:07Z
+VERDICT: FAIL - T6 scoped verification found a T6 blocker.

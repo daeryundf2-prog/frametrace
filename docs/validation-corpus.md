@@ -1,10 +1,12 @@
 # Validation Corpus Manifest
 
-Status: corpus structure defined. Real evidence files remain external and must not be committed.
+Status: T12 validation corpus manifests and non-client fixtures are defined. Real client evidence files remain external and must not be committed.
 
 ## Storage Rule
 
-Keep media, raw images, and E01 files outside git. Commit only manifests, hashes, expected-output summaries, and generated QA reports that do not contain sensitive evidence.
+Keep media, raw images, and E01 files outside git. Commit only manifests, hashes, lightweight non-client JSONL fixtures, expected-output summaries, and generated QA reports that do not contain sensitive evidence.
+
+The committed corpus entry point is `corpus/manifest/synthetic-video-corpus.json`. It references lightweight fixture files in `tests/fixtures/corpus/`. The committed fixtures are synthetic/non-client and therefore do not satisfy the `mixed_real_world_like` release key. No hash-only external corpus is claimed until a real external corpus hash and provenance record are available.
 
 ## Corpus A: Deleted File Recovery
 
@@ -48,11 +50,78 @@ Keep media, raw images, and E01 files outside git. Commit only manifests, hashes
 - Expected outputs: accuracy, reproducibility, report-defense, and package artifacts.
 - Pass criteria: precision >= 0.98, recall >= 0.98, hash mismatch = 0, report-defense pass.
 
-## Manifest Template
+## Typed Manifest Schema
 
-```text
-source_path	sha256	case_id	corpus_id	priority	expected_status	notes
-/absolute/path/to/video.mp4	<sha256-or-empty>	FT-CORPUS-A-001	A	P0	ffprobe-video-stream-confirmed	deleted source recovered by inode
+```json
+{
+  "schema_version": 1,
+  "corpus_id": "synthetic-video-corpus",
+  "corpus_kind": "synthetic",
+  "release_keys": {
+    "mixed_real_world_like": "unsupported"
+  },
+  "domains": [
+    {
+      "key": "video_recovery",
+      "status": "supported",
+      "ground_truth_schema": [
+        "corpus_id",
+        "source_artifact_id",
+        "source_sha256",
+        "expected_artifact_type",
+        "expected_path_pattern",
+        "expected_hash",
+        "expected_timestamp_range",
+        "expected_state",
+        "negative_controls",
+        "notes"
+      ],
+      "expected_outputs_schema": ["db/videos.jsonl", "evidence/logs/validation-log.jsonl"]
+    },
+    {
+      "key": "browser_artifacts",
+      "status": "unsupported",
+      "reason": "parser PRD is not approved for this release"
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "SYN-VID-001",
+      "domain": "video_recovery",
+      "source_path": "tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4",
+      "source_sha256": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+      "ground_truth": {
+        "corpus_id": "synthetic-video-corpus",
+        "source_artifact_id": "source-video-a",
+        "source_sha256": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+        "expected_artifact_type": "source-video",
+        "expected_path_pattern": "tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4",
+        "expected_hash": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+        "expected_timestamp_range": {
+          "start_unix": 1782470000,
+          "end_unix": 1782470003
+        },
+        "expected_state": "ffprobe-video-stream-confirmed",
+        "negative_controls": [
+          "tests/fixtures/corpus/synthetic-video-case-a/source/not-video.txt"
+        ],
+        "notes": "Lightweight committed non-client fixture file."
+      },
+      "expected_outputs": {
+        "indexed": true,
+        "validation_status": "ffprobe-video-stream-confirmed"
+      }
+    }
+  ],
+  "external_references": []
+}
 ```
 
-`qa accuracy` currently reads the first two columns. Additional columns are retained for reviewer context and future corpus tooling.
+Rules:
+
+- `schema_version` must be `1`.
+- `corpus_kind: "synthetic"` cannot claim `release_keys.mixed_real_world_like` as `pass`, `passed`, `supported`, or `true`.
+- Supported domains must declare the exact ground-truth schema fields `corpus_id`, `source_artifact_id`, `source_sha256`, `expected_artifact_type`, `expected_path_pattern`, `expected_hash`, `expected_timestamp_range`, `expected_state`, `negative_controls`, and `notes`, plus non-empty expected-output schema fields.
+- Unsupported domains must be recorded with `"status": "unsupported"` and a reason; they are not counted as pass evidence.
+- Manifest case `source_path` entries must be committed lightweight non-client fixture files with verifiable hashes for this synthetic corpus. Large real-world-like corpora must stay outside git and may be represented only by real hash-only external references with provenance unless explicitly approved for publication. Placeholder external hashes are not release evidence.
+- Legacy TSV manifests remain accepted for existing automation, but typed JSON manifests are the release evidence format.

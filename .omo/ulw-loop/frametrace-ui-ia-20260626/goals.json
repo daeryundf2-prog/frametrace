@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-26T10:41:38.475Z",
+  "updatedAt": "2026-06-26T11:28:53.844Z",
+  "briefPath": ".omo/ulw-loop/frametrace-ui-ia-20260626/brief.md",
+  "goalsPath": ".omo/ulw-loop/frametrace-ui-ia-20260626/goals.json",
+  "ledgerPath": ".omo/ulw-loop/frametrace-ui-ia-20260626/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-modify-users-shinyoohag-desktop-fram",
+      "title": "Modify /Users/shinyoohag/Desktop/frametrace. Goal: make gui/evidence-...",
+      "objective": "Modify /Users/shinyoohag/Desktop/frametrace. Goal: make gui/evidence-viewer first screen look and behave like a Windows local forensic video evidence review tool used by field examiners. First review README, docs, gui/evidence-viewer, and src CLI structure. Improve first-screen IA so evidence sources, video candidates, validation status, export, and report flow are visible at a glance. Copy must avoid exaggerated release wording and clearly show local-first, verification required, candidate-unvalidated, and similar forensic statuses. Rust engine changes only if necessary and minimal. Preserve existing dirty worktree; do not revert unrelated changes. Verification: cargo test possible range, browser QA at 375/768/1280, screenshots under .omo/ulw-loop/evidence/frametrace-ui-ia/.",
+      "status": "complete",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "Viewer-first happy path: serve gui/evidence-viewer with python3 -m http.server 4177 --directory gui/evidence-viewer, open http://127.0.0.1:4177/index.html in Playwright Chromium at 1280x900, assert the first screen prioritizes the video/recovered-material viewer and visible candidate table while retaining compact review-critical state text: Evidence sources, Video candidates, Validation queue, Export preview, Report package, local-first, verification required, and candidate-unvalidated; capture desktop-1280.png and playwright-assertions.json.",
+          "userModel": "happy",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/desktop-1280.png plus playwright-assertions.json showing viewer-first layout, visible candidate rows, and required review-state text.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/desktop-1280.png; .omo/ulw-loop/evidence/frametrace-ui-ia/playwright-assertions.json; .omo/ulw-loop/evidence/frametrace-ui-ia/quality-gate.json",
+          "status": "pass",
+          "capturedAt": "2026-06-26T11:24:42.476Z",
+          "notes": "Playwright 1280x900 shows viewer-first layout, visible candidate rows, compact Evidence sources/Video candidates/Validation queue/Export preview/Report package states, local-first, verification required, candidate-unvalidated; pageErrors empty."
+        },
+        {
+          "id": "C002",
+          "scenario": "Responsive edge path: serve gui/evidence-viewer with python3 -m http.server 4177 --directory gui/evidence-viewer, open page in Playwright Chromium at 375x900 and 768x900, assert no horizontal overflow, first workflow summary remains visible above the inventory table, and status-honest labels local-first, verification required, candidate-unvalidated are visible; capture screenshots mobile-375.png and tablet-768.png plus overflow log responsive-overflow.json.",
+          "userModel": "edge",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/mobile-375.png, tablet-768.png, and responsive-overflow.json showing overflow=false for both widths.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/mobile-375.png; .omo/ulw-loop/evidence/frametrace-ui-ia/tablet-768.png; .omo/ulw-loop/evidence/frametrace-ui-ia/playwright-assertions.json; .omo/ulw-loop/evidence/frametrace-ui-ia/mobile-375-overflow.json; .omo/ulw-loop/evidence/frametrace-ui-ia/tablet-768-overflow.json",
+          "status": "pass",
+          "capturedAt": "2026-06-26T11:24:50.421Z",
+          "notes": "Playwright 375x900 and 768x900 show no horizontal overflow, visible review-state labels, and visible rendered candidate rows; mobile/tablet keep the viewer before lower-priority workflow controls."
+        },
+        {
+          "id": "C003",
+          "scenario": "Regression auxiliary path: run cargo test for the GUI-adjacent/report/validation scope that is feasible in this dirty worktree, starting with cargo test --lib, and capture exact command output to .omo/ulw-loop/evidence/frametrace-ui-ia/cargo-test-lib.txt. If existing dirty-worktree failures occur outside changed UI scope, record failing test names and do not revert unrelated files.",
+          "userModel": "regression",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/cargo-test-lib.txt with exit code and summary; pass if clean, otherwise explicit pre-existing/non-UI failure classification.",
+          "essential": false,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-ui-ia/cargo-test-lib.txt; .omo/ulw-loop/evidence/frametrace-ui-ia/playwright-run.log",
+          "status": "pass",
+          "capturedAt": "2026-06-26T11:24:56.125Z",
+          "notes": "cargo test --lib passed with 159 passed, 0 failed; node syntax checks and browser QA logs passed for changed GUI surface; Rust engine was not changed for the viewer-first follow-up."
+        }
+      ],
+      "attempt": 1,
+      "createdAt": "2026-06-26T10:41:38.475Z",
+      "updatedAt": "2026-06-26T11:28:53.844Z",
+      "startedAt": "2026-06-26T10:45:56.088Z",
+      "completedAt": "2026-06-26T11:28:53.844Z",
+      "evidence": "G001-modify-users-shinyoohag-desktop-fram implementation complete for .omo/ulw-loop/frametrace-ui-ia-20260626/goals.json and ledger.jsonl: viewer-first evidence viewer UI shipped in gui/evidence-viewer; validation/review evidence passed in quality-gate-final-direct.json, playwright-assertions.json, cargo-test-lib.txt, desktop-1280.png, tablet-768.png, and mobile-375.png."
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-ui-ia-20260626/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-ui-ia-20260626/ledger.jsonl as the audit trail.",
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-26T11:28:53.844Z",
+    "evidence": "G001-modify-users-shinyoohag-desktop-fram implementation complete for .omo/ulw-loop/frametrace-ui-ia-20260626/goals.json and ledger.jsonl: viewer-first evidence viewer UI shipped in gui/evidence-viewer; validation/review evidence passed in quality-gate-final-direct.json, playwright-assertions.json, cargo-test-lib.txt, desktop-1280.png, tablet-768.png, and mobile-375.png.",
+    "codexGoal": {
+      "goal": {
+        "threadId": "019f0323-5200-7963-b6bc-61fd1c751257",
+        "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-ui-ia-20260626/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-ui-ia-20260626/ledger.jsonl as the audit trail.",
+        "status": "complete",
+        "tokensUsed": 0,
+        "timeUsedSeconds": 3,
+        "createdAt": 1782473146,
+        "updatedAt": 1782473149
+      },
+      "remainingTokens": null,
+      "completionBudgetReport": "Goal achieved. Report final usage from this tool result's structured goal fields."
+    }
+  }
+}

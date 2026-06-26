@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/cli_default_output_policy.rs (target/debug/deps/cli_default_output_policy-f632a477c5f9e529)
+
+running 1 test
+test derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.35s
+

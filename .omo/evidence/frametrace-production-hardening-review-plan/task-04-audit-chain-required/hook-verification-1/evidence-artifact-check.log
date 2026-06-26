@@ -1,0 +1,4 @@
+SCENARIO hook-evidence-artifact-check
+INVOCATION test -s done-claim.json and all hook logs
+BINARY_OBSERVABLE PASS if evidence files are non-empty
+exit_code=0

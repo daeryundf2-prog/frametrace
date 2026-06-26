@@ -1,0 +1,30 @@
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.88s
+     Running tests/cli_e01_validation_log_output_policy.rs (target/debug/deps/cli_e01_validation_log_output_policy-865ed60b137c80f3)
+
+running 1 test
+
+thread 'validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata' (104242162) panicked at tests/cli_e01_validation_log_output_policy.rs:46:5:
+command unexpectedly succeeded
+stdout:
+artifact validated
+job: job_1782291356_000002 (validate-artifact)
+selector: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-cli-validate-ffprobe-tool-policy-82262-1782291356171287000/media/clip.mp4
+target: /private/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-cli-validate-ffprobe-tool-policy-82262-1782291356171287000/media/clip.mp4
+sha256: 3cf14ee21cda1862155ea6680dd970e632db2d9d57c4c29830c80cea6893387d
+status: validation-failed
+note: ffprobe could not parse the file; keep as candidate until manual/vendor-player validation.
+
+stderr:
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata ... FAILED
+
+failures:
+
+failures:
+    validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.40s
+
+error: test failed, to rerun pass `--test cli_e01_validation_log_output_policy`

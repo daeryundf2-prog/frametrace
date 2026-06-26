@@ -1,0 +1,7 @@
+SCENARIO adversarial-stale-state-missing-log-for-existing-artifact
+INVOCATION inspect manual-qa-failure.log
+BINARY_OBSERVABLE PASS if failure log has exit_code=1 and exact stale/missing proxy log key
+exit_code=1
+error: report defensibility QA failed: missing 0 required artifacts, 0 disallowed claim(s), 1 audit chain failure(s), 0 active job(s); audit blockers: proxy: artifacts/proxies/proxy-log.jsonl [missing] (audit log is not present)
+- proxy: artifacts/proxies/proxy-log.jsonl [missing] (audit log is not present)
+exit_code=0

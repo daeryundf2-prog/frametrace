@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Checking frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.03s

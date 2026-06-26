@@ -1,0 +1,8 @@
+$ git diff --cached --name-only
+$ find tests/fixtures/corpus -path "*/reports/qa*" -print
+$ pgrep -lf "target/debug/frametrace|frametrace qa|cargo test|cargo clippy|cargo build"
+$ git diff --name-only -- .omo/boulder.json .omo/start-work/ledger.jsonl .omo/plans
+$ git status --short -- src/qa_tests/accuracy.rs .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/programming-remove-ai-slops-review.md
+?? .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/programming-remove-ai-slops-review.md
+?? src/qa_tests/accuracy.rs
+EXIT_CODE=0

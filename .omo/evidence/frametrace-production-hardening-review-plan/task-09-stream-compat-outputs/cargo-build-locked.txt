@@ -1,0 +1,5 @@
+$ cargo build --locked
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+
+exit_code=0
+elapsed_seconds=1

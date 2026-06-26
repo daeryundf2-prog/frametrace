@@ -1,0 +1,18 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running `target/debug/frametrace export-video --help`
+Export an indexed video or selected range as a client-deliverable MP4/AVI
+
+Usage: frametrace export-video [OPTIONS] --format <FORMAT> <CASE_DIR> <SELECTOR>
+
+Arguments:
+  <CASE_DIR>  
+  <SELECTOR>  
+
+Options:
+      --format <FORMAT>      
+      --start <START>        
+      --duration <DURATION>  
+      --output <OUTPUT>      
+      --operator <OPERATOR>  
+  -h, --help                 Print help

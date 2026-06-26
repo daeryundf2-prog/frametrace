@@ -1,0 +1,1 @@
+PASS: rg found no direct Command::new("ffmpeg"), Command::new("ffprobe"), or audit::command_version("ffmpeg") matches outside the central tool policy path. rg exit code was 1 for no matches.

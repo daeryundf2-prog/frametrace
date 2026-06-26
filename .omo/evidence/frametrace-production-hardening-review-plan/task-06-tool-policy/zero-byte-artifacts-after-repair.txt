@@ -1,0 +1,1 @@
+PASS: no zero-byte evidence artifacts remain after repair.

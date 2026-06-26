@@ -1,0 +1,5 @@
+command: final cleanup verification
+ports 8767-8770 listen count:
+       0
+matching worker/browser/server processes:
+cleanup status: done

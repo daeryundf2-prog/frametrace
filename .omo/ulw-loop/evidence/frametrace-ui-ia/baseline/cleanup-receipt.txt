@@ -1,0 +1,6 @@
+cleanupReceipt
+serverInvocation: python3 -m http.server 4177 --directory gui/evidence-viewer
+serverSessionId: 81141
+serverStoppedBy: Ctrl-C sent to terminal session
+port4177: no listener after cleanup
+browser: Playwright Chromium contexts closed by test runner after completion

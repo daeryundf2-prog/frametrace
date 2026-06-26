@@ -1,0 +1,72 @@
+# media/audit/report CLI real-surface proof
+checked_at=2026-06-23T11:10:20Z
+run_root=/tmp/frametrace-media-gui-nzKCFz
+case_dir=/tmp/frametrace-media-gui-nzKCFz/case
+
+## ffmpeg synthetic source
+ac436202c4524bb26082595b2826e786c04f7ff91130036315d5b3c15ed39614  /tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+
+## init-case
+case created: /tmp/frametrace-media-gui-nzKCFz/case
+case id: FT-1782213021
+
+## scan-folder --hash
+scan complete
+source registered: src_0c52029a500403e5 (folder)
+job: job_1782213021_000001 (scan-folder)
+videos indexed: 1
+bytes indexed: 5207
+index: /tmp/frametrace-media-gui-nzKCFz/case/db/video_index.json
+sqlite: /tmp/frametrace-media-gui-nzKCFz/case/db/case.db
+
+## validate-artifact vid_000001
+artifact validated
+job: job_1782213021_000002 (validate-artifact)
+selector: vid_000001
+target: /private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+sha256: ac436202c4524bb26082595b2826e786c04f7ff91130036315d5b3c15ed39614
+status: ffprobe-video-stream-confirmed
+note: ffprobe parsed a video stream; examiner playback review is still required before final reporting.
+video codec: h264
+duration seconds: 2.000
+
+## confirm-playback vid_000001
+playback confirmed
+selector: vid_000001
+target: /private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+target sha256: ac436202c4524bb26082595b2826e786c04f7ff91130036315d5b3c15ed39614
+status: playback-confirmed
+operator: ulw-qa
+validation log: /tmp/frametrace-media-gui-nzKCFz/case/evidence/logs/validation-log.jsonl
+
+## derived artifacts
+proxy generated
+source: /private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+output: /tmp/frametrace-media-gui-nzKCFz/case/artifacts/proxies/vid_000001_proxy_1782213021.mp4
+thumbnail generated
+source: /private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+output: /tmp/frametrace-media-gui-nzKCFz/case/artifacts/thumbnails/vid_000001_thumb_1782213021.jpg
+frame captured
+source: /private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4
+output: /tmp/frametrace-media-gui-nzKCFz/case/artifacts/frames/vid_000001_frame_1782213021.jpg
+
+## inventory bounded query and safe export
+{"schema_version":1,"view":"facets","facets":{"total_rows":1,"candidate_count":0,"confirmed_count":1,"by_extension":[{"value":"mp4","count":1}],"by_source":[{"value":"/private/tmp/frametrace-media-gui-nzKCFz/source/sample.mp4","count":1}],"by_type":[{"value":"video","count":1}],"by_parser_lane":[{"value":"video-index","count":1}],"by_validation_state":[{"value":"ffprobe-video-stream-confirmed","count":1}],"by_review_state":[{"value":"unreviewed","count":1}],"by_report_state":[{"value":"not-selected","count":1}],"by_hash_state":[{"value":"complete","count":1}]}}
+{"schema_version":1,"view":"inventory-export-manifest","selected_count":1,"missing_ids":[],"output_path":"/tmp/frametrace-media-gui-nzKCFz/case/reports/inventory-export-proof.json","output_sha256":"3f82418bf8ae9169ea2d4707a3a4b9871fccefa3b5eb7b854c9933ae800312e4","audit_event":{"schema_version":1,"event":"inventory-export-manifest","created_unix":1782213021,"operator":"ulw-qa","selected_count":1,"missing_ids":[],"output_path":"/tmp/frametrace-media-gui-nzKCFz/case/reports/inventory-export-proof.json","output_sha256":"3f82418bf8ae9169ea2d4707a3a4b9871fccefa3b5eb7b854c9933ae800312e4","case_state_mutated":false}}
+
+## make-review / make-report / report-defense
+review written: /tmp/frametrace-media-gui-nzKCFz/case/review/index.html
+evidence viewer written: /tmp/frametrace-media-gui-nzKCFz/case/review/evidence-viewer.html
+report written: /tmp/frametrace-media-gui-nzKCFz/case/reports/case-report.html
+report-defense QA passed: /tmp/frametrace-media-gui-nzKCFz/case/reports/qa/report-defense-checklist.md
+
+## artifact checks
+validation_log_lines=       2
+proxy_log_lines=       1
+thumbnail_log_lines=       1
+frame_log_lines=       1
+review_html=/tmp/frametrace-media-gui-nzKCFz/case/review/evidence-viewer.html
+report_html=/tmp/frametrace-media-gui-nzKCFz/case/reports/case-report.html
+report_defense=/tmp/frametrace-media-gui-nzKCFz/case/reports/qa/report-defense-checklist.md
+
+cleanup: CLI commands exited; no server/tmux/browser spawned in this CLI phase; temp root retained for browser proof

@@ -1,0 +1,21 @@
+$ /usr/bin/time -l target/debug/frametrace qa performance .omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k --rows 100000
+performance QA passed: .omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k/performance-report.json
+        8.18 real         6.72 user         1.36 sys
+            26640384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               13375  page reclaims
+                  99  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 424  voluntary context switches
+               11492  involuntary context switches
+        125842213535  instructions retired
+         31485019785  cycles elapsed
+            14614936  peak memory footprint
+EXIT_CODE=0

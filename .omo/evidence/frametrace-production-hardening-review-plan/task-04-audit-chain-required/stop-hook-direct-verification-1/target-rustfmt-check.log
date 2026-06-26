@@ -1,0 +1,18 @@
+SCENARIO target-rustfmt-check
+INVOCATION rustfmt --check src/qa_report_defense.rs src/qa_tests.rs
+Diff in /Users/shinyoohag/Desktop/frametrace/src/qa_tests.rs:284:
+     let checklist = fs::read_to_string(output_dir.join("report-defense-checklist.md")).unwrap();
+     assert!(checklist.contains("[missing] filesystem recovery"));
+     assert!(checklist.contains("required=yes"));
+-    assert!(
+-        checklist.contains(
+-            "reason=case surface contains artifacts under artifacts/recovered/filesystem"
+-        )
+-    );
++    assert!(checklist
++        .contains("reason=case surface contains artifacts under artifacts/recovered/filesystem"));
+ 
+     let _ = fs::remove_dir_all(root);
+ }
+
+exit_code=1

@@ -1,0 +1,9 @@
+artifact validated
+job: job_1782287873_000001 (validate-artifact)
+selector: derived-frame-capture-t5-final
+target: /private/tmp/frametrace-t5-final-qa.cYvBrG/happy-case/artifacts/frames/frame.mp4
+sha256: 1d9291e53a29732dbb47911e9ad50757758a42771a6a15c64fe0a823b3500683
+status: ffprobe-video-stream-confirmed
+note: ffprobe parsed a video stream; examiner playback review is still required before final reporting.
+video codec: h264
+duration seconds: 1.000

@@ -1,0 +1,32 @@
+FrameTrace cleanup receipt after final review blockers
+Date: 2026-06-23
+Branch: codex/frametrace-forensic-hardening
+
+Scope
+- Addresses final gate cleanup blocker after peer QA/review runs reported live headless Chrome processes and leftover FrameTrace temp directories.
+- User Chrome processes were not terminated.
+- Cleanup targeted only automated headless Chrome processes matching both:
+  --headless
+  puppeteer_dev_chrome_profile
+- Cleanup targeted only temporary paths immediately under ${TMPDIR} matching:
+  frametrace-*
+  puppeteer_dev_chrome_profile-*
+
+Cleanup command summary
+- kill 43916 78184 98536 2>/dev/null || true
+- find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'frametrace-*' -o -name 'puppeteer_dev_chrome_profile-*' \) -exec rm -rf {} +
+
+Post-cleanup verification
+- remaining headless puppeteer processes:
+  none
+- remaining frametrace/puppeteer temp paths:
+  none
+
+Cleanup receipt
+- status: done
+- checked_at: 2026-06-23
+- no_remaining_headless_puppeteer_processes: true
+- no_remaining_frametrace_temp_paths: true
+- no_user_chrome_killed: true
+- no_open_browsers_spawned_by_current_fix: true
+- no_workers_spawned_by_current_fix: true

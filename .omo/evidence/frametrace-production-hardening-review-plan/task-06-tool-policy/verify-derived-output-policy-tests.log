@@ -1,0 +1,14 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 5 tests
+test derived_output_policy_tests::video_export_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::thumbnail_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::inode_recovery_rejects_dangling_symlink_output_before_icat ... ok
+test derived_output_policy_tests::frame_capture_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::proxy_rejects_dangling_symlink_output_before_ffmpeg ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 136 filtered out; finished in 0.00s
+

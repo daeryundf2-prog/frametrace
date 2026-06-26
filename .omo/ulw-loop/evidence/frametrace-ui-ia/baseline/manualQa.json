@@ -1,0 +1,398 @@
+{
+  "surfaceEvidence": [
+    {
+      "scenarioId": "desktop-1280x900-concept-Evidence-intake",
+      "criterionRef": "first-screen-visible-text:Evidence intake",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"Evidence intake\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-Video-candidates",
+      "criterionRef": "first-screen-visible-text:Video candidates",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"Video candidates\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-Validation-state",
+      "criterionRef": "first-screen-visible-text:Validation state",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"Validation state\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-Export",
+      "criterionRef": "first-screen-visible-text:Export",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"Export\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-Report",
+      "criterionRef": "first-screen-visible-text:Report",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"Report\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-local-first",
+      "criterionRef": "first-screen-visible-text:local-first",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"local-first\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-verification-required",
+      "criterionRef": "first-screen-visible-text:verification required",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"verification required\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "desktop-1280x900-concept-candidate-unvalidated",
+      "criterionRef": "first-screen-visible-text:candidate-unvalidated",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 1280x900; visibleText.includes(\"candidate-unvalidated\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-desktop-1280x900",
+        "visible-text-desktop-1280x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-Evidence-intake",
+      "criterionRef": "first-screen-visible-text:Evidence intake",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"Evidence intake\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-Video-candidates",
+      "criterionRef": "first-screen-visible-text:Video candidates",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"Video candidates\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-Validation-state",
+      "criterionRef": "first-screen-visible-text:Validation state",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"Validation state\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-Export",
+      "criterionRef": "first-screen-visible-text:Export",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"Export\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-Report",
+      "criterionRef": "first-screen-visible-text:Report",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"Report\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-local-first",
+      "criterionRef": "first-screen-visible-text:local-first",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"local-first\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-verification-required",
+      "criterionRef": "first-screen-visible-text:verification required",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"verification required\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "tablet-768x900-concept-candidate-unvalidated",
+      "criterionRef": "first-screen-visible-text:candidate-unvalidated",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 768x900; visibleText.includes(\"candidate-unvalidated\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "visible-text-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-Evidence-intake",
+      "criterionRef": "first-screen-visible-text:Evidence intake",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"Evidence intake\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-Video-candidates",
+      "criterionRef": "first-screen-visible-text:Video candidates",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"Video candidates\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-Validation-state",
+      "criterionRef": "first-screen-visible-text:Validation state",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"Validation state\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-Export",
+      "criterionRef": "first-screen-visible-text:Export",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"Export\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-Report",
+      "criterionRef": "first-screen-visible-text:Report",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"Report\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-local-first",
+      "criterionRef": "first-screen-visible-text:local-first",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"local-first\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-verification-required",
+      "criterionRef": "first-screen-visible-text:verification required",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"verification required\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-concept-candidate-unvalidated",
+      "criterionRef": "first-screen-visible-text:candidate-unvalidated",
+      "surface": "Chromium browser first viewport",
+      "exactInvocation": "NODE_PATH=/Users/shinyoohag/.npm/_npx/420ff84f11983ee5/node_modules npx --yes -p @playwright/test playwright test .omo/ulw-loop/evidence/frametrace-ui-ia/baseline/baseline.spec.js --browser=chromium --workers=1 --reporter=line --output=.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/test-results; page.goto(\"http://127.0.0.1:4177/index.html\") with viewport 375x900; visibleText.includes(\"candidate-unvalidated\")",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "visible-text-mobile-375x900",
+        "playwright-run-log"
+      ]
+    }
+  ],
+  "adversarialCases": [
+    {
+      "scenarioId": "tablet-768x900-horizontal-overflow",
+      "criterionRef": "responsive:no-horizontal-overflow:768",
+      "adversarialClass": "narrow viewport responsive overflow",
+      "expectedBehavior": "No horizontal overflow: document.documentElement.scrollWidth <= window.innerWidth",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-tablet-768x900",
+        "overflow-tablet-768x900",
+        "playwright-run-log"
+      ]
+    },
+    {
+      "scenarioId": "mobile-375x900-horizontal-overflow",
+      "criterionRef": "responsive:no-horizontal-overflow:375",
+      "adversarialClass": "narrow viewport responsive overflow",
+      "expectedBehavior": "No horizontal overflow: document.documentElement.scrollWidth <= window.innerWidth",
+      "verdict": "FAIL",
+      "artifactRefs": [
+        "screenshot-mobile-375x900",
+        "overflow-mobile-375x900",
+        "playwright-run-log"
+      ]
+    }
+  ],
+  "artifactRefs": [
+    {
+      "id": "screenshot-desktop-1280x900",
+      "kind": "screenshot",
+      "description": "First viewport screenshot at 1280x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/desktop-1280x900.png"
+    },
+    {
+      "id": "visible-text-desktop-1280x900",
+      "kind": "log",
+      "description": "Visible first-screen text captured at 1280x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/desktop-1280x900-visible-text.txt"
+    },
+    {
+      "id": "overflow-desktop-1280x900",
+      "kind": "json",
+      "description": "Horizontal overflow measurement at 1280x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/desktop-1280x900-overflow.json"
+    },
+    {
+      "id": "screenshot-tablet-768x900",
+      "kind": "screenshot",
+      "description": "First viewport screenshot at 768x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/tablet-768x900.png"
+    },
+    {
+      "id": "visible-text-tablet-768x900",
+      "kind": "log",
+      "description": "Visible first-screen text captured at 768x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/tablet-768x900-visible-text.txt"
+    },
+    {
+      "id": "overflow-tablet-768x900",
+      "kind": "json",
+      "description": "Horizontal overflow measurement at 768x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/tablet-768x900-overflow.json"
+    },
+    {
+      "id": "screenshot-mobile-375x900",
+      "kind": "screenshot",
+      "description": "First viewport screenshot at 375x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/mobile-375x900.png"
+    },
+    {
+      "id": "visible-text-mobile-375x900",
+      "kind": "log",
+      "description": "Visible first-screen text captured at 375x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/mobile-375x900-visible-text.txt"
+    },
+    {
+      "id": "overflow-mobile-375x900",
+      "kind": "json",
+      "description": "Horizontal overflow measurement at 375x900",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/mobile-375x900-overflow.json"
+    },
+    {
+      "id": "manual-qa-json",
+      "kind": "json",
+      "description": "manualQa matrix generated by browser baseline run",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/manualQa.json"
+    },
+    {
+      "id": "cleanup-receipt",
+      "kind": "log",
+      "description": "Server and browser cleanup receipt",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/cleanup-receipt.txt"
+    },
+    {
+      "id": "playwright-run-log",
+      "kind": "log",
+      "description": "Playwright Chromium scenario execution log",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/playwright-run.log"
+    },
+    {
+      "id": "http-get-log",
+      "kind": "log",
+      "description": "curl -i verification for served evidence viewer URL",
+      "path": "/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/evidence/frametrace-ui-ia/baseline/http-get.txt"
+    }
+  ]
+}

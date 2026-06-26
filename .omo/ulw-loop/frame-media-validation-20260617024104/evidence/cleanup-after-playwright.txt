@@ -1,0 +1,5 @@
+command: cleanup verification after playwright HTTP QA
+ports 8767-8770:
+playwright frametrace sessions:
+shinyoohag        2568   0.2  0.0 410068880   1008   ??  S     4:29PM   0:00.00 tee .omo/ulw-loop/frame-media-validation-20260617024104/evidence/cleanup-after-playwright.txt
+cleanup:not-applicable for cargo test/clippy; no persistent worker/browser/server expected

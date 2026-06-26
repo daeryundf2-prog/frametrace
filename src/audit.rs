@@ -13,7 +13,8 @@ pub struct AuditChainVerification {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuditChainState {
-    Verified,
+    Valid,
+    Empty,
     Missing,
     Tampered,
 }
@@ -21,7 +22,8 @@ pub enum AuditChainState {
 impl AuditChainState {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Self::Verified => "verified",
+            Self::Valid => "valid",
+            Self::Empty => "empty",
             Self::Missing => "missing",
             Self::Tampered => "tampered",
         }
@@ -247,10 +249,18 @@ fn audit_log_status(case_dir: &Path, name: &str, relative_path: &str) -> AuditLo
     }
 
     match verify_chained_jsonl(&path) {
+        Ok(verification) if verification.entries == 0 => AuditLogStatus {
+            name: name.to_string(),
+            relative_path: relative_path.to_string(),
+            state: AuditChainState::Empty,
+            entries: Some(verification.entries),
+            last_entry_sha256: Some(verification.last_entry_sha256),
+            error: Some("audit log has no entries".to_string()),
+        },
         Ok(verification) => AuditLogStatus {
             name: name.to_string(),
             relative_path: relative_path.to_string(),
-            state: AuditChainState::Verified,
+            state: AuditChainState::Valid,
             entries: Some(verification.entries),
             last_entry_sha256: Some(verification.last_entry_sha256),
             error: None,
@@ -372,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn media_audit_statuses_report_verified_missing_and_tampered_logs() {
+    fn media_audit_statuses_report_valid_empty_missing_and_tampered_logs() {
         let dir = std::env::temp_dir().join(format!(
             "frametrace-audit-status-test-{}",
             std::process::id()
@@ -390,6 +400,8 @@ mod tests {
             r#"{"event":"make-proxy"}"#,
         )
         .unwrap();
+        fs::create_dir_all(dir.join("artifacts/clips")).unwrap();
+        fs::write(dir.join("artifacts/clips/export-log.jsonl"), "").unwrap();
 
         let statuses = media_audit_chain_statuses(&dir);
 
@@ -398,7 +410,14 @@ mod tests {
                 .iter()
                 .find(|status| status.relative_path == "evidence/logs/validation-log.jsonl")
                 .map(|status| &status.state),
-            Some(&AuditChainState::Verified)
+            Some(&AuditChainState::Valid)
+        );
+        assert_eq!(
+            statuses
+                .iter()
+                .find(|status| status.relative_path == "artifacts/clips/export-log.jsonl")
+                .map(|status| &status.state),
+            Some(&AuditChainState::Empty)
         );
         assert_eq!(
             statuses
@@ -414,7 +433,8 @@ mod tests {
                 .map(|status| &status.state),
             Some(&AuditChainState::Missing)
         );
-        assert!(audit_chain_statuses_json(&statuses).contains(r#""status":"verified""#));
+        assert!(audit_chain_statuses_json(&statuses).contains(r#""status":"valid""#));
+        assert!(audit_chain_statuses_json(&statuses).contains(r#""status":"empty""#));
         assert_eq!(tampered_audit_chain_messages(&statuses).len(), 1);
 
         let _ = fs::remove_dir_all(dir);

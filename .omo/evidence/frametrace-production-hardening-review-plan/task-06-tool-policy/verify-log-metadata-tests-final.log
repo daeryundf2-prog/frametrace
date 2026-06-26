@@ -1,0 +1,19 @@
+warning: unused import: `json_escape`
+  --> src/video_export.rs:11:19
+   |
+11 | use crate::util::{json_escape, now_unix, read_to_string, unique_path};
+   |                   ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `frametrace` (lib test) generated 1 warning (run `cargo fix --lib -p frametrace --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 3 tests
+test artifacts::tests::derived_artifact_log_body_records_provenance_operator_and_ids ... ok
+test video_export::tests::export_log_body_records_derived_artifact_contract ... ok
+test validation::log::tests::validation_log_body_records_forensic_promotion_contract ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 141 filtered out; finished in 1.06s
+

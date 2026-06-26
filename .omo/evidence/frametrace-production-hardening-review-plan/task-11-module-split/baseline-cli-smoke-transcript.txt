@@ -1,0 +1,32 @@
+COMMAND: target/debug/frametrace init-case /tmp/frametrace-t11-baseline-smoke.3ArAdw/case --title T11-baseline --operator qa-t11
+case created: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case
+case id: FT-1782470144
+EXIT_CODE: 0
+COMMAND: target/debug/frametrace scan-folder /tmp/frametrace-t11-baseline-smoke.3ArAdw/case /tmp/frametrace-t11-baseline-smoke.3ArAdw/source --no-ffprobe
+scan complete
+source registered: src_17fc85f7727107b0 (folder)
+job: job_1782470144_000001 (scan-folder)
+videos indexed: 1
+bytes indexed: 54
+index: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/video_index.json
+sqlite: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/case.db
+EXIT_CODE: 0
+COMMAND: target/debug/frametrace make-report /tmp/frametrace-t11-baseline-smoke.3ArAdw/case
+report written: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case/reports/case-report.html
+EXIT_CODE: 0
+COMMAND: target/debug/frametrace make-review /tmp/frametrace-t11-baseline-smoke.3ArAdw/case
+review written: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case/review/index.html
+evidence viewer written: /tmp/frametrace-t11-baseline-smoke.3ArAdw/case/review/evidence-viewer.html
+EXIT_CODE: 0
+ARTIFACTS
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/case.json
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/case.db
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/scan_runs/scan_1782470144.json
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/video_index.json
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/video_paths.tsv
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/db/videos.jsonl
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/reports/case-report.html
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/review/evidence-viewer.html
+/tmp/frametrace-t11-baseline-smoke.3ArAdw/case/review/index.html
+CONTRACT_JSON
+{"schema_version":1,"video_count":1,"total_bytes":54,"path_disclosure_mode":null,"videos":[{"id":"vid_000001","relative_path":"clip one.mp4","extension":"mp4","hash_status":"skipped"}]}

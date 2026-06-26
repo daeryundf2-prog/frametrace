@@ -1,0 +1,13 @@
+$ target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/bad-manifest-case/bad-hash-manifest.json --output-dir .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/bad-accuracy-output
+error: accuracy QA failed: precision=1.000000, recall=0.666667, false_positive=0, false_negative=1, hash_mismatch=1
+EXIT_CODE=1
+$ jq bad accuracy fields
+{
+  "passed": false,
+  "precision": 1.0,
+  "recall": 0.6666666666666666,
+  "false_positives": 0,
+  "false_negatives": 1,
+  "hash_mismatch": 1,
+  "first_expected_sha": "9999999999999999999999999999999999999999999999999999999999999999"
+}

@@ -1,0 +1,78 @@
+# Command receipt: cargo_test_derived_output_policy_tests_nocapture
+
+Surface: CLI
+Working directory: /Users/shinyoohag/Desktop/frametrace
+Invocation: `cargo test --locked derived_output_policy_tests -- --nocapture`
+Exit code: 0
+Raw exact output artifact: `/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-default-output-symlink-fix/cargo_test_derived_output_policy_tests_nocapture.txt`
+Raw exact output byte count: 2587
+
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 5 tests
+test derived_output_policy_tests::inode_recovery_rejects_dangling_symlink_output_before_icat ... ok
+test derived_output_policy_tests::frame_capture_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::video_export_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::proxy_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::thumbnail_rejects_dangling_symlink_output_before_ffmpeg ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 112 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_default_output_policy.rs (target/debug/deps/cli_default_output_policy-e6ec3e8fd6391d9f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-3dfe7e73d199271c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+```

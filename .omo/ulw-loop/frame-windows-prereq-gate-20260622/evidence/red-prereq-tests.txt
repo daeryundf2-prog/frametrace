@@ -1,0 +1,43 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 1 test
+
+thread 'workstation_status_reports_windows_prerequisite_gate' (94221632) panicked at tests/cli_smoke.rs:247:5:
+assertion failed: stdout.contains("\"windows_prerequisites\":{")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test workstation_status_reports_windows_prerequisite_gate ... FAILED
+
+failures:
+
+failures:
+    workstation_status_reports_windows_prerequisite_gate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `--test cli_smoke`
+workstation_red_exit:101
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 1 test
+
+thread 'release_readiness_blocks_when_windows_prerequisites_are_missing' (94221660) panicked at tests/cli_smoke.rs:35:5:
+command unexpectedly succeeded
+stdout:
+release readiness QA passed: /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-cli-release-prereq-80257-1782131914062197000/case/reports/qa/release-readiness.json
+
+stderr:
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test release_readiness_blocks_when_windows_prerequisites_are_missing ... FAILED
+
+failures:
+
+failures:
+    release_readiness_blocks_when_windows_prerequisites_are_missing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.32s
+
+error: test failed, to rerun pass `--test cli_smoke`
+release_red_exit:101

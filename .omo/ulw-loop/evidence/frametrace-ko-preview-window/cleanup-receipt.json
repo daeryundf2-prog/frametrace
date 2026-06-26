@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "agbrowse": {
+    "running": false,
+    "tabs": 0,
+    "evidence": ".omo/ulw-loop/evidence/frametrace-ko-preview-window/agbrowse-status-after-cleanup.json"
+  },
+  "staticServer": {
+    "port": 4192,
+    "listening": false,
+    "evidence": ".omo/ulw-loop/evidence/frametrace-ko-preview-window/port-4192-after-cleanup.txt"
+  },
+  "serverSession": {
+    "id": 36849,
+    "stoppedBy": "Ctrl-C",
+    "evidence": "write_stdin session output in Codex transcript"
+  }
+}

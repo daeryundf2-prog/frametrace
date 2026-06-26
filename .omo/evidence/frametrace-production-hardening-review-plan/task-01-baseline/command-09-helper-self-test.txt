@@ -1,0 +1,10 @@
+Command: python3 scripts/qa/verify-plan-evidence.py --self-test
+CWD: /Users/shinyoohag/Desktop/frametrace
+Started: 2026-06-24T06:49:51Z
+PASS self-test missing-root
+PASS self-test missing-task-dirs
+PASS self-test missing-receipts
+PASS self-test valid-evidence
+Finished: 2026-06-24T06:49:51Z
+ElapsedSeconds: 0
+ExitCode: 0

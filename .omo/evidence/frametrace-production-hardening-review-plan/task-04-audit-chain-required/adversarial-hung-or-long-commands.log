@@ -1,0 +1,9 @@
+SCENARIO adversarial-hung-or-long-commands
+INVOCATION cargo test/clippy commands run through exec_command with 30000ms bounded yield; full cargo test completed in cargo-test-full.log
+BINARY_OBSERVABLE PASS if long commands completed with exit_code=0 and no active session remained
+BINARY_OBSERVABLE PASS if exit_code=0
+exit_code=0
+BINARY_OBSERVABLE PASS if exit_code=0
+exit_code=0
+note=file lock waits were observed in adversarial reruns but commands completed successfully
+exit_code=0

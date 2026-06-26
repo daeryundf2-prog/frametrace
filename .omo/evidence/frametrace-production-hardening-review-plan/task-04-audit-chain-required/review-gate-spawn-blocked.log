@@ -1,0 +1,4 @@
+SCENARIO review-gate-spawn-attempt
+INVOCATION five parallel multi_agent_v1.spawn_agent review lanes
+BINARY_OBSERVABLE BLOCKED because tool returned collab spawn failed: agent thread limit reached for all lanes
+result=blocked-agent-thread-limit-reached

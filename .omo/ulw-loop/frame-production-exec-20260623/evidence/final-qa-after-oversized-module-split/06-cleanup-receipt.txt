@@ -1,0 +1,7 @@
+COMMAND: cleanup receipt and repo-specific process check
+START: 2026-06-23T13:27:47Z
+Receipt: cleanup not-applicable. This read-only QA run started no browser, server, worker, tmux session, or background process.
+Repo-specific process check:
+tmux sessions matching ulw-qa/frame QA:
+END: 2026-06-23T13:27:47Z
+EXIT_STATUS: 0

@@ -1,0 +1,1107 @@
+diff --git a/src/artifacts.rs b/src/artifacts.rs
+index 497e819..de4a2f9 100644
+--- a/src/artifacts.rs
++++ b/src/artifacts.rs
+@@ -1,16 +1,19 @@
+ use crate::audit;
+ use crate::media_contract;
+-use crate::tool_policy::{reject_source_output_path, require_case_output_path};
++use crate::tool_policy::{
++    ResolvedExternalTool, reject_source_output_path, require_case_output_path,
++    resolve_external_tool, run_external_tool,
++};
+ use crate::util::{json_escape, now_unix, unique_path};
+ use crate::video_export::{resolve_video_source, sanitize_filename};
+ use std::path::{Path, PathBuf};
+-use std::process::Command;
+ 
+ #[derive(Debug, Clone)]
+ pub struct ProxyOptions {
+     pub output_path: Option<PathBuf>,
+     pub max_width: u32,
+     pub operator: Option<String>,
++    pub ffmpeg_bin: String,
+ }
+ 
+ impl Default for ProxyOptions {
+@@ -19,6 +22,7 @@ impl Default for ProxyOptions {
+             output_path: None,
+             max_width: 1280,
+             operator: None,
++            ffmpeg_bin: "ffmpeg".to_string(),
+         }
+     }
+ }
+@@ -28,6 +32,7 @@ pub struct ThumbnailOptions {
+     pub output_path: Option<PathBuf>,
+     pub time_seconds: f64,
+     pub operator: Option<String>,
++    pub ffmpeg_bin: String,
+ }
+ 
+ impl Default for ThumbnailOptions {
+@@ -36,6 +41,7 @@ impl Default for ThumbnailOptions {
+             output_path: None,
+             time_seconds: 0.0,
+             operator: None,
++            ffmpeg_bin: "ffmpeg".to_string(),
+         }
+     }
+ }
+@@ -45,6 +51,7 @@ pub struct FrameCaptureOptions {
+     pub output_path: Option<PathBuf>,
+     pub time_seconds: f64,
+     pub operator: Option<String>,
++    pub ffmpeg_bin: String,
+ }
+ 
+ impl Default for FrameCaptureOptions {
+@@ -53,6 +60,7 @@ impl Default for FrameCaptureOptions {
+             output_path: None,
+             time_seconds: 0.0,
+             operator: None,
++            ffmpeg_bin: "ffmpeg".to_string(),
+         }
+     }
+ }
+@@ -100,17 +108,7 @@ pub fn generate_proxy(
+     ensure_parent(&output_path)?;
+ 
+     let args = proxy_ffmpeg_args(&source_path, &output_path, options);
+-    let output = Command::new("ffmpeg")
+-        .args(&args)
+-        .output()
+-        .map_err(|err| format!("failed to run ffmpeg for proxy: {err}"))?;
+-
+-    if !output.status.success() {
+-        return Err(format!(
+-            "proxy generation failed: {}",
+-            String::from_utf8_lossy(&output.stderr).trim()
+-        ));
+-    }
++    let tool = run_ffmpeg(&options.ffmpeg_bin, &args)?;
+ 
+     let artifact = DerivedArtifact {
+         source_path,
+@@ -125,6 +123,7 @@ pub fn generate_proxy(
+         "artifacts/proxies/proxy-log.jsonl",
+         &artifact,
+         &args,
++        &tool,
+     )?;
+     Ok(artifact)
+ }
+@@ -162,17 +161,7 @@ pub fn generate_thumbnail(
+     ensure_parent(&output_path)?;
+ 
+     let args = thumbnail_ffmpeg_args(&source_path, &output_path, options);
+-    let output = Command::new("ffmpeg")
+-        .args(&args)
+-        .output()
+-        .map_err(|err| format!("failed to run ffmpeg for thumbnail: {err}"))?;
+-
+-    if !output.status.success() {
+-        return Err(format!(
+-            "thumbnail generation failed: {}",
+-            String::from_utf8_lossy(&output.stderr).trim()
+-        ));
+-    }
++    let tool = run_ffmpeg(&options.ffmpeg_bin, &args)?;
+ 
+     let artifact = DerivedArtifact {
+         source_path,
+@@ -187,6 +176,7 @@ pub fn generate_thumbnail(
+         "artifacts/thumbnails/thumbnail-log.jsonl",
+         &artifact,
+         &args,
++        &tool,
+     )?;
+     Ok(artifact)
+ }
+@@ -224,17 +214,7 @@ pub fn capture_frame(
+     ensure_parent(&output_path)?;
+ 
+     let args = frame_capture_ffmpeg_args(&source_path, &output_path, options);
+-    let output = Command::new("ffmpeg")
+-        .args(&args)
+-        .output()
+-        .map_err(|err| format!("failed to run ffmpeg for frame capture: {err}"))?;
+-
+-    if !output.status.success() {
+-        return Err(format!(
+-            "frame capture failed: {}",
+-            String::from_utf8_lossy(&output.stderr).trim()
+-        ));
+-    }
++    let tool = run_ffmpeg(&options.ffmpeg_bin, &args)?;
+ 
+     let artifact = DerivedArtifact {
+         source_path,
+@@ -249,10 +229,23 @@ pub fn capture_frame(
+         "artifacts/frames/frame-log.jsonl",
+         &artifact,
+         &args,
++        &tool,
+     )?;
+     Ok(artifact)
+ }
+ 
++fn run_ffmpeg(binary: &str, args: &[String]) -> Result<ResolvedExternalTool, String> {
++    let tool = resolve_external_tool(binary, &["ffmpeg"], "-version")?;
++    let output = run_external_tool(&tool, args)?;
++    if !output.status.success() {
++        return Err(format!(
++            "ffmpeg derived artifact failed: {}",
++            String::from_utf8_lossy(&output.stderr).trim()
++        ));
++    }
++    Ok(tool)
++}
++
+ fn proxy_ffmpeg_args(
+     source_path: &Path,
+     output_path: &Path,
+@@ -339,6 +332,7 @@ fn append_artifact_log(
+     relative_log: &str,
+     artifact: &DerivedArtifact,
+     command_args: &[String],
++    tool: &ResolvedExternalTool,
+ ) -> Result<(), String> {
+     let path = case_dir.join(relative_log);
+     require_case_output_path(case_dir, &path, "derived artifact log")?;
+@@ -350,6 +344,7 @@ fn append_artifact_log(
+         source_sha256.as_deref(),
+         &output_sha256,
+         command_args,
++        tool,
+     );
+     audit::append_chained_jsonl(&path, &line)
+ }
+@@ -359,20 +354,21 @@ fn derived_artifact_log_body_json(
+     source_sha256: Option<&str>,
+     output_sha256: &str,
+     command_args: &[String],
++    tool: &ResolvedExternalTool,
+ ) -> String {
+     let source_artifact_id =
+         media_contract::source_artifact_id(&artifact.selector, source_sha256.unwrap_or("unknown"));
+     let derived_artifact_id = media_contract::derived_artifact_id(&artifact.kind, output_sha256);
+-    let ffmpeg_version = audit::command_version("ffmpeg");
+     format!(
+-        "{{\"schema_version\":3,\"event\":\"make-{}\",\"created_unix\":{},\"kind\":\"{}\",\"selector\":\"{}\",\"artifact_state\":\"derived\",\"operator\":\"{}\",\"method\":\"ffmpeg-{}\",\"tool\":\"ffmpeg\",\"tool_version\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":{},\"source_path\":\"{}\",\"source_index_sha256\":{},\"derived_artifact_id\":\"{}\",\"output_artifact_path\":\"{}\",\"output_artifact_sha256\":\"{}\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
++        "{{\"schema_version\":3,\"event\":\"make-{}\",\"created_unix\":{},\"kind\":\"{}\",\"selector\":\"{}\",\"artifact_state\":\"derived\",\"operator\":\"{}\",\"method\":\"ffmpeg-{}\",\"tool\":\"ffmpeg\",\"tool_version\":\"{}\",\"resolved_tool_path\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":{},\"source_path\":\"{}\",\"source_index_sha256\":{},\"derived_artifact_id\":\"{}\",\"output_artifact_path\":\"{}\",\"output_artifact_sha256\":\"{}\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"ffmpeg_version\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+         json_escape(&artifact.kind),
+         artifact.created_unix,
+         json_escape(&artifact.kind),
+         json_escape(&artifact.selector),
+         json_escape(&artifact.operator),
+         json_escape(&artifact.kind),
+-        json_escape(&ffmpeg_version),
++        json_escape(&tool.version),
++        json_escape(&tool.path),
+         json_escape(&source_artifact_id),
+         json_escape(&artifact.source_path.to_string_lossy()),
+         audit::optional_string(source_sha256),
+@@ -383,7 +379,8 @@ fn derived_artifact_log_body_json(
+         json_escape(output_sha256),
+         json_escape(&artifact.output_path.to_string_lossy()),
+         json_escape(output_sha256),
+-        json_escape(&ffmpeg_version),
++        json_escape(&tool.version),
++        json_escape(&tool.path),
+         audit::json_string_array(command_args)
+     )
+ }
+@@ -394,6 +391,7 @@ mod tests {
+         DerivedArtifact, ProxyOptions, ThumbnailOptions, derived_artifact_log_body_json,
+         frame_capture_ffmpeg_args, proxy_ffmpeg_args, thumbnail_ffmpeg_args,
+     };
++    use crate::tool_policy::ResolvedExternalTool;
+     use std::path::{Path, PathBuf};
+ 
+     #[test]
+@@ -441,6 +439,7 @@ mod tests {
+             source_sha256,
+             output_sha256,
+             &["-i".to_string(), "clip.mp4".to_string()],
++            &fake_tool(),
+         );
+ 
+         assert!(body.contains(r#""event":"make-proxy""#));
+@@ -448,6 +447,7 @@ mod tests {
+         assert!(body.contains(r#""operator":"qa-operator""#));
+         assert!(body.contains(r#""method":"ffmpeg-proxy""#));
+         assert!(body.contains(r#""tool":"ffmpeg""#));
++        assert!(body.contains(r#""resolved_tool_path":"#));
+         assert!(body.contains(r#""selector":"vid_000001""#));
+         assert!(body.contains(r#""derived_artifact_id":"derived-proxy-bbbbbbbbbbbb""#));
+         assert!(body.contains(r#""source_artifact_id":"source-vid_000001-aaaaaaaaaaaa""#));
+@@ -455,6 +455,14 @@ mod tests {
+         assert!(body.contains(r#""output_artifact_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb""#));
+     }
+ 
++    fn fake_tool() -> ResolvedExternalTool {
++        ResolvedExternalTool {
++            name: "ffmpeg".to_string(),
++            path: "/usr/local/bin/ffmpeg".to_string(),
++            version: "ffmpeg fake 1.0".to_string(),
++        }
++    }
++
+     #[test]
+     fn builds_artifact_command_args() {
+         let proxy_args = proxy_ffmpeg_args(
+diff --git a/src/cli/commands.rs b/src/cli/commands.rs
+index 741c26b..6c4444d 100644
+--- a/src/cli/commands.rs
++++ b/src/cli/commands.rs
+@@ -87,16 +87,26 @@ pub enum Commands {
+         ewfexport: Option<String>,
+     },
+     /// Generate a serverless HTML review dashboard at review/index.html
+-    MakeReview { case_dir: PathBuf },
++    MakeReview {
++        case_dir: PathBuf,
++        #[arg(long)]
++        include_full_paths: bool,
++    },
+     /// Print the manufacturer/source parser plugin catalog as JSON
+     ListParsers,
+     /// Generate a case report at reports/case-report.html
+-    MakeReport { case_dir: PathBuf },
++    MakeReport {
++        case_dir: PathBuf,
++        #[arg(long)]
++        include_full_paths: bool,
++    },
+     /// Build a checksummed report/review package directory with manifest files
+     PackageCase {
+         case_dir: PathBuf,
+         #[arg(long)]
+         output: Option<PathBuf>,
++        #[arg(long)]
++        include_full_paths: bool,
+     },
+     /// Export an indexed video or selected range as a client-deliverable MP4/AVI
+     ExportVideo {
+@@ -112,6 +122,8 @@ pub enum Commands {
+         output: Option<PathBuf>,
+         #[arg(long)]
+         operator: Option<String>,
++        #[arg(long)]
++        ffmpeg: Option<String>,
+     },
+     /// Generate a lower-bitrate review proxy MP4
+     MakeProxy {
+@@ -123,6 +135,8 @@ pub enum Commands {
+         output: Option<PathBuf>,
+         #[arg(long)]
+         operator: Option<String>,
++        #[arg(long)]
++        ffmpeg: Option<String>,
+     },
+     /// Generate a JPEG thumbnail for review/reporting
+     MakeThumbnail {
+@@ -134,6 +148,8 @@ pub enum Commands {
+         output: Option<PathBuf>,
+         #[arg(long)]
+         operator: Option<String>,
++        #[arg(long)]
++        ffmpeg: Option<String>,
+     },
+     /// Capture a report still frame as a derived photo artifact
+     CaptureFrame {
+@@ -145,6 +161,8 @@ pub enum Commands {
+         output: Option<PathBuf>,
+         #[arg(long)]
+         operator: Option<String>,
++        #[arg(long)]
++        ffmpeg: Option<String>,
+     },
+     /// Scan a raw file or forensic image for contiguous candidates and carve them
+     CarveFile {
+@@ -194,6 +212,8 @@ pub enum Commands {
+         ffprobe: Option<String>,
+         #[arg(long)]
+         operator: Option<String>,
++        #[arg(long)]
++        external_source: bool,
+     },
+     /// Record examiner playback confirmation after ffprobe stream validation
+     ConfirmPlayback {
+diff --git a/src/cli/media_cmd.rs b/src/cli/media_cmd.rs
+index 02a26a0..faca447 100644
+--- a/src/cli/media_cmd.rs
++++ b/src/cli/media_cmd.rs
+@@ -15,6 +15,7 @@ pub struct ExportVideoCliInput {
+     pub duration: Option<f64>,
+     pub output: Option<PathBuf>,
+     pub operator: Option<String>,
++    pub ffmpeg: Option<String>,
+ }
+ 
+ pub struct CarveCliInput {
+@@ -36,6 +37,7 @@ pub fn run_export_video(
+             duration_seconds: input.duration,
+             output_path: input.output,
+             operator: input.operator,
++            ffmpeg_bin: input.ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
+         },
+     )
+ }
+@@ -46,6 +48,7 @@ pub fn run_make_proxy(
+     max_width: Option<u32>,
+     output: Option<PathBuf>,
+     operator: Option<String>,
++    ffmpeg: Option<String>,
+ ) -> Result<(), String> {
+     make_proxy(
+         case_dir,
+@@ -54,6 +57,7 @@ pub fn run_make_proxy(
+             max_width: max_width.unwrap_or_else(|| ProxyOptions::default().max_width),
+             output_path: output,
+             operator,
++            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
+         },
+     )
+ }
+@@ -64,6 +68,7 @@ pub fn run_make_thumbnail(
+     time: Option<f64>,
+     output: Option<PathBuf>,
+     operator: Option<String>,
++    ffmpeg: Option<String>,
+ ) -> Result<(), String> {
+     make_thumbnail(
+         case_dir,
+@@ -72,6 +77,7 @@ pub fn run_make_thumbnail(
+             time_seconds: time.unwrap_or(0.0),
+             output_path: output,
+             operator,
++            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
+         },
+     )
+ }
+@@ -82,6 +88,7 @@ pub fn run_capture_frame(
+     time: Option<f64>,
+     output: Option<PathBuf>,
+     operator: Option<String>,
++    ffmpeg: Option<String>,
+ ) -> Result<(), String> {
+     capture_frame(
+         case_dir,
+@@ -90,6 +97,7 @@ pub fn run_capture_frame(
+             time_seconds: time.unwrap_or(0.0),
+             output_path: output,
+             operator,
++            ffmpeg_bin: ffmpeg.unwrap_or_else(|| "ffmpeg".to_string()),
+         },
+     )
+ }
+@@ -114,6 +122,7 @@ pub fn run_validate_artifact(
+     selector: &str,
+     ffprobe: Option<String>,
+     operator: Option<String>,
++    allow_external_source: bool,
+ ) -> Result<(), String> {
+     validate_artifact(
+         case_dir,
+@@ -121,6 +130,7 @@ pub fn run_validate_artifact(
+         ValidationOptions {
+             ffprobe_bin: ffprobe.unwrap_or_else(|| "ffprobe".to_string()),
+             operator,
++            allow_external_source,
+         },
+     )
+ }
+diff --git a/src/cli/mod.rs b/src/cli/mod.rs
+index 617e7f3..e58e697 100644
+--- a/src/cli/mod.rs
++++ b/src/cli/mod.rs
+@@ -1,3 +1,4 @@
++use crate::distributable_redaction::RedactionPolicy;
+ use clap::Parser;
+ use clap::error::ErrorKind;
+ 
+@@ -120,14 +121,27 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+                 ewfexport,
+             },
+         ),
+-        Commands::MakeReview { case_dir } => make_review(&case_dir),
++        Commands::MakeReview {
++            case_dir,
++            include_full_paths,
++        } => make_review(&case_dir, redaction_policy(include_full_paths)),
+         Commands::ListParsers => {
+             println!("{}", crate::detector::parser_catalog_json());
+             Ok(())
+         }
+-        Commands::MakeReport { case_dir } => make_report(&case_dir),
+-        Commands::PackageCase { case_dir, output } => {
+-            let options = PackageOptions { output_dir: output };
++        Commands::MakeReport {
++            case_dir,
++            include_full_paths,
++        } => make_report(&case_dir, redaction_policy(include_full_paths)),
++        Commands::PackageCase {
++            case_dir,
++            output,
++            include_full_paths,
++        } => {
++            let options = PackageOptions {
++                output_dir: output,
++                redaction_policy: redaction_policy(include_full_paths),
++            };
+             package_case(&case_dir, options)
+         }
+         Commands::ExportVideo {
+@@ -138,6 +152,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+             duration,
+             output,
+             operator,
++            ffmpeg,
+         } => run_export_video(
+             &case_dir,
+             &selector,
+@@ -147,6 +162,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+                 duration,
+                 output,
+                 operator,
++                ffmpeg,
+             },
+         ),
+         Commands::MakeProxy {
+@@ -155,21 +171,24 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+             max_width,
+             output,
+             operator,
+-        } => run_make_proxy(&case_dir, &selector, max_width, output, operator),
++            ffmpeg,
++        } => run_make_proxy(&case_dir, &selector, max_width, output, operator, ffmpeg),
+         Commands::MakeThumbnail {
+             case_dir,
+             selector,
+             time,
+             output,
+             operator,
+-        } => run_make_thumbnail(&case_dir, &selector, time, output, operator),
++            ffmpeg,
++        } => run_make_thumbnail(&case_dir, &selector, time, output, operator, ffmpeg),
+         Commands::CaptureFrame {
+             case_dir,
+             selector,
+             time,
+             output,
+             operator,
+-        } => run_capture_frame(&case_dir, &selector, time, output, operator),
++            ffmpeg,
++        } => run_capture_frame(&case_dir, &selector, time, output, operator, ffmpeg),
+         Commands::CarveFile {
+             case_dir,
+             source_file,
+@@ -226,7 +245,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+             selector,
+             ffprobe,
+             operator,
+-        } => run_validate_artifact(&case_dir, &selector, ffprobe, operator),
++            external_source,
++        } => run_validate_artifact(&case_dir, &selector, ffprobe, operator, external_source),
+         Commands::ConfirmPlayback {
+             case_dir,
+             selector,
+@@ -250,3 +270,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
+         Commands::Qa { command } => run_qa(command),
+     }
+ }
++
++fn redaction_policy(include_full_paths: bool) -> RedactionPolicy {
++    if include_full_paths {
++        RedactionPolicy::local_operator_full_paths()
++    } else {
++        RedactionPolicy::redacted()
++    }
++}
+diff --git a/src/derived_output_policy_tests.rs b/src/derived_output_policy_tests.rs
+index fdd6db9..13798f7 100644
+--- a/src/derived_output_policy_tests.rs
++++ b/src/derived_output_policy_tests.rs
+@@ -76,6 +76,7 @@ fn proxy_rejects_dangling_symlink_output_before_ffmpeg() {
+             output_path: Some(output),
+             max_width: 640,
+             operator: Some("qa".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         },
+     );
+ 
+@@ -94,6 +95,7 @@ fn thumbnail_rejects_dangling_symlink_output_before_ffmpeg() {
+             output_path: Some(output),
+             time_seconds: 0.0,
+             operator: Some("qa".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         },
+     );
+ 
+@@ -112,6 +114,7 @@ fn frame_capture_rejects_dangling_symlink_output_before_ffmpeg() {
+             output_path: Some(output),
+             time_seconds: 0.0,
+             operator: Some("qa".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         },
+     );
+ 
+@@ -132,6 +135,7 @@ fn video_export_rejects_dangling_symlink_output_before_ffmpeg() {
+             duration_seconds: None,
+             output_path: Some(output),
+             operator: Some("qa".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         },
+     );
+ 
+diff --git a/src/ffprobe.rs b/src/ffprobe.rs
+index c72c301..4a2b5ec 100644
+--- a/src/ffprobe.rs
++++ b/src/ffprobe.rs
+@@ -1,16 +1,15 @@
+ use crate::model::ProbeSummary;
+-use crate::tool_policy::resolve_tool_binary;
++use crate::tool_policy::{ResolvedExternalTool, resolve_external_tool, run_external_tool};
+ use crate::util::compact_json_value_if_well_formed;
+ use std::path::Path;
+-use std::process::Command;
+ 
+ pub fn probe(path: &Path) -> ProbeSummary {
+     probe_with_binary("ffprobe", path)
+ }
+ 
+ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
+-    let binary = match resolve_tool_binary(binary, &["ffprobe"]) {
+-        Ok(binary) => binary,
++    let tool = match resolve_external_tool(binary, &["ffprobe"], "-version") {
++        Ok(tool) => tool,
+         Err(error) => {
+             return ProbeSummary {
+                 ok: false,
+@@ -25,18 +24,18 @@ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
+             };
+         }
+     };
++    probe_with_tool(&tool, path)
++}
+ 
+-    let output = Command::new(&binary)
+-        .args(probe_command_args(path))
+-        .output();
+-
+-    let output = match output {
++pub fn probe_with_tool(tool: &ResolvedExternalTool, path: &Path) -> ProbeSummary {
++    let args = probe_command_args(path);
++    let output = match run_external_tool(tool, &args) {
+         Ok(output) => output,
+         Err(error) => {
+             return ProbeSummary {
+                 ok: false,
+                 raw_json: None,
+-                error: Some(format!("failed to run ffprobe: {error}")),
++                error: Some(error),
+                 duration_seconds: None,
+                 format_name: None,
+                 video_codec: None,
+diff --git a/src/tool_policy.rs b/src/tool_policy.rs
+index b8c2c84..a9debf9 100644
+--- a/src/tool_policy.rs
++++ b/src/tool_policy.rs
+@@ -1,6 +1,13 @@
+ use std::io::ErrorKind;
+ use std::path::{Component, Path, PathBuf};
+-use std::process::Command;
++use std::process::{Command, Output};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ResolvedExternalTool {
++    pub name: String,
++    pub path: String,
++    pub version: String,
++}
+ 
+ pub fn resolve_tool_binary(input: &str, allowed_names: &[&str]) -> Result<String, String> {
+     let trimmed = input.trim();
+@@ -56,7 +63,56 @@ pub fn command_version(input: &str, allowed_names: &[&str], version_arg: &str) -
+         Ok(binary) => binary,
+         Err(err) => return format!("unavailable: {err}"),
+     };
+-    match Command::new(&binary).arg(version_arg).output() {
++    version_for_binary(&binary, version_arg)
++}
++
++pub fn resolve_external_tool(
++    input: &str,
++    allowed_names: &[&str],
++    version_arg: &str,
++) -> Result<ResolvedExternalTool, String> {
++    let binary = resolve_tool_binary(input, allowed_names)?;
++    let resolved_path = resolve_executable_path(&binary)?;
++    let file_name = resolved_path
++        .file_name()
++        .and_then(|name| name.to_str())
++        .ok_or_else(|| {
++            format!(
++                "tool binary has an invalid file name: {}",
++                resolved_path.display()
++            )
++        })?;
++    if !is_allowed_tool_name(file_name, allowed_names) {
++        return Err(format!(
++            "unsupported tool binary '{}'; allowed tools: {}",
++            resolved_path.display(),
++            allowed_names.join(", ")
++        ));
++    }
++    let name = allowed_names
++        .iter()
++        .find(|allowed| is_allowed_tool_name(file_name, &[*allowed]))
++        .copied()
++        .unwrap_or(file_name)
++        .to_string();
++    let path = resolved_path.to_string_lossy().to_string();
++    let version = version_for_binary(&path, version_arg);
++    Ok(ResolvedExternalTool {
++        name,
++        path,
++        version,
++    })
++}
++
++pub fn run_external_tool(tool: &ResolvedExternalTool, args: &[String]) -> Result<Output, String> {
++    Command::new(&tool.path)
++        .args(args)
++        .output()
++        .map_err(|err| format!("failed to run {} at {}: {err}", tool.name, tool.path))
++}
++
++fn version_for_binary(binary: &str, version_arg: &str) -> String {
++    match Command::new(binary).arg(version_arg).output() {
+         Ok(output) if output.status.success() => {
+             let stdout = String::from_utf8_lossy(&output.stdout);
+             let stderr = String::from_utf8_lossy(&output.stderr);
+@@ -76,6 +132,43 @@ pub fn command_version(input: &str, allowed_names: &[&str], version_arg: &str) -
+     }
+ }
+ 
++fn resolve_executable_path(binary: &str) -> Result<PathBuf, String> {
++    if looks_like_path(binary) {
++        return Path::new(binary)
++            .canonicalize()
++            .map_err(|err| format!("failed to canonicalize tool binary '{binary}': {err}"));
++    }
++    find_on_path(binary).ok_or_else(|| format!("tool binary '{binary}' was not found on PATH"))
++}
++
++fn find_on_path(binary: &str) -> Option<PathBuf> {
++    let path_var = std::env::var_os("PATH")?;
++    for dir in std::env::split_paths(&path_var) {
++        for candidate in executable_candidates(&dir, binary) {
++            if candidate.is_file() {
++                return candidate.canonicalize().ok();
++            }
++        }
++    }
++    None
++}
++
++fn executable_candidates(dir: &Path, binary: &str) -> Vec<PathBuf> {
++    let candidate = dir.join(binary);
++    #[cfg(windows)]
++    {
++        let mut candidates = vec![candidate.clone()];
++        if Path::new(binary).extension().is_none() {
++            candidates.push(dir.join(format!("{binary}.exe")));
++        }
++        candidates
++    }
++    #[cfg(not(windows))]
++    {
++        vec![candidate]
++    }
++}
++
+ pub fn require_case_output_path(
+     case_dir: &Path,
+     output_path: &Path,
+@@ -201,8 +294,12 @@ fn reject_output_symlink_leaf(output_path: &Path, label: &str) -> Result<(), Str
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::{reject_source_output_path, require_case_output_path, resolve_tool_binary};
++    use super::{
++        reject_source_output_path, require_case_output_path, resolve_external_tool,
++        resolve_tool_binary,
++    };
+     use std::fs;
++    use std::path::Path;
+ 
+     #[test]
+     fn rejects_unapproved_bare_tool_names() {
+@@ -218,6 +315,38 @@ mod tests {
+         );
+     }
+ 
++    #[cfg(unix)]
++    #[test]
++    fn resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name() {
++        let base = std::env::temp_dir().join(format!(
++            "frametrace-tool-policy-ffmpeg-test-{}",
++            std::process::id()
++        ));
++        fs::create_dir_all(&base).unwrap();
++        let approved = base.join("ffmpeg");
++        let rejected = base.join("fake-ffmpeg");
++        write_executable(&approved, "#!/bin/sh\necho 'ffmpeg fake 1.0'\n");
++        write_executable(&rejected, "#!/bin/sh\necho 'fake ffmpeg'\n");
++
++        let tool =
++            resolve_external_tool(&approved.to_string_lossy(), &["ffmpeg"], "-version").unwrap();
++        assert_eq!(tool.name, "ffmpeg");
++        assert_eq!(
++            tool.path,
++            approved
++                .canonicalize()
++                .unwrap()
++                .to_string_lossy()
++                .to_string()
++        );
++        assert_eq!(tool.version, "ffmpeg fake 1.0");
++
++        let err = resolve_external_tool(&rejected.to_string_lossy(), &["ffmpeg"], "-version")
++            .unwrap_err();
++        assert!(err.contains("unsupported tool binary"));
++        let _ = fs::remove_dir_all(base);
++    }
++
+     #[test]
+     fn rejects_case_output_outside_case_root() {
+         let base = std::env::temp_dir().join(format!(
+@@ -282,4 +411,14 @@ mod tests {
+         assert!(err.contains("cannot target the source evidence path"));
+         let _ = fs::remove_dir_all(base);
+     }
++
++    #[cfg(unix)]
++    fn write_executable(path: &Path, contents: &str) {
++        use std::os::unix::fs::PermissionsExt;
++
++        fs::write(path, contents).unwrap();
++        let mut permissions = fs::metadata(path).unwrap().permissions();
++        permissions.set_mode(0o755);
++        fs::set_permissions(path, permissions).unwrap();
++    }
+ }
+diff --git a/src/validation/log.rs b/src/validation/log.rs
+index 7496c2e..a8f379c 100644
+--- a/src/validation/log.rs
++++ b/src/validation/log.rs
+@@ -3,7 +3,7 @@ use crate::audit;
+ use crate::ffprobe;
+ use crate::media_contract;
+ use crate::model::ProbeSummary;
+-use crate::tool_policy::{command_version, require_case_output_path};
++use crate::tool_policy::{command_version, require_case_output_path, resolve_external_tool};
+ use crate::util::json_escape;
+ use std::path::Path;
+ 
+@@ -43,7 +43,15 @@ fn validation_log_body_json(
+     options: &ValidationOptions,
+     operator: &str,
+ ) -> String {
+-    let tool_version = command_version(&options.ffprobe_bin, &["ffprobe"], "-version");
++    let resolved_tool = resolve_external_tool(&options.ffprobe_bin, &["ffprobe"], "-version").ok();
++    let tool_version = resolved_tool
++        .as_ref()
++        .map(|tool| tool.version.clone())
++        .unwrap_or_else(|| command_version(&options.ffprobe_bin, &["ffprobe"], "-version"));
++    let resolved_tool_path = resolved_tool
++        .as_ref()
++        .map(|tool| tool.path.as_str())
++        .unwrap_or(options.ffprobe_bin.as_str());
+     let command_args = ffprobe::probe_command_args(&result.target_path);
+     let source_artifact_sha256 = result
+         .source_artifact_sha256
+@@ -62,11 +70,12 @@ fn validation_log_body_json(
+         .or(result.derived_artifact_id.as_deref())
+         .unwrap_or(&source_artifact_id);
+     format!(
+-        "{{\"schema_version\":3,\"event\":\"validate-artifact\",\"validated_unix\":{},\"operator\":\"{}\",\"method\":\"ffprobe-container-video-stream\",\"tool\":\"ffprobe\",\"tool_version\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"selector\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":\"{}\",\"derived_artifact_id\":{},\"target_artifact_id\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_artifact_path\":\"evidence/logs/validation-log.jsonl\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\"}}",
++        "{{\"schema_version\":3,\"event\":\"validate-artifact\",\"validated_unix\":{},\"operator\":\"{}\",\"method\":\"ffprobe-container-video-stream\",\"tool\":\"ffprobe\",\"tool_version\":\"{}\",\"resolved_tool_path\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"selector\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":\"{}\",\"derived_artifact_id\":{},\"target_artifact_id\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_artifact_path\":\"evidence/logs/validation-log.jsonl\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\"}}",
+         result.validated_unix,
+         json_escape(operator),
+         json_escape(&tool_version),
+-        json_escape(&options.ffprobe_bin),
++        json_escape(resolved_tool_path),
++        json_escape(resolved_tool_path),
+         audit::json_string_array(&command_args),
+         json_escape(&result.selector),
+         json_escape(&source_artifact_id),
+@@ -175,6 +184,7 @@ mod tests {
+         let options = ValidationOptions {
+             ffprobe_bin: "ffprobe".to_string(),
+             operator: Some("qa-operator".to_string()),
++            allow_external_source: false,
+         };
+ 
+         let body = validation_log_body_json(&result, &options, "qa-operator");
+@@ -226,6 +236,7 @@ mod tests {
+         let options = ValidationOptions {
+             ffprobe_bin: "ffprobe".to_string(),
+             operator: Some("qa-operator".to_string()),
++            allow_external_source: false,
+         };
+ 
+         let body = validation_log_body_json(&result, &options, "qa-operator");
+diff --git a/src/video_export.rs b/src/video_export.rs
+index 2264c6a..a0a75ff 100644
+--- a/src/video_export.rs
++++ b/src/video_export.rs
+@@ -1,9 +1,11 @@
+ use crate::audit;
+ use crate::media_contract;
+-use crate::tool_policy::{reject_source_output_path, require_case_output_path};
++use crate::tool_policy::{
++    ResolvedExternalTool, reject_source_output_path, require_case_output_path,
++    resolve_external_tool, run_external_tool,
++};
+ use crate::util::{json_escape, now_unix, read_to_string, unique_path};
+ use std::path::{Path, PathBuf};
+-use std::process::Command;
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum ExportFormat {
+@@ -37,6 +39,7 @@ pub struct ExportOptions {
+     pub duration_seconds: Option<f64>,
+     pub output_path: Option<PathBuf>,
+     pub operator: Option<String>,
++    pub ffmpeg_bin: String,
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -80,7 +83,7 @@ pub fn export_video(
+             .map_err(|err| format!("failed to create output directory: {err}"))?;
+     }
+ 
+-    run_ffmpeg_export(&source_path, &output_path, options)?;
++    let tool = run_ffmpeg_export(&source_path, &output_path, options)?;
+     write_export_log(
+         case_dir,
+         selector,
+@@ -88,6 +91,7 @@ pub fn export_video(
+         &output_path,
+         options,
+         &operator,
++        &tool,
+     )?;
+ 
+     Ok(ExportResult {
+@@ -101,12 +105,10 @@ fn run_ffmpeg_export(
+     source_path: &Path,
+     output_path: &Path,
+     options: &ExportOptions,
+-) -> Result<(), String> {
++) -> Result<ResolvedExternalTool, String> {
+     let args = ffmpeg_export_args(source_path, output_path, options);
+-    let output = Command::new("ffmpeg")
+-        .args(&args)
+-        .output()
+-        .map_err(|err| format!("failed to run ffmpeg: {err}"))?;
++    let tool = resolve_external_tool(&options.ffmpeg_bin, &["ffmpeg"], "-version")?;
++    let output = run_external_tool(&tool, &args)?;
+ 
+     if !output.status.success() {
+         return Err(format!(
+@@ -114,7 +116,7 @@ fn run_ffmpeg_export(
+             String::from_utf8_lossy(&output.stderr).trim()
+         ));
+     }
+-    Ok(())
++    Ok(tool)
+ }
+ 
+ fn ffmpeg_export_args(
+@@ -225,6 +227,7 @@ fn write_export_log(
+     output_path: &Path,
+     options: &ExportOptions,
+     operator: &str,
++    tool: &ResolvedExternalTool,
+ ) -> Result<(), String> {
+     let path = case_dir.join("artifacts/clips/export-log.jsonl");
+     require_case_output_path(case_dir, &path, "video export log")?;
+@@ -240,6 +243,7 @@ fn write_export_log(
+         output_sha256: &output_sha256,
+         exported_unix,
+         operator,
++        tool,
+     });
+     audit::append_chained_jsonl(&path, &line)
+ }
+@@ -253,22 +257,23 @@ struct ExportLogBody<'a> {
+     output_sha256: &'a str,
+     exported_unix: u64,
+     operator: &'a str,
++    tool: &'a ResolvedExternalTool,
+ }
+ 
+ fn export_log_body_json(input: ExportLogBody<'_>) -> String {
+     let args = ffmpeg_export_args(input.source_path, input.output_path, input.options);
+-    let ffmpeg_version = audit::command_version("ffmpeg");
+     let source_artifact_id = media_contract::source_artifact_id(
+         input.selector,
+         input.source_sha256.unwrap_or("unknown"),
+     );
+     let derived_artifact_id = media_contract::derived_artifact_id("clip", input.output_sha256);
+     format!(
+-        "{{\"schema_version\":3,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"artifact_state\":\"derived\",\"operator\":\"{}\",\"method\":\"ffmpeg-clip-export\",\"tool\":\"ffmpeg\",\"tool_version\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":{},\"source_path\":\"{}\",\"source_index_sha256\":{},\"derived_artifact_id\":\"{}\",\"output_artifact_path\":\"{}\",\"output_artifact_sha256\":\"{}\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
++        "{{\"schema_version\":3,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"artifact_state\":\"derived\",\"operator\":\"{}\",\"method\":\"ffmpeg-clip-export\",\"tool\":\"ffmpeg\",\"tool_version\":\"{}\",\"resolved_tool_path\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":{},\"source_path\":\"{}\",\"source_index_sha256\":{},\"derived_artifact_id\":\"{}\",\"output_artifact_path\":\"{}\",\"output_artifact_sha256\":\"{}\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"ffmpeg_version\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+         input.exported_unix,
+         json_escape(input.selector),
+         json_escape(input.operator),
+-        json_escape(&ffmpeg_version),
++        json_escape(&input.tool.version),
++        json_escape(&input.tool.path),
+         json_escape(&source_artifact_id),
+         json_escape(&input.source_path.to_string_lossy()),
+         audit::optional_string(input.source_sha256),
+@@ -282,7 +287,8 @@ fn export_log_body_json(input: ExportLogBody<'_>) -> String {
+         input.options.format.extension(),
+         optional_f64(input.options.start_seconds),
+         optional_f64(input.options.duration_seconds),
+-        json_escape(&ffmpeg_version),
++        json_escape(&input.tool.version),
++        json_escape(&input.tool.path),
+         audit::json_string_array(&args)
+     )
+ }
+@@ -339,6 +345,7 @@ mod tests {
+         ExportFormat, ExportLogBody, ExportOptions, export_log_body_json, ffmpeg_export_args,
+         sanitize_filename, tsv_unescape,
+     };
++    use crate::tool_policy::ResolvedExternalTool;
+     use std::path::Path;
+ 
+     #[test]
+@@ -362,6 +369,7 @@ mod tests {
+             duration_seconds: Some(2.0),
+             output_path: None,
+             operator: Some("qa-operator".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         };
+         let args = ffmpeg_export_args(Path::new("in.mp4"), Path::new("out.mp4"), &options);
+         assert!(args.contains(&"-n".to_string()));
+@@ -377,6 +385,7 @@ mod tests {
+             duration_seconds: Some(2.0),
+             output_path: None,
+             operator: Some("qa-operator".to_string()),
++            ffmpeg_bin: "ffmpeg".to_string(),
+         };
+         let source_sha256 =
+             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+@@ -391,6 +400,7 @@ mod tests {
+             output_sha256,
+             exported_unix: 1_789_000_000,
+             operator: "qa-operator",
++            tool: &fake_tool(),
+         });
+ 
+         assert!(body.contains(r#""event":"export-video""#));
+@@ -398,11 +408,20 @@ mod tests {
+         assert!(body.contains(r#""operator":"qa-operator""#));
+         assert!(body.contains(r#""method":"ffmpeg-clip-export""#));
+         assert!(body.contains(r#""tool":"ffmpeg""#));
++        assert!(body.contains(r#""resolved_tool_path":"#));
+         assert!(body.contains(r#""derived_artifact_id":"derived-clip-bbbbbbbbbbbb""#));
+         assert!(body.contains(r#""source_artifact_id":"source-vid_000001-aaaaaaaaaaaa""#));
+         assert!(body.contains(r#""output_artifact_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb""#));
+     }
+ 
++    fn fake_tool() -> ResolvedExternalTool {
++        ResolvedExternalTool {
++            name: "ffmpeg".to_string(),
++            path: "/usr/local/bin/ffmpeg".to_string(),
++            version: "ffmpeg fake 1.0".to_string(),
++        }
++    }
++
+     #[test]
+     fn unescapes_tsv_paths() {
+         assert_eq!(tsv_unescape("a\\tb\\\\c"), "a\tb\\c");
+diff --git a/tests/cli_default_output_policy.rs b/tests/cli_default_output_policy.rs
+index 446cf63..9a4fbdd 100644
+--- a/tests/cli_default_output_policy.rs
++++ b/tests/cli_default_output_policy.rs
+@@ -122,6 +122,71 @@ fn derived_media_commands_reject_symlinked_default_directories_without_writing_o
+     let _ = fs::remove_dir_all(root);
+ }
+ 
++#[test]
++fn derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata() {
++    let root = unique_temp_dir("cli-derived-tool-policy");
++    let case_dir = root.join("case");
++    let media_dir = root.join("media");
++    let fake_bin = root.join("fake-bin");
++    seed_indexed_case(&case_dir, &media_dir);
++    write_fake_ffmpeg(&fake_bin);
++    write_executable(
++        &fake_bin.join("fake-ffmpeg"),
++        "#!/bin/sh\nprintf 'should not run' > \"$2\"\n",
++    );
++    let approved_ffmpeg = fake_bin.join("ffmpeg");
++    let approved_ffmpeg = approved_ffmpeg
++        .canonicalize()
++        .expect("approved fake ffmpeg should canonicalize");
++
++    for (command, log_path) in [
++        ("make-proxy", "artifacts/proxies/proxy-log.jsonl"),
++        ("make-thumbnail", "artifacts/thumbnails/thumbnail-log.jsonl"),
++        ("capture-frame", "artifacts/frames/frame-log.jsonl"),
++    ] {
++        let output = run(&[
++            command,
++            path(&case_dir),
++            "vid_000001",
++            "--ffmpeg",
++            path(&approved_ffmpeg),
++            "--operator",
++            "qa-tool-policy",
++        ]);
++        assert_success(&output);
++        let log = fs::read_to_string(case_dir.join(log_path)).expect("derived log should exist");
++        assert!(log.contains(&format!(
++            r#""resolved_tool_path":"{}""#,
++            approved_ffmpeg.display()
++        )));
++        assert!(log.contains(r#""tool_version":"ffmpeg fake 1.0""#));
++        assert!(log.contains(r#""command_args":["#));
++        assert!(log.contains(r#""operator":"qa-tool-policy""#));
++        assert!(log.contains(r#""output_artifact_sha256":"#));
++        assert!(log.contains(r#""entry_sha256":"#));
++    }
++
++    let disallowed_output = case_dir.join("artifacts/clips/rejected.mp4");
++    let rejected = run(&[
++        "export-video",
++        path(&case_dir),
++        "vid_000001",
++        "--format",
++        "mp4",
++        "--ffmpeg",
++        path(&fake_bin.join("fake-ffmpeg")),
++        "--output",
++        path(&disallowed_output),
++    ]);
++
++    assert_failure_contains(&rejected, "unsupported tool binary");
++    assert!(
++        !disallowed_output.exists(),
++        "rejected output must not be written"
++    );
++    let _ = fs::remove_dir_all(root);
++}
++
+ #[test]
+ fn carve_file_rejects_symlinked_default_carved_directory_without_writing_outside() {
+     let root = unique_temp_dir("cli-carve-default-dir-symlink");

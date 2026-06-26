@@ -1,0 +1,5 @@
+command=manual default report/review/package grep scenario
+exit_code=0
+elapsed_seconds=0
+artifact=.omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-default-redaction.md
+temp_root=/tmp/FrameTrace Client ACME 유출 Manual lcub

@@ -1,0 +1,5 @@
+command=manual opt-in full path disclosure scenario
+exit_code=0
+elapsed_seconds=0
+artifact=.omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-opt-in-disclosure.md
+temp_root=/tmp/FrameTrace Client ACME OptIn 유출 sufY

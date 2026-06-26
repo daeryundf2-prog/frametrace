@@ -1,0 +1,15 @@
+SCENARIO fmt-check
+INVOCATION cargo fmt --all -- --check
+BINARY_OBSERVABLE PASS if exit_code=0
+Diff in /Users/shinyoohag/Desktop/frametrace/src/qa_report_defense.rs:203:
+             let has_log = case_dir.join(spec.relative_path).is_file();
+             let has_artifact = spec
+                 .artifact_dir
+-                .map(|artifact_dir| has_case_surface_artifact(case_dir, artifact_dir, spec.relative_path))
++                .map(|artifact_dir| {
++                    has_case_surface_artifact(case_dir, artifact_dir, spec.relative_path)
++                })
+                 .unwrap_or(false);
+             let required = has_log || has_artifact;
+             let reason = if has_log {
+exit_code=1

@@ -1,0 +1,7 @@
+Invocation: tmux ls | rg "ulw-qa|final-qa|frame-production-exec-20260623"
+No QA-created tmux sessions matching ulw-qa/final-qa/frame-production-exec-20260623.
+
+Invocation: ps -axo pid=,comm= | awk for exact cargo/frametrace/playwright/agent-browser process names
+No exact cargo/frametrace/playwright/agent-browser process names remain.
+
+Cleanup receipt: QA created and removed transient check file /tmp/frametrace-final-qa-proc-exact.33026; QA created no other temp dirs and started no persistent server/browser/tmux/worker.

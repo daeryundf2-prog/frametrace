@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "task": "T13. Validate Rust engine on Windows 10/11 x64 before GUI work",
+  "status": "blocked",
+  "complete": false,
+  "doneclaim": "blocked_doneclaim_written",
+  "checked_at_utc": "2026-06-26T12:16:21Z",
+  "summary": "T13 is blocked because this session has no real Windows 10/11 x64 host and no safely triggerable current Windows CI run. No Windows validation success was claimed.",
+  "blocking_receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/BLOCKED-missing-windows-runner.json",
+  "must_not_continue": ["T14", "T15", "T16", "T17"],
+  "manualQa": {
+    "surfaceEvidence": [
+      {
+        "scenario_id": "T13-S1",
+        "criterion_reference": "T13 acceptance: Windows transcript proves host OS and MSVC Rust build/tests",
+        "surface": "local terminal",
+        "exact_invocation": "pwd; uname -a; sw_vers 2>/dev/null || true; rustc -vV 2>/dev/null || true; cargo -vV 2>/dev/null || true; command -v pwsh gh ffmpeg ffprobe dotnet ewfinfo ewfverify ewfexport mmls fls icat 2>/dev/null || true; git status --short",
+        "verdict": "BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-S2",
+        "criterion_reference": "Runner policy: inspect CI/local runner availability non-destructively",
+        "surface": "GitHub Actions configuration via local terminal",
+        "exact_invocation": "git remote -v; sed -n '1,220p' .github/workflows/windows-ci.yml; gh auth status; gh workflow list; gh run list --workflow windows-ci.yml --limit 5",
+        "verdict": "BLOCKED",
+        "artifactRefs": ["A2"]
+      },
+      {
+        "scenario_id": "T13-S3",
+        "criterion_reference": "Runner policy: inspect local runner availability",
+        "surface": "local terminal process/filesystem inspection",
+        "exact_invocation": "find .. \"$HOME\" -maxdepth 3 \\( -name '.runner' -o -name 'actions-runner' -o -name 'Runner.Listener' \\) -print 2>/dev/null | head -100; ps aux | rg -i 'actions[.-]runner|Runner.Listener|Runner.Worker' || true; launchctl list 2>/dev/null | rg -i 'actions|runner|github' || true",
+        "verdict": "BLOCKED",
+        "artifactRefs": ["A3"]
+      },
+      {
+        "scenario_id": "T13-S4",
+        "criterion_reference": "Runner policy: macOS PowerShell run is not Windows validation",
+        "surface": "PowerShell validation script availability on local host",
+        "exact_invocation": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/validate-release.ps1 -CaseRoot /tmp/frametrace-release-smoke-t13 -PerformanceRows 10",
+        "verdict": "BLOCKED",
+        "artifactRefs": ["A4"]
+      },
+      {
+        "scenario_id": "T13-S5",
+        "criterion_reference": "Safe local blocker-contract check only; not Windows validation",
+        "surface": "cargo test on local macOS host",
+        "exact_invocation": "cargo test --locked windows_prereq -- --nocapture",
+        "verdict": "PASS_LOCAL_ONLY",
+        "artifactRefs": ["A5"]
+      }
+    ],
+    "adversarialCases": [
+      {
+        "scenario_id": "T13-A1",
+        "criterion_reference": "Windows 10/11 x64 host OS",
+        "adversarial_class": "non_windows_host",
+        "expected_behavior": "Reject macOS/Linux host as insufficient for T13 Windows validation.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1", "A4"]
+      },
+      {
+        "scenario_id": "T13-A2",
+        "criterion_reference": "MSVC Rust build/tests",
+        "adversarial_class": "non_msvc_rust_toolchain",
+        "expected_behavior": "Do not accept aarch64-apple-darwin cargo/rustc output as Windows MSVC evidence.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A3",
+        "criterion_reference": "ffmpeg/ffprobe discovery on Windows",
+        "adversarial_class": "host_local_unix_tools_not_windows_tools",
+        "expected_behavior": "Do not accept Homebrew ffmpeg/ffprobe paths as Windows dependency discovery receipts.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A4",
+        "criterion_reference": "libewf discovery on Windows",
+        "adversarial_class": "host_local_unix_libewf_not_windows_tools",
+        "expected_behavior": "Do not accept Homebrew ewfinfo/ewfverify/ewfexport paths as Windows libewf discovery receipts.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A5",
+        "criterion_reference": "Sleuth Kit discovery on Windows",
+        "adversarial_class": "host_local_unix_tsk_not_windows_tools",
+        "expected_behavior": "Do not accept Homebrew mmls/fls/icat paths as Windows Sleuth Kit discovery receipts.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A6",
+        "criterion_reference": "Unicode/long path workflow",
+        "adversarial_class": "windows_path_semantics_unavailable",
+        "expected_behavior": "Mark untested because drive-letter, long-path, and Windows Unicode path behavior cannot be reproduced on macOS.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A7",
+        "criterion_reference": "Repeated scan workflow",
+        "adversarial_class": "repeated_scan_not_executed_on_windows",
+        "expected_behavior": "Do not infer repeated Windows scan behavior from local macOS tests.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1", "A5"]
+      },
+      {
+        "scenario_id": "T13-A8",
+        "criterion_reference": "Synthetic MP4 workflow",
+        "adversarial_class": "synthetic_mp4_not_executed_on_windows",
+        "expected_behavior": "Do not accept a local non-Windows ffmpeg environment as proof that the Windows synthetic MP4 workflow works.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A9",
+        "criterion_reference": "E01/raw workflow",
+        "adversarial_class": "e01_raw_not_executed_on_windows",
+        "expected_behavior": "Mark E01/raw Windows validation blocked until a real Windows host runs libewf and Sleuth Kit workflows.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A10",
+        "criterion_reference": "File lock behavior",
+        "adversarial_class": "windows_file_lock_semantics_unavailable",
+        "expected_behavior": "Mark file-lock validation blocked because Windows lock semantics are not reproducible on macOS.",
+        "verdict": "PASS_BLOCKED",
+        "artifactRefs": ["A1"]
+      },
+      {
+        "scenario_id": "T13-A11",
+        "criterion_reference": "workstation-status prerequisites",
+        "adversarial_class": "release_prerequisite_gate_without_windows_receipt",
+        "expected_behavior": "Local tests may prove blocker behavior only; they must not mark windows_prerequisites PASS.",
+        "verdict": "PASS_LOCAL_ONLY",
+        "artifactRefs": ["A5"]
+      }
+    ],
+    "artifactRefs": [
+      {
+        "id": "A1",
+        "kind": "terminal_transcript",
+        "description": "Local host and tool check proving macOS ARM64 host and aarch64-apple-darwin Rust toolchain.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-host-and-tools.txt"
+      },
+      {
+        "id": "A2",
+        "kind": "terminal_transcript",
+        "description": "GitHub Actions configuration and gh availability check. Workflow exists but has no manual dispatch event; recent visible runs are failures.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/github-actions-availability.txt"
+      },
+      {
+        "id": "A3",
+        "kind": "terminal_transcript",
+        "description": "Local runner directory/process/service inspection; no usable local Actions runner found.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-runner-inspection.txt"
+      },
+      {
+        "id": "A4",
+        "kind": "terminal_transcript",
+        "description": "Attempted local PowerShell validation surface; pwsh is absent, and in any case macOS PowerShell would not satisfy Windows validation.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/macos-powershell-validation-attempt.txt"
+      },
+      {
+        "id": "A5",
+        "kind": "terminal_transcript",
+        "description": "Safe local Rust tests for Windows prerequisite blocker behavior; passed locally but is not Windows validation.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-cargo-windows-prereq-tests.txt"
+      },
+      {
+        "id": "A6",
+        "kind": "terminal_transcript",
+        "description": "Final cleanup receipt.",
+        "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/cleanup-receipt.txt"
+      }
+    ]
+  },
+  "commands": [
+    "pwd; uname -a; sw_vers 2>/dev/null || true; rustc -vV 2>/dev/null || true; cargo -vV 2>/dev/null || true; command -v pwsh gh ffmpeg ffprobe dotnet ewfinfo ewfverify ewfexport mmls fls icat 2>/dev/null || true; git status --short",
+    "git remote -v; sed -n '1,220p' .github/workflows/windows-ci.yml; gh auth status; gh workflow list; gh run list --workflow windows-ci.yml --limit 5",
+    "find .. \"$HOME\" -maxdepth 3 \\( -name '.runner' -o -name 'actions-runner' -o -name 'Runner.Listener' \\) -print 2>/dev/null | head -100; ps aux | rg -i 'actions[.-]runner|Runner.Listener|Runner.Worker' || true; launchctl list 2>/dev/null | rg -i 'actions|runner|github' || true",
+    "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows/validate-release.ps1 -CaseRoot /tmp/frametrace-release-smoke-t13 -PerformanceRows 10",
+    "cargo test --locked windows_prereq -- --nocapture"
+  ],
+  "changed_files": [
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/BLOCKED-missing-windows-runner.json",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/doneclaim.json",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-host-and-tools.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/github-actions-availability.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-runner-inspection.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/macos-powershell-validation-attempt.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/local-cargo-windows-prereq-tests.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/transcripts/cleanup-receipt.txt"
+  ],
+  "verification": {
+    "safe_local_tests": "cargo test --locked windows_prereq -- --nocapture passed on macOS; this verifies blocker contracts only.",
+    "windows_validation": "not_run",
+    "reason_windows_validation_not_run": "No real Windows host or safely triggerable current Windows runner available."
+  },
+  "cleanup": {
+    "staged_files": "none",
+    "temp_t13_processes": "none left running",
+    "temp_ports_started_by_t13": "none",
+    "browsers_started_by_t13": "none",
+    "pre_existing_processes_observed": "Chrome processes and a node listener on port 3000 were present during cleanup inspection; they were not started by T13 and were left untouched.",
+    "forbidden_orchestration_files": ".omo/boulder.json, .omo/start-work/ledger.jsonl, and the plan file were not edited by this worker; git status shows they are untracked workspace files.",
+    "artifactRefs": ["A6"]
+  },
+  "risks": [
+    "No host OS/MSVC build/test proof exists.",
+    "No Windows dependency discovery proof exists for ffmpeg/ffprobe, libewf, or Sleuth Kit.",
+    "No Windows Unicode/long-path, repeated scan, synthetic MP4, E01/raw, or file-lock workflow transcript exists.",
+    "T14-T17 must remain blocked until T13 is rerun on a real Windows 10/11 x64 runner."
+  ]
+}

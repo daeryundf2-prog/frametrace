@@ -1,0 +1,41 @@
+{
+  "adv_root": "/tmp/frametrace-t5-adv.JSNgVN",
+  "probes": {
+    "external-default": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "external-source",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-default.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-default.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-default.exitcode"
+    },
+    "external-explicit": {
+      "exit_code": 0,
+      "expected_exit": "zero",
+      "expected_text": "status: ffprobe-video-stream-confirmed",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-explicit.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-explicit.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-external-explicit.exitcode"
+    },
+    "traversal": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "external-source",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-traversal.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-traversal.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-traversal.exitcode"
+    },
+    "stale-log": {
+      "exit_code": 1,
+      "expected_exit": "nonzero",
+      "expected_text": "case directory",
+      "passed": true,
+      "stdout_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-stale-log.stdout",
+      "stderr_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-stale-log.stderr",
+      "exitcode_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/adversarial-stale-log.exitcode"
+    }
+  }
+}

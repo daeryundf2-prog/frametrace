@@ -1,0 +1,4 @@
+SCENARIO hook3-evidence-artifact-check
+INVOCATION test -s required hook3 evidence files
+BINARY_OBSERVABLE PASS if every required artifact is non-empty
+exit_code=0

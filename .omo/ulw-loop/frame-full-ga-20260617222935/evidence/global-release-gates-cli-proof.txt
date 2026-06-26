@@ -1,0 +1,22 @@
+tmp_root=/tmp/frametrace-global-gates.OyqKYm
+case created: /tmp/frametrace-global-gates.OyqKYm/case
+case id: FT-1781703317
+scan complete
+source registered: src_7284fabacc2014c7 (folder)
+job: job_1781703317_000001 (scan-folder)
+videos indexed: 1
+bytes indexed: 19
+index: /tmp/frametrace-global-gates.OyqKYm/case/db/video_index.json
+sqlite: /tmp/frametrace-global-gates.OyqKYm/case/db/case.db
+review written: /tmp/frametrace-global-gates.OyqKYm/case/review/index.html
+evidence viewer written: /tmp/frametrace-global-gates.OyqKYm/case/review/evidence-viewer.html
+report written: /tmp/frametrace-global-gates.OyqKYm/case/reports/case-report.html
+== incomplete manifest should fail ==
+error: release readiness failed: 19 blocker(s): privacy_review: Privacy Review (privacy_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; supply_chain_review: Supply-chain Review (supply_chain_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; accuracy_validation: Accuracy Validation (accuracy_validation) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; reproducibility_validation: Reproducibility Validation (reproducibility_validation) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; performance_validation: Performance Validation (performance_validation) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; report_defensibility_review: Report-defensibility Review (report_defensibility_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; legal_wording_review: Legal Wording Review (legal_wording_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; installer_package_validation: Installer/Package Validation (installer_package_validation) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; windows_workstation_validation: Windows Workstation Validation (windows_workstation_validation) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; known_limitations_review: Known Limitations Review (known_limitations_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; release_notes_review: Release Notes Review (release_notes_review) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; support_triage_policy: Support/Triage Policy (support_triage_policy) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; hotfix_policy: Hotfix Policy (hotfix_policy) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; incident_response_plan: Incident Response Plan (incident_response_plan) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; corpus_governance: Corpus Governance (corpus_governance) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; feature_intake_governance: Feature Intake Governance (feature_intake_governance) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; post_ga_monitoring: Post-GA Monitoring (post_ga_monitoring) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; external_review_readiness: External Review Readiness (external_review_readiness) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; regression_schedule: Regression Schedule (regression_schedule) is not approved in /tmp/frametrace-global-gates.OyqKYm/release-review-incomplete.txt; see /tmp/frametrace-global-gates.OyqKYm/case/reports/qa/release-readiness.md
+incomplete_exit=1
+== full manifest should pass ==
+release readiness QA passed: /tmp/frametrace-global-gates.OyqKYm/case/reports/qa/release-readiness.json
+    {"name":"privacy_review","status":"PASS","evidence":"/tmp/frametrace-global-gates.OyqKYm/release-review-full.txt"},
+    {"name":"incident_response_plan","status":"PASS","evidence":"/tmp/frametrace-global-gates.OyqKYm/release-review-full.txt"},
+    {"name":"regression_schedule","status":"PASS","evidence":"/tmp/frametrace-global-gates.OyqKYm/release-review-full.txt"},
+release_json=/tmp/frametrace-global-gates.OyqKYm/case/reports/qa/release-readiness.json

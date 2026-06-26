@@ -3,9 +3,12 @@ use crate::audit;
 use crate::ffprobe;
 use crate::media_contract;
 use crate::model::ProbeSummary;
-use crate::tool_policy::{command_version, require_case_output_path};
+use crate::tool_policy::require_case_output_path;
 use crate::util::json_escape;
 use std::path::Path;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
     if !probe.ok {
@@ -40,10 +43,9 @@ pub(super) fn append_validation_log(
 
 fn validation_log_body_json(
     result: &ValidationResult,
-    options: &ValidationOptions,
+    _options: &ValidationOptions,
     operator: &str,
 ) -> String {
-    let tool_version = command_version(&options.ffprobe_bin, &["ffprobe"], "-version");
     let command_args = ffprobe::probe_command_args(&result.target_path);
     let source_artifact_sha256 = result
         .source_artifact_sha256
@@ -62,11 +64,12 @@ fn validation_log_body_json(
         .or(result.derived_artifact_id.as_deref())
         .unwrap_or(&source_artifact_id);
     format!(
-        "{{\"schema_version\":3,\"event\":\"validate-artifact\",\"validated_unix\":{},\"operator\":\"{}\",\"method\":\"ffprobe-container-video-stream\",\"tool\":\"ffprobe\",\"tool_version\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"selector\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":\"{}\",\"derived_artifact_id\":{},\"target_artifact_id\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_artifact_path\":\"evidence/logs/validation-log.jsonl\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\"}}",
+        "{{\"schema_version\":3,\"event\":\"validate-artifact\",\"validated_unix\":{},\"operator\":\"{}\",\"method\":\"ffprobe-container-video-stream\",\"tool\":\"ffprobe\",\"tool_version\":\"{}\",\"resolved_tool_path\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"selector\":\"{}\",\"source_artifact_id\":\"{}\",\"source_artifact_path\":\"{}\",\"source_artifact_sha256\":\"{}\",\"derived_artifact_id\":{},\"target_artifact_id\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_artifact_path\":\"evidence/logs/validation-log.jsonl\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\"}}",
         result.validated_unix,
         json_escape(operator),
-        json_escape(&tool_version),
-        json_escape(&options.ffprobe_bin),
+        json_escape(result.ffprobe_tool.version()),
+        json_escape(result.ffprobe_tool.path()),
+        json_escape(result.ffprobe_tool.path()),
         audit::json_string_array(&command_args),
         json_escape(&result.selector),
         json_escape(&source_artifact_id),
@@ -86,7 +89,7 @@ fn validation_log_body_json(
         optional_u32(result.probe.height),
         result.probe.ok,
         audit::optional_string(result.probe.error.as_deref()),
-        json_escape(&tool_version)
+        json_escape(result.ffprobe_tool.version())
     )
 }
 
@@ -101,141 +104,4 @@ fn optional_u32(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "null".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{validation_log_body_json, validation_status};
-    use crate::model::ProbeSummary;
-    use crate::validation::{ValidationOptions, ValidationResult};
-    use std::path::PathBuf;
-
-    #[test]
-    fn classifies_successful_video_probe_as_ffprobe_confirmed() {
-        let probe = ProbeSummary {
-            ok: true,
-            raw_json: Some("{}".to_string()),
-            error: None,
-            duration_seconds: Some(1.0),
-            format_name: Some("mov,mp4".to_string()),
-            video_codec: Some("h264".to_string()),
-            audio_codec: None,
-            width: Some(1920),
-            height: Some(1080),
-        };
-        assert_eq!(
-            validation_status(&probe).0,
-            "ffprobe-video-stream-confirmed"
-        );
-    }
-
-    #[test]
-    fn classifies_missing_video_stream_as_failed() {
-        let probe = ProbeSummary {
-            ok: true,
-            raw_json: Some("{}".to_string()),
-            error: None,
-            duration_seconds: Some(1.0),
-            format_name: Some("mp3".to_string()),
-            video_codec: None,
-            audio_codec: Some("mp3".to_string()),
-            width: None,
-            height: None,
-        };
-        assert_eq!(validation_status(&probe).0, "validation-failed");
-    }
-
-    #[test]
-    fn validation_log_body_records_forensic_promotion_contract() {
-        let result = ValidationResult {
-            selector: "carve_000001".to_string(),
-            target_path: PathBuf::from("/case/artifacts/carved/carve_000001.mp4"),
-            target_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                .to_string(),
-            source_artifact_id: None,
-            source_artifact_path: None,
-            source_artifact_sha256: None,
-            derived_artifact_id: None,
-            target_artifact_id: None,
-            validation_status: "ffprobe-video-stream-confirmed".to_string(),
-            validation_note: "ffprobe parsed a video stream".to_string(),
-            probe: ProbeSummary {
-                ok: true,
-                raw_json: Some("{}".to_string()),
-                error: None,
-                duration_seconds: Some(12.0),
-                format_name: Some("mov,mp4".to_string()),
-                video_codec: Some("h264".to_string()),
-                audio_codec: None,
-                width: Some(1920),
-                height: Some(1080),
-            },
-            validated_unix: 1_789_000_000,
-        };
-        let options = ValidationOptions {
-            ffprobe_bin: "ffprobe".to_string(),
-            operator: Some("qa-operator".to_string()),
-        };
-
-        let body = validation_log_body_json(&result, &options, "qa-operator");
-
-        assert!(body.contains(r#""event":"validate-artifact""#));
-        assert!(body.contains(r#""operator":"qa-operator""#));
-        assert!(body.contains(r#""method":"ffprobe-container-video-stream""#));
-        assert!(body.contains(r#""tool":"ffprobe""#));
-        assert!(body.contains(r#""tool_version":"#));
-        assert!(body.contains(
-            r#""command_args":["-v","error","-print_format","json","-show_format","-show_streams""#
-        ));
-        assert!(body.contains(r#""source_artifact_id":"source-carve_000001-aaaaaaaaaaaa""#));
-        assert!(body.contains(r#""source_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#));
-        assert!(
-            body.contains(r#""validation_artifact_path":"evidence/logs/validation-log.jsonl""#)
-        );
-    }
-
-    #[test]
-    fn validation_log_preserves_source_relation_for_derived_artifact_targets() {
-        let result = ValidationResult {
-            selector: "derived-frame-capture-bbbbbbbbbbbb".to_string(),
-            target_path: PathBuf::from("/case/artifacts/frames/frame.jpg"),
-            target_sha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-                .to_string(),
-            source_artifact_id: Some("source-vid_000001-aaaaaaaaaaaa".to_string()),
-            source_artifact_path: Some(PathBuf::from("/case/source/original.mp4")),
-            source_artifact_sha256: Some(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-            ),
-            derived_artifact_id: Some("derived-frame-capture-bbbbbbbbbbbb".to_string()),
-            target_artifact_id: Some("derived-frame-capture-bbbbbbbbbbbb".to_string()),
-            validation_status: "ffprobe-video-stream-confirmed".to_string(),
-            validation_note: "ffprobe parsed a video stream".to_string(),
-            probe: ProbeSummary {
-                ok: true,
-                raw_json: Some("{}".to_string()),
-                error: None,
-                duration_seconds: Some(1.0),
-                format_name: Some("image2".to_string()),
-                video_codec: Some("mjpeg".to_string()),
-                audio_codec: None,
-                width: Some(640),
-                height: Some(360),
-            },
-            validated_unix: 1_789_000_001,
-        };
-        let options = ValidationOptions {
-            ffprobe_bin: "ffprobe".to_string(),
-            operator: Some("qa-operator".to_string()),
-        };
-
-        let body = validation_log_body_json(&result, &options, "qa-operator");
-
-        assert!(body.contains(r#""source_artifact_id":"source-vid_000001-aaaaaaaaaaaa""#));
-        assert!(body.contains(r#""source_artifact_path":"/case/source/original.mp4""#));
-        assert!(body.contains(
-            r#""source_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa""#
-        ));
-        assert!(body.contains(r#""derived_artifact_id":"derived-frame-capture-bbbbbbbbbbbb""#));
-        assert!(body.contains(r#""target_artifact_id":"derived-frame-capture-bbbbbbbbbbbb""#));
-    }
 }

@@ -1,0 +1,134 @@
+{
+  "status": "fixes_ready_for_independent_gate",
+  "scope": "T12 corpus metrics needs-fix remediation only",
+  "gate_artifact_read_first": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-gate-review.md",
+  "fixes": [
+    "Manifest schema, docs, parser, fixtures, and tests now enforce the exact plan line 58 corpus ground-truth contract fields: corpus_id, source_artifact_id, source_sha256, expected_artifact_type, expected_path_pattern, expected_hash, expected_timestamp_range, expected_state, negative_controls, notes.",
+    "Committed lightweight non-client source and expected fixture files now exist under tests/fixtures/corpus, with source_sha256 and expected_hash values tied to real SHA-256 values rather than nonexistent paths.",
+    "Parser rejects missing required ground_truth fields through typed serde parsing and contract checks; tests parse JSON and remove required fields structurally instead of relying on substring assertions.",
+    "src/qa_accuracy.rs was split into focused src/qa_accuracy/ modules for typed manifest parsing, indexed evidence parsing, metric computation, contract checks, and report rendering; every qa_accuracy module is under 250 pure LOC.",
+    "Synthetic-only mixed_real_world_like still fails closed for release-key pass semantics and remains explicitly unsupported in the manifest."
+  ],
+  "changed_files": [
+    "corpus/manifest/synthetic-video-corpus.json",
+    "docs/recovery-prd.md",
+    "docs/recovery-test-spec.md",
+    "docs/validation-corpus.md",
+    "src/qa_accuracy.rs",
+    "src/qa_accuracy/contract.rs",
+    "src/qa_accuracy/indexed.rs",
+    "src/qa_accuracy/manifest.rs",
+    "src/qa_accuracy/metrics.rs",
+    "src/qa_accuracy/report.rs",
+    "src/qa_accuracy/schema.rs",
+    "src/qa_accuracy/types.rs",
+    "src/qa_tests/accuracy.rs",
+    "tests/fixtures/corpus/synthetic-video-case-a/artifacts/carved/carve_000001.mp4",
+    "tests/fixtures/corpus/synthetic-video-case-a/artifacts/carved/carve-log.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-a/artifacts/recovered/inode_42.mp4",
+    "tests/fixtures/corpus/synthetic-video-case-a/db/video_paths.tsv",
+    "tests/fixtures/corpus/synthetic-video-case-a/db/videos.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-a/evidence/logs/tsk-audit.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-a/evidence/logs/validation-log.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4",
+    "tests/fixtures/corpus/synthetic-video-case-b/artifacts/carved/carve_000001.mp4",
+    "tests/fixtures/corpus/synthetic-video-case-b/artifacts/carved/carve-log.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-b/artifacts/recovered/inode_42.mp4",
+    "tests/fixtures/corpus/synthetic-video-case-b/db/video_paths.tsv",
+    "tests/fixtures/corpus/synthetic-video-case-b/db/videos.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-b/evidence/logs/tsk-audit.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-b/evidence/logs/validation-log.jsonl",
+    "tests/fixtures/corpus/synthetic-video-case-b/source/video-a.mp4",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-doneclaim.json",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-focused-tests-final.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-final-worktree-state.txt"
+  ],
+  "verification": [
+    {
+      "command": "cargo test --locked qa_tests::accuracy -- --nocapture",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-focused-tests-final.txt"
+    },
+    {
+      "command": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-cargo-fmt-check.txt"
+    },
+    {
+      "command": "cargo clippy --locked --all-targets --all-features -- -D warnings",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-cargo-clippy.txt"
+    },
+    {
+      "command": "cargo test --locked",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-cargo-test-locked.txt"
+    },
+    {
+      "command": "cargo build --locked",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-cargo-build-locked.txt"
+    },
+    {
+      "command": "target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a corpus/manifest/synthetic-video-corpus.json",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-manual-qa-happy.txt",
+      "report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-happy-accuracy-report.json"
+    },
+    {
+      "command": "target/debug/frametrace qa reproducibility tests/fixtures/corpus/synthetic-video-case-a tests/fixtures/corpus/synthetic-video-case-b",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-manual-qa-happy.txt",
+      "report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-happy-reproducibility-report.json"
+    },
+    {
+      "command": "target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-bad-manifest-case/bad-hash-manifest.json",
+      "exit_code": 1,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-manual-qa-failure.txt",
+      "report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-bad-accuracy-report.json"
+    },
+    {
+      "command": "target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a .omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-bad-manifest-case/missing-source-artifact-id-manifest.json",
+      "exit_code": 1,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-manual-qa-failure.txt"
+    },
+    {
+      "command": "jq structural schema checks, fixture shasum checks, and git diff --check",
+      "exit_code": 0,
+      "transcript": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-structural-and-diff-check.txt"
+    }
+  ],
+  "manual_qa": {
+    "happy_accuracy_report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-happy-accuracy-report.json",
+    "happy_reproducibility_report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-happy-reproducibility-report.json",
+    "bad_manifest_accuracy_report": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/t12-fix-bad-accuracy-report.json",
+    "happy_assertions": [
+      "accuracy report includes precision, recall, false_positives, false_negatives, source_sha256, expected_hash, contract_keys, unsupported domains, and mixed_real_world_like unsupported status",
+      "reproducibility report includes allowed thresholds and zero normalized core differences for case-a versus case-b"
+    ],
+    "failure_assertions": [
+      "altered expected/source hash manifest exits nonzero with false_negatives=1 and hash_mismatch=1",
+      "missing source_artifact_id manifest exits nonzero with a typed missing-field parse error"
+    ]
+  },
+  "adversarial_classes": {
+    "malformed_input": "pass: bad hash manifest exits 1 with false_negative/hash_mismatch; missing source_artifact_id exits 1 with parse failure. Evidence: t12-fix-manual-qa-failure.txt.",
+    "dirty_worktree": "pass: final receipt records broad dirty state is pre-existing and T12 work isolated; no staged files. Evidence: t12-fix-final-worktree-state.txt.",
+    "stale_state": "pass: manual QA generated fresh case reports under fixture report dirs and copied them to evidence; cleanup removed fixture reports afterward. Evidence: t12-fix-manual-qa-happy.txt and t12-fix-cleanup-receipt.txt.",
+    "misleading_success_output": "pass: assertions use jq-parsed JSON metrics and command exit codes, not success prose. Evidence: t12-fix-manual-qa-happy.txt and t12-fix-manual-qa-failure.txt.",
+    "flaky_tests": "pass: focused tests reran warning-free; full cargo test --locked passed. Evidence: t12-fix-focused-tests-final.txt and t12-fix-cargo-test-locked.txt.",
+    "hung_or_long_commands": "pass: verification transcripts record bounded command durations and all commands completed. Evidence: t12-fix-* transcripts.",
+    "prompt_injection": "not_applicable: manifests are parsed as typed JSON data and no manifest text is executed or interpreted as instructions.",
+    "cancel_resume": "not_applicable: no resumable or cancellation handling flow added.",
+    "repeated_interruptions": "not_applicable: no interrupt handling behavior changed."
+  },
+  "cleanup": {
+    "receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-cleanup-receipt.txt",
+    "final_worktree_receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-fix-final-worktree-state.txt",
+    "status": "no staged files; no fixture reports/qa temp roots remain; no frametrace/cargo QA processes remain; no diffs under .omo/boulder.json, .omo/start-work/ledger.jsonl, or .omo/plans"
+  },
+  "risks": [
+    "The validation corpus remains lightweight and non-client by design; large external corpora are represented by hash-only references with provenance.",
+    "Release-gate completion still requires root independent verification; no plan checkbox was edited or claimed."
+  ]
+}

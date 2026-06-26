@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "video_count": 1,
+  "total_bytes": 54,
+  "path_disclosure_mode": null,
+  "videos": [
+    {
+      "id": "vid_000001",
+      "relative_path": "clip one.mp4",
+      "extension": "mp4",
+      "hash_status": "skipped"
+    }
+  ]
+}

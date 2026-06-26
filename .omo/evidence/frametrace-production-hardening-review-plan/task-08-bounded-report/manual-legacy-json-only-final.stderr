@@ -1,0 +1,1 @@
+error: SQLite case db required for bounded report generation; rerun scan-folder to create db/case.db before make-report

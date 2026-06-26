@@ -1,0 +1,79 @@
+surface: CLI
+invocation: cargo test --locked case_db:: -- --nocapture
+criterion: case_db media/report tests exit 0
+--- output ---
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 18 tests
+test case_db::core_tests::initializes_new_databases_at_current_schema_version ... ok
+test case_db::core_tests::migrates_v1_schema_to_current_with_ordered_backups ... ok
+test case_db::core_tests::migrates_v2_schema_to_inventory_contract_with_backup ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_dangling_symlink_output_without_creating_target ... ok
+test case_db::inventory_tests::inventory_sort_contract_is_explicit_and_stable ... ok
+test case_db::inventory_tests::bulk_preview_is_auditable_and_does_not_mutate_database ... ok
+test case_db::metrics_tests::benchmark_rejects_zero_rows ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_registered_source_evidence_output ... ok
+test case_db::inventory_export_tests::export_manifest_writes_selected_rows_with_output_hash ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_outputs_outside_case_or_over_existing_files ... ok
+test case_db::tests::preserves_manual_source_id_when_auto_registering_same_path ... ok
+test case_db::jobs_tests::marks_running_jobs_interrupted_for_recovery_review ... ok
+test case_db::jobs_tests::interrupt_running_jobs_does_not_overwrite_terminal_jobs ... ok
+test case_db::tests::writes_scan_records_to_sqlite_without_duplicate_rows ... ok
+test case_db::inventory_tests::lists_inventory_with_bounded_sqlite_pagination ... ok
+test case_db::metrics_tests::benchmark_records_indexed_query_latency ... ok
+test case_db::inventory_tests::searches_facets_and_loads_detail_from_sqlite ... ok
+test case_db::inventory_tests::caps_inventory_page_size_for_large_viewer_safety ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.12s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-3dfe7e73d199271c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+--- exit_code: 0 ---

@@ -77,11 +77,15 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     let corpus_manifest = root.join("corpus.tsv");
     write_corpus_manifest(&corpus_manifest, &media_dir);
     let incomplete_review_manifest = root.join("release-review-incomplete.txt");
-    fs::write(
+    write_release_review_manifest(
         &incomplete_review_manifest,
-        "technical_review=pass\nsecurity_review=pass\nmigration_validation=pass\noperator_review=pass\nlegal_review=pass\n",
-    )
-    .expect("incomplete release review manifest should be written");
+        &[
+            "technical_review",
+            "security_review",
+            "migration_validation",
+            "operator_review",
+        ],
+    );
 
     assert_success(&run(&[
         "qa",
@@ -112,8 +116,7 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     );
 
     let review_manifest = root.join("release-review.txt");
-    fs::write(&review_manifest, full_release_review_manifest())
-        .expect("release review manifest should be written");
+    write_release_review_manifest(&review_manifest, full_release_review_manifest_keys());
     assert_release_blocks_without_windows_prereqs(
         &root,
         &case_dir,
@@ -264,6 +267,65 @@ fn path(path: &Path) -> &str {
     path.to_str().expect("test paths should be UTF-8")
 }
 
-fn full_release_review_manifest() -> &'static str {
-    "technical_review=pass\nsecurity_review=pass\nprivacy_review=pass\nsupply_chain_review=pass\naccuracy_validation=pass\nreproducibility_validation=pass\nperformance_validation=pass\nmigration_validation=pass\noperator_review=pass\nreport_defensibility_review=pass\nlegal_wording_review=pass\ninstaller_package_validation=pass\nwindows_workstation_validation=pass\nknown_limitations_review=pass\nrelease_notes_review=pass\nsupport_triage_policy=pass\nhotfix_policy=pass\nincident_response_plan=pass\ncorpus_governance=pass\nfeature_intake_governance=pass\npost_ga_monitoring=pass\nexternal_review_readiness=pass\nregression_schedule=pass\n"
+fn write_release_review_manifest(path: &Path, keys: &[&str]) {
+    let artifact = path.with_file_name("release-review-artifact.json");
+    fs::write(&artifact, "{}").expect("review artifact should be written");
+    let artifact_name = artifact.file_name().unwrap().to_string_lossy();
+    let gates = keys
+        .iter()
+        .map(|key| {
+            format!(
+                r#"{{
+      "key": "{key}",
+      "status": "PASS",
+      "artifact_path": "{artifact_name}",
+      "tool": "cli-lifecycle-test",
+      "timestamp": "2026-06-24T00:00:00Z",
+      "reviewer": "qa",
+      "cleanup_status": "clean"
+    }}"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n");
+    fs::write(
+        path,
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "gates": [
+{gates}
+  ]
+}}"#
+        ),
+    )
+    .expect("release review manifest should be written");
+}
+
+fn full_release_review_manifest_keys() -> &'static [&'static str] {
+    &[
+        "technical_review",
+        "security_review",
+        "privacy_review",
+        "supply_chain_review",
+        "accuracy_validation",
+        "reproducibility_validation",
+        "performance_validation",
+        "migration_validation",
+        "operator_review",
+        "report_defensibility_review",
+        "legal_wording_review",
+        "installer_package_validation",
+        "windows_workstation_validation",
+        "known_limitations_review",
+        "release_notes_review",
+        "support_triage_policy",
+        "hotfix_policy",
+        "incident_response_plan",
+        "corpus_governance",
+        "feature_intake_governance",
+        "post_ga_monitoring",
+        "external_review_readiness",
+        "regression_schedule",
+    ]
 }

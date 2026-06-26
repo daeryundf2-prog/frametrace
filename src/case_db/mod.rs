@@ -21,6 +21,7 @@ mod metrics_queries;
 mod metrics_tests;
 pub mod models;
 mod query_plan;
+pub mod report_summary;
 pub mod scan;
 pub mod schema;
 
@@ -35,6 +36,7 @@ pub use jobs::*;
 pub use metrics::*;
 pub use models::*;
 pub(crate) use query_plan::*;
+pub use report_summary::*;
 pub use scan::*;
 pub(crate) use schema::*;
 

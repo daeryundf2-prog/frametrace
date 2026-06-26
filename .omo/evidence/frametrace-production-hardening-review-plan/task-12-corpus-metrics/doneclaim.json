@@ -1,0 +1,72 @@
+{
+  "task": "T12 corpus metrics",
+  "status": "doneclaim_not_checkbox_completion",
+  "changed_files": [
+    "corpus/manifest/synthetic-video-corpus.json",
+    "docs/recovery-prd.md",
+    "docs/recovery-test-spec.md",
+    "docs/validation-corpus.md",
+    "src/cli/commands.rs",
+    "src/qa_accuracy.rs",
+    "src/qa_repro.rs",
+    "src/qa_tests/accuracy.rs",
+    "src/qa_tests/reproducibility_performance.rs",
+    "tests/fixtures/corpus/synthetic-video-case-a/**",
+    "tests/fixtures/corpus/synthetic-video-case-b/**",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/**"
+  ],
+  "tests": {
+    "red": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/red-focused-tests-rerun.txt"
+    ],
+    "focused_green": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/focused-tests-after-fixtures.txt"
+    ],
+    "full_verification": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/final-cargo-fmt-check.txt",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/final-cargo-clippy.txt",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/final-cargo-test-locked.txt",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/git-diff-check.txt"
+    ]
+  },
+  "manual_qa": {
+    "happy_accuracy_reproducibility": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa-happy-final.txt",
+    "bad_manifest_failure": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa-bad-manifest.txt",
+    "missing_field_failure": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa-missing-field.txt",
+    "reports": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/happy-accuracy-report.json",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/happy-reproducibility-report.json",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/bad-accuracy-report.json"
+    ]
+  },
+  "metrics_observed": {
+    "happy_accuracy": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "hash_mismatch": 0,
+      "mixed_real_world_like": "unsupported"
+    },
+    "happy_reproducibility": {
+      "allowed_normalized_core_differences": 0,
+      "normalized_core_differences": 0
+    },
+    "bad_manifest": {
+      "exit_code": 1,
+      "false_negatives": 1,
+      "hash_mismatch": 1
+    }
+  },
+  "adversarial_results": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/adversarial-class-results.json",
+  "code_slop_review": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/programming-remove-ai-slops-review.md",
+  "cleanup": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/cleanup-receipt.txt",
+  "risks": [
+    "Committed corpus is synthetic/non-client and explicitly does not satisfy mixed_real_world_like release readiness.",
+    "src/qa_accuracy.rs remains above the programming skill size threshold from the current T11 layout; split deferred to avoid broad shared-worktree refactor."
+  ],
+  "verification_gaps": [
+    "No large external real-world-like corpus was included; only hash-only reference is committed.",
+    "No plan checkbox or root orchestration state was edited by this worker."
+  ]
+}

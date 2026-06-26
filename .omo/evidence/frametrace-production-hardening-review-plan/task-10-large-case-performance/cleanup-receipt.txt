@@ -1,0 +1,7 @@
+cleanup_timestamp=2026-06-26T10:02:25Z
+preserved_evidence_roots=.omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k,.omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-1m
+removed_temp_roots=.omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-invalid
+$ ps aux | rg "qa-performance-(100k|1m|invalid)|frametrace qa performance" | rg -v rg
+$ test ! -e .omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-invalid
+invalid_temp_root_absent_exit=0
+$ find . -maxdepth 2 -name "qa-performance-invalid" -print

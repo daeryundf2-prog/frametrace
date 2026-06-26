@@ -11,6 +11,11 @@
 /evidence
 /artifacts
 
+# Generated OMO evidence datasets can exceed GitHub's per-object limit.
+# Keep the textual receipts/transcripts, but do not commit synthetic case DBs.
+.omo/evidence/**/db/
+.omo/evidence/**/performance/db/
+
 # Do not accidentally commit client media or forensic images.
 *.avi
 *.mp4

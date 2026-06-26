@@ -1,0 +1,14 @@
+Diff in /Users/shinyoohag/Desktop/frametrace/tests/tool_policy_api.rs:39:
+     .expect("temporary forge attempt should be written");
+ 
+     let output = Command::new("cargo")
+-        .args(["check", "--quiet", "--manifest-path", path(&root.join("Cargo.toml"))])
++        .args([
++            "check",
++            "--quiet",
++            "--manifest-path",
++            path(&root.join("Cargo.toml")),
++        ])
+         .output()
+         .expect("cargo check should run for temporary crate");
+ 

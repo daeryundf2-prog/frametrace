@@ -32,3 +32,11 @@ Before reporting a recovered clip as usable evidence, validate container structu
 For Sleuth Kit inode recovery, also record the selected partition offset, inode/metadata address, and whether `icat -r` was used for deleted-file recovery. FrameTrace logs these values in `evidence/logs/tsk-audit.jsonl`.
 
 `validate-artifact` can promote an artifact's review signal to `ffprobe-video-stream-confirmed` only when `ffprobe` parses a video stream. It does not prove event relevance, timestamp accuracy, or legal admissibility by itself.
+
+## Distributable Path Privacy
+
+FrameTrace redacts workstation-local source paths and `file://` URLs from distributable report, review, viewer, and package outputs by default. Shared outputs use source IDs, case-relative artifact paths, and redacted labels such as `[redacted-source:vid_000001]`.
+
+Full local path display/export is available only through explicit local/operator mode (`--include-full-paths` on report, review, and package commands). That mode writes `privacy-full-path-disclosure.json` next to the generated distributable artifact so QA/review evidence can identify the operator opt-in.
+
+Internal SQLite provenance and audit logs remain full-fidelity inside the active case directory. Redaction is applied when generating distributable outputs or copied package artifacts, not by removing source provenance from the working case.

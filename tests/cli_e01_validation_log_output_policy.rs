@@ -106,10 +106,78 @@ fn validate_artifact_rejects_symlinked_logs_directory_without_writing_outside() 
     fs::create_dir_all(&outside).expect("outside logs dir should exist");
     symlink(&outside, case_dir.join("evidence/logs")).expect("symlink should be created");
 
-    let output = run(&["validate-artifact", path(&case_dir), path(&source_file)]);
+    let output = run(&[
+        "validate-artifact",
+        path(&case_dir),
+        path(&source_file),
+        "--external-source",
+    ]);
 
     assert_failure_contains(&output, "inside the case directory");
     assert!(!outside.join("validation-log.jsonl").exists());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata() {
+    let root = unique_temp_dir("cli-validate-ffprobe-tool-policy");
+    let case_dir = root.join("case");
+    let media_dir = root.join("media");
+    let fake_bin = root.join("fake-bin");
+    let source_file = media_dir.join("clip.mp4");
+    fs::create_dir_all(&media_dir).expect("media dir should exist");
+    fs::create_dir_all(&fake_bin).expect("fake bin should exist");
+    fs::write(&source_file, b"\0\0\0\x18ftypmp42payload").expect("fixture video should be written");
+    init_case(&case_dir);
+    write_fake_ffprobe(&fake_bin.join("ffprobe"));
+    write_executable(
+        &fake_bin.join("fake-ffprobe"),
+        "#!/bin/sh\necho 'fake ffprobe should not run'\n",
+    );
+    let approved_ffprobe = fake_bin
+        .join("ffprobe")
+        .canonicalize()
+        .expect("approved fake ffprobe should canonicalize");
+
+    let approved = run(&[
+        "validate-artifact",
+        path(&case_dir),
+        path(&source_file),
+        "--external-source",
+        "--ffprobe",
+        path(&approved_ffprobe),
+        "--operator",
+        "qa-tool-policy",
+    ]);
+
+    assert_success(&approved);
+    let validation_log_path = case_dir.join("evidence/logs/validation-log.jsonl");
+    let validation_log =
+        fs::read_to_string(&validation_log_path).expect("validation log should exist");
+    assert!(validation_log.contains(&format!(
+        r#""resolved_tool_path":"{}""#,
+        approved_ffprobe.display()
+    )));
+    assert!(validation_log.contains(r#""tool_version":"ffprobe fake 1.0""#));
+    assert!(validation_log.contains(r#""command_args":["#));
+    assert!(validation_log.contains(r#""operator":"qa-tool-policy""#));
+    assert!(validation_log.contains(r#""entry_sha256":"#));
+
+    fs::remove_file(&validation_log_path).expect("validation log should reset for rejection");
+    let rejected = run(&[
+        "validate-artifact",
+        path(&case_dir),
+        path(&source_file),
+        "--external-source",
+        "--ffprobe",
+        path(&fake_bin.join("fake-ffprobe")),
+    ]);
+
+    assert_failure_contains(&rejected, "unsupported tool binary");
+    assert!(
+        !validation_log_path.exists(),
+        "rejected ffprobe must not append validation log"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -233,6 +301,13 @@ fn write_fake_libewf(fake_bin: &Path) {
     write_executable(
         &fake_bin.join("ewfexport"),
         "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'ewfexport fake 1.0'; exit 0 ;; esac\nlog=''\ntarget=''\nwhile [ $# -gt 0 ]; do case \"$1\" in -l) shift; log=\"$1\" ;; -t) shift; target=\"$1\" ;; esac; shift || break; done\n[ -n \"$log\" ] && printf 'exported\\n' > \"$log\"\n[ -n \"$target\" ] && printf 'raw image' > \"${target}.raw\"\n",
+    );
+}
+
+fn write_fake_ffprobe(path: &Path) {
+    write_executable(
+        path,
+        "#!/bin/sh\ncase \"$1\" in -version|--version) echo 'ffprobe fake 1.0'; exit 0 ;; esac\nprintf '{\"streams\":[{\"codec_name\":\"h264\",\"codec_type\":\"video\",\"width\":640,\"height\":360}],\"format\":{\"duration\":\"1.000\",\"format_name\":\"mov,mp4\"}}\\n'\n",
     );
 }
 

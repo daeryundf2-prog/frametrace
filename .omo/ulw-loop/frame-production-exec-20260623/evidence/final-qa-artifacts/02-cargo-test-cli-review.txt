@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 2 tests
+test make_review_embeds_bounded_inventory_subset ... ok
+test make_review_uses_sqlite_inventory_when_jsonl_is_absent ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+

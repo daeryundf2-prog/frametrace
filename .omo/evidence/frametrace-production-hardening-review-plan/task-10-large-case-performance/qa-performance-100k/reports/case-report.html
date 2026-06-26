@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>FrameTrace 영상 포렌식 보고서</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #202936;
+      background: #ffffff;
+      line-height: 1.45;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 32px 28px 48px;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0 0 8px;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 30px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #d7dde6;
+      letter-spacing: 0;
+    }
+    .muted {
+      color: #657286;
+      font-size: 13px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin: 22px 0;
+    }
+    .box {
+      border: 1px solid #d7dde6;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+    .box strong {
+      display: block;
+      font-size: 20px;
+      margin-top: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #d7dde6;
+      margin-top: 10px;
+    }
+    th, td {
+      border-bottom: 1px solid #e8edf3;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+    }
+    th {
+      background: #eef2f7;
+      font-size: 12px;
+    }
+    code {
+      font-family: Consolas, "SFMono-Regular", monospace;
+      word-break: break-all;
+      font-size: 11px;
+    }
+    .note {
+      border-left: 4px solid #3b82f6;
+      background: #f5f8ff;
+      padding: 10px 12px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .boundary {
+      border-left-color: #b45309;
+      background: #fff7ed;
+    }
+    @media print {
+      main { padding: 0; }
+      .box { break-inside: avoid; }
+      table { break-inside: auto; }
+      tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1 id="title">FrameTrace 영상 포렌식 보고서</h1>
+  <div class="muted" id="case-line"></div>
+  <section class="summary">
+    <div class="box">색인 영상<strong id="count">0</strong></div>
+    <div class="box">증거 총 용량<strong id="bytes">0</strong></div>
+    <div class="box">ffprobe 확인<strong id="confirmed">0</strong></div>
+    <div class="box">추정 소스<strong id="sources">0</strong></div>
+    <div class="box">스캔 경고<strong id="warnings-count">0</strong></div>
+    <div class="box">내보낸 클립<strong id="exports">0</strong></div>
+    <div class="box">리뷰 산출물<strong id="derived">0</strong></div>
+    <div class="box">복구 후보<strong id="carved">0</strong></div>
+    <div class="box">파일시스템 작업<strong id="filesystem-actions">0</strong></div>
+    <div class="box">검증 기록<strong id="validations">0</strong></div>
+  </section>
+
+  <h2>처리 요약</h2>
+    <div id="processing"></div>
+  <div class="note" id="privacy-disclosure"></div>
+  <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
+
+  <h2>감사 체인 검증</h2>
+  <div id="audit-chain"></div>
+
+  <h2>소스 / 파서 평가</h2>
+  <div id="source-assessment"></div>
+
+  <h2>영상 색인</h2>
+  <div class="note boundary" id="report-boundary"></div>
+  <div id="videos"></div>
+
+  <h2>MP4/AVI 내보내기 산출물</h2>
+  <div id="clip-exports"></div>
+
+  <h2>리뷰 산출물</h2>
+  <div id="derived-artifacts"></div>
+
+  <h2>복구 / Carving 후보</h2>
+  <div id="carved-artifacts"></div>
+
+  <h2>재생 / 컨테이너 검증</h2>
+  <div id="validation-results"></div>
+
+  <h2>파일시스템 조사 / Inode 복구</h2>
+  <div id="filesystem-recovery"></div>
+<script>
+const manifest = {
+  "schema_version": 1,
+  "case_id": "FT-PERF-1782469235",
+  "title": "FrameTrace performance benchmark case",
+  "created_unix": 1782469235,
+  "tool_name": "frametrace",
+  "tool_version": "0.1.0",
+  "platform": "macos",
+  "operator": "qa-performance",
+  "host": null,
+  "device_id": null,
+  "device_serial": null,
+  "write_protect": null,
+  "acquisition_tool": "synthetic benchmark",
+  "evidence_hash": null,
+  "notes": "Synthetic large-case survival profile."
+}
+;
+const scan = {"schema_version":2,"source":"sqlite-bounded-report","source_path":"","scanned_unix":0,"video_count":100000,"total_bytes":5102350000,"confirmed_count":0,"candidate_count":100000,"source_count":1,"warnings":[],"options":{"hash_files":false,"use_ffprobe":false,"max_depth":null},"sample_limit":100,"videos_truncated":true,"videos":[{"id":"bench_00000000","source_path":"C:/Evidence/bench/clip_00000000.mp4","relative_path":"clip_00000000.mp4","extension":"mp4","size_bytes":1024,"modified_unix":1782469235,"sha256":"benchmark_hash_00000000","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000001","source_path":"C:/Evidence/bench/clip_00000001.mp4","relative_path":"clip_00000001.mp4","extension":"mp4","size_bytes":1025,"modified_unix":1782469236,"sha256":"benchmark_hash_00000001","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000002","source_path":"C:/Evidence/bench/clip_00000002.mp4","relative_path":"clip_00000002.mp4","extension":"mp4","size_bytes":1026,"modified_unix":1782469237,"sha256":"benchmark_hash_00000002","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000003","source_path":"C:/Evidence/bench/clip_00000003.mp4","relative_path":"clip_00000003.mp4","extension":"mp4","size_bytes":1027,"modified_unix":1782469238,"sha256":"benchmark_hash_00000003","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000004","source_path":"C:/Evidence/bench/clip_00000004.mp4","relative_path":"clip_00000004.mp4","extension":"mp4","size_bytes":1028,"modified_unix":1782469239,"sha256":"benchmark_hash_00000004","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000005","source_path":"C:/Evidence/bench/clip_00000005.mp4","relative_path":"clip_00000005.mp4","extension":"mp4","size_bytes":1029,"modified_unix":1782469240,"sha256":"benchmark_hash_00000005","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000006","source_path":"C:/Evidence/bench/clip_00000006.mp4","relative_path":"clip_00000006.mp4","extension":"mp4","size_bytes":1030,"modified_unix":1782469241,"sha256":"benchmark_hash_00000006","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000007","source_path":"C:/Evidence/bench/clip_00000007.mp4","relative_path":"clip_00000007.mp4","extension":"mp4","size_bytes":1031,"modified_unix":1782469242,"sha256":"benchmark_hash_00000007","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000008","source_path":"C:/Evidence/bench/clip_00000008.mp4","relative_path":"clip_00000008.mp4","extension":"mp4","size_bytes":1032,"modified_unix":1782469243,"sha256":"benchmark_hash_00000008","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000009","source_path":"C:/Evidence/bench/clip_00000009.mp4","relative_path":"clip_00000009.mp4","extension":"mp4","size_bytes":1033,"modified_unix":1782469244,"sha256":"benchmark_hash_00000009","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000010","source_path":"C:/Evidence/bench/clip_00000010.mp4","relative_path":"clip_00000010.mp4","extension":"mp4","size_bytes":1034,"modified_unix":1782469245,"sha256":"benchmark_hash_00000010","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000011","source_path":"C:/Evidence/bench/clip_00000011.mp4","relative_path":"clip_00000011.mp4","extension":"mp4","size_bytes":1035,"modified_unix":1782469246,"sha256":"benchmark_hash_00000011","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000012","source_path":"C:/Evidence/bench/clip_00000012.mp4","relative_path":"clip_00000012.mp4","extension":"mp4","size_bytes":1036,"modified_unix":1782469247,"sha256":"benchmark_hash_00000012","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000013","source_path":"C:/Evidence/bench/clip_00000013.mp4","relative_path":"clip_00000013.mp4","extension":"mp4","size_bytes":1037,"modified_unix":1782469248,"sha256":"benchmark_hash_00000013","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000014","source_path":"C:/Evidence/bench/clip_00000014.mp4","relative_path":"clip_00000014.mp4","extension":"mp4","size_bytes":1038,"modified_unix":1782469249,"sha256":"benchmark_hash_00000014","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000015","source_path":"C:/Evidence/bench/clip_00000015.mp4","relative_path":"clip_00000015.mp4","extension":"mp4","size_bytes":1039,"modified_unix":1782469250,"sha256":"benchmark_hash_00000015","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000016","source_path":"C:/Evidence/bench/clip_00000016.mp4","relative_path":"clip_00000016.mp4","extension":"mp4","size_bytes":1040,"modified_unix":1782469251,"sha256":"benchmark_hash_00000016","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000017","source_path":"C:/Evidence/bench/clip_00000017.mp4","relative_path":"clip_00000017.mp4","extension":"mp4","size_bytes":1041,"modified_unix":1782469252,"sha256":"benchmark_hash_00000017","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000018","source_path":"C:/Evidence/bench/clip_00000018.mp4","relative_path":"clip_00000018.mp4","extension":"mp4","size_bytes":1042,"modified_unix":1782469253,"sha256":"benchmark_hash_00000018","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000019","source_path":"C:/Evidence/bench/clip_00000019.mp4","relative_path":"clip_00000019.mp4","extension":"mp4","size_bytes":1043,"modified_unix":1782469254,"sha256":"benchmark_hash_00000019","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000020","source_path":"C:/Evidence/bench/clip_00000020.mp4","relative_path":"clip_00000020.mp4","extension":"mp4","size_bytes":1044,"modified_unix":1782469255,"sha256":"benchmark_hash_00000020","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000021","source_path":"C:/Evidence/bench/clip_00000021.mp4","relative_path":"clip_00000021.mp4","extension":"mp4","size_bytes":1045,"modified_unix":1782469256,"sha256":"benchmark_hash_00000021","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000022","source_path":"C:/Evidence/bench/clip_00000022.mp4","relative_path":"clip_00000022.mp4","extension":"mp4","size_bytes":1046,"modified_unix":1782469257,"sha256":"benchmark_hash_00000022","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000023","source_path":"C:/Evidence/bench/clip_00000023.mp4","relative_path":"clip_00000023.mp4","extension":"mp4","size_bytes":1047,"modified_unix":1782469258,"sha256":"benchmark_hash_00000023","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000024","source_path":"C:/Evidence/bench/clip_00000024.mp4","relative_path":"clip_00000024.mp4","extension":"mp4","size_bytes":1048,"modified_unix":1782469259,"sha256":"benchmark_hash_00000024","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000025","source_path":"C:/Evidence/bench/clip_00000025.mp4","relative_path":"clip_00000025.mp4","extension":"mp4","size_bytes":1049,"modified_unix":1782469260,"sha256":"benchmark_hash_00000025","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000026","source_path":"C:/Evidence/bench/clip_00000026.mp4","relative_path":"clip_00000026.mp4","extension":"mp4","size_bytes":1050,"modified_unix":1782469261,"sha256":"benchmark_hash_00000026","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000027","source_path":"C:/Evidence/bench/clip_00000027.mp4","relative_path":"clip_00000027.mp4","extension":"mp4","size_bytes":1051,"modified_unix":1782469262,"sha256":"benchmark_hash_00000027","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000028","source_path":"C:/Evidence/bench/clip_00000028.mp4","relative_path":"clip_00000028.mp4","extension":"mp4","size_bytes":1052,"modified_unix":1782469263,"sha256":"benchmark_hash_00000028","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000029","source_path":"C:/Evidence/bench/clip_00000029.mp4","relative_path":"clip_00000029.mp4","extension":"mp4","size_bytes":1053,"modified_unix":1782469264,"sha256":"benchmark_hash_00000029","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000030","source_path":"C:/Evidence/bench/clip_00000030.mp4","relative_path":"clip_00000030.mp4","extension":"mp4","size_bytes":1054,"modified_unix":1782469265,"sha256":"benchmark_hash_00000030","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000031","source_path":"C:/Evidence/bench/clip_00000031.mp4","relative_path":"clip_00000031.mp4","extension":"mp4","size_bytes":1055,"modified_unix":1782469266,"sha256":"benchmark_hash_00000031","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000032","source_path":"C:/Evidence/bench/clip_00000032.mp4","relative_path":"clip_00000032.mp4","extension":"mp4","size_bytes":1056,"modified_unix":1782469267,"sha256":"benchmark_hash_00000032","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000033","source_path":"C:/Evidence/bench/clip_00000033.mp4","relative_path":"clip_00000033.mp4","extension":"mp4","size_bytes":1057,"modified_unix":1782469268,"sha256":"benchmark_hash_00000033","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000034","source_path":"C:/Evidence/bench/clip_00000034.mp4","relative_path":"clip_00000034.mp4","extension":"mp4","size_bytes":1058,"modified_unix":1782469269,"sha256":"benchmark_hash_00000034","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000035","source_path":"C:/Evidence/bench/clip_00000035.mp4","relative_path":"clip_00000035.mp4","extension":"mp4","size_bytes":1059,"modified_unix":1782469270,"sha256":"benchmark_hash_00000035","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000036","source_path":"C:/Evidence/bench/clip_00000036.mp4","relative_path":"clip_00000036.mp4","extension":"mp4","size_bytes":1060,"modified_unix":1782469271,"sha256":"benchmark_hash_00000036","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000037","source_path":"C:/Evidence/bench/clip_00000037.mp4","relative_path":"clip_00000037.mp4","extension":"mp4","size_bytes":1061,"modified_unix":1782469272,"sha256":"benchmark_hash_00000037","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000038","source_path":"C:/Evidence/bench/clip_00000038.mp4","relative_path":"clip_00000038.mp4","extension":"mp4","size_bytes":1062,"modified_unix":1782469273,"sha256":"benchmark_hash_00000038","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000039","source_path":"C:/Evidence/bench/clip_00000039.mp4","relative_path":"clip_00000039.mp4","extension":"mp4","size_bytes":1063,"modified_unix":1782469274,"sha256":"benchmark_hash_00000039","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000040","source_path":"C:/Evidence/bench/clip_00000040.mp4","relative_path":"clip_00000040.mp4","extension":"mp4","size_bytes":1064,"modified_unix":1782469275,"sha256":"benchmark_hash_00000040","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000041","source_path":"C:/Evidence/bench/clip_00000041.mp4","relative_path":"clip_00000041.mp4","extension":"mp4","size_bytes":1065,"modified_unix":1782469276,"sha256":"benchmark_hash_00000041","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000042","source_path":"C:/Evidence/bench/clip_00000042.mp4","relative_path":"clip_00000042.mp4","extension":"mp4","size_bytes":1066,"modified_unix":1782469277,"sha256":"benchmark_hash_00000042","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000043","source_path":"C:/Evidence/bench/clip_00000043.mp4","relative_path":"clip_00000043.mp4","extension":"mp4","size_bytes":1067,"modified_unix":1782469278,"sha256":"benchmark_hash_00000043","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000044","source_path":"C:/Evidence/bench/clip_00000044.mp4","relative_path":"clip_00000044.mp4","extension":"mp4","size_bytes":1068,"modified_unix":1782469279,"sha256":"benchmark_hash_00000044","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000045","source_path":"C:/Evidence/bench/clip_00000045.mp4","relative_path":"clip_00000045.mp4","extension":"mp4","size_bytes":1069,"modified_unix":1782469280,"sha256":"benchmark_hash_00000045","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000046","source_path":"C:/Evidence/bench/clip_00000046.mp4","relative_path":"clip_00000046.mp4","extension":"mp4","size_bytes":1070,"modified_unix":1782469281,"sha256":"benchmark_hash_00000046","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000047","source_path":"C:/Evidence/bench/clip_00000047.mp4","relative_path":"clip_00000047.mp4","extension":"mp4","size_bytes":1071,"modified_unix":1782469282,"sha256":"benchmark_hash_00000047","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000048","source_path":"C:/Evidence/bench/clip_00000048.mp4","relative_path":"clip_00000048.mp4","extension":"mp4","size_bytes":1072,"modified_unix":1782469283,"sha256":"benchmark_hash_00000048","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000049","source_path":"C:/Evidence/bench/clip_00000049.mp4","relative_path":"clip_00000049.mp4","extension":"mp4","size_bytes":1073,"modified_unix":1782469284,"sha256":"benchmark_hash_00000049","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000050","source_path":"C:/Evidence/bench/clip_00000050.mp4","relative_path":"clip_00000050.mp4","extension":"mp4","size_bytes":1074,"modified_unix":1782469285,"sha256":"benchmark_hash_00000050","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000051","source_path":"C:/Evidence/bench/clip_00000051.mp4","relative_path":"clip_00000051.mp4","extension":"mp4","size_bytes":1075,"modified_unix":1782469286,"sha256":"benchmark_hash_00000051","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000052","source_path":"C:/Evidence/bench/clip_00000052.mp4","relative_path":"clip_00000052.mp4","extension":"mp4","size_bytes":1076,"modified_unix":1782469287,"sha256":"benchmark_hash_00000052","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000053","source_path":"C:/Evidence/bench/clip_00000053.mp4","relative_path":"clip_00000053.mp4","extension":"mp4","size_bytes":1077,"modified_unix":1782469288,"sha256":"benchmark_hash_00000053","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000054","source_path":"C:/Evidence/bench/clip_00000054.mp4","relative_path":"clip_00000054.mp4","extension":"mp4","size_bytes":1078,"modified_unix":1782469289,"sha256":"benchmark_hash_00000054","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000055","source_path":"C:/Evidence/bench/clip_00000055.mp4","relative_path":"clip_00000055.mp4","extension":"mp4","size_bytes":1079,"modified_unix":1782469290,"sha256":"benchmark_hash_00000055","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000056","source_path":"C:/Evidence/bench/clip_00000056.mp4","relative_path":"clip_00000056.mp4","extension":"mp4","size_bytes":1080,"modified_unix":1782469291,"sha256":"benchmark_hash_00000056","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000057","source_path":"C:/Evidence/bench/clip_00000057.mp4","relative_path":"clip_00000057.mp4","extension":"mp4","size_bytes":1081,"modified_unix":1782469292,"sha256":"benchmark_hash_00000057","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000058","source_path":"C:/Evidence/bench/clip_00000058.mp4","relative_path":"clip_00000058.mp4","extension":"mp4","size_bytes":1082,"modified_unix":1782469293,"sha256":"benchmark_hash_00000058","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000059","source_path":"C:/Evidence/bench/clip_00000059.mp4","relative_path":"clip_00000059.mp4","extension":"mp4","size_bytes":1083,"modified_unix":1782469294,"sha256":"benchmark_hash_00000059","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000060","source_path":"C:/Evidence/bench/clip_00000060.mp4","relative_path":"clip_00000060.mp4","extension":"mp4","size_bytes":1084,"modified_unix":1782469295,"sha256":"benchmark_hash_00000060","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000061","source_path":"C:/Evidence/bench/clip_00000061.mp4","relative_path":"clip_00000061.mp4","extension":"mp4","size_bytes":1085,"modified_unix":1782469296,"sha256":"benchmark_hash_00000061","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000062","source_path":"C:/Evidence/bench/clip_00000062.mp4","relative_path":"clip_00000062.mp4","extension":"mp4","size_bytes":1086,"modified_unix":1782469297,"sha256":"benchmark_hash_00000062","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000063","source_path":"C:/Evidence/bench/clip_00000063.mp4","relative_path":"clip_00000063.mp4","extension":"mp4","size_bytes":1087,"modified_unix":1782469298,"sha256":"benchmark_hash_00000063","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000064","source_path":"C:/Evidence/bench/clip_00000064.mp4","relative_path":"clip_00000064.mp4","extension":"mp4","size_bytes":1088,"modified_unix":1782469299,"sha256":"benchmark_hash_00000064","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000065","source_path":"C:/Evidence/bench/clip_00000065.mp4","relative_path":"clip_00000065.mp4","extension":"mp4","size_bytes":1089,"modified_unix":1782469300,"sha256":"benchmark_hash_00000065","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000066","source_path":"C:/Evidence/bench/clip_00000066.mp4","relative_path":"clip_00000066.mp4","extension":"mp4","size_bytes":1090,"modified_unix":1782469301,"sha256":"benchmark_hash_00000066","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000067","source_path":"C:/Evidence/bench/clip_00000067.mp4","relative_path":"clip_00000067.mp4","extension":"mp4","size_bytes":1091,"modified_unix":1782469302,"sha256":"benchmark_hash_00000067","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000068","source_path":"C:/Evidence/bench/clip_00000068.mp4","relative_path":"clip_00000068.mp4","extension":"mp4","size_bytes":1092,"modified_unix":1782469303,"sha256":"benchmark_hash_00000068","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000069","source_path":"C:/Evidence/bench/clip_00000069.mp4","relative_path":"clip_00000069.mp4","extension":"mp4","size_bytes":1093,"modified_unix":1782469304,"sha256":"benchmark_hash_00000069","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000070","source_path":"C:/Evidence/bench/clip_00000070.mp4","relative_path":"clip_00000070.mp4","extension":"mp4","size_bytes":1094,"modified_unix":1782469305,"sha256":"benchmark_hash_00000070","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000071","source_path":"C:/Evidence/bench/clip_00000071.mp4","relative_path":"clip_00000071.mp4","extension":"mp4","size_bytes":1095,"modified_unix":1782469306,"sha256":"benchmark_hash_00000071","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000072","source_path":"C:/Evidence/bench/clip_00000072.mp4","relative_path":"clip_00000072.mp4","extension":"mp4","size_bytes":1096,"modified_unix":1782469307,"sha256":"benchmark_hash_00000072","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000073","source_path":"C:/Evidence/bench/clip_00000073.mp4","relative_path":"clip_00000073.mp4","extension":"mp4","size_bytes":1097,"modified_unix":1782469308,"sha256":"benchmark_hash_00000073","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000074","source_path":"C:/Evidence/bench/clip_00000074.mp4","relative_path":"clip_00000074.mp4","extension":"mp4","size_bytes":1098,"modified_unix":1782469309,"sha256":"benchmark_hash_00000074","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000075","source_path":"C:/Evidence/bench/clip_00000075.mp4","relative_path":"clip_00000075.mp4","extension":"mp4","size_bytes":1099,"modified_unix":1782469310,"sha256":"benchmark_hash_00000075","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000076","source_path":"C:/Evidence/bench/clip_00000076.mp4","relative_path":"clip_00000076.mp4","extension":"mp4","size_bytes":1100,"modified_unix":1782469311,"sha256":"benchmark_hash_00000076","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000077","source_path":"C:/Evidence/bench/clip_00000077.mp4","relative_path":"clip_00000077.mp4","extension":"mp4","size_bytes":1101,"modified_unix":1782469312,"sha256":"benchmark_hash_00000077","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000078","source_path":"C:/Evidence/bench/clip_00000078.mp4","relative_path":"clip_00000078.mp4","extension":"mp4","size_bytes":1102,"modified_unix":1782469313,"sha256":"benchmark_hash_00000078","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000079","source_path":"C:/Evidence/bench/clip_00000079.mp4","relative_path":"clip_00000079.mp4","extension":"mp4","size_bytes":1103,"modified_unix":1782469314,"sha256":"benchmark_hash_00000079","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000080","source_path":"C:/Evidence/bench/clip_00000080.mp4","relative_path":"clip_00000080.mp4","extension":"mp4","size_bytes":1104,"modified_unix":1782469315,"sha256":"benchmark_hash_00000080","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000081","source_path":"C:/Evidence/bench/clip_00000081.mp4","relative_path":"clip_00000081.mp4","extension":"mp4","size_bytes":1105,"modified_unix":1782469316,"sha256":"benchmark_hash_00000081","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000082","source_path":"C:/Evidence/bench/clip_00000082.mp4","relative_path":"clip_00000082.mp4","extension":"mp4","size_bytes":1106,"modified_unix":1782469317,"sha256":"benchmark_hash_00000082","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000083","source_path":"C:/Evidence/bench/clip_00000083.mp4","relative_path":"clip_00000083.mp4","extension":"mp4","size_bytes":1107,"modified_unix":1782469318,"sha256":"benchmark_hash_00000083","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000084","source_path":"C:/Evidence/bench/clip_00000084.mp4","relative_path":"clip_00000084.mp4","extension":"mp4","size_bytes":1108,"modified_unix":1782469319,"sha256":"benchmark_hash_00000084","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000085","source_path":"C:/Evidence/bench/clip_00000085.mp4","relative_path":"clip_00000085.mp4","extension":"mp4","size_bytes":1109,"modified_unix":1782469320,"sha256":"benchmark_hash_00000085","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000086","source_path":"C:/Evidence/bench/clip_00000086.mp4","relative_path":"clip_00000086.mp4","extension":"mp4","size_bytes":1110,"modified_unix":1782469321,"sha256":"benchmark_hash_00000086","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000087","source_path":"C:/Evidence/bench/clip_00000087.mp4","relative_path":"clip_00000087.mp4","extension":"mp4","size_bytes":1111,"modified_unix":1782469322,"sha256":"benchmark_hash_00000087","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000088","source_path":"C:/Evidence/bench/clip_00000088.mp4","relative_path":"clip_00000088.mp4","extension":"mp4","size_bytes":1112,"modified_unix":1782469323,"sha256":"benchmark_hash_00000088","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000089","source_path":"C:/Evidence/bench/clip_00000089.mp4","relative_path":"clip_00000089.mp4","extension":"mp4","size_bytes":1113,"modified_unix":1782469324,"sha256":"benchmark_hash_00000089","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000090","source_path":"C:/Evidence/bench/clip_00000090.mp4","relative_path":"clip_00000090.mp4","extension":"mp4","size_bytes":1114,"modified_unix":1782469325,"sha256":"benchmark_hash_00000090","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000091","source_path":"C:/Evidence/bench/clip_00000091.mp4","relative_path":"clip_00000091.mp4","extension":"mp4","size_bytes":1115,"modified_unix":1782469326,"sha256":"benchmark_hash_00000091","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000092","source_path":"C:/Evidence/bench/clip_00000092.mp4","relative_path":"clip_00000092.mp4","extension":"mp4","size_bytes":1116,"modified_unix":1782469327,"sha256":"benchmark_hash_00000092","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000093","source_path":"C:/Evidence/bench/clip_00000093.mp4","relative_path":"clip_00000093.mp4","extension":"mp4","size_bytes":1117,"modified_unix":1782469328,"sha256":"benchmark_hash_00000093","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000094","source_path":"C:/Evidence/bench/clip_00000094.mp4","relative_path":"clip_00000094.mp4","extension":"mp4","size_bytes":1118,"modified_unix":1782469329,"sha256":"benchmark_hash_00000094","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000095","source_path":"C:/Evidence/bench/clip_00000095.mp4","relative_path":"clip_00000095.mp4","extension":"mp4","size_bytes":1119,"modified_unix":1782469330,"sha256":"benchmark_hash_00000095","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000096","source_path":"C:/Evidence/bench/clip_00000096.mp4","relative_path":"clip_00000096.mp4","extension":"mp4","size_bytes":1120,"modified_unix":1782469331,"sha256":"benchmark_hash_00000096","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000097","source_path":"C:/Evidence/bench/clip_00000097.mp4","relative_path":"clip_00000097.mp4","extension":"mp4","size_bytes":1121,"modified_unix":1782469332,"sha256":"benchmark_hash_00000097","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000098","source_path":"C:/Evidence/bench/clip_00000098.mp4","relative_path":"clip_00000098.mp4","extension":"mp4","size_bytes":1122,"modified_unix":1782469333,"sha256":"benchmark_hash_00000098","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}},{"id":"bench_00000099","source_path":"C:/Evidence/bench/clip_00000099.mp4","relative_path":"clip_00000099.mp4","extension":"mp4","size_bytes":1123,"modified_unix":1782469334,"sha256":"benchmark_hash_00000099","hash_status":"benchmark","ffprobe_ok":false,"source_profile":{"vendor":"SQLite bounded inventory","parser":"benchmark","lane":"benchmark","confidence":"bounded-summary","recommended_action":"Open bounded inventory or review commands for row-level triage."}}],"report_summary":{"bounded":true,"sample_count":100,"total_rows":100000,"inventory_command":"frametrace inventory \u003ccase_dir\u003e --limit 500","review_command":"frametrace make-review \u003ccase_dir\u003e"}};
+const exportsLog = [];
+const proxyLog = [];
+const thumbnailLog = [];
+const frameLog = [];
+const carveLog = [];
+const filesystemLog = [];
+const validationLog = [];
+const auditChainStatus = [{"name":"clip export","relative_path":"artifacts/clips/export-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"proxy","relative_path":"artifacts/proxies/proxy-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"thumbnail","relative_path":"artifacts/thumbnails/thumbnail-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"frame capture","relative_path":"artifacts/frames/frame-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"carving","relative_path":"artifacts/carved/carve-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"filesystem recovery","relative_path":"evidence/logs/tsk-audit.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"validation","relative_path":"evidence/logs/validation-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"}];
+const videos = Array.isArray(scan.videos) ? scan.videos : [];
+const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
+const reportSummary = scan.report_summary || {};
+const videoTotal = Number.isFinite(scan.video_count) ? scan.video_count : videos.length;
+const videoSampleLimit = Number.isFinite(scan.sample_limit) ? scan.sample_limit : videos.length;
+const videosTruncated = Boolean(scan.videos_truncated || (videoTotal > videos.length));
+const derivedLog = [...exportsLog, ...proxyLog, ...thumbnailLog, ...frameLog];
+const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
+
+const escapeHtml = value => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
+
+const fmtBytes = value => {
+  if (!Number.isFinite(value)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let current = value;
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) {
+    current /= 1024;
+    unit += 1;
+  }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+};
+
+const fmtDuration = value => {
+  if (!Number.isFinite(value)) return "-";
+  const seconds = Math.round(value);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+};
+
+const fmtUnix = value => {
+  if (!Number.isFinite(value)) return "-";
+  return new Date(value * 1000).toLocaleString();
+};
+
+const chainStatus = relPath => {
+  const status = auditStatusByPath.get(relPath);
+  if (!status) return "missing · not listed";
+  const last = status.last_entry_sha256 ? ` · ${status.last_entry_sha256}` : "";
+  const error = status.error ? ` · ${status.error}` : "";
+  return `${status.status} · entries=${status.entries ?? "-"}${last}${error}`;
+};
+
+const auditPathForItem = item => {
+  if (item.event === "export-video") return "artifacts/clips/export-log.jsonl";
+  if (item.event === "make-proxy" || item.kind === "proxy") return "artifacts/proxies/proxy-log.jsonl";
+  if (item.event === "make-thumbnail" || item.kind === "thumbnail") return "artifacts/thumbnails/thumbnail-log.jsonl";
+  if (item.event === "make-frame-capture" || item.kind === "frame-capture") return "artifacts/frames/frame-log.jsonl";
+  if (item.event === "carve-file") return "artifacts/carved/carve-log.jsonl";
+  if (item.event === "validate-artifact") return "evidence/logs/validation-log.jsonl";
+  if (item.event === "inspect-image" || item.event === "recover-inode") return "evidence/logs/tsk-audit.jsonl";
+  return "";
+};
+
+const chainStatusForItem = (item, fallbackRelPath) => {
+  const relPath = fallbackRelPath || auditPathForItem(item);
+  return relPath ? chainStatus(relPath) : "missing · unknown audit log";
+};
+
+const sourceCounts = new Map();
+videos.forEach(video => {
+  const profile = video.source_profile || {};
+  const key = `${profile.vendor || "Unknown"}\t${profile.parser || "unknown"}\t${profile.confidence || "-"}\t${profile.lane || "-"}`;
+  sourceCounts.set(key, (sourceCounts.get(key) || 0) + 1);
+});
+
+document.getElementById("title").textContent = manifest.title || "FrameTrace 영상 포렌식 보고서";
+document.getElementById("case-line").textContent = `${manifest.case_id || "case"} · 로컬 케이스 데이터 기반 생성 · ${manifest.tool_name || "frametrace"} ${manifest.tool_version || ""}`;
+document.getElementById("count").textContent = videoTotal;
+document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
+document.getElementById("confirmed").textContent = scan.confirmed_count ?? videos.filter(video => video.ffprobe_ok).length;
+document.getElementById("sources").textContent = scan.source_count ?? sourceCounts.size;
+document.getElementById("warnings-count").textContent = warnings.length;
+document.getElementById("exports").textContent = exportsLog.length;
+document.getElementById("derived").textContent = derivedLog.length;
+document.getElementById("carved").textContent = carveLog.length;
+document.getElementById("filesystem-actions").textContent = filesystemLog.length;
+document.getElementById("validations").textContent = validationLog.length;
+
+document.getElementById("processing").innerHTML = `<table>
+  <tbody>
+    <tr><th>케이스 ID</th><td>${escapeHtml(manifest.case_id || "-")}</td></tr>
+    <tr><th>작업자 / 호스트</th><td>${escapeHtml(manifest.operator || "-")} / ${escapeHtml(manifest.host || "-")}</td></tr>
+    <tr><th>플랫폼 / 도구</th><td>${escapeHtml(manifest.platform || "-")} / ${escapeHtml(manifest.tool_name || "-")} ${escapeHtml(manifest.tool_version || "")}</td></tr>
+    <tr><th>장치</th><td>${escapeHtml(manifest.device_id || "-")} · serial: ${escapeHtml(manifest.device_serial || "-")} · write-protect: ${escapeHtml(manifest.write_protect || "-")}</td></tr>
+    <tr><th>취득</th><td>${escapeHtml(manifest.acquisition_tool || "-")} · evidence hash: <code>${escapeHtml(manifest.evidence_hash || "-")}</code></td></tr>
+    <tr><th>비고</th><td>${escapeHtml(manifest.notes || "-")}</td></tr>
+    <tr><th>소스 경로</th><td><code>${escapeHtml(scan.source_path || "-")}</code></td></tr>
+    <tr><th>스캔 시각</th><td>${fmtUnix(scan.scanned_unix)} <span class="muted">(${escapeHtml(scan.scanned_unix || "-")})</span></td></tr>
+    <tr><th>해시 모드</th><td>${scan.options?.hash_files ? "파일별 SHA-256 계산" : "파일별 SHA-256 생략"}</td></tr>
+    <tr><th>메타데이터 모드</th><td>${scan.options?.use_ffprobe ? "ffprobe 사용" : "ffprobe 생략"}</td></tr>
+    <tr><th>경고</th><td>${warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}</td></tr>
+  </tbody>
+</table>`;
+document.getElementById("privacy-disclosure").textContent = `${scan.path_disclosure_mode || "redacted"} · ${scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}`;
+document.getElementById("report-boundary").innerHTML = videosTruncated
+  ? `bounded SQLite report summary: showing ${videos.length} of ${videoTotal} videos (sample limit ${videoSampleLimit}). Full row-level review remains outside this HTML appendix; use <code>${escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}</code> for bounded inventory pages or <code>${escapeHtml(reportSummary.review_command || "frametrace make-review <case_dir>")}</code> for review workflow. Appendix boundary: remaining ${Math.max(videoTotal - videos.length, 0)} video rows intentionally omitted.`
+  : `bounded SQLite report summary: showing all ${videos.length} indexed video rows in this small case. Use <code>${escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}</code> for repeatable bounded inventory review.`;
+
+document.getElementById("audit-chain").innerHTML = auditChainStatus.length ? `<table>
+  <thead>
+    <tr><th>로그</th><th>경로</th><th>상태</th><th>엔트리</th><th>마지막 엔트리 SHA-256</th><th>오류</th></tr>
+  </thead>
+  <tbody>
+    ${auditChainStatus.map(item => `<tr>
+      <td>${escapeHtml(item.name || "-")}</td>
+      <td><code>${escapeHtml(item.relative_path || "-")}</code></td>
+      <td>${escapeHtml(item.status || "-")}</td>
+      <td>${escapeHtml(item.entries ?? "-")}</td>
+      <td><code>${escapeHtml(item.last_entry_sha256 || "-")}</code></td>
+      <td>${escapeHtml(item.error || "-")}</td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>감사 체인 상태 정보가 없습니다.</p>";
+
+document.getElementById("source-assessment").innerHTML = sourceCounts.size ? `<table>
+  <thead>
+    <tr><th>추정 소스</th><th>파서 레인</th><th>신뢰도</th><th>파일 수</th><th>처리 메모</th></tr>
+  </thead>
+  <tbody>
+    ${[...sourceCounts.entries()].map(([key, count]) => {
+      const [vendor, parser, confidence, lane] = key.split("\t");
+      const sample = videos.find(video => (video.source_profile?.vendor || "Unknown") === vendor && (video.source_profile?.parser || "unknown") === parser);
+      return `<tr>
+        <td>${escapeHtml(vendor)}</td>
+        <td>${escapeHtml(lane)}<br><code>${escapeHtml(parser)}</code></td>
+        <td>${escapeHtml(confidence)}</td>
+        <td>${count}</td>
+        <td>${escapeHtml(sample?.source_profile?.recommended_action || "-")}</td>
+      </tr>`;
+    }).join("")}
+  </tbody>
+</table>` : "<p>소스 평가 정보가 없습니다.</p>";
+
+document.getElementById("videos").innerHTML = videos.length ? `<table>
+  <thead>
+    <tr>
+      <th>ID</th><th>경로</th><th>소스</th><th>포맷</th><th>길이</th><th>크기</th><th>해시</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${videos.map(video => `<tr>
+      <td>${escapeHtml(video.id)}</td>
+      <td><code>${escapeHtml(video.relative_path || video.source_path)}</code></td>
+      <td>${escapeHtml(video.source_profile?.vendor || "-")}<br><code>${escapeHtml(video.source_profile?.parser || "-")}</code></td>
+      <td>${escapeHtml(video.video_codec || video.extension || "-")} ${video.width && video.height ? `(${video.width}x${video.height})` : ""}</td>
+      <td>${fmtDuration(video.duration_seconds)}</td>
+      <td>${fmtBytes(video.size_bytes)}</td>
+      <td><code>${escapeHtml(video.sha256 || video.hash_status || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>색인된 영상이 없습니다.</p>";
+
+document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
+  <thead>
+    <tr><th>포맷</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>범위</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${exportsLog.map(item => `<tr>
+      <td>${escapeHtml(item.format || "-")}</td>
+      <td><code>${escapeHtml(item.source_path || item.selector || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_sha256 || "-")}</code></td>
+      <td>${item.start_seconds ?? "-"}, ${item.duration_seconds ?? "-"}</td>
+      <td>${escapeHtml(chainStatusForItem(item, "artifacts/clips/export-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>내보낸 클립이 없습니다.</p>";
+
+document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<table>
+  <thead>
+    <tr><th>종류</th><th>작업자</th><th>방법</th><th>원본 ID</th><th>파생 ID</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${derivedLog.map(item => `<tr>
+      <td>${escapeHtml(item.kind || item.format || "-")}</td>
+      <td>${escapeHtml(item.operator || "-")}</td>
+      <td>${escapeHtml(item.method || item.event || "-")}</td>
+      <td><code>${escapeHtml(item.source_artifact_id || "-")}</code></td>
+      <td><code>${escapeHtml(item.derived_artifact_id || "-")}</code></td>
+      <td><code>${escapeHtml(item.source_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_artifact_sha256 || item.output_sha256 || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>프록시 또는 썸네일 산출물이 없습니다.</p>";
+
+document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<table>
+  <thead>
+    <tr><th>ID</th><th>상태</th><th>시그니처</th><th>오프셋</th><th>크기</th><th>산출물</th><th>SHA-256</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${carveLog.map(item => `<tr>
+      <td>${escapeHtml(item.id || "-")}</td>
+      <td>${escapeHtml(item.validation_status || "candidate-unvalidated")}</td>
+      <td>${escapeHtml(item.signature || item.extension || "-")}</td>
+      <td>${escapeHtml(item.offset ?? "-")}</td>
+      <td>${fmtBytes(item.size_bytes)}</td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.sha256 || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item, "artifacts/carved/carve-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>Carving 후보가 없습니다.</p>";
+
+document.getElementById("validation-results").innerHTML = validationLog.length ? `<table>
+  <thead>
+    <tr><th>상태</th><th>대상</th><th>포맷</th><th>코덱</th><th>길이</th><th>SHA-256</th><th>검증 메모</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${validationLog.map(item => `<tr>
+      <td>${escapeHtml(item.validation_status || "-")}</td>
+      <td><code>${escapeHtml(item.target_path || item.selector || "-")}</code></td>
+      <td>${escapeHtml(item.format_name || "-")}</td>
+      <td>${escapeHtml(item.video_codec || "-")} / ${escapeHtml(item.audio_codec || "-")}</td>
+      <td>${fmtDuration(item.duration_seconds)}</td>
+      <td><code>${escapeHtml(item.target_sha256 || "-")}</code></td>
+      <td>${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</td>
+      <td>${escapeHtml(chainStatusForItem(item, "evidence/logs/validation-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>검증 기록이 없습니다.</p>";
+
+document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
+  <thead>
+    <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${filesystemLog.map(item => `<tr>
+      <td>${escapeHtml(item.event || "-")}</td>
+      <td><code>${escapeHtml(item.image_path || "-")}</code></td>
+      <td>${escapeHtml(item.partition_offset ?? "-")}</td>
+      <td><code>${escapeHtml(item.inode || "-")}</code></td>
+      <td>${escapeHtml(item.validation_status || `${item.entry_count ?? "-"} entries`)}<br><code>${escapeHtml(item.output_path || item.summary_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.sha256 || item.entries_jsonl_path || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item, "evidence/logs/tsk-audit.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";
+</script>
+</main>
+</body>
+</html>

@@ -2,6 +2,10 @@ use crate::artifacts::{self, FrameCaptureOptions, ProxyOptions, ThumbnailOptions
 use crate::audit;
 use crate::carve::{self, CarveOptions};
 use crate::case_db;
+use crate::distributable_redaction::{
+    RedactionPolicy, redact_json_for_distributable, redact_jsonl_for_distributable,
+    write_full_path_disclosure_artifact,
+};
 use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
@@ -44,6 +48,7 @@ pub struct RegisterSourceOptions {
 #[derive(Debug, Clone, Default)]
 pub struct PackageOptions {
     pub output_dir: Option<PathBuf>,
+    pub redaction_policy: RedactionPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -253,9 +258,10 @@ pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Resu
     Ok(())
 }
 
-pub fn make_review(case_dir: &Path) -> Result<(), String> {
+pub fn make_review(case_dir: &Path, redaction_policy: RedactionPolicy) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let index_json = review_bundle::bounded_review_index_json(case_dir)?;
+    let index_json =
+        review_bundle::bounded_review_index_json_with_policy(case_dir, redaction_policy)?;
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
@@ -263,20 +269,41 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     let review_path = case_dir.join("review/index.html");
     require_case_output_path(case_dir, &review_path, "review html")?;
     write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
-    let carve_log =
-        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
-    let filesystem_log =
-        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
-    let validation_log =
-        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
-    let export_log =
-        read_to_string(&case_dir.join("artifacts/clips/export-log.jsonl")).unwrap_or_default();
-    let proxy_log =
-        read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
-    let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
-        .unwrap_or_default();
-    let frame_log =
-        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
+    let carve_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/carved/carve-log.jsonl"),
+        redaction_policy,
+    )?;
+    let filesystem_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("evidence/logs/tsk-audit.jsonl"),
+        redaction_policy,
+    )?;
+    let validation_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("evidence/logs/validation-log.jsonl"),
+        redaction_policy,
+    )?;
+    let export_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/clips/export-log.jsonl"),
+        redaction_policy,
+    )?;
+    let proxy_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/proxies/proxy-log.jsonl"),
+        redaction_policy,
+    )?;
+    let thumbnail_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"),
+        redaction_policy,
+    )?;
+    let frame_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/frames/frame-log.jsonl"),
+        redaction_policy,
+    )?;
     let audit_chain_status =
         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
     let evidence_viewer =
@@ -296,6 +323,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     require_case_output_path(case_dir, &evidence_viewer_path, "evidence viewer html")?;
     write_text(&evidence_viewer_path, &evidence_viewer)
         .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
+    write_full_path_disclosure_artifact(&case_dir.join("review"), "review", redaction_policy)?;
     println!("review written: {}", review_path.display());
     println!(
         "evidence viewer written: {}",
@@ -304,28 +332,50 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn make_report(case_dir: &Path) -> Result<(), String> {
+pub fn make_report(case_dir: &Path, redaction_policy: RedactionPolicy) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let index_path = case_dir.join("db/video_index.json");
-    let index_json = read_to_string(&index_path)
-        .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
+    let index_json = case_db::bounded_report_index_json(case_dir)?.ok_or_else(|| {
+        "SQLite case db required for bounded report generation; rerun scan-folder to create db/case.db before make-report".to_string()
+    })?;
+    let index_json = redact_json_for_distributable(case_dir, &index_json, redaction_policy)?;
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
-    let export_log =
-        read_to_string(&case_dir.join("artifacts/clips/export-log.jsonl")).unwrap_or_default();
-    let proxy_log =
-        read_to_string(&case_dir.join("artifacts/proxies/proxy-log.jsonl")).unwrap_or_default();
-    let thumbnail_log = read_to_string(&case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"))
-        .unwrap_or_default();
-    let frame_log =
-        read_to_string(&case_dir.join("artifacts/frames/frame-log.jsonl")).unwrap_or_default();
-    let carve_log =
-        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
-    let filesystem_log =
-        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
-    let validation_log =
-        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let export_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/clips/export-log.jsonl"),
+        redaction_policy,
+    )?;
+    let proxy_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/proxies/proxy-log.jsonl"),
+        redaction_policy,
+    )?;
+    let thumbnail_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/thumbnails/thumbnail-log.jsonl"),
+        redaction_policy,
+    )?;
+    let frame_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/frames/frame-log.jsonl"),
+        redaction_policy,
+    )?;
+    let carve_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("artifacts/carved/carve-log.jsonl"),
+        redaction_policy,
+    )?;
+    let filesystem_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("evidence/logs/tsk-audit.jsonl"),
+        redaction_policy,
+    )?;
+    let validation_log = read_redacted_jsonl(
+        case_dir,
+        &case_dir.join("evidence/logs/validation-log.jsonl"),
+        redaction_policy,
+    )?;
     let audit_chain_status =
         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
     let html = report::render_case_report(&report::ReportInputs {
@@ -343,18 +393,32 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
     let report_path = case_dir.join("reports/case-report.html");
     require_case_output_path(case_dir, &report_path, "case report html")?;
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
+    write_full_path_disclosure_artifact(&case_dir.join("reports"), "report", redaction_policy)?;
     println!("report written: {}", report_path.display());
     Ok(())
 }
 
 pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let result = package::package_case(case_dir, options.output_dir.as_deref())?;
+    let result = package::package_case(
+        case_dir,
+        options.output_dir.as_deref(),
+        options.redaction_policy,
+    )?;
     println!("case package written");
     println!("output: {}", result.output_dir.display());
     println!("files: {}", result.file_count);
     println!("manifest: {}", result.manifest_path.display());
     Ok(())
+}
+
+fn read_redacted_jsonl(
+    case_dir: &Path,
+    path: &Path,
+    policy: RedactionPolicy,
+) -> Result<String, String> {
+    let raw = read_to_string(path).unwrap_or_default();
+    redact_jsonl_for_distributable(case_dir, &raw, policy)
 }
 
 pub fn export_video(case_dir: &Path, selector: &str, options: ExportOptions) -> Result<(), String> {
@@ -786,8 +850,9 @@ fn tsk_recover_options_json(options: &TskRecoverOptions) -> String {
 
 fn validation_options_json(options: &ValidationOptions) -> String {
     format!(
-        "{{\"ffprobe_bin\":\"{}\"}}",
-        crate::util::json_escape(&options.ffprobe_bin)
+        "{{\"ffprobe_bin\":\"{}\",\"external_source\":{}}}",
+        crate::util::json_escape(&options.ffprobe_bin),
+        options.allow_external_source
     )
 }
 

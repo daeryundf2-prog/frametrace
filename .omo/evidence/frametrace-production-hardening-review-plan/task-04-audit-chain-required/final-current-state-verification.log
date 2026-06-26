@@ -1,0 +1,12 @@
+SCENARIO final current-state verification for T4 evidence DoneClaim response
+INVOCATION test -s required artifacts; rg anchors; jq empty DoneClaim; git diff --check; inspect recorded stop-hook verifier path
+   22702 .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-t4-diff-current.patch
+    1805 .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/size-gate-disposition.md
+    7374 .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-fix-evidence-doneclaim.json
+    1428 .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/cleanup-receipt.md
+    1819 .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/stop-hook-verification-2.log
+251:+                .map(|artifact_dir| report_claims_chain(case_dir, artifact_dir, spec.relative_path))
+314:+fn report_claims_chain(case_dir: &Path, relative_dir: &str, relative_log: &str) -> bool {
+399:+fn report_defense_blocks_missing_audit_log_for_report_claimed_proxy() {
+true
+exit_code=0

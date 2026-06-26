@@ -107,6 +107,10 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
       margin-top: 12px;
       font-size: 13px;
     }}
+    .boundary {{
+      border-left-color: #b45309;
+      background: #fff7ed;
+    }}
     @media print {{
       main {{ padding: 0; }}
       .box {{ break-inside: avoid; }}
@@ -133,7 +137,8 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
   </section>
 
   <h2>처리 요약</h2>
-  <div id="processing"></div>
+    <div id="processing"></div>
+  <div class="note" id="privacy-disclosure"></div>
   <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
 
   <h2>감사 체인 검증</h2>
@@ -143,6 +148,7 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
   <div id="source-assessment"></div>
 
   <h2>영상 색인</h2>
+  <div class="note boundary" id="report-boundary"></div>
   <div id="videos"></div>
 
   <h2>MP4/AVI 내보내기 산출물</h2>
@@ -172,6 +178,10 @@ const validationLog = {validation_lines};
 const auditChainStatus = {audit_chain_status};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
+const reportSummary = scan.report_summary || {{}};
+const videoTotal = Number.isFinite(scan.video_count) ? scan.video_count : videos.length;
+const videoSampleLimit = Number.isFinite(scan.sample_limit) ? scan.sample_limit : videos.length;
+const videosTruncated = Boolean(scan.videos_truncated || (videoTotal > videos.length));
 const derivedLog = [...exportsLog, ...proxyLog, ...thumbnailLog, ...frameLog];
 const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
 
@@ -241,10 +251,10 @@ videos.forEach(video => {{
 
 document.getElementById("title").textContent = manifest.title || "FrameTrace 영상 포렌식 보고서";
 document.getElementById("case-line").textContent = `${{manifest.case_id || "case"}} · 로컬 케이스 데이터 기반 생성 · ${{manifest.tool_name || "frametrace"}} ${{manifest.tool_version || ""}}`;
-document.getElementById("count").textContent = scan.video_count ?? videos.length;
+document.getElementById("count").textContent = videoTotal;
 document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
-document.getElementById("confirmed").textContent = videos.filter(video => video.ffprobe_ok).length;
-document.getElementById("sources").textContent = sourceCounts.size;
+document.getElementById("confirmed").textContent = scan.confirmed_count ?? videos.filter(video => video.ffprobe_ok).length;
+document.getElementById("sources").textContent = scan.source_count ?? sourceCounts.size;
 document.getElementById("warnings-count").textContent = warnings.length;
 document.getElementById("exports").textContent = exportsLog.length;
 document.getElementById("derived").textContent = derivedLog.length;
@@ -267,6 +277,10 @@ document.getElementById("processing").innerHTML = `<table>
     <tr><th>경고</th><td>${{warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}}</td></tr>
   </tbody>
 </table>`;
+document.getElementById("privacy-disclosure").textContent = `${{scan.path_disclosure_mode || "redacted"}} · ${{scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}}`;
+document.getElementById("report-boundary").innerHTML = videosTruncated
+  ? `bounded SQLite report summary: showing ${{videos.length}} of ${{videoTotal}} videos (sample limit ${{videoSampleLimit}}). Full row-level review remains outside this HTML appendix; use <code>${{escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}}</code> for bounded inventory pages or <code>${{escapeHtml(reportSummary.review_command || "frametrace make-review <case_dir>")}}</code> for review workflow. Appendix boundary: remaining ${{Math.max(videoTotal - videos.length, 0)}} video rows intentionally omitted.`
+  : `bounded SQLite report summary: showing all ${{videos.length}} indexed video rows in this small case. Use <code>${{escapeHtml(reportSummary.inventory_command || "frametrace inventory <case_dir> --limit 500")}}</code> for repeatable bounded inventory review.`;
 
 document.getElementById("audit-chain").innerHTML = auditChainStatus.length ? `<table>
   <thead>

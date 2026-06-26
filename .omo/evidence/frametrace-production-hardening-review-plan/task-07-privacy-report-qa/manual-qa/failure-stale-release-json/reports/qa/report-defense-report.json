@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "qa_type": "report_defense",
+  "passed": true,
+  "findings": []
+}

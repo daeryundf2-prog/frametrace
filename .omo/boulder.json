@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "active_work_id": "frametrace-production-hardening-review-plan-20260624",
+  "works": {
+    "frametrace-production-hardening-review-plan-20260624": {
+      "work_id": "frametrace-production-hardening-review-plan-20260624",
+      "active_plan": ".omo/plans/frametrace-production-hardening-review-plan.md",
+      "plan_name": "frametrace-production-hardening-review-plan",
+      "session_ids": [
+        "codex:019ddc3e-9f12-7a73-b02e-fe1be713dc13",
+        "codex:019f0324-f606-7783-b1bb-4783cc769d5d"
+      ],
+      "status": "blocked",
+      "worktree_path": null,
+      "blocked_task": "T13. Validate Rust engine on Windows 10/11 x64 before GUI work",
+      "blocked_reason": "No real Windows 10/11 x64 host or safely triggerable Windows runner is available; T14-T17 must stop until T13 passes on Windows.",
+      "blocked_receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-13-windows-engine/BLOCKED-missing-windows-runner.json",
+      "stopped_tasks": [
+        "T14",
+        "T15",
+        "T16",
+        "T17"
+      ]
+    }
+  }
+}

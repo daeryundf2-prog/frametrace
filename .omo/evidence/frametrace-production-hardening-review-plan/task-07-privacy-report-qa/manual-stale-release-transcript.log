@@ -1,0 +1,4 @@
+stale release exit=1
+artifact=/Users/shinyoohag/Desktop/frametrace/.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/failure-stale-release-json/reports/qa/release-readiness.json
+status=PASS
+observable=qa release failed nonzero and release-readiness.json marks report_defense FAIL despite stale passed report-defense-report.json

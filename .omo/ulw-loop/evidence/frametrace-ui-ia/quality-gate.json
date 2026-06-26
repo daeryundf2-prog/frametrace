@@ -1,0 +1,91 @@
+{
+  "status": "pass",
+  "intent": "viewer-first forensic review surface after user requested fewer non-review items",
+  "changed_surface": [
+    "gui/evidence-viewer/index.html",
+    "gui/evidence-viewer/app.js",
+    "gui/evidence-viewer/styles.css",
+    "DESIGN.md"
+  ],
+  "browser_qa": {
+    "status": "pass",
+    "viewports": [
+      {
+        "id": "desktop-1280",
+        "width": 1280,
+        "height": 900
+      },
+      {
+        "id": "tablet-768",
+        "width": 768,
+        "height": 900
+      },
+      {
+        "id": "mobile-375",
+        "width": 375,
+        "height": 900
+      }
+    ],
+    "required_concepts": [
+      "Evidence sources",
+      "Video candidates",
+      "Validation queue",
+      "Export preview",
+      "Report package",
+      "local-first",
+      "verification required",
+      "candidate-unvalidated"
+    ],
+    "failures": [],
+    "rendered_state": {
+      "desktop-1280": {
+        "visibleRows": 32,
+        "visibleCandidateRows": 32,
+        "decisionGateRows": 5,
+        "mediaCanvasPixels": 921600
+      },
+      "tablet-768": {
+        "visibleRows": 27,
+        "visibleCandidateRows": 27,
+        "decisionGateRows": 5,
+        "mediaCanvasPixels": 921600
+      },
+      "mobile-375": {
+        "visibleRows": 27,
+        "visibleCandidateRows": 27,
+        "decisionGateRows": 5,
+        "mediaCanvasPixels": 921600
+      }
+    },
+    "overflow": {
+      "desktop-1280": {
+        "viewportWidth": 1280,
+        "clientWidth": 1280,
+        "scrollWidth": 1280,
+        "bodyScrollWidth": 1280,
+        "hasHorizontalOverflow": false
+      },
+      "tablet-768": {
+        "viewportWidth": 768,
+        "clientWidth": 768,
+        "scrollWidth": 768,
+        "bodyScrollWidth": 768,
+        "hasHorizontalOverflow": false
+      },
+      "mobile-375": {
+        "viewportWidth": 375,
+        "clientWidth": 375,
+        "scrollWidth": 375,
+        "bodyScrollWidth": 375,
+        "hasHorizontalOverflow": false
+      }
+    }
+  },
+  "cargo_test_lib": "pass: 159 passed; 0 failed",
+  "js_syntax": "pass: node --check gui/evidence-viewer/app.js and final-ui-check.js",
+  "visual_gate": "pass: vision subagent confirmed viewer-first priority, candidate list visible, compact forensic states retained, no blocking overlap/overflow",
+  "notes": [
+    "Rust engine unchanged for this follow-up; GUI and design guidance only.",
+    "Existing dirty worktree was preserved; unrelated dirty files were not reverted."
+  ]
+}

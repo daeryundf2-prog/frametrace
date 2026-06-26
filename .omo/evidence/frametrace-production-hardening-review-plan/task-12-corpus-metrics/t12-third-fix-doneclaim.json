@@ -1,0 +1,67 @@
+{
+  "status": "third_fix_ready_for_final_independent_gate",
+  "scope": "Only the two final second re-gate blockers were changed.",
+  "requested_regate_artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-second-regate-review.md",
+  "regate_artifact_read_status": "missing: evidence directory contains t12-gate-review.md and t12-regate-review.md, but not t12-second-regate-review.md; fixes followed the two blockers in the user prompt.",
+  "fixes": [
+    "Reduced src/qa_tests/accuracy.rs from 251 to 244 pure LOC by changing the repeated typed manifest helper to use external_references: [], matching the committed synthetic manifest. No assertions were weakened or removed.",
+    "Updated programming-remove-ai-slops-review.md to explicitly cover src/qa_tests/accuracy.rs at 244 pure LOC, current src/qa_accuracy.rs/src/qa_accuracy/*.rs LOC, and the overfit/slop checks for the current test helper shape."
+  ],
+  "changed_files": [
+    "src/qa_tests/accuracy.rs",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/programming-remove-ai-slops-review.md",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-pure-loc.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-focused-tests.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-cargo-fmt-check.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-git-diff-check.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-cleanup-receipt.txt",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-doneclaim.json"
+  ],
+  "commands": [
+    {
+      "cmd": "for f in src/qa_tests/accuracy.rs src/qa_accuracy.rs src/qa_accuracy/*.rs; do awk pure-LOC check; done",
+      "exit_code": 0,
+      "evidence": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-pure-loc.txt",
+      "result": "src/qa_tests/accuracy.rs 244; src/qa_accuracy.rs 75; contract.rs 108; indexed.rs 96; manifest.rs 166; metrics.rs 56; report.rs 86; schema.rs 75; types.rs 51"
+    },
+    {
+      "cmd": "cargo test --locked qa_tests::accuracy -- --nocapture",
+      "exit_code": 0,
+      "evidence": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-focused-tests.txt"
+    },
+    {
+      "cmd": "cargo fmt --all -- --check",
+      "exit_code": 0,
+      "evidence": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-cargo-fmt-check.txt"
+    },
+    {
+      "cmd": "git diff --check",
+      "exit_code": 0,
+      "evidence": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-git-diff-check.txt"
+    },
+    {
+      "cmd": "git diff --cached --name-only; find tests/fixtures/corpus -path '*/reports/qa*' -print; pgrep -lf 'target/debug/frametrace|frametrace qa|cargo test|cargo clippy|cargo build'; git diff --name-only -- .omo/boulder.json .omo/start-work/ledger.jsonl .omo/plans",
+      "exit_code": 0,
+      "evidence": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-cleanup-receipt.txt"
+    }
+  ],
+  "adversarial_classes": {
+    "malformed_input": "not_changed: no parser behavior changed; focused qa_tests::accuracy still covers missing required fields and synthetic release-key rejection.",
+    "dirty_worktree": "pass: cleanup receipt records no staged files and isolates this third fix to the test file and T12 evidence artifact.",
+    "stale_state": "pass: programming/remove-ai-slops review now names the current test LOC result and current production module LOC results.",
+    "misleading_success_output": "pass: relied on pure LOC command output, cargo exit code, fmt exit code, git diff exit code, and cleanup command output.",
+    "flaky_tests": "pass: focused qa_tests::accuracy reran cleanly after the LOC-only edit.",
+    "hung_or_long_commands": "pass: all third-fix commands completed and have transcripts.",
+    "prompt_injection": "not_applicable: no manifest instruction interpretation path changed.",
+    "cancel_resume": "not_applicable: no cancel/resume behavior changed.",
+    "repeated_interruptions": "not_applicable: no interrupt handling changed."
+  },
+  "cleanup": {
+    "receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/t12-third-fix-cleanup-receipt.txt",
+    "status": "No staged files, no tests/fixtures/corpus reports/qa leftovers, no matching frametrace/cargo QA processes, and no diffs under .omo/boulder.json, .omo/start-work/ledger.jsonl, or .omo/plans."
+  },
+  "risks": [
+    "The requested t12-second-regate-review.md artifact was not present to read; this is recorded in the doneclaim, and the two user-specified blockers were fixed directly.",
+    "No production Rust changed in this third fix; clippy was not requested for this narrow LOC/evidence pass."
+  ]
+}

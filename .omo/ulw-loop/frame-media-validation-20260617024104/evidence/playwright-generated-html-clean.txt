@@ -1,0 +1,57 @@
+### Browser `frametrace-phase3-http-3` opened with pid 73565.
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/review/evidence-viewer.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/review/evidence-viewer.html
+- Page Title: FrameTrace Evidence Viewer
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T03-39-59-500Z.yml)
+### Ran Playwright code
+```js
+await page.setViewportSize({ width: 1440, height: 1000 });
+```
+### Result
+Total messages: 0 (Errors: 0, Warnings: 0)
+
+### Result
+- [Screenshot of full page](output/playwright/phase3-evidence-viewer-clean.png)
+### Ran Playwright code
+```js
+// Screenshot full page and save it as output/playwright/phase3-evidence-viewer-clean.png
+await page.screenshot({
+  fullPage: true,
+  path: 'output/playwright/phase3-evidence-viewer-clean.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8767/reports/case-report.html');
+```
+### Page
+- Page URL: http://127.0.0.1:8767/reports/case-report.html
+- Page Title: FrameTrace 영상 포렌식 보고서
+### Snapshot
+- [Snapshot](.playwright-cli/page-2026-06-17T03-40-00-844Z.yml)
+### Result
+Total messages: 0 (Errors: 0, Warnings: 0)
+
+### Result
+- [Screenshot of full page](output/playwright/phase3-case-report-clean.png)
+### Ran Playwright code
+```js
+// Screenshot full page and save it as output/playwright/phase3-case-report-clean.png
+await page.screenshot({
+  fullPage: true,
+  path: 'output/playwright/phase3-case-report-clean.png',
+  scale: 'css',
+  type: 'png'
+});
+```
+Browser 'frametrace-phase3-http-3' closed
+
+-rw-r--r--@ 1 shinyoohag  staff  313215 Jun 17 12:40 output/playwright/phase3-case-report-clean.png
+-rw-r--r--@ 1 shinyoohag  staff  153854 Jun 17 12:40 output/playwright/phase3-evidence-viewer-clean.png

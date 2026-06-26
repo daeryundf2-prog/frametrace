@@ -1,0 +1,28 @@
+{
+  "rows": 100000,
+  "passed": true,
+  "max_rss_target_bytes": 1610612736,
+  "max_rss_bytes": 21413888,
+  "large_case_survival": {
+    "max_query_ms": 204,
+    "query_latency_target_ms": 2000,
+    "compatibility_exports": {
+      "jsonl_path": ".omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k/db/videos.jsonl",
+      "jsonl_rows": 100000,
+      "jsonl_elapsed_ms": 464,
+      "jsonl_rows_per_minute": 12931034,
+      "tsv_path": ".omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k/db/video_paths.tsv",
+      "tsv_rows": 100000,
+      "tsv_elapsed_ms": 400,
+      "tsv_rows_per_minute": 15000000,
+      "manifest_path": ".omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k/reports/inventory-export-1782469241.json",
+      "manifest_selected_count": 3,
+      "manifest_elapsed_ms": 1251
+    },
+    "full_json_load_denial": {
+      "status": "DENIED",
+      "full_json_load_allowed": false,
+      "evidence": "workstation-status inventory_transport=paged-sqlite-query and full_json_load_allowed=false"
+    }
+  }
+}

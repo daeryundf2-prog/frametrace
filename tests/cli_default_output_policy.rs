@@ -123,6 +123,71 @@ fn derived_media_commands_reject_symlinked_default_directories_without_writing_o
 }
 
 #[test]
+fn derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata() {
+    let root = unique_temp_dir("cli-derived-tool-policy");
+    let case_dir = root.join("case");
+    let media_dir = root.join("media");
+    let fake_bin = root.join("fake-bin");
+    seed_indexed_case(&case_dir, &media_dir);
+    write_fake_ffmpeg(&fake_bin);
+    write_executable(
+        &fake_bin.join("fake-ffmpeg"),
+        "#!/bin/sh\nprintf 'should not run' > \"$2\"\n",
+    );
+    let approved_ffmpeg = fake_bin.join("ffmpeg");
+    let approved_ffmpeg = approved_ffmpeg
+        .canonicalize()
+        .expect("approved fake ffmpeg should canonicalize");
+
+    for (command, log_path) in [
+        ("make-proxy", "artifacts/proxies/proxy-log.jsonl"),
+        ("make-thumbnail", "artifacts/thumbnails/thumbnail-log.jsonl"),
+        ("capture-frame", "artifacts/frames/frame-log.jsonl"),
+    ] {
+        let output = run(&[
+            command,
+            path(&case_dir),
+            "vid_000001",
+            "--ffmpeg",
+            path(&approved_ffmpeg),
+            "--operator",
+            "qa-tool-policy",
+        ]);
+        assert_success(&output);
+        let log = fs::read_to_string(case_dir.join(log_path)).expect("derived log should exist");
+        assert!(log.contains(&format!(
+            r#""resolved_tool_path":"{}""#,
+            approved_ffmpeg.display()
+        )));
+        assert!(log.contains(r#""tool_version":"ffmpeg fake 1.0""#));
+        assert!(log.contains(r#""command_args":["#));
+        assert!(log.contains(r#""operator":"qa-tool-policy""#));
+        assert!(log.contains(r#""output_artifact_sha256":"#));
+        assert!(log.contains(r#""entry_sha256":"#));
+    }
+
+    let disallowed_output = case_dir.join("artifacts/clips/rejected.mp4");
+    let rejected = run(&[
+        "export-video",
+        path(&case_dir),
+        "vid_000001",
+        "--format",
+        "mp4",
+        "--ffmpeg",
+        path(&fake_bin.join("fake-ffmpeg")),
+        "--output",
+        path(&disallowed_output),
+    ]);
+
+    assert_failure_contains(&rejected, "unsupported tool binary");
+    assert!(
+        !disallowed_output.exists(),
+        "rejected output must not be written"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn carve_file_rejects_symlinked_default_carved_directory_without_writing_outside() {
     let root = unique_temp_dir("cli-carve-default-dir-symlink");
     let case_dir = root.join("case");

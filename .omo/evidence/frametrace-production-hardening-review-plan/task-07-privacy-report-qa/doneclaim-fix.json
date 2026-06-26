@@ -1,0 +1,74 @@
+{
+  "task": "T7 gate blocker fix",
+  "timestamp": "2026-06-24T20:14:29+09:00",
+  "scope": "evidence and plan-disposition only; no Rust/product files edited",
+  "fixed_blockers": [
+    {
+      "blocker": "cleanup receipt was false/incomplete",
+      "action": "removed only the three T7-owned temp roots named by the gate review and updated the cleanup receipt",
+      "removed_paths": [
+        "/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-leakage-test-39342",
+        "/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-redacted-test-39342",
+        "/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-release-stale-report-defense-test-37403"
+      ],
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/t7-temp-cleanup-transcript.log"
+    },
+    {
+      "blocker": "code-slop-review lacked explicit overfit/test-slop coverage",
+      "action": "added explicit programming/remove-ai-slops evidence covering overfit tests, implementation mirroring, tautologies, unnecessary abstraction, deletion opportunity, direct output evidence, and why T7 does not refactor product code",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/programming-remove-ai-slops-review.md"
+    },
+    {
+      "blocker": "oversized T7-touched files were unresolved or unplanned for T11",
+      "action": "added a T7 evidence disposition carrying the exact files into T11 scope without marking T7 complete",
+      "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/t11-oversized-file-disposition.md",
+      "t11_files": [
+        "src/qa_report_defense.rs",
+        "src/qa_release.rs",
+        "src/qa_tests.rs",
+        "tests/cli_lifecycle.rs",
+        "tests/cli_windows_prereq.rs"
+      ]
+    }
+  ],
+  "exact_commands": [
+    "find \"${TMPDIR:-/tmp}\" -maxdepth 1 -type d -name 'frametrace-*' -print | sort",
+    "rm -rf -- /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-leakage-test-39342 /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-privacy-redacted-test-39342 /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-release-stale-report-defense-test-37403",
+    "find .omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa -type f -empty -print | sort",
+    "find \"${TMPDIR:-/tmp}\" -maxdepth 1 -type d -name 'frametrace-*' -print | sort",
+    "git diff --check"
+  ],
+  "cleanup": {
+    "t7_temp_roots": "removed",
+    "unrelated_frametrace_temp_roots": "retained",
+    "cleanup_receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/manual-qa/cleanup-receipt.txt"
+  },
+  "validation": {
+    "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/required-checks-transcript.log",
+    "empty_file_check": {
+      "command": "find .omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa -type f -empty -print | sort",
+      "exit_status": 0,
+      "result": "listed existing zero-byte stdout/stderr artifacts; no command failure"
+    },
+    "tmpdir_check": {
+      "command": "find \"${TMPDIR:-/tmp}\" -maxdepth 1 -type d -name 'frametrace-*' -print | sort",
+      "exit_status": 0,
+      "result": "the three named T7 temp roots are absent; unrelated frametrace temp roots remain"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "result": "pass"
+    },
+    "json_check": {
+      "command": "node -e \"JSON.parse(require('fs').readFileSync('.omo/evidence/frametrace-production-hardening-review-plan/task-07-privacy-report-qa/doneclaim-fix.json','utf8')); console.log('doneclaim-fix.json valid JSON')\"",
+      "exit_status": 0,
+      "result": "doneclaim-fix.json valid JSON"
+    }
+  },
+  "remaining_risks": [
+    "Unrelated frametrace-* temp roots remain outside T7 scope and were not deleted.",
+    "Existing zero-byte evidence files remain; they are command stdout logs for commands with empty stdout and are surfaced by the required empty-file check.",
+    "Oversized Rust/test files remain product maintainability work for T11."
+  ]
+}

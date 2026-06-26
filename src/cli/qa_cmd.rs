@@ -35,6 +35,15 @@ pub fn run_qa(command: QaCommands) -> Result<(), String> {
             println!("report-defense QA passed: {}", report.report_path.display());
             Ok(())
         }
+        QaCommands::PrivacyReview {
+            case_dir,
+            output_dir,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
+            let report = crate::qa::privacy_review_check(&case_dir, &output_dir)?;
+            println!("privacy review QA passed: {}", report.report_path.display());
+            Ok(())
+        }
         QaCommands::Performance { output_dir, rows } => {
             let report = crate::qa::performance_report(&output_dir, rows)?;
             println!("performance QA passed: {}", report.report_path.display());

@@ -1,0 +1,16 @@
+SCENARIO hook3-cli-happy-valid-required-proxy-audit-chain
+INVOCATION target/debug/frametrace init-case <case>; target/debug/frametrace scan-folder <case> <source> --no-ffprobe; target/debug/frametrace qa report-defense <case>
+BINARY_OBSERVABLE PASS if exit_code=0 and checklist contains [valid] proxy required=yes
+case created: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/hook-verification-3/manual-qa/happy-case
+case id: FT-1782291636
+scan complete
+source registered: src_9c6649e94915583c (folder)
+job: job_1782291636_000001 (scan-folder)
+videos indexed: 0
+bytes indexed: 0
+index: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/hook-verification-3/manual-qa/happy-case/db/video_index.json
+sqlite: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/hook-verification-3/manual-qa/happy-case/db/case.db
+report-defense QA passed: .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/hook-verification-3/manual-qa/happy-case/reports/qa/report-defense-checklist.md
+exit_code=0
+- [valid] proxy: `artifacts/proxies/proxy-log.jsonl` required=yes reason=audit log present entries=1 last=f08b3ce4b445ea015a732475f66592cee20564afb8b7a32f307adbc0d4533b65 error=-
+- [valid] proxy: `artifacts/proxies/proxy-log.jsonl` required=yes reason=audit log present entries=1 last=f08b3ce4b445ea015a732475f66592cee20564afb8b7a32f307adbc0d4533b65 error=-

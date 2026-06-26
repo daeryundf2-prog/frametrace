@@ -1,0 +1,7 @@
+cleanup_timestamp=2026-06-26T10:23:22Z
+fix_scope=T10 gate needs-fix blockers only
+preserved_evidence_roots=.omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-100k,.omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-1m
+new_artifacts=programming-remove-ai-slops-review.md,corrected-threshold-receipt-1m.json,fix-manual-qa-100k-transcript.txt
+$ ps aux | rg "qa-performance-(100k|1m|invalid)|frametrace qa performance|cargo test|cargo clippy|cargo fmt" | rg -v rg
+$ test ! -e .omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/qa-performance-invalid
+invalid_temp_root_absent_exit=0

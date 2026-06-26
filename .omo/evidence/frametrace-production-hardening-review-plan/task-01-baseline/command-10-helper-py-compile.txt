@@ -1,0 +1,6 @@
+Command: python3 -m py_compile scripts/qa/verify-plan-evidence.py
+CWD: /Users/shinyoohag/Desktop/frametrace
+Started: 2026-06-24T06:51:41Z
+Finished: 2026-06-24T06:51:41Z
+ElapsedSeconds: 0
+ExitCode: 0

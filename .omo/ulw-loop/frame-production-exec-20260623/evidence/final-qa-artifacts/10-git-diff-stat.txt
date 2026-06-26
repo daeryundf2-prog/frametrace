@@ -1,0 +1,2 @@
+Invocation: git diff --stat
+Result: no tracked source diff from QA.

@@ -1,0 +1,15 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/frametrace capture-frame --help`
+Capture a report still frame as a derived photo artifact
+
+Usage: frametrace capture-frame [OPTIONS] <CASE_DIR> <SELECTOR>
+
+Arguments:
+  <CASE_DIR>  
+  <SELECTOR>  
+
+Options:
+      --time <TIME>          
+      --output <OUTPUT>      
+      --operator <OPERATOR>  
+  -h, --help                 Print help

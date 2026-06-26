@@ -1,0 +1,6 @@
+COMMAND: git diff --stat -- src/performance_qa.rs src/performance_qa src/qa.rs src/qa_tests.rs src/qa_tests
+ src/performance_qa.rs | 264 -------------------------------------------------
+ src/qa.rs             |  12 ++-
+ src/qa_tests.rs       | 266 --------------------------------------------------
+ 3 files changed, 9 insertions(+), 533 deletions(-)
+EXIT_CODE: 0

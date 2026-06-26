@@ -1,0 +1,2 @@
+COMMAND: node --check gui/evidence-viewer/app.js
+EXIT_CODE: 0

@@ -1,0 +1,15 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 3 tests
+test make_review_embeds_bounded_inventory_subset ... ok
+test make_review_uses_sqlite_inventory_when_jsonl_is_absent ... ok
+test inventory_commands_emit_bounded_sqlite_backed_json ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+

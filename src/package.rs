@@ -1,6 +1,11 @@
 use crate::audit;
+use crate::distributable_redaction::{
+    RedactionPolicy, redact_generated_html_for_distributable, redact_json_for_distributable,
+    redact_jsonl_for_distributable, redact_sqlite_copy_for_distributable,
+    redact_tsv_for_distributable, write_full_path_disclosure_artifact,
+};
 use crate::tool_policy::require_case_output_path;
-use crate::util::{json_escape, now_unix, unique_path, write_text};
+use crate::util::{json_escape, now_unix, read_to_string, unique_path, write_text};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -19,7 +24,11 @@ struct PackageFile {
     size_bytes: u64,
 }
 
-pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<PackageResult, String> {
+pub fn package_case(
+    case_dir: &Path,
+    output_dir: Option<&Path>,
+    redaction_policy: RedactionPolicy,
+) -> Result<PackageResult, String> {
     let created_unix = now_unix()?;
     let output_dir = match output_dir {
         Some(path) => {
@@ -56,7 +65,13 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     let mut files = Vec::new();
     let mut missing_optional_files = Vec::new();
     for rel in required_package_files() {
-        copy_package_file(case_dir, &output_dir, Path::new(rel), &mut files)?;
+        copy_package_file(
+            case_dir,
+            &output_dir,
+            Path::new(rel),
+            &mut files,
+            redaction_policy,
+        )?;
     }
     for rel in optional_package_files() {
         copy_optional_package_file(
@@ -65,11 +80,29 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
             Path::new(rel),
             &mut files,
             &mut missing_optional_files,
+            redaction_policy,
         )?;
     }
-    copy_markdown_reports(case_dir, &output_dir, &mut files)?;
+    copy_markdown_reports(case_dir, &output_dir, &mut files, redaction_policy)?;
     for rel_dir in recursive_package_dirs() {
-        copy_package_dir(case_dir, &output_dir, Path::new(rel_dir), &mut files)?;
+        copy_package_dir(
+            case_dir,
+            &output_dir,
+            Path::new(rel_dir),
+            &mut files,
+            redaction_policy,
+        )?;
+    }
+    let disclosure_path =
+        write_full_path_disclosure_artifact(&output_dir, "package", redaction_policy)?;
+    if let Some(path) = disclosure_path {
+        files.push(PackageFile {
+            relative_path: PathBuf::from(crate::distributable_redaction::FULL_PATH_DISCLOSURE_FILE),
+            sha256: audit::digest_file(&path)?,
+            size_bytes: fs::metadata(&path)
+                .map_err(|err| format!("failed to inspect disclosure artifact: {err}"))?
+                .len(),
+        });
     }
     files.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
 
@@ -81,7 +114,12 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     write_text(&checksum_path, &checksum_text)
         .map_err(|err| format!("failed to write package checksum manifest: {err}"))?;
 
-    let manifest_json = package_manifest_json(created_unix, &files, &missing_optional_files);
+    let manifest_json = package_manifest_json(
+        created_unix,
+        &files,
+        &missing_optional_files,
+        redaction_policy,
+    );
     let manifest_path = output_dir.join("package-manifest.json");
     write_text(&manifest_path, &manifest_json)
         .map_err(|err| format!("failed to write package manifest: {err}"))?;
@@ -179,6 +217,7 @@ fn copy_markdown_reports(
     case_dir: &Path,
     output_dir: &Path,
     files: &mut Vec<PackageFile>,
+    policy: RedactionPolicy,
 ) -> Result<(), String> {
     let reports_dir = case_dir.join("reports");
     if !reports_dir.is_dir() {
@@ -203,6 +242,7 @@ fn copy_markdown_reports(
             output_dir,
             &Path::new("reports").join(entry.file_name()),
             files,
+            policy,
         )?;
     }
     Ok(())
@@ -213,6 +253,7 @@ fn copy_package_dir(
     output_dir: &Path,
     rel_dir: &Path,
     files: &mut Vec<PackageFile>,
+    policy: RedactionPolicy,
 ) -> Result<(), String> {
     let source_dir = case_dir.join(rel_dir);
     if !source_dir.is_dir() {
@@ -239,9 +280,9 @@ fn copy_package_dir(
             ));
         }
         if file_type.is_dir() {
-            copy_package_dir(case_dir, output_dir, &rel, files)?;
+            copy_package_dir(case_dir, output_dir, &rel, files, policy)?;
         } else if file_type.is_file() {
-            copy_package_file(case_dir, output_dir, &rel, files)?;
+            copy_package_file(case_dir, output_dir, &rel, files, policy)?;
         }
     }
     Ok(())
@@ -252,6 +293,7 @@ fn copy_package_file(
     output_dir: &Path,
     rel: &Path,
     files: &mut Vec<PackageFile>,
+    policy: RedactionPolicy,
 ) -> Result<(), String> {
     let source = case_dir.join(rel);
     let metadata = match fs::symlink_metadata(&source) {
@@ -278,17 +320,16 @@ fn copy_package_file(
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create package directory: {err}"))?;
     }
-    fs::copy(&source, &target).map_err(|err| {
-        format!(
-            "failed to copy package file {} to {}: {err}",
-            source.display(),
-            target.display()
-        )
-    })?;
+    copy_package_file_with_policy(case_dir, rel, &source, &target, policy)?;
+    if rel == Path::new("db/case.db") {
+        redact_sqlite_copy_for_distributable(&target, case_dir, policy)?;
+    }
     files.push(PackageFile {
         relative_path: rel.to_path_buf(),
         sha256: audit::digest_file(&target)?,
-        size_bytes: metadata.len(),
+        size_bytes: fs::metadata(&target)
+            .map_err(|err| format!("failed to inspect package target: {err}"))?
+            .len(),
     });
     Ok(())
 }
@@ -299,23 +340,95 @@ fn copy_optional_package_file(
     rel: &Path,
     files: &mut Vec<PackageFile>,
     missing_optional_files: &mut Vec<PathBuf>,
+    policy: RedactionPolicy,
 ) -> Result<(), String> {
     if !case_dir.join(rel).is_file() {
         missing_optional_files.push(rel.to_path_buf());
         return Ok(());
     }
-    copy_package_file(case_dir, output_dir, rel, files)
+    copy_package_file(case_dir, output_dir, rel, files, policy)
+}
+
+fn copy_package_file_with_policy(
+    case_dir: &Path,
+    rel: &Path,
+    source: &Path,
+    target: &Path,
+    policy: RedactionPolicy,
+) -> Result<(), String> {
+    let extension = rel
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default();
+    let redacted = if extension.eq_ignore_ascii_case("json") {
+        Some(redact_json_for_distributable(
+            case_dir,
+            &read_to_string(source).map_err(|err| {
+                format!("failed to read package source {}: {err}", source.display())
+            })?,
+            policy,
+        )?)
+    } else if extension.eq_ignore_ascii_case("jsonl") {
+        Some(redact_jsonl_for_distributable(
+            case_dir,
+            &read_to_string(source).map_err(|err| {
+                format!("failed to read package source {}: {err}", source.display())
+            })?,
+            policy,
+        )?)
+    } else if extension.eq_ignore_ascii_case("tsv") {
+        Some(redact_tsv_for_distributable(
+            &read_to_string(source).map_err(|err| {
+                format!("failed to read package source {}: {err}", source.display())
+            })?,
+            policy,
+        ))
+    } else if extension.eq_ignore_ascii_case("html") {
+        Some(redact_generated_html_for_distributable(
+            case_dir,
+            &read_to_string(source).map_err(|err| {
+                format!("failed to read package source {}: {err}", source.display())
+            })?,
+            policy,
+        )?)
+    } else {
+        None
+    };
+
+    if let Some(text) = redacted {
+        write_text(target, &text)
+            .map_err(|err| format!("failed to write redacted package file: {err}"))?;
+    } else {
+        fs::copy(source, target).map_err(|err| {
+            format!(
+                "failed to copy package file {} to {}: {err}",
+                source.display(),
+                target.display()
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn package_manifest_json(
     created_unix: u64,
     files: &[PackageFile],
     missing_optional_files: &[PathBuf],
+    redaction_policy: RedactionPolicy,
 ) -> String {
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str("  \"schema_version\": 1,\n");
     out.push_str("  \"package_type\": \"frametrace-case-package\",\n");
+    out.push_str(&format!(
+        "  \"path_disclosure_mode\": \"{}\",\n",
+        redaction_policy.mode_label()
+    ));
+    out.push_str(&format!(
+        "  \"local_operator_full_path_disclosure\": {},\n",
+        redaction_policy.mode()
+            == crate::distributable_redaction::PathDisclosureMode::LocalOperatorFullPaths
+    ));
     out.push_str(&format!("  \"created_unix\": {},\n", created_unix));
     out.push_str(&format!("  \"file_count\": {},\n", files.len()));
     out.push_str("  \"files\": [\n");
@@ -348,6 +461,8 @@ fn package_manifest_json(
 
 #[cfg(test)]
 mod tests {
+    use crate::distributable_redaction::RedactionPolicy;
+
     use super::package_case;
     use std::fs;
 
@@ -368,7 +483,8 @@ mod tests {
         fs::write(case_dir.join("reports/case-report.html"), b"<html></html>").unwrap();
         fs::write(case_dir.join("reports/summary.md"), b"# Summary").unwrap();
 
-        let result = package_case(&case_dir, Some(&output_dir)).unwrap();
+        let result =
+            package_case(&case_dir, Some(&output_dir), RedactionPolicy::redacted()).unwrap();
         assert!(output_dir.join("case.json").is_file());
         assert!(output_dir.join("db/case.db").is_file());
         assert!(output_dir.join("reports/summary.md").is_file());
@@ -376,6 +492,141 @@ mod tests {
         assert!(result.manifest_path.is_file());
         let manifest = fs::read_to_string(&result.manifest_path).unwrap();
         assert!(manifest.contains("\"missing_optional_files\""));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn package_redacts_distributable_copies_by_default() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-package-redaction-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("package");
+        let source_path = root.join("Client ACME/source clip.mp4");
+        let frame_path = case_dir.join("artifacts/frames/frame.jpg");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(case_dir.join("artifacts/frames")).unwrap();
+        fs::create_dir_all(case_dir.join("review")).unwrap();
+        fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        fs::write(case_dir.join("case.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        fs::write(
+            case_dir.join("db/video_index.json"),
+            format!(
+                r#"{{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file://{}","relative_path":"Camera/source clip.mp4"}}]}}"#,
+                source_path.display(),
+                source_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            format!(
+                r#"{{"id":"vid_000001","source_path":"{}","file_url":"file://{}"}}"#,
+                source_path.display(),
+                source_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/video_paths.tsv"),
+            format!("id\tsource_path\nvid_000001\t{}\n", source_path.display()),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("artifacts/frames/frame-log.jsonl"),
+            format!(
+                r#"{{"event":"make-frame-capture","derived_artifact_id":"derived-frame","source_path":"{}","output_path":"{}"}}"#,
+                source_path.display(),
+                frame_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(&frame_path, b"frame").unwrap();
+        fs::write(
+            case_dir.join("review/index.html"),
+            format!(
+                r#"<script>
+const scan = {{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file://{}"}}]}};
+</script>"#,
+                source_path.display(),
+                source_path.display()
+            ),
+        )
+        .unwrap();
+
+        package_case(&case_dir, Some(&output_dir), RedactionPolicy::redacted()).unwrap();
+
+        let package_text = fs::read_to_string(output_dir.join("db/video_index.json")).unwrap()
+            + &fs::read_to_string(output_dir.join("db/videos.jsonl")).unwrap()
+            + &fs::read_to_string(output_dir.join("db/video_paths.tsv")).unwrap()
+            + &fs::read_to_string(output_dir.join("artifacts/frames/frame-log.jsonl")).unwrap()
+            + &fs::read_to_string(output_dir.join("review/index.html")).unwrap();
+        assert!(!package_text.contains(&root.to_string_lossy().to_string()));
+        assert!(package_text.contains("[redacted-source:vid_000001]"));
+        assert!(package_text.contains("artifacts/frames/frame.jpg"));
+        assert!(
+            !output_dir
+                .join("privacy-full-path-disclosure.json")
+                .exists()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn package_opt_in_keeps_paths_and_writes_disclosure() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-package-disclosure-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let output_dir = root.join("package");
+        let source_path = root.join("Client ACME/source clip.mp4");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(source_path.parent().unwrap()).unwrap();
+        fs::write(case_dir.join("case.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        fs::write(
+            case_dir.join("db/video_index.json"),
+            format!(
+                r#"{{"videos":[{{"id":"vid_000001","source_path":"{}"}}]}}"#,
+                source_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            format!(
+                r#"{{"id":"vid_000001","source_path":"{}"}}"#,
+                source_path.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            case_dir.join("db/video_paths.tsv"),
+            format!("id\tsource_path\nvid_000001\t{}\n", source_path.display()),
+        )
+        .unwrap();
+
+        package_case(
+            &case_dir,
+            Some(&output_dir),
+            RedactionPolicy::local_operator_full_paths(),
+        )
+        .unwrap();
+
+        let index = fs::read_to_string(output_dir.join("db/video_index.json")).unwrap();
+        let disclosure =
+            fs::read_to_string(output_dir.join("privacy-full-path-disclosure.json")).unwrap();
+        let manifest = fs::read_to_string(output_dir.join("package-manifest.json")).unwrap();
+        assert!(index.contains(&source_path.to_string_lossy().to_string()));
+        assert!(disclosure.contains("\"local_operator_full_path_disclosure\": true"));
+        assert!(manifest.contains("\"path_disclosure_mode\": \"local_operator_full_paths\""));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -392,7 +643,8 @@ mod tests {
         fs::create_dir_all(&case_dir).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
 
-        let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
+        let err =
+            package_case(&case_dir, Some(&output_dir), RedactionPolicy::redacted()).unwrap_err();
         assert!(err.contains("missing required files"));
         assert!(!output_dir.exists());
 
@@ -410,7 +662,8 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
 
-        let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
+        let err =
+            package_case(&case_dir, Some(&output_dir), RedactionPolicy::redacted()).unwrap_err();
         assert!(err.contains("recursively packaged directory"));
 
         let _ = fs::remove_dir_all(root);
@@ -439,7 +692,8 @@ mod tests {
         fs::write(&outside, b"outside").unwrap();
         symlink(&outside, case_dir.join("evidence/logs/leak.txt")).unwrap();
 
-        let err = package_case(&case_dir, Some(&output_dir)).unwrap_err();
+        let err =
+            package_case(&case_dir, Some(&output_dir), RedactionPolicy::redacted()).unwrap_err();
         assert!(err.contains("unsupported symlink"));
 
         let _ = fs::remove_dir_all(root);

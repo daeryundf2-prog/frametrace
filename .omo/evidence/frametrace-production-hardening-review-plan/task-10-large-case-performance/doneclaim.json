@@ -1,0 +1,79 @@
+{
+  "task": "T10 large-case survival with 100k and 1M evidence profiles",
+  "status": "DONE_WITH_RELEASE_BLOCKER",
+  "checkbox_claimed": false,
+  "changed_files": [
+    "src/performance_qa.rs",
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-10-large-case-performance/"
+  ],
+  "implementation_summary": [
+    "qa performance now creates a benchmark case layout and records report generation, review bundle generation, bounded inventory list/search/facet/sort timings, compatibility JSONL/TSV/export-manifest throughput, and workstation full-json-load denial evidence.",
+    "Compatibility JSONL/TSV evidence exports stream from SQLite and record row counts/throughput.",
+    "Performance JSON now gates large-case survival query latency in addition to existing SQLite throughput/query-plan/RSS/CPU evidence."
+  ],
+  "tdd": {
+    "characterization_green": "test-characterization-output-shape.txt",
+    "red_proof": "test-red-t10-surfaces.txt",
+    "green_proof": "test-focused-t10-green-after-streaming-export.txt"
+  },
+  "manual_qa": {
+    "100k": {
+      "status": "PASS",
+      "transcript": "manual-qa-100k-transcript.txt",
+      "performance_json": "performance-report-100k.json",
+      "rows": 100000,
+      "real_seconds": 8.18,
+      "time_l_max_rss_bytes": 26640384
+    },
+    "1m": {
+      "status": "FAIL_RELEASE_BLOCKER",
+      "transcript": "manual-qa-1m-transcript.txt",
+      "performance_json": "performance-report-1m.json",
+      "rows": 1000000,
+      "real_seconds": 92.43,
+      "time_l_max_rss_bytes": 27033600,
+      "reason": "measured large_case_survival.max_query_ms=2142 exceeded query_latency_target_ms=2000; throughput and RSS passed"
+    },
+    "full_json_load_denial": {
+      "status": "PASS",
+      "artifact": "manual-qa-full-json-load-denial.txt",
+      "observable": "workstation-status reports inventory.full_json_load_allowed=false and winui_contract.large_case_full_json_load_allowed=false"
+    },
+    "malformed_input": {
+      "status": "PASS_FAIL_CLOSED",
+      "artifact": "manual-qa-malformed-input-row-count.txt",
+      "observable": "--rows 0 exits 1 with benchmark row count must be greater than 0"
+    }
+  },
+  "verification": {
+    "build": "cargo-build-locked-after-streaming-export.txt -> EXIT_CODE=0",
+    "focused_tests": "test-focused-t10-green-after-streaming-export.txt -> EXIT_CODE=0",
+    "fmt": "cargo-fmt-check.txt -> EXIT_CODE=0",
+    "clippy": "cargo-clippy-locked-all-targets-all-features.txt -> EXIT_CODE=0",
+    "full_tests": "cargo-test-locked.txt -> EXIT_CODE=0",
+    "diff_check": "git-diff-check.txt -> EXIT_CODE=0"
+  },
+  "adversarial_classes": {
+    "malformed_input": "PASS: invalid --rows 0 fails closed; see manual-qa-malformed-input-row-count.txt",
+    "dirty_worktree": "RECORDED: git-status-short.txt captured broad pre-existing dirty worktree; T10-owned code change is src/performance_qa.rs plus task evidence directory",
+    "stale_state": "PASS: 100k and 1M output dirs were deleted before rerun; current summaries are copied from fresh qa-performance-100k/1m reports",
+    "misleading_success_output": "PASS: doneclaim relies on JSON passed flags, metrics, and exit codes; 1M CLI failure is preserved as release blocker",
+    "flaky_tests": "PASS: focused performance_report tests rerun after implementation and full cargo test passed",
+    "hung_or_long_commands": "PASS: 1M first attempt was interrupted after stale PTY/partial output; optimized rerun completed in 92.43s with measured fail metrics",
+    "prompt_injection": "NOT_APPLICABLE: no untrusted natural-language content is interpreted by T10 performance QA",
+    "cancel_resume": "NOT_APPLICABLE: qa performance creates one-shot artifacts and no resumable flow",
+    "repeated_interruptions": "NOT_APPLICABLE: interrupt handling was not changed"
+  },
+  "cleanup": {
+    "artifact": "cleanup-receipt.txt",
+    "status": "PASS",
+    "preserved": ["qa-performance-100k", "qa-performance-1m"],
+    "removed": ["qa-performance-invalid"],
+    "processes_remaining": false
+  },
+  "risks": [
+    "1M profile is a measured release blocker: inventory-sort-size-desc latency was 2142 ms against the 2000 ms target.",
+    "src/performance_qa.rs is 774 pure LOC after T10 additions; T11 owns module decomposition per scope, so no T11 split was attempted here.",
+    "Worktree contains many pre-existing dirty T1-T9 changes; this worker did not revert or rewrite unrelated state deliberately."
+  ]
+}

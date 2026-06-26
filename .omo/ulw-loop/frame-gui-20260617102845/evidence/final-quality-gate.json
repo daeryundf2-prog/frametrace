@@ -1,0 +1,39 @@
+{
+  "tier": "HEAVY",
+  "aiSlopCleaner": {
+    "status": "passed",
+    "evidence": "Diff reviewed for avoidable duplication and scope creep; JSON rendering was split into src/cli/inventory_json.rs, facet/export logic was split into dedicated case_db modules, and no WinUI shell work was started."
+  },
+  "verification": {
+    "status": "passed",
+    "commands": [
+      "cargo fmt --all -- --check",
+      "node --check gui/evidence-viewer/app.js",
+      "git diff --check",
+      "cargo test inventory_sort_contract_is_explicit_and_stable -- --nocapture",
+      "cargo test --test cli_inventory -- --nocapture",
+      "cargo test",
+      "target/debug/frametrace qa performance /tmp/frametrace-inventory-bench-100k --rows 100000",
+      "target/debug/frametrace qa performance /tmp/frametrace-inventory-bench-1m --rows 1000000"
+    ],
+    "evidence": ".omo/ulw-loop/frame-gui-20260617102845/evidence/gui-large-inventory-verification.md"
+  },
+  "codeReview": {
+    "recommendation": "APPROVE",
+    "architectStatus": "CLEAR",
+    "evidence": "Maintainer final review found and fixed one contract mismatch: GUI size-desc sort existed before SQLite size-desc support. No remaining blockers after retest.",
+    "reviewerArtifact": ".omo/ulw-loop/frame-gui-20260617102845/evidence/final-review.json"
+  },
+  "criteriaCoverage": {
+    "totalCriteria": 15,
+    "passCount": 15,
+    "adversarialClassesCovered": [
+      "bounded_pagination",
+      "malformed_sort",
+      "empty_search",
+      "large_case_performance",
+      "static_review_truncation",
+      "no_winui_scope_creep"
+    ]
+  }
+}

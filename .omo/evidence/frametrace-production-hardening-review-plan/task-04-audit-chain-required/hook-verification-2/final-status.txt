@@ -1,0 +1,2 @@
+artifact_status=0
+report_status=0

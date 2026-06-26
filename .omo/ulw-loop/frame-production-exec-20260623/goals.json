@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-23T10:43:28.270Z",
+  "updatedAt": "2026-06-23T13:51:51.229Z",
+  "briefPath": ".omo/ulw-loop/frame-production-exec-20260623/brief.md",
+  "goalsPath": ".omo/ulw-loop/frame-production-exec-20260623/goals.json",
+  "ledgerPath": ".omo/ulw-loop/frame-production-exec-20260623/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-complete-frametrace-production-conti",
+      "title": "Complete FrameTrace production continuation in sequence: classify the...",
+      "objective": "Complete FrameTrace production continuation in sequence: classify the dirty worktree into atomic verified work units; rerun and preserve current evidence; verify and commit each executable safe unit; run full validation and real-surface CLI/browser evidence for GUI inventory, SQLite inventory query, media validation, audit/report, and Windows prerequisite release gating; continue until all executable macOS-compatible work is complete or until the true blocker is Windows-only WinUI build/test execution. Do not claim Windows or WinUI GA from macOS, do not fake ULW/Codex completion snapshots, and preserve original evidence paths as read-only.",
+      "status": "complete",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "happy path for: Complete FrameTrace production continuation in sequence: classify the dirty w...",
+          "userModel": "happy",
+          "expectedEvidence": "Replace via revise_criterion with observable happy-path proof for goal 1.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/frame-production-exec-20260623/evidence/dirty-worktree-classification.md | cleanup: not-applicable; reason=read-only git/source classification only; no process/browser/tmux/worker left open",
+          "status": "pass",
+          "capturedAt": "2026-06-23T10:50:37.733Z"
+        },
+        {
+          "id": "C002",
+          "scenario": "CLI real surface: run a synthetic case through workstation-status and qa release on macOS; PASS iff workstation-status reports windows_prerequisites.release_validation_host_ready=false and qa release fails with named windows_prerequisites blockers instead of claiming Windows/WinUI readiness.",
+          "userModel": "edge",
+          "expectedEvidence": ".omo/ulw-loop/frame-production-exec-20260623/evidence/windows-prereq-refresh-cli.txt",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/frame-production-exec-20260623/evidence/windows-prereq-refresh-cli.txt | cleanup: rm -rf temp_root; cleanup_verified=temp root removed; no process/browser/tmux/worker left open",
+          "status": "pass",
+          "capturedAt": "2026-06-23T10:51:53.261Z"
+        },
+        {
+          "id": "C003",
+          "scenario": "Regression auxiliary surface: run cargo fmt --all -- --check, cargo clippy --locked --all-targets --all-features -- -D warnings, cargo test --locked, node --check gui/evidence-viewer/app.js, and git diff --check; PASS iff all complete successfully or a non-macOS blocker is explicitly recorded.",
+          "userModel": "regression",
+          "expectedEvidence": ".omo/ulw-loop/frame-production-exec-20260623/evidence/full-validation.txt",
+          "essential": false,
+          "capturedEvidence": ".omo/ulw-loop/frame-production-exec-20260623/evidence/full-validation.txt | cleanup: no spawned server/browser/tmux/container; cargo/node commands exited; no temp dirs created by this script",
+          "status": "pass",
+          "capturedAt": "2026-06-23T10:52:17.939Z"
+        }
+      ],
+      "attempt": 1,
+      "createdAt": "2026-06-23T10:43:28.270Z",
+      "updatedAt": "2026-06-23T13:51:51.229Z",
+      "startedAt": "2026-06-23T10:43:43.041Z",
+      "completedAt": "2026-06-23T13:51:51.229Z",
+      "evidence": "Final macOS-compatible FrameTrace production continuation complete at commit c74e897 after symlink-output-policy fixes and oversized Rust module split; code/security/QA/gate reviews approve; cargo fmt, clippy, cargo test, node syntax, git diff check, rust-analyzer diagnostics, and ast-grep module checks passed; Windows/WinUI native GA remains fail-closed on macOS and is not claimed complete."
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frame-production-exec-20260623/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frame-production-exec-20260623/ledger.jsonl as the audit trail.",
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-23T13:51:51.229Z",
+    "evidence": "Final macOS-compatible FrameTrace production continuation complete at commit c74e897 after symlink-output-policy fixes and oversized Rust module split; code/security/QA/gate reviews approve; cargo fmt, clippy, cargo test, node syntax, git diff check, rust-analyzer diagnostics, and ast-grep module checks passed; Windows/WinUI native GA remains fail-closed on macOS and is not claimed complete.",
+    "codexGoal": {
+      "threadId": "019ddc3e-9f12-7a73-b02e-fe1be713dc13",
+      "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frame-production-exec-20260623/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frame-production-exec-20260623/ledger.jsonl as the audit trail.",
+      "status": "complete",
+      "tokensUsed": 4074986,
+      "timeUsedSeconds": 11106,
+      "createdAt": 1782211438,
+      "updatedAt": 1782222544
+    }
+  }
+}

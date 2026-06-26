@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "targetId": "48F6150C13C31598DED61E7EF1CEA8DF",
+  "url": "http://127.0.0.1:4181/index.html",
+  "viewport": {
+    "innerWidth": 375,
+    "clientWidth": 375,
+    "scrollWidth": 375,
+    "outerWidth": 375,
+    "dpr": 2
+  }
+}

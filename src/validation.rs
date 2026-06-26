@@ -1,9 +1,12 @@
 mod log;
 mod target;
+#[cfg(test)]
+mod target_tests;
 
 use crate::audit;
 use crate::ffprobe;
 use crate::model::ProbeSummary;
+use crate::tool_policy::{ResolvedExternalTool, resolve_external_tool};
 use crate::util::now_unix;
 use log::{append_validation_log, validation_status};
 use std::path::{Path, PathBuf};
@@ -13,6 +16,7 @@ use target::resolve_validation_target;
 pub struct ValidationOptions {
     pub ffprobe_bin: String,
     pub operator: Option<String>,
+    pub allow_external_source: bool,
 }
 
 impl Default for ValidationOptions {
@@ -20,6 +24,7 @@ impl Default for ValidationOptions {
         Self {
             ffprobe_bin: "ffprobe".to_string(),
             operator: None,
+            allow_external_source: false,
         }
     }
 }
@@ -38,6 +43,7 @@ pub struct ValidationResult {
     pub validation_note: String,
     pub probe: ProbeSummary,
     pub validated_unix: u64,
+    pub ffprobe_tool: ResolvedExternalTool,
 }
 
 pub fn validate_artifact(
@@ -45,10 +51,11 @@ pub fn validate_artifact(
     selector: &str,
     options: &ValidationOptions,
 ) -> Result<ValidationResult, String> {
-    let target = resolve_validation_target(case_dir, selector)?;
+    let ffprobe_tool = resolve_external_tool(&options.ffprobe_bin, &["ffprobe"], "-version")?;
+    let target = resolve_validation_target(case_dir, selector, options.allow_external_source)?;
     let validated_unix = now_unix()?;
     let target_sha256 = audit::digest_file(&target.path)?;
-    let probe = ffprobe::probe_with_binary(&options.ffprobe_bin, &target.path);
+    let probe = ffprobe::probe_with_tool(&ffprobe_tool, &target.path);
     let (validation_status, validation_note) = validation_status(&probe);
     let result = ValidationResult {
         selector: selector.to_string(),
@@ -63,6 +70,7 @@ pub fn validate_artifact(
         validation_note: validation_note.to_string(),
         probe,
         validated_unix,
+        ffprobe_tool,
     };
     append_validation_log(case_dir, &result, options)?;
     Ok(result)

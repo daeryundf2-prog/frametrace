@@ -1,0 +1,25 @@
+SCENARIO stop-hook direct verification after second completion challenge
+INVOCATION pwd; test -s required T4 artifacts; rg required anchors; jq DoneClaim invariants; git diff --check; summarize observables
+START_UTC 2026-06-24T09:19:55Z
+/Users/shinyoohag/Desktop/frametrace
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-t4-diff-current.patch bytes=22702
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/size-gate-disposition.md bytes=1805
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-fix-evidence-doneclaim.json bytes=7374
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/cleanup-receipt.md bytes=1428
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/final-current-state-verification.log bytes=1114
+NONEMPTY .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/stop-hook-verification-2.log bytes=1819
+ANCHOR_CHECK final-t4-diff-current.patch
+251:+                .map(|artifact_dir| report_claims_chain(case_dir, artifact_dir, spec.relative_path))
+314:+fn report_claims_chain(case_dir: &Path, relative_dir: &str, relative_log: &str) -> bool {
+399:+fn report_defense_blocks_missing_audit_log_for_report_claimed_proxy() {
+SIZE_DISPOSITION_CHECK
+10:- `src/audit.rs` pure_loc=403
+11:- `src/qa_report_defense.rs` pure_loc=310
+12:- `src/qa_tests.rs` pure_loc=345
+17:T4 defers module splitting to T11. The T4 acceptance criteria are about report-defense behavior: missing, empty, and tampered required audit chains must block, while unsupported and not-applicable chains must remain visible without masquerading as pass. Splitting `src/audit.rs`, `src/qa_report_defense.rs`, or `src/qa_tests.rs` now would be a broad refactor in a shared dirty worktree and would overlap the explicit T11 module-split todo after T8-T10 behavior locks.
+29:The size gate is therefore recorded as an accepted T4 deferral, not resolved by code movement. T11 remains the correct place to split oversized modules after the larger behavior surface is pinned.
+DONECLAIM_JSON_CHECK
+true
+DIFF_CHECK git diff --check
+OBSERVABLE_SUMMARY required_artifacts_nonempty=true anchors_present=true doneclaim_valid=true diff_check_passed=true
+exit_code=0

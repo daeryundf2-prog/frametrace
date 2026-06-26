@@ -1,0 +1,18 @@
+status: not-applicable
+reason: this slice started no dev servers, browser automation sessions, workers, or background daemons
+checkedAt: 2026-06-17T13:22:38Z
+noRemainingProcesses: true
+noOpenBrowsers: true
+noWorkers: true
+verification:
+  - cargo test --locked: PASS
+  - cargo clippy --locked --all-targets --all-features -- -D warnings: PASS
+  - cargo build --release --locked: PASS
+  - node --check gui/evidence-viewer/app.js: PASS
+  - real CLI qa release workstation_shell_contract: PASS
+  - windows-ci YAML parse with Ruby YAML.load_file: PASS
+  - git diff --check after CI wiring: PASS
+notRun:
+  - scripts/windows/validate-release.ps1 local execution: pwsh unavailable on this macOS host
+  - review-work 5-agent gate: spawn_agent policy requires explicit user request
+  - LSP diagnostics: local daemon timed out / rust-analyzer unavailable

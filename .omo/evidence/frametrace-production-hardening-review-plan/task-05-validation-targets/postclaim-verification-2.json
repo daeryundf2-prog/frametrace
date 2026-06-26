@@ -1,0 +1,95 @@
+{
+  "postclaim_verification": "2",
+  "commands": {
+    "cargo-fmt-check": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/cargo-fmt-check.log",
+      "bytes": 46
+    },
+    "validation-target-tests": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/validation-target-tests.log",
+      "bytes": 3295
+    },
+    "media-contract-tests": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/media-contract-tests.log",
+      "bytes": 557
+    },
+    "cargo-clippy": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/cargo-clippy.log",
+      "bytes": 189
+    },
+    "cargo-test-full": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/cargo-test-full.log",
+      "bytes": 15086
+    },
+    "git-diff-check": {
+      "exit_code": 0,
+      "passed": true,
+      "log": ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/postclaim-verification-2/git-diff-check.log",
+      "bytes": 46
+    }
+  },
+  "artifacts": {
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/doneclaim.json": {
+      "exists": true,
+      "bytes": 6863,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/red-validation-target-tests.log": {
+      "exists": true,
+      "bytes": 2862,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/focused-validation-target-tests.log": {
+      "exists": true,
+      "bytes": 3349,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/focused-media-contract-tests.log": {
+      "exists": true,
+      "bytes": 613,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-fmt-check.log": {
+      "exists": true,
+      "bytes": 72,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-clippy.log": {
+      "exists": true,
+      "bytes": 253,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-cargo-test-full.log": {
+      "exists": true,
+      "bytes": 15174,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/verify-git-diff-check.log": {
+      "exists": true,
+      "bytes": 62,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/final-manual-qa-summary.json": {
+      "exists": true,
+      "bytes": 2963,
+      "nonempty": true
+    },
+    ".omo/evidence/frametrace-production-hardening-review-plan/task-05-validation-targets/cleanup-receipt.md": {
+      "exists": true,
+      "bytes": 513,
+      "nonempty": true
+    }
+  },
+  "manual_qa_all_passed": true,
+  "overall_passed": true
+}

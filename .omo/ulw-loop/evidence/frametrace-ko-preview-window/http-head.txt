@@ -1,0 +1,10 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0 10549    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+HTTP/1.0 200 OK
+Server: SimpleHTTP/0.6 Python/3.14.3
+Date: Fri, 26 Jun 2026 14:27:10 GMT
+Content-type: text/html
+Content-Length: 10549
+Last-Modified: Fri, 26 Jun 2026 14:24:44 GMT
+

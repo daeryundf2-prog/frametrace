@@ -1,0 +1,13 @@
+Invocation: wc -c final-qa-artifacts/*
+       8 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/00-git-head.txt
+     335 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/01-cargo-test-cli-inventory.txt
+     390 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/02-cargo-test-cli-review.txt
+    2096 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/03-cargo-test-export-manifest.txt
+   10563 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/04-cargo-test-locked-full.txt
+      82 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/05-git-diff-check.txt
+   10532 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/06-inspect-symlink-policy-fix.txt
+     926 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/07-git-status-short.txt
+     566 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/08-symlink-policy-loc-cleanup-check.txt
+     525 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/09-cleanup-receipt.txt
+      68 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-artifacts/10-git-diff-stat.txt
+   26091 total

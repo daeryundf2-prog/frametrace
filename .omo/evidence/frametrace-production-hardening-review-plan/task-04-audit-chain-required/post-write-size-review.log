@@ -1,0 +1,6 @@
+SCENARIO post-write-size-review
+INVOCATION awk pure LOC for T4-touched files
+src/audit.rs pure_loc=395
+src/qa_report_defense.rs pure_loc=293
+src/qa_tests.rs pure_loc=313
+tests/media_contract.rs pure_loc=84

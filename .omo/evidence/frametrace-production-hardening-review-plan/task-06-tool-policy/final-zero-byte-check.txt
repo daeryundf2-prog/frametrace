@@ -1,0 +1,1 @@
+PASS: no zero-byte evidence files at final closeout

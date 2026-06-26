@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-26T11:30:55.374Z",
+  "updatedAt": "2026-06-26T13:12:37.154Z",
+  "briefPath": ".omo/ulw-loop/frametrace-agbrowse-ui-20260626/brief.md",
+  "goalsPath": ".omo/ulw-loop/frametrace-agbrowse-ui-20260626/goals.json",
+  "ledgerPath": ".omo/ulw-loop/frametrace-agbrowse-ui-20260626/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-improve-users-shinyoohag-desktop-fra",
+      "title": "Improve /Users/shinyoohag/Desktop/frametrace gui/evidence-viewer with...",
+      "objective": "Improve /Users/shinyoohag/Desktop/frametrace gui/evidence-viewer with focused code changes. Preserve the existing dirty worktree and do not revert unrelated changes. Code changes are done by Codex. GUI verification must use agbrowse: start a local static server, run agbrowse start --headed, navigate to the local GUI, and capture agbrowse snapshot, screenshot, and console evidence. Verify mobile 375, tablet 768, and desktop 1280 for overflow, buttons, status display, and report flow. Final report must include changed files, verification commands, screenshot paths, and remaining risk.",
+      "status": "complete",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "Desktop headed agbrowse happy path: run python3 -m http.server 4181 --directory gui/evidence-viewer, run agbrowse start --headed, agbrowse navigate http://127.0.0.1:4181/index.html, agbrowse resize 1280 900, then capture agbrowse snapshot --interactive, agbrowse screenshot --json, and agbrowse console --json. PASS iff desktop screenshot shows the viewer, candidate list, status display, and report/export flow without overlapping text; snapshot exposes usable review buttons; console has no page errors.",
+          "userModel": "happy",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/desktop-1280-snapshot.txt, desktop-1280-screenshot.json/png, desktop-1280-console.txt, desktop-1280-overflow.json, cleanup receipt showing server/browser stopped.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/desktop-1280.png; desktop-1280-snapshot.txt; desktop-1280-console.txt; desktop-1280-overflow.json; cleanup-receipt.txt; static dead panels absent",
+          "status": "pass",
+          "capturedAt": "2026-06-26T13:01:41.855Z"
+        },
+        {
+          "id": "C002",
+          "scenario": "Responsive headed agbrowse edge path: with the same local server and headed agbrowse browser, run agbrowse resize 375 900 and 768 900, reload/navigate as needed, then for each viewport capture agbrowse snapshot --interactive, agbrowse screenshot --json, agbrowse console --json, and agbrowse evaluate JSON for scrollWidth/clientWidth plus key button/status/report-flow visibility. PASS iff both mobile and tablet have no horizontal overflow, no clipped primary buttons, status text remains visible, and report flow controls remain reachable.",
+          "userModel": "edge",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/mobile-375-snapshot.txt, mobile-375-screenshot.json/png, mobile-375-console.txt, mobile-375-overflow.json, tablet-768-snapshot.txt, tablet-768-screenshot.json/png, tablet-768-console.txt, tablet-768-overflow.json, cleanup receipt.",
+          "essential": true,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/tablet-768.png; tablet-768-overflow.json; mobile-375.png; mobile-375-overflow.json; mobile-375-report.png; mobile-375-report-overflow.json; mobile-375-inspector.png; mobile-375-inspector-overflow.json; mobile-375-export.png; mobile-375-export-overflow.json; mobile-375-cdp-override.txt; cleanup-receipt.txt",
+          "status": "pass",
+          "capturedAt": "2026-06-26T13:01:41.875Z"
+        },
+        {
+          "id": "C003",
+          "scenario": "Regression/code path: run node --check gui/evidence-viewer/app.js and a targeted DOM/static assertion script against gui/evidence-viewer/index.html/app.js/styles.css verifying the improved report-flow/status-button selectors exist; run cargo test --lib if feasible because Rust engine must remain unaffected. PASS iff JS syntax is clean, static assertions pass, and cargo test --lib passes or any failure is explicitly classified outside this GUI change.",
+          "userModel": "regression",
+          "expectedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/node-check-app.txt, static-assertions.json, cargo-test-lib.txt or cargo-test-lib-skipped.txt, git-diff-check-gui.txt.",
+          "essential": false,
+          "capturedEvidence": ".omo/ulw-loop/evidence/frametrace-agbrowse-ui/node-check-app.txt; node-check-data.txt; node-check-translations.txt; static-assertions.json; git-diff-check-gui.txt; cargo-test-lib.txt; app/styles under 1000 lines; dead UI render paths absent",
+          "status": "pass",
+          "capturedAt": "2026-06-26T13:01:41.867Z"
+        }
+      ],
+      "attempt": 1,
+      "createdAt": "2026-06-26T11:30:55.374Z",
+      "updatedAt": "2026-06-26T13:12:37.154Z",
+      "startedAt": "2026-06-26T12:12:50.265Z",
+      "blockedReason": "Completed legacy Codex goal blocks terminal checkpoint because its objective differs from the ULW aggregate objective; creating the intended aggregate Codex goal next in the same repo/worktree before final checkpoint.",
+      "completedAt": "2026-06-26T13:12:37.154Z",
+      "evidence": "GUI evidence-viewer simplified toward review-first IA; node checks, cargo test --lib, agbrowse headed 1280/768/375 QA, independent code review, and independent GUI evidence review all passed."
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-agbrowse-ui-20260626/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-agbrowse-ui-20260626/ledger.jsonl as the audit trail.",
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-26T13:12:37.154Z",
+    "evidence": "GUI evidence-viewer simplified toward review-first IA; node checks, cargo test --lib, agbrowse headed 1280/768/375 QA, independent code review, and independent GUI evidence review all passed.",
+    "codexGoal": {
+      "goal": {
+        "threadId": "019f0323-5200-7963-b6bc-61fd1c751257",
+        "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-agbrowse-ui-20260626/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-agbrowse-ui-20260626/ledger.jsonl as the audit trail.",
+        "status": "complete",
+        "tokensUsed": 0,
+        "timeUsedSeconds": 3,
+        "createdAt": 1782479396,
+        "updatedAt": 1782479399
+      }
+    }
+  }
+}

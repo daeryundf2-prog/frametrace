@@ -1,0 +1,15 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/frametrace inventory-export-manifest --help`
+Export selected inventory rows as a manifest artifact
+
+Usage: frametrace inventory-export-manifest [OPTIONS] --operator <OPERATOR> <CASE_DIR> [FILE_IDS]...
+
+Arguments:
+  <CASE_DIR>     
+  [FILE_IDS]...  
+
+Options:
+      --operator <OPERATOR>          
+      --filters-json <FILTERS_JSON>  
+      --output <OUTPUT>              
+  -h, --help                         Print help

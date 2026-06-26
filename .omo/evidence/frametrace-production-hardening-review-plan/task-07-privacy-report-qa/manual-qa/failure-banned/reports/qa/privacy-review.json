@@ -1,0 +1,62 @@
+{
+  "allowed_language": [
+    "report-defensible",
+    "reproducible analysis record",
+    "validated against the defined QA corpus",
+    "candidate-unvalidated",
+    "unsupported",
+    "known limitation"
+  ],
+  "findings": [
+    {
+      "key": "distributable_surfaces_present",
+      "message": "3 distributable surface(s) inspected",
+      "status": "pass"
+    },
+    {
+      "key": "banned_legal_wording",
+      "message": "reports/case-report.html contains `court-grade`",
+      "status": "failed"
+    },
+    {
+      "key": "full_path_disclosure_mode",
+      "message": "redacted distributable mode; no local/operator full-path disclosure artifact found",
+      "status": "pass"
+    },
+    {
+      "key": "full_path_leakage",
+      "message": "no absolute case/source path markers found in distributable surfaces",
+      "status": "pass"
+    }
+  ],
+  "passed": false,
+  "qa_type": "privacy_review",
+  "schema_version": 1,
+  "sensitive_marker_count": 4,
+  "surfaces": [
+    {
+      "relative_path": "reports/case-report.html",
+      "status": "pass"
+    },
+    {
+      "relative_path": "review/index.html",
+      "status": "pass"
+    },
+    {
+      "relative_path": "review/evidence-viewer.html",
+      "status": "pass"
+    },
+    {
+      "relative_path": "reports/package/package-manifest.json",
+      "status": "not-applicable"
+    },
+    {
+      "relative_path": "reports/package/review/index.html",
+      "status": "not-applicable"
+    },
+    {
+      "relative_path": "reports/package/review/evidence-viewer.html",
+      "status": "not-applicable"
+    }
+  ]
+}

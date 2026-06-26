@@ -1,0 +1,13 @@
+{
+  "goal": {
+    "threadId": "019f0323-5200-7963-b6bc-61fd1c751257",
+    "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-ui-ia-20260626/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-ui-ia-20260626/ledger.jsonl as the audit trail.",
+    "status": "complete",
+    "tokensUsed": 0,
+    "timeUsedSeconds": 3,
+    "createdAt": 1782473146,
+    "updatedAt": 1782473149
+  },
+  "remainingTokens": null,
+  "completionBudgetReport": "Goal achieved. Report final usage from this tool result's structured goal fields."
+}

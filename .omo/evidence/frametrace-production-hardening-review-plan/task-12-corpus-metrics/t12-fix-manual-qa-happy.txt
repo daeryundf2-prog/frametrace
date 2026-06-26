@@ -1,0 +1,49 @@
+$ target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a corpus/manifest/synthetic-video-corpus.json
+accuracy QA passed: tests/fixtures/corpus/synthetic-video-case-a/reports/qa/accuracy-report.json
+EXIT_CODE=0
+$ jq accuracy fields
+{
+  "passed": true,
+  "precision": 1.0,
+  "recall": 1.0,
+  "false_positives": 0,
+  "false_negatives": 0,
+  "hash_mismatch": 0,
+  "contract_keys": [
+    "corpus_id",
+    "expected_artifact_type",
+    "expected_hash",
+    "expected_path_pattern",
+    "expected_state",
+    "expected_timestamp_range",
+    "negative_controls",
+    "notes",
+    "source_artifact_id",
+    "source_sha256"
+  ],
+  "source_sha256": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+  "expected_hash": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+  "mixed_real_world_like": "unsupported",
+  "unsupported_domains": [
+    "browser_artifacts",
+    "windows_event_logs",
+    "timeline_reconstruction"
+  ]
+}
+$ target/debug/frametrace qa reproducibility tests/fixtures/corpus/synthetic-video-case-a tests/fixtures/corpus/synthetic-video-case-b
+reproducibility QA passed: tests/fixtures/corpus/synthetic-video-case-a/reports/qa/reproducibility-report.json
+EXIT_CODE=0
+$ jq reproducibility fields
+{
+  "passed": true,
+  "allowed_diff_thresholds": {
+    "normalized_core_differences": 0
+  },
+  "diff_metrics": {
+    "normalized_core_differences": 0,
+    "normalized_left_bytes": 2123,
+    "normalized_right_bytes": 2123
+  },
+  "normalized_left_bytes": 2123,
+  "normalized_right_bytes": 2123
+}

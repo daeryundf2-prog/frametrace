@@ -1,0 +1,852 @@
+diff --git a/src/e01.rs b/src/e01.rs
+index 0c9bd61..386d745 100644
+--- a/src/e01.rs
++++ b/src/e01.rs
+@@ -1,5 +1,7 @@
+ use crate::audit;
+-use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
++use crate::tool_policy::{
++    command_version, reject_source_output_path, require_case_output_path, resolve_tool_binary,
++};
+ use crate::util::{json_escape, now_unix, unique_path, write_text};
+ use std::path::{Path, PathBuf};
+ use std::process::Command;
+@@ -43,16 +45,18 @@ pub struct E01ImportResult {
+ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Result<(), String> {
+     let e01_path = canonical_e01_path(e01_path)?;
+     let inspected_unix = now_unix()?;
+-    let info = run_capture(
+-        &options.ewfinfo_bin,
+-        &["ewfinfo"],
+-        &["-f", "text", &audit::path_string(&e01_path)],
+-    )?;
+     let info_log_path = unique_path(
+         &case_dir
+             .join("evidence/logs")
+             .join(format!("e01-info-{inspected_unix}.txt")),
+     );
++    require_e01_output_path(case_dir, &e01_path, &info_log_path, "E01 info log")?;
++    let audit_log_path = e01_audit_log_path(case_dir, &e01_path)?;
++    let info = run_capture(
++        &options.ewfinfo_bin,
++        &["ewfinfo"],
++        &["-f", "text", &audit::path_string(&e01_path)],
++    )?;
+     write_text(&info_log_path, &info.stdout)
+         .map_err(|err| format!("failed to write E01 info log: {err}"))?;
+ 
+@@ -61,8 +65,8 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
+     } else {
+         None
+     };
+-    append_e01_audit(
+-        case_dir,
++    append_e01_audit_at(
++        &audit_log_path,
+         &format!(
+             "{{\"schema_version\":1,\"event\":\"inspect-e01\",\"inspected_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"ewfinfo_version\":\"{}\",\"ewfinfo_log_path\":\"{}\"}}",
+             inspected_unix,
+@@ -81,20 +85,12 @@ pub fn import_e01(
+ ) -> Result<E01ImportResult, String> {
+     let e01_path = canonical_e01_path(e01_path)?;
+     let imported_unix = now_unix()?;
+-
+-    let info = run_capture(
+-        &options.ewfinfo_bin,
+-        &["ewfinfo"],
+-        &["-f", "text", &audit::path_string(&e01_path)],
+-    )?;
+     let info_log_path = unique_path(
+         &case_dir
+             .join("evidence/logs")
+             .join(format!("e01-info-{imported_unix}.txt")),
+     );
+-    write_text(&info_log_path, &info.stdout)
+-        .map_err(|err| format!("failed to write E01 info log: {err}"))?;
+-
++    require_e01_output_path(case_dir, &e01_path, &info_log_path, "E01 info log")?;
+     let verify_log_path = if options.skip_verify {
+         None
+     } else {
+@@ -103,17 +99,36 @@ pub fn import_e01(
+                 .join("evidence/logs")
+                 .join(format!("e01-verify-{imported_unix}.txt")),
+         );
++        require_e01_output_path(case_dir, &e01_path, &path, "E01 verify log")?;
++        Some(path)
++    };
++    let export_log_path = unique_path(
++        &case_dir
++            .join("evidence/logs")
++            .join(format!("e01-export-{imported_unix}.txt")),
++    );
++    require_e01_output_path(case_dir, &e01_path, &export_log_path, "E01 export log")?;
++    let audit_log_path = e01_audit_log_path(case_dir, &e01_path)?;
++
++    let info = run_capture(
++        &options.ewfinfo_bin,
++        &["ewfinfo"],
++        &["-f", "text", &audit::path_string(&e01_path)],
++    )?;
++    write_text(&info_log_path, &info.stdout)
++        .map_err(|err| format!("failed to write E01 info log: {err}"))?;
++
++    if let Some(path) = &verify_log_path {
+         let args = vec![
+             "-q".to_string(),
+             "-d".to_string(),
+             "sha256".to_string(),
+             "-l".to_string(),
+-            audit::path_string(&path),
++            audit::path_string(path),
+             audit::path_string(&e01_path),
+         ];
+         run_status(&options.ewfverify_bin, &["ewfverify"], &args)?;
+-        Some(path)
+-    };
++    }
+ 
+     let requested_raw_path = options.output_path.clone().unwrap_or_else(|| {
+         case_dir
+@@ -140,11 +155,6 @@ pub fn import_e01(
+         ));
+     }
+ 
+-    let export_log_path = unique_path(
+-        &case_dir
+-            .join("evidence/logs")
+-            .join(format!("e01-export-{imported_unix}.txt")),
+-    );
+     let export_args = ewfexport_args(&e01_path, &export_target, options, &export_log_path);
+     run_status(&options.ewfexport_bin, &["ewfexport"], &export_args)?;
+     let generated_raw_path = resolve_ewfexport_output(&generated_raw_path)?;
+@@ -167,8 +177,8 @@ pub fn import_e01(
+         None
+     };
+ 
+-    append_e01_audit(
+-        case_dir,
++    append_e01_audit_at(
++        &audit_log_path,
+         &format!(
+             "{{\"schema_version\":1,\"event\":\"import-e01\",\"imported_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"raw_output_path\":\"{}\",\"raw_sha256\":\"{}\",\"max_bytes\":{},\"verified\":{},\"ewfinfo_version\":\"{}\",\"ewfverify_version\":\"{}\",\"ewfexport_version\":\"{}\",\"ewfinfo_log_path\":\"{}\",\"ewfverify_log_path\":{},\"ewfexport_log_path\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+             imported_unix,
+@@ -338,8 +348,24 @@ fn ewf_command_version(binary: &str, allowed: &[&str]) -> String {
+     command_version(binary, allowed, "-V")
+ }
+ 
+-fn append_e01_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
+-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/e01-audit.jsonl"), body_json)
++fn require_e01_output_path(
++    case_dir: &Path,
++    e01_path: &Path,
++    output_path: &Path,
++    label: &str,
++) -> Result<(), String> {
++    require_case_output_path(case_dir, output_path, label)?;
++    reject_source_output_path(e01_path, output_path, label)
++}
++
++fn e01_audit_log_path(case_dir: &Path, e01_path: &Path) -> Result<PathBuf, String> {
++    let path = case_dir.join("evidence/logs/e01-audit.jsonl");
++    require_e01_output_path(case_dir, e01_path, &path, "E01 audit log")?;
++    Ok(path)
++}
++
++fn append_e01_audit_at(path: &Path, body_json: &str) -> Result<(), String> {
++    audit::append_chained_jsonl(path, body_json)
+ }
+ 
+ struct CommandOutput {
+diff --git a/src/playback.rs b/src/playback.rs
+index d8ac72e..4039b9e 100644
+--- a/src/playback.rs
++++ b/src/playback.rs
+@@ -1,5 +1,6 @@
+ use crate::audit;
+ use crate::media_contract;
++use crate::tool_policy::require_case_output_path;
+ use crate::util::{json_escape, now_unix, read_to_string};
+ use std::path::{Path, PathBuf};
+ 
+@@ -51,7 +52,9 @@ pub fn confirm_playback(
+         confirmed_unix,
+     };
+     let body = playback_log_body_json(&result, &prior, options);
+-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/validation-log.jsonl"), &body)?;
++    let log_path = case_dir.join("evidence/logs/validation-log.jsonl");
++    require_case_output_path(case_dir, &log_path, "validation log")?;
++    audit::append_chained_jsonl(&log_path, &body)?;
+     Ok(result)
+ }
+ 
+diff --git a/src/tsk.rs b/src/tsk.rs
+index adb3475..c869723 100644
+--- a/src/tsk.rs
++++ b/src/tsk.rs
+@@ -1,5 +1,7 @@
+ use crate::audit;
+-use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
++use crate::tool_policy::{
++    command_version, reject_source_output_path, require_case_output_path, resolve_tool_binary,
++};
+ use crate::util::{json_escape, now_unix, unique_path, write_text};
+ use std::fs::{self, File};
+ use std::path::{Path, PathBuf};
+@@ -133,6 +135,7 @@ pub fn inspect_image(
+             .join("evidence/logs")
+             .join(format!("tsk-mmls-{inspected_unix}.txt")),
+     );
++    require_case_output_path(case_dir, &mmls_log_path, "mmls log")?;
+     let mmls_args = vec![tsk_path_string(&image_path)];
+     let mmls = run_capture(&options.mmls_bin, &["mmls"], &mmls_args);
+     let partitions = match &mmls {
+@@ -166,6 +169,7 @@ pub fn inspect_image(
+             .join("evidence/logs")
+             .join(format!("tsk-fls-{inspected_unix}.txt")),
+     );
++    require_case_output_path(case_dir, &fls_log_path, "fls log")?;
+     let fls_args = fls_args(&image_path, partition_offset);
+     let fls = run_capture(&options.fls_bin, &["fls"], &fls_args)?;
+     write_text(&fls_log_path, &fls.combined_text())
+@@ -193,6 +197,7 @@ pub fn inspect_image(
+             .join("db/filesystem")
+             .join(format!("tsk-files-{inspected_unix}.jsonl")),
+     );
++    require_case_output_path(case_dir, &entries_jsonl_path, "filesystem entries")?;
+     let jsonl = entries
+         .iter()
+         .map(FlsEntry::to_json)
+@@ -206,6 +211,8 @@ pub fn inspect_image(
+             .join("db/filesystem")
+             .join(format!("tsk-inspection-{inspected_unix}.json")),
+     );
++    require_case_output_path(case_dir, &summary_path, "filesystem inspection summary")?;
++    let audit_log_path = tsk_audit_log_path(case_dir, Some(&image_path))?;
+     let summary = inspect_summary_json(&InspectSummaryInput {
+         image_path: &image_path,
+         inspected_unix,
+@@ -220,8 +227,8 @@ pub fn inspect_image(
+     write_text(&summary_path, &summary)
+         .map_err(|err| format!("failed to write filesystem inspection summary: {err}"))?;
+ 
+-    append_tsk_audit(
+-        case_dir,
++    append_tsk_audit_at(
++        &audit_log_path,
+         &format!(
+             "{{\"schema_version\":1,\"event\":\"inspect-image-filesystem\",\"inspected_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"partition_count\":{},\"entry_count\":{},\"deleted_count\":{},\"video_candidate_count\":{},\"mmls_version\":\"{}\",\"fls_version\":\"{}\",\"mmls_log_path\":\"{}\",\"fls_log_path\":\"{}\",\"entries_jsonl_path\":\"{}\",\"summary_path\":\"{}\",\"warnings\":{}}}",
+             inspected_unix,
+@@ -282,6 +289,7 @@ pub fn recover_inode(
+         ),
+     };
+     require_case_output_path(case_dir, &output_path, "inode recovery")?;
++    let audit_log_path = tsk_audit_log_path(case_dir, Some(&image_path))?;
+     if let Some(parent) = output_path.parent() {
+         fs::create_dir_all(parent)
+             .map_err(|err| format!("failed to create recovery output directory: {err}"))?;
+@@ -317,8 +325,8 @@ pub fn recover_inode(
+     let sha256 = audit::digest_file(&output_path)?;
+     let validation_status = "candidate-unvalidated".to_string();
+ 
+-    append_tsk_audit(
+-        case_dir,
++    append_tsk_audit_at(
++        &audit_log_path,
+         &format!(
+             "{{\"schema_version\":1,\"event\":\"recover-inode\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+             recovered_unix,
+@@ -390,8 +398,17 @@ fn inspect_summary_json(input: &InspectSummaryInput<'_>) -> String {
+     )
+ }
+ 
+-fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
+-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/tsk-audit.jsonl"), body_json)
++fn tsk_audit_log_path(case_dir: &Path, source_path: Option<&Path>) -> Result<PathBuf, String> {
++    let path = case_dir.join("evidence/logs/tsk-audit.jsonl");
++    require_case_output_path(case_dir, &path, "filesystem audit log")?;
++    if let Some(source_path) = source_path {
++        reject_source_output_path(source_path, &path, "filesystem audit log")?;
++    }
++    Ok(path)
++}
++
++fn append_tsk_audit_at(path: &Path, body_json: &str) -> Result<(), String> {
++    audit::append_chained_jsonl(path, body_json)
+ }
+ 
+ fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
+diff --git a/src/validation.rs b/src/validation.rs
+index e57f17b..8275d88 100644
+--- a/src/validation.rs
++++ b/src/validation.rs
+@@ -2,7 +2,7 @@ use crate::audit;
+ use crate::ffprobe;
+ use crate::media_contract;
+ use crate::model::ProbeSummary;
+-use crate::tool_policy::command_version;
++use crate::tool_policy::{command_version, require_case_output_path};
+ use crate::util::{json_escape, now_unix, read_to_string};
+ use crate::video_export::resolve_video_source;
+ use std::path::{Path, PathBuf};
+@@ -203,7 +203,9 @@ fn append_validation_log(
+ ) -> Result<(), String> {
+     let operator = media_contract::resolve_operator(case_dir, options.operator.as_deref())?;
+     let line = validation_log_body_json(result, options, &operator);
+-    audit::append_chained_jsonl(&case_dir.join("evidence/logs/validation-log.jsonl"), &line)
++    let log_path = case_dir.join("evidence/logs/validation-log.jsonl");
++    require_case_output_path(case_dir, &log_path, "validation log")?;
++    audit::append_chained_jsonl(&log_path, &line)
+ }
+ 
+ fn validation_log_body_json(
+diff --git a/tests/cli_default_output_policy.rs b/tests/cli_default_output_policy.rs
+index 4255371..446cf63 100644
+--- a/tests/cli_default_output_policy.rs
++++ b/tests/cli_default_output_policy.rs
+@@ -184,18 +184,20 @@ fn init_case(case_dir: &Path) {
+ 
+ fn write_fake_ffmpeg(fake_bin: &Path) {
+     fs::create_dir_all(fake_bin).expect("fake bin should be created");
+-    let ffmpeg = fake_bin.join("ffmpeg");
+-    fs::write(
+-        &ffmpeg,
++    write_executable(
++        &fake_bin.join("ffmpeg"),
+         "#!/bin/sh\ncase \"$1\" in -version|--version) echo 'ffmpeg fake 1.0'; exit 0 ;; esac\nout=\"\"\nfor arg in \"$@\"; do out=\"$arg\"; done\ncase \"$out\" in ''|-*) echo 'missing output' >&2; exit 2 ;; esac\nprintf 'derived media' > \"$out\"\n",
+-    )
+-    .expect("fake ffmpeg should be written");
+-    let mut permissions = fs::metadata(&ffmpeg)
+-        .expect("fake ffmpeg metadata should exist")
++    );
++}
++
++fn write_executable(path: &Path, contents: &str) {
++    fs::write(path, contents).expect("fake executable should be written");
++    let mut permissions = fs::metadata(path)
++        .expect("fake executable metadata should exist")
+         .permissions();
+     use std::os::unix::fs::PermissionsExt;
+     permissions.set_mode(0o755);
+-    fs::set_permissions(&ffmpeg, permissions).expect("fake ffmpeg should be executable");
++    fs::set_permissions(path, permissions).expect("fake executable should be executable");
+ }
+ 
+ fn test_path_with_fake_bin(fake_bin: &Path) -> String {
+diff --git a/tests/cli_e01_validation_log_output_policy.rs b/tests/cli_e01_validation_log_output_policy.rs
+new file mode 100644
+index 0000000..bcb4cd8
+--- /dev/null
++++ b/tests/cli_e01_validation_log_output_policy.rs
+@@ -0,0 +1,273 @@
++#![cfg(unix)]
++
++use std::fs;
++use std::os::unix::fs::symlink;
++use std::path::{Path, PathBuf};
++use std::process::{Command, Output};
++use std::time::{SystemTime, UNIX_EPOCH};
++
++fn frametrace() -> &'static str {
++    env!("CARGO_BIN_EXE_frametrace")
++}
++
++fn unique_temp_dir(name: &str) -> PathBuf {
++    let nanos = SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .expect("system time should be after UNIX epoch")
++        .as_nanos();
++    std::env::temp_dir().join(format!("frametrace-{name}-{}-{nanos}", std::process::id()))
++}
++
++fn run(args: &[&str]) -> Output {
++    Command::new(frametrace())
++        .args(args)
++        .output()
++        .expect("frametrace binary should run")
++}
++
++fn run_with_path(args: &[&str], path_env: &str) -> Output {
++    Command::new(frametrace())
++        .args(args)
++        .env("PATH", path_env)
++        .output()
++        .expect("frametrace binary should run")
++}
++
++fn assert_success(output: &Output) {
++    assert!(
++        output.status.success(),
++        "command failed\nstdout:\n{}\nstderr:\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++}
++
++fn assert_failure_contains(output: &Output, expected: &str) {
++    assert!(
++        !output.status.success(),
++        "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++    let combined = format!(
++        "{}\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++    assert!(
++        combined.contains(expected),
++        "expected output to contain {expected:?}\nactual:\n{combined}"
++    );
++}
++
++#[test]
++fn inspect_e01_rejects_symlinked_logs_directory_without_writing_outside() {
++    let fixture = E01Fixture::new("cli-inspect-e01-logs-dir-symlink");
++    fixture.init();
++    symlink(&fixture.source_dir, fixture.case_dir.join("evidence/logs"))
++        .expect("symlink should be created");
++
++    let output = fixture.inspect_e01();
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert!(!fixture.source_dir.join("e01-audit.jsonl").exists());
++    assert_no_matching_outside_file(&fixture.source_dir, "e01-info-");
++    let _ = fs::remove_dir_all(fixture.root);
++}
++
++#[test]
++fn import_e01_rejects_symlinked_logs_directory_without_writing_outside() {
++    let fixture = E01Fixture::new("cli-import-e01-logs-dir-symlink");
++    fixture.init();
++    symlink(&fixture.source_dir, fixture.case_dir.join("evidence/logs"))
++        .expect("symlink should be created");
++
++    let output = fixture.import_e01();
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert!(!fixture.source_dir.join("e01-audit.jsonl").exists());
++    assert_no_matching_outside_file(&fixture.source_dir, "e01-info-");
++    assert_no_matching_outside_file(&fixture.source_dir, "e01-verify-");
++    assert_no_matching_outside_file(&fixture.source_dir, "e01-export-");
++    let _ = fs::remove_dir_all(fixture.root);
++}
++
++#[test]
++fn validate_artifact_rejects_symlinked_logs_directory_without_writing_outside() {
++    let root = unique_temp_dir("cli-validate-logs-dir-symlink");
++    let case_dir = root.join("case");
++    let media_dir = root.join("media");
++    let outside = root.join("outside-validation-logs");
++    let source_file = media_dir.join("clip.mp4");
++    fs::create_dir_all(&media_dir).expect("media dir should exist");
++    fs::write(&source_file, b"\0\0\0\x18ftypmp42payload").expect("fixture video should be written");
++    init_case(&case_dir);
++    fs::remove_dir_all(case_dir.join("evidence/logs")).expect("logs dir should be removed");
++    fs::create_dir_all(&outside).expect("outside logs dir should exist");
++    symlink(&outside, case_dir.join("evidence/logs")).expect("symlink should be created");
++
++    let output = run(&["validate-artifact", path(&case_dir), path(&source_file)]);
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert!(!outside.join("validation-log.jsonl").exists());
++    let _ = fs::remove_dir_all(root);
++}
++
++#[test]
++fn confirm_playback_rejects_symlinked_logs_directory_without_appending_outside() {
++    let root = unique_temp_dir("cli-playback-logs-dir-symlink");
++    let case_dir = root.join("case");
++    let outside = root.join("outside-validation-logs");
++    let target = root.join("clip.mp4");
++    fs::create_dir_all(&root).expect("root dir should exist");
++    fs::write(&target, b"\0\0\0\x18ftypmp42payload").expect("fixture video should be written");
++    init_case(&case_dir);
++    fs::remove_dir_all(case_dir.join("evidence/logs")).expect("logs dir should be removed");
++    fs::create_dir_all(&outside).expect("outside logs dir should exist");
++    seed_validation_log(&outside.join("validation-log.jsonl"), &target);
++    symlink(&outside, case_dir.join("evidence/logs")).expect("symlink should be created");
++
++    let output = run(&["confirm-playback", path(&case_dir), "vid_000001"]);
++
++    assert_failure_contains(&output, "inside the case directory");
++    let validation_log =
++        fs::read_to_string(outside.join("validation-log.jsonl")).expect("seed log should exist");
++    assert_eq!(validation_log.lines().count(), 1);
++    let _ = fs::remove_dir_all(root);
++}
++
++struct E01Fixture {
++    root: PathBuf,
++    case_dir: PathBuf,
++    source_dir: PathBuf,
++    fake_bin: PathBuf,
++    source_file: PathBuf,
++}
++
++impl E01Fixture {
++    fn new(name: &str) -> Self {
++        let root = unique_temp_dir(name);
++        let case_dir = root.join("case");
++        let source_dir = root.join("source-evidence");
++        let fake_bin = root.join("fake-bin");
++        let source_file = source_dir.join("blackbox.E01");
++        Self {
++            root,
++            case_dir,
++            source_dir,
++            fake_bin,
++            source_file,
++        }
++    }
++
++    fn init(&self) {
++        fs::create_dir_all(&self.source_dir).expect("source evidence dir should exist");
++        fs::write(&self.source_file, b"e01 image").expect("source E01 should be written");
++        init_case(&self.case_dir);
++        write_fake_libewf(&self.fake_bin);
++        fs::remove_dir_all(self.case_dir.join("evidence/logs"))
++            .expect("logs dir should be removed");
++    }
++
++    fn inspect_e01(&self) -> Output {
++        run_with_path(
++            &[
++                "inspect-e01",
++                path(&self.case_dir),
++                path(&self.source_file),
++                "--ewfinfo",
++                path(&self.fake_bin.join("ewfinfo")),
++            ],
++            &test_path_with_fake_bin(&self.fake_bin),
++        )
++    }
++
++    fn import_e01(&self) -> Output {
++        run_with_path(
++            &[
++                "import-e01",
++                path(&self.case_dir),
++                path(&self.source_file),
++                "--ewfinfo",
++                path(&self.fake_bin.join("ewfinfo")),
++                "--ewfverify",
++                path(&self.fake_bin.join("ewfverify")),
++                "--ewfexport",
++                path(&self.fake_bin.join("ewfexport")),
++            ],
++            &test_path_with_fake_bin(&self.fake_bin),
++        )
++    }
++}
++
++fn init_case(case_dir: &Path) {
++    assert_success(&run(&[
++        "init-case",
++        path(case_dir),
++        "--title",
++        "Output Policy",
++    ]));
++}
++
++fn seed_validation_log(log_path: &Path, target: &Path) {
++    fs::write(
++        log_path,
++        format!(
++            "{{\"selector\":\"vid_000001\",\"target_path\":\"{}\",\"target_sha256\":\"abc\",\"validation_status\":\"ffprobe-video-stream-confirmed\"}}\n",
++            target.display()
++        ),
++    )
++    .expect("outside validation log should be seeded");
++}
++
++fn write_fake_libewf(fake_bin: &Path) {
++    fs::create_dir_all(fake_bin).expect("fake bin should be created");
++    write_executable(
++        &fake_bin.join("ewfinfo"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'ewfinfo fake 1.0'; exit 0 ;; esac\necho 'EWF information'\n",
++    );
++    write_executable(
++        &fake_bin.join("ewfverify"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'ewfverify fake 1.0'; exit 0 ;; esac\nlog=''\nwhile [ $# -gt 0 ]; do if [ \"$1\" = '-l' ]; then shift; log=\"$1\"; fi; shift || break; done\n[ -n \"$log\" ] && printf 'verified\\n' > \"$log\"\n",
++    );
++    write_executable(
++        &fake_bin.join("ewfexport"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'ewfexport fake 1.0'; exit 0 ;; esac\nlog=''\ntarget=''\nwhile [ $# -gt 0 ]; do case \"$1\" in -l) shift; log=\"$1\" ;; -t) shift; target=\"$1\" ;; esac; shift || break; done\n[ -n \"$log\" ] && printf 'exported\\n' > \"$log\"\n[ -n \"$target\" ] && printf 'raw image' > \"${target}.raw\"\n",
++    );
++}
++
++fn write_executable(path: &Path, contents: &str) {
++    fs::write(path, contents).expect("fake executable should be written");
++    let mut permissions = fs::metadata(path)
++        .expect("fake executable metadata should exist")
++        .permissions();
++    use std::os::unix::fs::PermissionsExt;
++    permissions.set_mode(0o755);
++    fs::set_permissions(path, permissions).expect("fake executable should be executable");
++}
++
++fn test_path_with_fake_bin(fake_bin: &Path) -> String {
++    let current = std::env::var_os("PATH")
++        .map(|path| path.to_string_lossy().into_owned())
++        .unwrap_or_default();
++    format!("{}:{current}", fake_bin.display())
++}
++
++fn assert_no_matching_outside_file(outside: &Path, prefix: &str) {
++    let matches = fs::read_dir(outside)
++        .expect("outside dir should be readable")
++        .collect::<Result<Vec<_>, _>>()
++        .expect("outside entries should be readable")
++        .into_iter()
++        .map(|entry| entry.file_name().to_string_lossy().into_owned())
++        .filter(|name| name.starts_with(prefix))
++        .collect::<Vec<_>>();
++    assert!(
++        matches.is_empty(),
++        "outside directory should not contain files starting with {prefix:?}: {matches:?}"
++    );
++}
++
++fn path(path: &Path) -> &str {
++    path.to_str().expect("test paths should be UTF-8")
++}
+diff --git a/tests/cli_tsk_log_output_policy.rs b/tests/cli_tsk_log_output_policy.rs
+new file mode 100644
+index 0000000..c14bc93
+--- /dev/null
++++ b/tests/cli_tsk_log_output_policy.rs
+@@ -0,0 +1,232 @@
++#![cfg(unix)]
++
++use std::fs;
++use std::os::unix::fs::symlink;
++use std::path::{Path, PathBuf};
++use std::process::{Command, Output};
++use std::time::{SystemTime, UNIX_EPOCH};
++
++fn frametrace() -> &'static str {
++    env!("CARGO_BIN_EXE_frametrace")
++}
++
++fn unique_temp_dir(name: &str) -> PathBuf {
++    let nanos = SystemTime::now()
++        .duration_since(UNIX_EPOCH)
++        .expect("system time should be after UNIX epoch")
++        .as_nanos();
++    std::env::temp_dir().join(format!("frametrace-{name}-{}-{nanos}", std::process::id()))
++}
++
++fn run(args: &[&str]) -> Output {
++    Command::new(frametrace())
++        .args(args)
++        .output()
++        .expect("frametrace binary should run")
++}
++
++fn run_with_path(args: &[&str], path_env: &str) -> Output {
++    Command::new(frametrace())
++        .args(args)
++        .env("PATH", path_env)
++        .output()
++        .expect("frametrace binary should run")
++}
++
++fn assert_success(output: &Output) {
++    assert!(
++        output.status.success(),
++        "command failed\nstdout:\n{}\nstderr:\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++}
++
++fn assert_failure_contains(output: &Output, expected: &str) {
++    assert!(
++        !output.status.success(),
++        "command unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++    let combined = format!(
++        "{}\n{}",
++        String::from_utf8_lossy(&output.stdout),
++        String::from_utf8_lossy(&output.stderr)
++    );
++    assert!(
++        combined.contains(expected),
++        "expected output to contain {expected:?}\nactual:\n{combined}"
++    );
++}
++
++#[test]
++fn inspect_image_rejects_symlinked_logs_directory_without_writing_outside() {
++    let root = unique_temp_dir("cli-inspect-image-logs-dir-symlink");
++    let case_dir = root.join("case");
++    let source_dir = root.join("source-evidence");
++    let fake_bin = root.join("fake-bin");
++    let source_file = source_dir.join("disk.img");
++    fs::create_dir_all(&source_dir).expect("source evidence dir should exist");
++    fs::write(&source_file, b"raw image").expect("source image should be written");
++    init_case(&case_dir);
++    write_fake_sleuthkit(&fake_bin);
++    fs::remove_dir_all(case_dir.join("evidence/logs")).expect("logs dir should be removed");
++    symlink(&source_dir, case_dir.join("evidence/logs")).expect("symlink should be created");
++
++    let output = inspect_image(&case_dir, &source_file, &fake_bin);
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert!(!source_dir.join("tsk-audit.jsonl").exists());
++    assert_no_matching_outside_file(&source_dir, "tsk-mmls-");
++    assert_no_matching_outside_file(&source_dir, "tsk-fls-");
++    let _ = fs::remove_dir_all(root);
++}
++
++#[test]
++fn inspect_image_rejects_symlinked_filesystem_db_directory_without_writing_outside() {
++    let root = unique_temp_dir("cli-inspect-image-dbfs-dir-symlink");
++    let case_dir = root.join("case");
++    let source_dir = root.join("source-evidence");
++    let fake_bin = root.join("fake-bin");
++    let outside = root.join("outside-dbfs");
++    let source_file = source_dir.join("disk.img");
++    fs::create_dir_all(&source_dir).expect("source evidence dir should exist");
++    fs::write(&source_file, b"raw image").expect("source image should be written");
++    init_case(&case_dir);
++    write_fake_sleuthkit(&fake_bin);
++    fs::remove_dir_all(case_dir.join("db/filesystem"))
++        .expect("filesystem db dir should be removed");
++    fs::create_dir_all(&outside).expect("outside dbfs dir should exist");
++    symlink(&outside, case_dir.join("db/filesystem")).expect("symlink should be created");
++
++    let output = inspect_image(&case_dir, &source_file, &fake_bin);
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert_no_outside_files(&outside);
++    let _ = fs::remove_dir_all(root);
++}
++
++#[test]
++fn recover_inode_rejects_symlinked_logs_directory_without_writing_outside() {
++    let root = unique_temp_dir("cli-recover-inode-logs-dir-symlink");
++    let case_dir = root.join("case");
++    let source_dir = root.join("source-evidence");
++    let fake_bin = root.join("fake-bin");
++    let source_file = source_dir.join("disk.img");
++    fs::create_dir_all(&source_dir).expect("source evidence dir should exist");
++    fs::write(&source_file, b"raw image").expect("source image should be written");
++    init_case(&case_dir);
++    write_fake_icat(&fake_bin);
++    fs::remove_dir_all(case_dir.join("evidence/logs")).expect("logs dir should be removed");
++    symlink(&source_dir, case_dir.join("evidence/logs")).expect("symlink should be created");
++
++    let output = run_with_path(
++        &[
++            "recover-inode",
++            path(&case_dir),
++            path(&source_file),
++            "5",
++            "--icat",
++            path(&fake_bin.join("icat")),
++        ],
++        &test_path_with_fake_bin(&fake_bin),
++    );
++
++    assert_failure_contains(&output, "inside the case directory");
++    assert!(!source_dir.join("tsk-audit.jsonl").exists());
++    assert_no_matching_outside_file(&source_dir, "inode_");
++    let _ = fs::remove_dir_all(root);
++}
++
++fn inspect_image(case_dir: &Path, source_file: &Path, fake_bin: &Path) -> Output {
++    run_with_path(
++        &[
++            "inspect-image",
++            path(case_dir),
++            path(source_file),
++            "--mmls",
++            path(&fake_bin.join("mmls")),
++            "--fls",
++            path(&fake_bin.join("fls")),
++        ],
++        &test_path_with_fake_bin(fake_bin),
++    )
++}
++
++fn init_case(case_dir: &Path) {
++    assert_success(&run(&[
++        "init-case",
++        path(case_dir),
++        "--title",
++        "Output Policy",
++    ]));
++}
++
++fn write_fake_sleuthkit(fake_bin: &Path) {
++    fs::create_dir_all(fake_bin).expect("fake bin should be created");
++    write_executable(
++        &fake_bin.join("mmls"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'mmls fake 1.0'; exit 0 ;; esac\necho '000: 0000000000 0000001023 0000001024 NTFS'\n",
++    );
++    write_executable(
++        &fake_bin.join("fls"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'fls fake 1.0'; exit 0 ;; esac\necho 'r/r 5: clip.mp4'\n",
++    );
++}
++
++fn write_fake_icat(fake_bin: &Path) {
++    fs::create_dir_all(fake_bin).expect("fake bin should be created");
++    write_executable(
++        &fake_bin.join("icat"),
++        "#!/bin/sh\ncase \"$1\" in -V|--version|-version) echo 'icat fake 1.0'; exit 0 ;; esac\nprintf 'recovered inode'\n",
++    );
++}
++
++fn write_executable(path: &Path, contents: &str) {
++    fs::write(path, contents).expect("fake executable should be written");
++    let mut permissions = fs::metadata(path)
++        .expect("fake executable metadata should exist")
++        .permissions();
++    use std::os::unix::fs::PermissionsExt;
++    permissions.set_mode(0o755);
++    fs::set_permissions(path, permissions).expect("fake executable should be executable");
++}
++
++fn test_path_with_fake_bin(fake_bin: &Path) -> String {
++    let current = std::env::var_os("PATH")
++        .map(|path| path.to_string_lossy().into_owned())
++        .unwrap_or_default();
++    format!("{}:{current}", fake_bin.display())
++}
++
++fn assert_no_outside_files(outside: &Path) {
++    let entries = fs::read_dir(outside)
++        .expect("outside dir should be readable")
++        .collect::<Result<Vec<_>, _>>()
++        .expect("outside entries should be readable");
++    assert!(
++        entries.is_empty(),
++        "outside directory should remain empty: {:?}",
++        entries.iter().map(|entry| entry.path()).collect::<Vec<_>>()
++    );
++}
++
++fn assert_no_matching_outside_file(outside: &Path, prefix: &str) {
++    let matches = fs::read_dir(outside)
++        .expect("outside dir should be readable")
++        .collect::<Result<Vec<_>, _>>()
++        .expect("outside entries should be readable")
++        .into_iter()
++        .map(|entry| entry.file_name().to_string_lossy().into_owned())
++        .filter(|name| name.starts_with(prefix))
++        .collect::<Vec<_>>();
++    assert!(
++        matches.is_empty(),
++        "outside directory should not contain files starting with {prefix:?}: {matches:?}"
++    );
++}
++
++fn path(path: &Path) -> &str {
++    path.to_str().expect("test paths should be UTF-8")
++}

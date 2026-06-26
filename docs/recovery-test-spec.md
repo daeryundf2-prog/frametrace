@@ -8,7 +8,7 @@ Status: approved for implementation and regression execution.
 | --- | --- |
 | Unit | Parser/build-argument helpers, JSON structural checks, path policy, migration helpers. |
 | Integration | CLI case lifecycle, QA commands, package generation, report/viewer generation. |
-| Corpus | Ground-truth TSV manifest compared with `qa accuracy`. |
+| Corpus | Typed ground-truth corpus manifest compared with `qa accuracy`. |
 | Reproducibility | Same corpus scanned into repeat case directories and compared with `qa reproducibility`. |
 | Scale | SQLite benchmark through `qa performance`. |
 | Defensibility | Required artifact presence through `qa report-defense`. |
@@ -36,23 +36,82 @@ frametrace qa release <case_dir> --corpus-manifest <corpus_manifest> --compariso
 
 ## Corpus Manifest Format
 
-`qa accuracy` consumes UTF-8 tab-separated rows:
+`qa accuracy` consumes typed JSON corpus manifests for release evidence:
 
-```text
-source_path	sha256
-/absolute/path/to/evidence/video001.mp4	optional_sha256
+```json
+{
+  "schema_version": 1,
+  "corpus_id": "synthetic-video-corpus",
+  "corpus_kind": "synthetic",
+  "release_keys": {
+    "mixed_real_world_like": "unsupported"
+  },
+  "domains": [
+    {
+      "key": "video_recovery",
+      "status": "supported",
+      "ground_truth_schema": [
+        "corpus_id",
+        "source_artifact_id",
+        "source_sha256",
+        "expected_artifact_type",
+        "expected_path_pattern",
+        "expected_hash",
+        "expected_timestamp_range",
+        "expected_state",
+        "negative_controls",
+        "notes"
+      ],
+      "expected_outputs_schema": ["db/videos.jsonl", "evidence/logs/validation-log.jsonl"]
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "SYN-VID-001",
+      "domain": "video_recovery",
+      "source_path": "tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4",
+      "source_sha256": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+      "ground_truth": {
+        "corpus_id": "synthetic-video-corpus",
+        "source_artifact_id": "source-video-a",
+        "source_sha256": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+        "expected_artifact_type": "source-video",
+        "expected_path_pattern": "tests/fixtures/corpus/synthetic-video-case-a/source/video-a.mp4",
+        "expected_hash": "55818161733f2a9bc13b60c48fcfc2623f267417e5e5d89e2c36283514eb95e6",
+        "expected_timestamp_range": {
+          "start_unix": 1782470000,
+          "end_unix": 1782470003
+        },
+        "expected_state": "ffprobe-video-stream-confirmed",
+        "negative_controls": [
+          "tests/fixtures/corpus/synthetic-video-case-a/source/not-video.txt"
+        ],
+        "notes": "Lightweight committed non-client fixture file."
+      },
+      "expected_outputs": {
+        "indexed": true,
+        "validation_status": "ffprobe-video-stream-confirmed"
+      }
+    }
+  ],
+  "external_references": []
+}
 ```
 
 Rules:
 
-- Header row is optional.
-- Blank lines and `#` comments are ignored.
+- `schema_version` must be `1`.
+- Every supported domain declares exactly `corpus_id`, `source_artifact_id`, `source_sha256`, `expected_artifact_type`, `expected_path_pattern`, `expected_hash`, `expected_timestamp_range`, `expected_state`, `negative_controls`, and `notes` as ground-truth fields, plus expected-output schema fields.
+- Unsupported domains are recorded as `"unsupported"` with a reason and are not pass evidence.
+- Synthetic-only manifests cannot satisfy the `mixed_real_world_like` release key.
+- Hash-only external references are allowed for large non-client corpora that stay outside git.
 - `source_path` must match one indexed evidence path:
   - canonical source path written to `db/videos.jsonl`
   - carved artifact `output_path` from `artifacts/carved/carve-log.jsonl`
   - recovered inode `output_path` from `evidence/logs/tsk-audit.jsonl`
   - validation `target_path` from `evidence/logs/validation-log.jsonl`
-- `sha256` may be blank when the scan was intentionally run without `--hash`.
+- `source_sha256` and `ground_truth.expected_hash` must match the indexed `sha256`/`target_sha256` for hashed evidence.
+- Legacy UTF-8 TSV rows (`source_path<TAB>sha256`) remain accepted for compatibility, but they are not sufficient release evidence.
 
 ## Pass/Fail Thresholds
 
@@ -61,7 +120,8 @@ Rules:
 | Precision | `>= 0.98` |
 | Recall | `>= 0.98` |
 | Hash mismatch | `0` |
-| Reproducibility | Normalized scan, recovery, validation, filesystem, and package outputs exactly equal |
+| False positives / false negatives | Reported as `false_positives` and `false_negatives`; any P0 false negative blocks release. |
+| Reproducibility | Normalized scan, recovery, validation, filesystem, and package outputs differ by no more than the report's `allowed_diff_thresholds.normalized_core_differences` value, currently `0`. |
 | Report defensibility | All required artifacts present |
 | Performance | `>= 50000` rows/minute, `max_query_ms <= 2000` for indexed SQLite queries, `query_plan_full_scan_count == 0`, `max_rss_bytes <= max_rss_target_bytes`, and measured `cpu_average_percent` |
 

@@ -1,0 +1,13 @@
+$ rm -rf tests/fixtures/corpus/synthetic-video-case-a/reports/qa tests/fixtures/corpus/synthetic-video-case-b/reports/qa
+fixture_reports_qa_remaining:
+t12_tmp_processes:
+evidence_bad_manifests_preserved:
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/bad-manifest-case/bad-hash-manifest.json
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/bad-manifest-case/missing-field-manifest.json
+manual_qa_reports_preserved:
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/bad-accuracy-output/accuracy-report.html
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/bad-accuracy-output/accuracy-report.json
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/bad-accuracy-report.json
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/happy-accuracy-report.json
+.omo/evidence/frametrace-production-hardening-review-plan/task-12-corpus-metrics/manual-qa/happy-reproducibility-report.json
+EXIT_CODE=0

@@ -1,0 +1,14 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/frametrace validate-artifact --help`
+Validate an indexed video, carved candidate, recovered inode, or artifact path with ffprobe
+
+Usage: frametrace validate-artifact [OPTIONS] <CASE_DIR> <SELECTOR>
+
+Arguments:
+  <CASE_DIR>  
+  <SELECTOR>  
+
+Options:
+      --ffprobe <FFPROBE>    
+      --operator <OPERATOR>  
+  -h, --help                 Print help

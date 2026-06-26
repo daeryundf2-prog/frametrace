@@ -1,0 +1,194 @@
+{
+  "DoneClaim": {
+    "task": "T3. Add default distributable path redaction across report, review bundle, and viewer",
+    "plan": ".omo/plans/frametrace-production-hardening-review-plan.md",
+    "evidence_dir": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/",
+    "scope": "procedural closeout only; no product code changed during this closeout",
+    "changed_files": [
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/cleanup-receipt.md",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/closeout-lightweight-verification.md",
+      ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/doneclaim.json"
+    ],
+    "tests": [
+      {
+        "command": "cargo fmt --all -- --check; cargo clippy --locked --all-targets --all-features -- -D warnings; cargo test --locked distributable_redaction::tests -- --nocapture; cargo test --locked review_bundle::tests::default_review_bundle_redacts_absolute_source_paths -- --nocapture; cargo test --locked package::tests::package_redacts_default_outputs_and_marks_manifest -- --nocapture; cargo test --locked package::tests::package_local_operator_mode_keeps_full_paths_and_marks_manifest -- --nocapture; cargo test --locked --test cli_default_output_policy package_case_rejects_symlinked_default_reports_directory_without_writing_outside -- --nocapture",
+        "result": "PASS in existing verification evidence; verification-gates-rerun.meta records exit_code=0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/verification-gates-rerun.log"
+      },
+      {
+        "command": "cargo test --locked distributable_redaction::tests -- --nocapture",
+        "result": "PASS in existing focused evidence; focused-tests-green.log records 3 passed and exit_distributable=0",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/focused-tests-green.log"
+      },
+      {
+        "command": "closeout lightweight verification: evidence non-empty checks, exact temp-root absence checks, and process-list scan for T3 SQLite temp labels",
+        "result": "PASS; evidence files non-empty, both named temp roots absent, PROCESS_MATCHES none",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/closeout-lightweight-verification.md"
+      }
+    ],
+    "manual_qa": [
+      {
+        "scenario": "default report/review/package grep scenario with client-like non-ASCII temp path",
+        "result": "PASS",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-default-redaction-pass.md"
+      },
+      {
+        "scenario": "opt-in full path disclosure scenario with explicit local/operator metadata",
+        "result": "PASS",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-opt-in-disclosure.md"
+      },
+      {
+        "scenario": "SQLite-backed default report/review/package grep scenario v2",
+        "result": "PASS",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-redaction-pass-v2.md"
+      },
+      {
+        "scenario": "SQLite-backed opt-in full path disclosure scenario",
+        "result": "PASS",
+        "artifact": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-opt-in-disclosure.md"
+      }
+    ],
+    "manualQa": {
+      "surfaceEvidence": [
+        {
+          "scenario_id": "T3-SE-001",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:115",
+          "surface": "CLI-generated default report/review/package artifacts",
+          "exact_invocation": "manual scenario transcript in manual-default-redaction-pass.md",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-manual-default-redaction-pass"]
+        },
+        {
+          "scenario_id": "T3-SE-002",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:115",
+          "surface": "CLI-generated opt-in report/review/package artifacts",
+          "exact_invocation": "manual scenario transcript in manual-opt-in-disclosure.md",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-manual-opt-in-disclosure"]
+        },
+        {
+          "scenario_id": "T3-SE-003",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:115",
+          "surface": "SQLite-backed CLI-generated default report/review/package artifacts",
+          "exact_invocation": "manual scenario transcript in manual-sqlite-redaction-pass-v2.md",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-manual-sqlite-redaction-pass-v2"]
+        },
+        {
+          "scenario_id": "T3-SE-004",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:115",
+          "surface": "SQLite-backed CLI-generated opt-in report/review/package artifacts",
+          "exact_invocation": "manual scenario transcript in manual-sqlite-opt-in-disclosure.md",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-manual-sqlite-opt-in-disclosure"]
+        }
+      ],
+      "adversarialCases": [
+        {
+          "scenario_id": "T3-ADV-001",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:116",
+          "adversarial_class": "malformed_input",
+          "expected_behavior": "Paths with spaces, client-like names, and Korean text are redacted by default and disclosed only in opt-in mode.",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-adversarial-classes", "artifact-manual-sqlite-redaction-pass-v2", "artifact-manual-sqlite-opt-in-disclosure"]
+        },
+        {
+          "scenario_id": "T3-ADV-002",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:115",
+          "adversarial_class": "stale_state",
+          "expected_behavior": "Earlier failing SQLite package evidence is not used as success evidence after v2 PASS supersedes it.",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-manual-sqlite-redaction-pass-v2", "artifact-cleanup-receipt"]
+        },
+        {
+          "scenario_id": "T3-ADV-003",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:116",
+          "adversarial_class": "misleading_success_output",
+          "expected_behavior": "Manual QA records command and grep exit codes instead of prose-only claims.",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-adversarial-classes", "artifact-verification-gates-rerun"]
+        },
+        {
+          "scenario_id": "T3-ADV-004",
+          "criterion_reference": ".omo/plans/frametrace-production-hardening-review-plan.md:116",
+          "adversarial_class": "cleanup_residue",
+          "expected_behavior": "Named T3 SQLite temp roots and exact T3 process labels are absent at closeout.",
+          "verdict": "PASS",
+          "artifactRefs": ["artifact-closeout-lightweight-verification", "artifact-cleanup-receipt"]
+        }
+      ],
+      "artifactRefs": [
+        {
+          "id": "artifact-manual-default-redaction-pass",
+          "kind": "manual QA transcript",
+          "description": "Default report/review/package grep PASS evidence.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-default-redaction-pass.md"
+        },
+        {
+          "id": "artifact-manual-opt-in-disclosure",
+          "kind": "manual QA transcript",
+          "description": "Opt-in full path disclosure PASS evidence.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-opt-in-disclosure.md"
+        },
+        {
+          "id": "artifact-manual-sqlite-redaction-pass-v2",
+          "kind": "manual QA transcript",
+          "description": "SQLite-backed default redaction v2 PASS evidence that supersedes earlier SQLite package failure.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-redaction-pass-v2.md"
+        },
+        {
+          "id": "artifact-manual-sqlite-opt-in-disclosure",
+          "kind": "manual QA transcript",
+          "description": "SQLite-backed opt-in full path disclosure PASS evidence.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-opt-in-disclosure.md"
+        },
+        {
+          "id": "artifact-adversarial-classes",
+          "kind": "QA summary",
+          "description": "Adversarial class probe summary.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/adversarial-classes.md"
+        },
+        {
+          "id": "artifact-verification-gates-rerun",
+          "kind": "verification log",
+          "description": "Existing rerun verification gates after SQLite review fix.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/verification-gates-rerun.log"
+        },
+        {
+          "id": "artifact-closeout-lightweight-verification",
+          "kind": "closeout verification",
+          "description": "Evidence existence, temp-root absence, and process scan closeout proof.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/closeout-lightweight-verification.md"
+        },
+        {
+          "id": "artifact-cleanup-receipt",
+          "kind": "cleanup receipt",
+          "description": "Fresh T3 cleanup receipt newer than SQLite PASS and opt-in artifacts.",
+          "path": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/cleanup-receipt.md"
+        }
+      ]
+    },
+    "adversarial_classes": [
+      "malformed_input",
+      "dirty_worktree",
+      "stale_state",
+      "misleading_success_output",
+      "flaky_tests_hung_or_long_commands",
+      "cleanup_residue"
+    ],
+    "cleanup": {
+      "receipt": ".omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/cleanup-receipt.md",
+      "result": "remaining_t3_temp_roots=none; remaining_t3_processes=none; remaining_t3_browsers=none; remaining_t3_workers=none",
+      "named_temp_roots_removed_or_absent": [
+        "/tmp/FrameTrace Client ACME SQLite 유출 PASS v2 gFN1",
+        "/tmp/FrameTrace Client ACME SQLite OptIn 유출 Exvz"
+      ]
+    },
+    "risks": [
+      "No independent gate verification is claimed by this closeout; a separate gate reviewer remains responsible for acceptance.",
+      "Earlier SQLite default package/review failure evidence exists in manual-sqlite-redaction-pass.md with exit_code=1, but it is superseded by manual-sqlite-redaction-pass-v2.md with exit_code=0.",
+      "The worktree contains concurrent T1/T2/T5 and adjacent dirty state; this closeout did not revert or refactor those changes.",
+      "No long cargo test suite was rerun during procedural closeout; existing verification-gates-rerun.log is incorporated as prior evidence."
+    ]
+  }
+}

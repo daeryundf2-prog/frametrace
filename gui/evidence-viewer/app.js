@@ -1,676 +1,42 @@
-const seedRecords = [
-  {
-    id: "vid_000001",
-    type: "video",
-    name: "20260519_120000_F.mp4",
-    path: "E:/BLACKVUE/Record/20260519_120000_F.mp4",
-    source: "SD001 BlackVue microSD",
-    sourceKind: "mounted-volume",
-    vendor: "BlackVue",
-    parser: "blackvue_channel_suffix",
-    status: "important",
-    reviewed: false,
-    report: true,
-    hashStatus: "complete",
-    hash: "a964a0f1d7b5...e19c",
-    fullHash: "a964a0f1d7b51d4cb912a0e27f365bf87d7512e409d7f7c76d16cf34b8f3e19c",
-    size: "184.2 MB",
-    timestamp: "2026-05-19 12:00:00",
-    acquiredAt: "2026-05-19 13:12:04 KST",
-    readMode: "source mounted read-only",
-    offset: "logical file",
-    codec: "H.264 / MP4",
-    duration: 86,
-    channel: "front",
-    validation: "ffprobe-video-stream-confirmed",
-    note: "Impact moment visible at 00:00:27.400",
-    events: [27.4, 28.1, 31.8],
-    scene: "road",
-  },
-  {
-    id: "vid_000002",
-    type: "video",
-    name: "20260519_120000_R.mp4",
-    path: "E:/BLACKVUE/Record/20260519_120000_R.mp4",
-    source: "SD001 BlackVue microSD",
-    sourceKind: "mounted-volume",
-    vendor: "BlackVue",
-    parser: "blackvue_channel_suffix",
-    status: "reviewed",
-    reviewed: true,
-    report: false,
-    hashStatus: "complete",
-    hash: "81fc8a3a03bd...93af",
-    fullHash: "81fc8a3a03bd816b6b08303a0b9d6910710f69ee127cf82de347e88f97bd93af",
-    size: "171.6 MB",
-    timestamp: "2026-05-19 12:00:00",
-    acquiredAt: "2026-05-19 13:12:04 KST",
-    readMode: "source mounted read-only",
-    offset: "logical file",
-    codec: "H.264 / MP4",
-    duration: 86,
-    channel: "rear",
-    validation: "ffprobe-video-stream-confirmed",
-    note: "Rear channel synchronized with front clip",
-    events: [28.0],
-    scene: "rear",
-  },
-  {
-    id: "vid_000117",
-    type: "video",
-    name: "ch02_20260519_115830.dav",
-    path: "D:/EXPORT/Dahua/ch02_20260519_115830.dav",
-    source: "HDD001 NVR export",
-    sourceKind: "folder",
-    vendor: "Dahua",
-    parser: "dahua_dav_signature",
-    status: "needs_verification",
-    reviewed: false,
-    report: false,
-    hashStatus: "skipped",
-    hash: "pending selected hash",
-    fullHash: "pending selected hash",
-    size: "422.0 MB",
-    timestamp: "2026-05-19 11:58:30",
-    acquiredAt: "2026-05-19 13:48:22 KST",
-    readMode: "copied NVR export",
-    offset: "logical file",
-    codec: "Dahua DAV / H.264 candidate",
-    duration: 242,
-    channel: "cctv-02",
-    validation: "candidate needs playback verification",
-    note: "Native DAV export, preserve original and export derived MP4",
-    events: [66.2, 141.4, 177.5],
-    scene: "parking",
-  },
-  {
-    id: "img_000041",
-    type: "photo",
-    name: "frame_capture_20260519_120027.jpg",
-    path: "C:/Cases/FT-2026-0519/artifacts/thumbnails/frame_capture_20260519_120027.jpg",
-    source: "Derived from vid_000001",
-    sourceKind: "derived",
-    vendor: "Derived",
-    parser: "frame_capture",
-    status: "reviewed",
-    reviewed: true,
-    report: true,
-    hashStatus: "complete",
-    hash: "d5eb2fb75cc4...13a1",
-    fullHash: "d5eb2fb75cc4de304d9db693a759315ee815bb420bdf6f71ebf0c232b44e13a1",
-    size: "412 KB",
-    timestamp: "2026-05-19 12:00:27",
-    acquiredAt: "2026-05-19 14:10:31 KST",
-    readMode: "derived artifact",
-    offset: "parent vid_000001 @ 00:00:27.400",
-    codec: "JPEG still",
-    duration: 1,
-    channel: "front",
-    validation: "derived artifact",
-    note: "Report still frame, original clip linked",
-    events: [],
-    scene: "still",
-  },
-  {
-    id: "carve_000009",
-    type: "candidate",
-    name: "carved_000009_offset_771751936.mp4",
-    path: "C:/Cases/FT-2026-0519/artifacts/carved/carved_000009_offset_771751936.mp4",
-    source: "E01 exported raw image",
-    sourceKind: "raw-image",
-    vendor: "Generic",
-    parser: "mp4_ftyp_carver",
-    status: "candidate",
-    reviewed: false,
-    report: false,
-    hashStatus: "complete",
-    hash: "55fd0fd9b3cf...7b41",
-    fullHash: "55fd0fd9b3cfa48fba1f134d1f35dc6f5d5aef4e50f018bf3e11a4ff9c1c7b41",
-    size: "27.4 MB",
-    timestamp: "unknown",
-    acquiredAt: "2026-05-19 15:06:11 KST",
-    readMode: "E01 exported raw image",
-    offset: "771751936 bytes",
-    codec: "MP4 ftyp/moov candidate",
-    duration: 18,
-    channel: "unknown",
-    validation: "candidate-unvalidated",
-    note: "Contiguous MP4 signature; verify moov/mdat and playback",
-    events: [1.2, 14.5],
-    scene: "damaged",
-  },
-  {
-    id: "img_000088",
-    type: "photo",
-    name: "parking_lot_plate_crop.jpg",
-    path: "C:/Cases/FT-2026-0519/artifacts/derived/parking_lot_plate_crop.jpg",
-    source: "Derived from vid_000117",
-    sourceKind: "derived",
-    vendor: "Derived",
-    parser: "photo_review",
-    status: "important",
-    reviewed: false,
-    report: true,
-    hashStatus: "complete",
-    hash: "1940ce411cf9...f801",
-    fullHash: "1940ce411cf9383f8ee7a917d68fa1d7e45c18db4562ef2dcf556e771aa7f801",
-    size: "620 KB",
-    timestamp: "2026-05-19 12:00:48",
-    acquiredAt: "2026-05-19 14:22:05 KST",
-    readMode: "derived artifact",
-    offset: "parent vid_000117 @ 00:02:18.500",
-    codec: "JPEG still",
-    duration: 1,
-    channel: "cctv-02",
-    validation: "derived artifact",
-    note: "Contrast-adjusted copy, original frame retained",
-    events: [],
-    scene: "plate",
-  },
-];
+const records = window.FrameTraceRecords || [];
 
-const records = generateMockInventory(seedRecords, 10000);
-
-function generateMockInventory(seed, count) {
-  const statuses = ["unreviewed", "reviewed", "important", "needs_verification", "candidate"];
-  const sources = [
-    "SD001 BlackVue microSD",
-    "HDD001 NVR export",
-    "E01 exported raw image",
-    "Recovered filesystem",
-  ];
-  return Array.from({ length: count }, (_, index) => {
-    const base = seed[index % seed.length];
-    const status = statuses[index % statuses.length];
-    const source = sources[index % sources.length];
-    const extension = base.name.split(".").pop() || "bin";
-    const folder = String(Math.floor(index / 250) + 1).padStart(3, "0");
-    const sequence = String(index + 1).padStart(6, "0");
-    const idPrefix = base.type === "photo" ? "img" : base.type === "candidate" ? "carve" : "vid";
-    const hash = pseudoHash(index);
-    const sizeBytes = 120000 + ((index * 7919) % 900000000);
-    return {
-      ...base,
-      id: index < seed.length ? base.id : `${idPrefix}_${sequence}`,
-      name: index < seed.length ? base.name : `${base.name.replace(`.${extension}`, "")}_${sequence}.${extension}`,
-      path: index < seed.length ? base.path : `${source}/case-folder-${folder}/${base.name}`,
-      source,
-      sourceKind: source.includes("E01") ? "raw-image" : source.includes("Recovered") ? "derived" : "mounted-volume",
-      status,
-      reviewed: status === "reviewed",
-      report: index % 17 === 0 || base.report,
-      hashStatus: index % 11 === 0 ? "pending selected hash" : "complete",
-      hash: `${hash.slice(0, 12)}...${hash.slice(-4)}`,
-      fullHash: hash,
-      size: index < seed.length ? base.size : formatBytes(sizeBytes),
-      sizeBytes: index < seed.length ? parseSize(base.size) : sizeBytes,
-      timestamp: `2026-05-${String(1 + (index % 28)).padStart(2, "0")} ${String(index % 24).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}:00`,
-      acquiredAt: "2026-05-19 13:12:04 KST",
-      validation: status === "candidate" ? "candidate-unvalidated" : base.validation,
-      note: status === "candidate" ? "Contiguous candidate awaiting validation" : base.note,
-      duration: Math.max(base.duration || 1, 1),
-    };
-  });
-}
-
-function pseudoHash(index) {
-  const alphabet = "0123456789abcdef";
-  let value = (index + 1) * 2654435761;
-  let out = "";
-  for (let i = 0; i < 64; i += 1) {
-    value = (value * 1664525 + 1013904223) >>> 0;
-    out += alphabet[value & 15];
-  }
-  return out;
-}
-
-function formatBytes(bytes) {
-  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
-  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
-  return `${Math.max(1, Math.round(bytes / 1000))} KB`;
-}
-
-function parseSize(value) {
-  const match = String(value).match(/^([\d.]+)\s*(KB|MB|GB)$/i);
-  if (!match) return 0;
-  const number = Number(match[1]);
-  const unit = match[2].toUpperCase();
-  if (unit === "GB") return Math.round(number * 1_000_000_000);
-  if (unit === "MB") return Math.round(number * 1_000_000);
-  return Math.round(number * 1_000);
-}
-
-const translations = {
-  ko: {
-    "app.title": "FrameTrace 증거 뷰어",
-    "app.subtitle": "증거 뷰어",
-    "case.summaryAria": "사건 요약",
-    "case.id": "사건 FT-2026-0519",
-    "case.description": "의뢰인 CCTV/블랙박스 입수",
-    "case.prototype": "프로토타입 세션",
-    "lang.switch": "언어 전환",
-    "sync.title": "동기화 채널 보기 전환",
-    "package.title": "사건 패키징",
-    "sources.aria": "증거 소스",
-    "browser.aria": "증거 브라우저",
-    "filters.aria": "증거 필터",
-    "inventory.controlsAria": "목록 표시 옵션",
-    "inventory.density": "밀도",
-    "inventory.sort": "정렬",
-    "inventory.focus": "목록 집중",
-    "inventory.default": "기본 보기",
-    "inventory.results": "{count}개 일치",
-    "inventory.window": "{start}-{end} 표시",
-    "inventory.latency": "{ms} ms",
-    "inventory.policy": "Production은 SQLite page query(limit <= 500)로 조회합니다. 이 프로토타입은 10,000개 결정론 mock row와 bounded DOM virtualization만 검증합니다.",
-    "density.compact": "압축",
-    "density.normal": "표준",
-    "density.media": "미디어",
-    "sort.risk": "위험/시각",
-    "sort.timeDesc": "최신순",
-    "sort.path": "경로순",
-    "sort.sizeDesc": "크기순",
-    "table.aria": "색인된 증거 파일",
-    "table.select": "선택",
-    "viewer.aria": "증거 뷰어",
-    "viewer.canvas": "선택 증거 미리보기",
-    "inspector.aria": "포렌식 인스펙터",
-    "panel.evidence": "증거",
-    "panel.reviewQueue": "검토 큐",
-    "panel.fileState": "파일 상태",
-    "panel.metadata": "메타데이터",
-    "panel.outputQueue": "출력 큐",
-    "panel.sessionActivity": "세션 활동",
-    "search.label": "검색",
-    "search.placeholder": "경로, 해시, 파서, 메모",
-    "table.status": "상태",
-    "table.review": "검토",
-    "table.id": "ID",
-    "table.name": "이름",
-    "table.source": "소스",
-    "table.time": "시각",
-    "table.file": "파일",
-    "table.type": "유형",
-    "table.preview": "미리보기",
-    "table.validation": "검증",
-    "table.size": "크기",
-    "table.hash": "해시",
-    "table.report": "보고서",
-    "table.previewFor": "{name} 미리보기",
-    "overlay.metadata": "메타",
-    "overlay.levels": "레벨",
-    "overlay.compare": "비교",
-    "transport.prevFile": "이전 파일",
-    "transport.prevFrame": "이전 프레임",
-    "transport.playPause": "재생/일시정지",
-    "transport.nextFrame": "다음 프레임",
-    "transport.nextFile": "다음 파일",
-    "transport.speed": "재생 속도",
-    "transport.zoom": "확대",
-    "action.reviewed": "검토완료",
-    "action.important": "중요",
-    "action.report": "보고서",
-    "action.frame": "프레임",
-    "action.queueVerify": "검증 대기",
-    "bulk.reviewed": "검토 표시",
-    "bulk.report": "보고서 세트",
-    "bulk.validation": "검증 큐",
-    "bulk.export": "매니페스트",
-    "bulk.clear": "선택 해제",
-    "bulk.selected": "{count}개 선택",
-    "bulk.previewTitle": "작업 미리보기",
-    "bulk.previewId": "미리보기 ID",
-    "bulk.previewAction": "작업",
-    "bulk.previewOperator": "작업자",
-    "bulk.previewFilter": "필터",
-    "bulk.previewMutation": "예상 변경",
-    "bulk.previewAudit": "감사 예정 위치",
-    "bulk.previewWarning": "주의",
-    "bulk.operatorMock": "prototype-examiner",
-    "bulk.noSelection": "선택된 행 없음",
-    "bulk.previewReadonly": "이 화면은 preview만 생성합니다. Production mutation은 engine audit command가 기록한 뒤 적용됩니다.",
-    "stat.files": "파일",
-    "stat.matches": "일치",
-    "stat.selected": "선택",
-    "stat.videos": "영상",
-    "stat.photos": "사진",
-    "stat.carved": "복구 후보",
-    "stat.important": "중요",
-    "stat.verify": "검증 필요",
-    "stat.report": "보고서",
-    "stat.reviewed": "검토완료",
-    "filter.all": "전체",
-    "filter.video": "영상",
-    "filter.photo": "사진",
-    "filter.candidate": "복구",
-    "filter.needs_verification": "검증",
-    "filter.important": "중요",
-    "filter.report": "보고서",
-    "queue.unreviewed": "미검토",
-    "queue.important": "중요",
-    "queue.report": "보고서 포함",
-    "queue.needs_verification": "검증 필요",
-    "queue.triage": "1차 검토",
-    "queue.active": "활성 검토",
-    "source.all": "전체 증거",
-    "source.caseWideIndex": "사건 전체 색인",
-    "empty.noMatches": "이 보기와 일치하는 증거가 없습니다.",
-    "status.unreviewed": "열림",
-    "status.reviewed": "완료",
-    "status.important": "중요",
-    "status.needs_verification": "검증",
-    "status.candidate": "후보",
-    "type.video": "영상",
-    "type.photo": "사진",
-    "type.candidate": "복구",
-    "badge.original": "원본",
-    "badge.derived": "파생",
-    "badge.candidate": "후보",
-    "meta.id": "ID",
-    "meta.source": "소스",
-    "meta.path": "경로",
-    "meta.vendor": "제조사",
-    "meta.parser": "파서",
-    "meta.hash": "해시",
-    "meta.hashState": "해시 상태",
-    "meta.acquired": "입수시각",
-    "meta.readMode": "읽기모드",
-    "meta.offset": "오프셋",
-    "meta.codec": "코덱",
-    "meta.output": "출력",
-    "meta.channel": "채널",
-    "meta.duration": "길이",
-    "meta.still": "정지 이미지",
-    "meta.notRecorded": "기록 없음",
-    "output.noneQueued": "대기 중 작업 없음",
-    "output.mp4Queued": "MP4 출력 대기",
-    "output.aviQueued": "AVI 출력 대기",
-    "output.frameQueued": "프레임 캡처 대기",
-    "output.validationQueued": "검증 대기",
-    "activity.prototypeCaseOpened": "프로토타입 사건 열림",
-    "activity.prototypeCaseOpenedDetail": "GUI 검토용 mock 사건 색인 로드",
-    "activity.parserCatalogStaged": "파서 카탈로그 준비",
-    "activity.parserCatalogStagedDetail": "13개 소스 유형 표현",
-    "activity.selectedEvidence": "증거 선택",
-    "activity.playbackSpeed": "재생 속도",
-    "activity.viewerOverlay": "뷰어 오버레이",
-    "activity.markedReviewed": "검토완료 표시",
-    "activity.markedImportant": "중요 표시",
-    "activity.addedToReport": "보고서 포함",
-    "activity.removedFromReport": "보고서 제외",
-    "activity.mp4Queued": "MP4 출력 대기",
-    "activity.aviQueued": "AVI 출력 대기",
-    "activity.frameQueued": "프레임 캡처 대기",
-    "activity.validationQueued": "검증 대기",
-    "activity.synchronizedView": "동기화 보기",
-    "activity.packageQueued": "패키지 대기",
-    "activity.bulkPreview": "작업 미리보기 생성",
-    "activity.enabled": "활성화",
-    "activity.disabled": "비활성화",
-    "activity.packageDetail": "검토 세트, 보고서 세트, 매니페스트",
-    "canvas.derivedView": "파생 보기",
-    "syncPane.a": "A",
-    "syncPane.b": "B",
-    values: {
-      "mounted-volume": "마운트 볼륨",
-      folder: "폴더",
-      derived: "파생",
-      "raw-image": "raw 이미지",
-      "ffprobe-video-stream-confirmed": "ffprobe 영상 스트림 확인",
-      "Impact moment visible at 00:00:27.400": "충격 시점이 00:00:27.400에 보임",
-      "Rear channel synchronized with front clip": "후방 채널이 전방 클립과 동기화됨",
-      "candidate needs playback verification": "재생 검증이 필요한 후보",
-      "Native DAV export, preserve original and export derived MP4": "DAV 원본은 보존하고 파생 MP4 출력 필요",
-      "derived artifact": "파생 산출물",
-      "Report still frame, original clip linked": "보고서용 정지 프레임, 원본 클립 연결됨",
-      "candidate-unvalidated": "미검증 후보",
-      "Contiguous MP4 signature; verify moov/mdat and playback": "연속 MP4 시그니처, moov/mdat 및 재생 검증 필요",
-      "Contrast-adjusted copy, original frame retained": "대비 보정 사본, 원본 프레임 보존",
-      "Contiguous candidate awaiting validation": "연속 후보, 검증 대기",
-      "source mounted read-only": "소스 읽기전용 마운트",
-      "copied NVR export": "복사된 NVR 내보내기",
-      "E01 exported raw image": "E01 추출 raw 이미지",
-      "logical file": "논리 파일",
-      "parent vid_000001 @ 00:00:27.400": "상위 vid_000001 @ 00:00:27.400",
-      "parent vid_000117 @ 00:02:18.500": "상위 vid_000117 @ 00:02:18.500",
-      "front": "전방",
-      "rear": "후방",
-      "unknown": "알 수 없음",
-      "complete": "완료",
-      "skipped": "건너뜀",
-      "pending selected hash": "선택 해시 대기",
-    },
-    sources: {
-      "SD001 BlackVue microSD": "SD001 BlackVue microSD",
-      "HDD001 NVR export": "HDD001 NVR 내보내기",
-      "Derived from vid_000001": "vid_000001 파생",
-      "E01 exported raw image": "E01 추출 raw 이미지",
-      "Derived from vid_000117": "vid_000117 파생",
-      "Recovered filesystem": "복구 파일시스템",
-    },
-  },
-  en: {
-    "app.title": "FrameTrace Evidence Viewer",
-    "app.subtitle": "Evidence Viewer",
-    "case.summaryAria": "Case summary",
-    "case.id": "Case FT-2026-0519",
-    "case.description": "Client CCTV and dashcam intake",
-    "case.prototype": "Prototype session",
-    "lang.switch": "Switch language",
-    "sync.title": "Toggle synchronized channel view",
-    "package.title": "Package case",
-    "sources.aria": "Evidence sources",
-    "browser.aria": "Evidence browser",
-    "filters.aria": "Evidence filters",
-    "inventory.controlsAria": "Inventory display options",
-    "inventory.density": "Density",
-    "inventory.sort": "Sort",
-    "inventory.focus": "Focus list",
-    "inventory.default": "Default view",
-    "inventory.results": "{count} matches",
-    "inventory.window": "showing {start}-{end}",
-    "inventory.latency": "{ms} ms",
-    "inventory.policy": "Production uses SQLite page queries with limit <= 500. This prototype validates 10,000 deterministic mock rows and bounded DOM virtualization only.",
-    "density.compact": "Compact",
-    "density.normal": "Normal",
-    "density.media": "Media",
-    "sort.risk": "Risk/time",
-    "sort.timeDesc": "Newest",
-    "sort.path": "Path",
-    "sort.sizeDesc": "Size",
-    "table.aria": "Indexed evidence files",
-    "table.select": "Select",
-    "viewer.aria": "Evidence viewer",
-    "viewer.canvas": "Selected evidence preview",
-    "inspector.aria": "Forensic inspector",
-    "panel.evidence": "Evidence",
-    "panel.reviewQueue": "Review Queue",
-    "panel.fileState": "File State",
-    "panel.metadata": "Metadata",
-    "panel.outputQueue": "Output Queue",
-    "panel.sessionActivity": "Session Activity",
-    "search.label": "Search",
-    "search.placeholder": "path, hash, parser, note",
-    "table.status": "Status",
-    "table.review": "Review",
-    "table.id": "ID",
-    "table.name": "Name",
-    "table.source": "Source",
-    "table.time": "Time",
-    "table.file": "File",
-    "table.type": "Type",
-    "table.preview": "Preview",
-    "table.validation": "Validation",
-    "table.size": "Size",
-    "table.hash": "Hash",
-    "table.report": "Report",
-    "table.previewFor": "{name} preview",
-    "overlay.metadata": "Meta",
-    "overlay.levels": "Levels",
-    "overlay.compare": "Compare",
-    "transport.prevFile": "Previous file",
-    "transport.prevFrame": "Previous frame",
-    "transport.playPause": "Play or pause",
-    "transport.nextFrame": "Next frame",
-    "transport.nextFile": "Next file",
-    "transport.speed": "Playback speed",
-    "transport.zoom": "Zoom",
-    "action.reviewed": "Reviewed",
-    "action.important": "Important",
-    "action.report": "Report",
-    "action.frame": "Frame",
-    "action.queueVerify": "Queue Verify",
-    "bulk.reviewed": "Mark reviewed",
-    "bulk.report": "Report set",
-    "bulk.validation": "Validation queue",
-    "bulk.export": "Manifest",
-    "bulk.clear": "Clear",
-    "bulk.selected": "{count} selected",
-    "bulk.previewTitle": "Action preview",
-    "bulk.previewId": "Preview ID",
-    "bulk.previewAction": "Action",
-    "bulk.previewOperator": "Operator",
-    "bulk.previewFilter": "Filter",
-    "bulk.previewMutation": "Expected mutation",
-    "bulk.previewAudit": "Audit target",
-    "bulk.previewWarning": "Warning",
-    "bulk.operatorMock": "prototype-examiner",
-    "bulk.noSelection": "No rows selected",
-    "bulk.previewReadonly": "This screen creates a preview only. Production mutations require engine audit command recording before apply.",
-    "stat.files": "Files",
-    "stat.matches": "Matches",
-    "stat.selected": "Selected",
-    "stat.videos": "Videos",
-    "stat.photos": "Photos",
-    "stat.carved": "Carved",
-    "stat.important": "Important",
-    "stat.verify": "Verify",
-    "stat.report": "Report",
-    "stat.reviewed": "Reviewed",
-    "filter.all": "All",
-    "filter.video": "Video",
-    "filter.photo": "Photo",
-    "filter.candidate": "Carved",
-    "filter.needs_verification": "Verify",
-    "filter.important": "Important",
-    "filter.report": "Report",
-    "queue.unreviewed": "Unreviewed",
-    "queue.important": "Important",
-    "queue.report": "Report set",
-    "queue.needs_verification": "Needs verification",
-    "queue.triage": "triage lane",
-    "queue.active": "active review lane",
-    "source.all": "All evidence",
-    "source.caseWideIndex": "case-wide index",
-    "empty.noMatches": "No matching evidence in this view.",
-    "status.unreviewed": "Open",
-    "status.reviewed": "Done",
-    "status.important": "Key",
-    "status.needs_verification": "Verify",
-    "status.candidate": "Candidate",
-    "type.video": "Video",
-    "type.photo": "Photo",
-    "type.candidate": "Carved",
-    "badge.original": "ORIGINAL",
-    "badge.derived": "DERIVED",
-    "badge.candidate": "CANDIDATE",
-    "meta.id": "ID",
-    "meta.source": "Source",
-    "meta.path": "Path",
-    "meta.vendor": "Vendor",
-    "meta.parser": "Parser",
-    "meta.hash": "Hash",
-    "meta.hashState": "Hash State",
-    "meta.acquired": "Acquired",
-    "meta.readMode": "Read Mode",
-    "meta.offset": "Offset",
-    "meta.codec": "Codec",
-    "meta.output": "Output",
-    "meta.channel": "Channel",
-    "meta.duration": "Duration",
-    "meta.still": "still",
-    "meta.notRecorded": "not recorded",
-    "output.noneQueued": "none queued",
-    "output.mp4Queued": "MP4 export queued",
-    "output.aviQueued": "AVI export queued",
-    "output.frameQueued": "frame capture queued",
-    "output.validationQueued": "validation queued",
-    "activity.prototypeCaseOpened": "Prototype case opened",
-    "activity.prototypeCaseOpenedDetail": "mock case index loaded for GUI review",
-    "activity.parserCatalogStaged": "Parser catalog staged",
-    "activity.parserCatalogStagedDetail": "13 source lanes represented",
-    "activity.selectedEvidence": "Selected evidence",
-    "activity.playbackSpeed": "Playback speed",
-    "activity.viewerOverlay": "Viewer overlay",
-    "activity.markedReviewed": "Marked reviewed",
-    "activity.markedImportant": "Marked important",
-    "activity.addedToReport": "Added to report",
-    "activity.removedFromReport": "Removed from report",
-    "activity.mp4Queued": "MP4 export queued",
-    "activity.aviQueued": "AVI export queued",
-    "activity.frameQueued": "Frame capture queued",
-    "activity.validationQueued": "Validation queued",
-    "activity.synchronizedView": "Synchronized view",
-    "activity.packageQueued": "Package queued",
-    "activity.bulkPreview": "Bulk preview generated",
-    "activity.enabled": "enabled",
-    "activity.disabled": "disabled",
-    "activity.packageDetail": "review set, report set, manifests",
-    "canvas.derivedView": "DERIVED VIEW",
-    "syncPane.a": "A",
-    "syncPane.b": "B",
-    values: {},
-    sources: {},
-  },
-};
+const translations = window.FrameTraceTranslations || {};
 
 const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
-const rowHeights = { compact: 32, normal: 40, media: 64, focus: 24 };
+const rowHeight = 40;
+const defaultSelectedId = defaultSelectedRecordId();
 
 const state = {
   locale: localStorage.getItem("frametrace.locale") || "ko",
   activeFilter: "all",
-  selectedId: records[0].id,
-  selectedIds: new Set([records[0].id]),
+  selectedId: defaultSelectedId,
   playback: 0,
   playing: false,
   speed: 1,
   zoom: 1,
   activeOverlay: "metadata",
-  activeSource: "all",
-  density: "normal",
-  sort: "risk-timestamp-asc",
-  inventoryFocused: false,
   lastQueryMs: 0,
   visibleWindow: { start: 0, end: 0 },
   renderQueued: false,
   syncView: false,
+  packagePreviewQueued: false,
+  previewOpen: false,
+  previewWindowMode: false,
   dataVersion: 0,
   queryCache: { key: "", rows: [] },
-  activity: [
-    { titleKey: "activity.prototypeCaseOpened", detailKey: "activity.prototypeCaseOpenedDetail" },
-    { titleKey: "activity.parserCatalogStaged", detailKey: "activity.parserCatalogStagedDetail" },
-  ],
 };
 
 const els = {
-  statsGrid: document.getElementById("statsGrid"),
-  sourceList: document.getElementById("sourceList"),
-  queueList: document.getElementById("queueList"),
+  workbenchFlow: document.getElementById("workbenchFlow"),
   filterTabs: document.getElementById("filterTabs"),
   searchInput: document.getElementById("searchInput"),
-  densitySelect: document.getElementById("densitySelect"),
-  sortSelect: document.getElementById("sortSelect"),
-  focusModeButton: document.getElementById("focusModeButton"),
   resultCount: document.getElementById("resultCount"),
   visibleWindow: document.getElementById("visibleWindow"),
   queryLatency: document.getElementById("queryLatency"),
   fileRows: document.getElementById("fileRows"),
-  selectionSummary: document.getElementById("selectionSummary"),
-  clearSelectionButton: document.getElementById("clearSelectionButton"),
-  bulkPreview: document.getElementById("bulkPreview"),
   activeKind: document.getElementById("activeKind"),
   activeName: document.getElementById("activeName"),
+  selectedEvidenceRail: document.getElementById("selectedEvidenceRail"),
   canvas: document.getElementById("viewerCanvas"),
   timelineHead: document.getElementById("timelineHead"),
   timelineRail: document.getElementById("timelineRail"),
@@ -681,7 +47,6 @@ const els = {
   frameBadge: document.getElementById("frameBadge"),
   statusCard: document.getElementById("statusCard"),
   metaList: document.getElementById("metaList"),
-  activityList: document.getElementById("activityList"),
   playButton: document.getElementById("playButton"),
   prevButton: document.getElementById("prevButton"),
   nextButton: document.getElementById("nextButton"),
@@ -690,6 +55,12 @@ const els = {
   speedSelect: document.getElementById("speedSelect"),
   zoomInput: document.getElementById("zoomInput"),
   languageButton: document.getElementById("languageButton"),
+  preview: document.getElementById("evidencePreview"),
+  previewCanvas: document.getElementById("previewCanvas"),
+  previewTitle: document.getElementById("previewTitle"),
+  previewDetails: document.getElementById("previewDetails"),
+  previewModeButton: document.getElementById("previewModeButton"),
+  previewCloseButton: document.getElementById("previewCloseButton"),
 };
 
 let timer = null;
@@ -737,7 +108,6 @@ function filteredRecords() {
   if (state.queryCache.key === key) return state.queryCache.rows;
   const query = els.searchInput.value.trim().toLowerCase();
   const rows = records.filter((record) => {
-    if (state.activeSource !== "all" && record.source !== state.activeSource) return false;
     if (state.activeFilter === "video" && record.type !== "video") return false;
     if (state.activeFilter === "photo" && record.type !== "photo") return false;
     if (state.activeFilter === "candidate" && record.type !== "candidate") return false;
@@ -771,23 +141,25 @@ function filteredRecords() {
 function inventoryQueryKey() {
   return [
     state.dataVersion,
-    state.activeSource,
     state.activeFilter,
-    state.sort,
     els.searchInput.value.trim().toLowerCase(),
   ].join("|");
 }
 
 function compareInventoryRows(a, b) {
-  if (state.sort === "timestamp-desc") {
-    return compareNumber(timestampValue(b.timestamp), timestampValue(a.timestamp)) || compareText(a.id, b.id);
-  }
-  if (state.sort === "path-asc") {
-    return compareText(a.path, b.path) || compareText(a.id, b.id);
-  }
-  if (state.sort === "size-desc") {
-    return compareNumber(b.sizeBytes || parseSize(b.size), a.sizeBytes || parseSize(a.size)) || compareText(a.id, b.id);
-  }
+  return (
+    compareNumber(riskRank(b), riskRank(a))
+    || compareNumber(timestampValue(a.timestamp), timestampValue(b.timestamp))
+    || compareText(a.id, b.id)
+  );
+}
+
+function defaultSelectedRecordId() {
+  const first = [...records].sort(compareDefaultInventoryRows)[0];
+  return first ? first.id : records[0].id;
+}
+
+function compareDefaultInventoryRows(a, b) {
   return (
     compareNumber(riskRank(b), riskRank(a))
     || compareNumber(timestampValue(a.timestamp), timestampValue(b.timestamp))
@@ -817,100 +189,28 @@ function compareText(a, b) {
   return String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
 }
 
-function renderStats() {
-  const visible = filteredRecords();
+function renderWorkbenchFlow() {
+  const sources = [...new Set(records.map((record) => sourceLabel(record.source)))];
+  const sourceNames = sources.slice(0, 3).join(" · ");
   const counts = {
-    total: records.length,
-    matches: visible.length,
-    selected: state.selectedIds.size,
-    video: records.filter((r) => r.type === "video").length,
-    photo: records.filter((r) => r.type === "photo").length,
-    candidate: records.filter((r) => r.type === "candidate").length,
-    important: records.filter((r) => r.status === "important").length,
-    verify: records.filter((r) => r.status === "needs_verification" || r.status === "candidate").length,
-    report: records.filter((r) => r.report).length,
-    reviewed: records.filter((r) => r.reviewed).length,
+    sources: sources.length,
+    candidates: records.filter((record) => record.type === "candidate").length,
+    validation: records.filter((record) => record.status === "needs_verification" || record.status === "candidate").length,
+    report: records.filter((record) => record.report).length,
   };
-  const stats = [
-    ["stat.files", counts.total],
-    ["stat.matches", counts.matches],
-    ["stat.selected", counts.selected],
-    ["stat.videos", counts.video],
-    ["stat.photos", counts.photo],
-    ["stat.carved", counts.candidate],
-    ["stat.important", counts.important],
-    ["stat.verify", counts.verify],
-    ["stat.report", counts.report],
-    ["stat.reviewed", `${counts.reviewed}/${counts.total}`],
+  const cards = [
+    ["summary.sources", t("summary.sourcesDetail", { count: counts.sources, names: sourceNames })],
+    ["summary.candidates", t("summary.candidatesDetail", { count: counts.candidates })],
+    ["summary.validation", t("summary.validationDetail", { count: counts.validation })],
+    ["summary.export", t("summary.exportDetail")],
+    ["summary.report", t("summary.reportDetail", { count: counts.report })],
   ];
-  els.statsGrid.innerHTML = stats.map(([label, value]) => (
-    `<div class="stat"><strong>${value}</strong><span>${t(label)}</span></div>`
-  )).join("");
-}
-
-function renderSources() {
-  const sources = [...new Set(records.map((record) => record.source))];
-  const rows = [
-    { name: "all", label: t("source.all"), count: records.length, sub: t("source.caseWideIndex") },
-    ...sources.map((source) => {
-      const sourceRecords = records.filter((record) => record.source === source);
-      return {
-        name: source,
-        label: sourceLabel(source),
-        count: sourceRecords.length,
-        sub: valueLabel(sourceRecords[0].sourceKind),
-      };
-    }),
-  ];
-  els.sourceList.innerHTML = rows.map((row) => (
-    `<div class="source-item ${state.activeSource === row.name ? "active" : ""}" data-source="${escapeAttr(row.name)}" role="button" tabindex="0" aria-pressed="${state.activeSource === row.name}">
-      <div class="source-line"><span>${escapeHtml(row.label)}</span><strong>${row.count}</strong></div>
-      <div class="source-sub">${escapeHtml(row.sub)}</div>
-    </div>`
-  )).join("");
-  els.sourceList.querySelectorAll(".source-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      state.activeSource = item.dataset.source;
-      els.fileRows.scrollTop = 0;
-      ensureSelectionVisible();
-      renderAll();
-    });
-    item.addEventListener("keydown", activateOnKeyboard(() => {
-      state.activeSource = item.dataset.source;
-      els.fileRows.scrollTop = 0;
-      ensureSelectionVisible();
-      renderAll();
-    }));
-  });
-}
-
-function renderQueue() {
-  const queues = [
-    ["unreviewed", records.filter((r) => !r.reviewed).length],
-    ["important", records.filter((r) => r.status === "important").length],
-    ["report", records.filter((r) => r.report).length],
-    ["needs_verification", records.filter((r) => r.status === "needs_verification" || r.status === "candidate").length],
-  ];
-  els.queueList.innerHTML = queues.map(([key, count]) => (
-    `<div class="queue-item ${state.activeFilter === key ? "active" : ""}" data-filter="${key}" role="button" tabindex="0" aria-pressed="${state.activeFilter === key}">
-      <div class="queue-line"><span>${t(`queue.${key}`)}</span><strong>${count}</strong></div>
-      <div class="queue-sub">${key === "unreviewed" ? t("queue.triage") : t("queue.active")}</div>
-    </div>`
-  )).join("");
-  els.queueList.querySelectorAll(".queue-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      state.activeFilter = item.dataset.filter;
-      els.fileRows.scrollTop = 0;
-      ensureSelectionVisible();
-      renderAll();
-    });
-    item.addEventListener("keydown", activateOnKeyboard(() => {
-      state.activeFilter = item.dataset.filter;
-      els.fileRows.scrollTop = 0;
-      ensureSelectionVisible();
-      renderAll();
-    }));
-  });
+  els.workbenchFlow.innerHTML = cards.map(([titleKey, detail]) => `
+    <div class="workbench-card">
+      <strong>${escapeHtml(t(titleKey))}</strong>
+      <span>${escapeHtml(detail)}</span>
+    </div>
+  `).join("");
 }
 
 function renderFilters() {
@@ -931,14 +231,12 @@ function renderFiles() {
   const startedAt = performance.now();
   const visible = filteredRecords();
   state.lastQueryMs = Math.max(0, Math.round(performance.now() - startedAt));
-  const rowHeight = state.inventoryFocused ? rowHeights.focus : rowHeights[state.density] || rowHeights.normal;
-  els.fileRows.className = `file-rows density-${state.density}`;
   els.fileRows.style.setProperty("--row-height", `${rowHeight}px`);
+  els.fileRows.className = "file-rows";
   if (!visible.length) {
     els.fileRows.innerHTML = `<div class="empty-state">${t("empty.noMatches")}</div>`;
     state.visibleWindow = { start: 0, end: 0 };
     renderInventoryMetrics(0);
-    renderSelectionBar();
     return;
   }
   const viewportHeight = els.fileRows.clientHeight || 520;
@@ -956,32 +254,20 @@ function renderFiles() {
       </div>
     </div>`;
   els.fileRows.querySelectorAll(".data-row").forEach((row) => {
-    row.addEventListener("click", (event) => {
-      if (event.target.matches(".row-check")) return;
-      selectRecord(row.dataset.id, event.metaKey || event.ctrlKey || event.shiftKey);
-    });
+    row.addEventListener("click", () => selectRecord(row.dataset.id));
     row.addEventListener("keydown", activateOnKeyboard(() => selectRecord(row.dataset.id)));
-  });
-  els.fileRows.querySelectorAll(".row-check").forEach((checkbox) => {
-    checkbox.addEventListener("change", (event) => {
-      event.stopPropagation();
-      selectRecord(checkbox.dataset.selectId, true);
-    });
   });
   els.fileRows.querySelectorAll("canvas[data-thumb]").forEach((canvas) => {
     const record = records.find((item) => item.id === canvas.dataset.thumb);
     if (record) drawScene(canvas, record, 0, 1, true);
   });
   renderInventoryMetrics(visible.length);
-  renderSelectionBar();
 }
 
 function fileRowHtml(record) {
-  const checked = state.selectedIds.has(record.id) ? "checked" : "";
   return `
-    <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""} ${state.selectedIds.has(record.id) ? "selected" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
-      <span class="select-cell"><input class="row-check" type="checkbox" ${checked} data-select-id="${escapeAttr(record.id)}" aria-label="${escapeAttr(record.id)}"></span>
-      <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
+    <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
+      <span class="status-pill status-${record.status}">${rowStatusLabel(record.status)}</span>
       <span class="review-cell">${record.reviewed ? t("status.reviewed") : t("status.unreviewed")}</span>
       <code class="id-cell">${escapeHtml(record.id)}</code>
       <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(middleTruncate(record.path, 72))}</span></span>
@@ -1000,80 +286,6 @@ function renderInventoryMetrics(total) {
   els.resultCount.textContent = t("inventory.results", { count: total });
   els.visibleWindow.textContent = t("inventory.window", state.visibleWindow);
   els.queryLatency.textContent = t("inventory.latency", { ms: state.lastQueryMs });
-}
-
-function renderSelectionBar() {
-  els.selectionSummary.textContent = t("bulk.selected", { count: state.selectedIds.size });
-}
-
-function showBulkPreview(action) {
-  if (!state.selectedIds.size) {
-    els.bulkPreview.hidden = false;
-    document.body.classList.add("bulk-preview-open");
-    els.bulkPreview.innerHTML = `<strong>${t("bulk.previewTitle")}</strong><span>${t("bulk.noSelection")}</span>`;
-    return;
-  }
-  const filter = activeFilterSummary();
-  const actionLabel = t(`bulk.${actionLabelKey(action)}`);
-  const previewId = `prototype-${action}-${state.selectedIds.size}-${Math.abs(hashText(filter))}`;
-  const preview = {
-    previewId,
-    action: actionLabel,
-    operator: t("bulk.operatorMock"),
-    selectedCount: state.selectedIds.size,
-    filter,
-    expectedMutation: expectedMutation(action),
-    auditPath: `evidence/logs/${previewId}.jsonl`,
-    warning: t("bulk.previewReadonly"),
-  };
-  els.bulkPreview.hidden = false;
-  document.body.classList.add("bulk-preview-open");
-  els.bulkPreview.innerHTML = `
-    <strong>${t("bulk.previewTitle")}</strong>
-    <dl>
-      <dt>${t("bulk.previewId")}</dt><dd><code>${escapeHtml(preview.previewId)}</code></dd>
-      <dt>${t("bulk.previewAction")}</dt><dd>${escapeHtml(preview.action)}</dd>
-      <dt>${t("bulk.previewOperator")}</dt><dd>${escapeHtml(preview.operator)}</dd>
-      <dt>${t("bulk.selected", { count: preview.selectedCount })}</dt><dd>${escapeHtml([...state.selectedIds].slice(0, 6).join(", "))}${state.selectedIds.size > 6 ? " ..." : ""}</dd>
-      <dt>${t("bulk.previewFilter")}</dt><dd>${escapeHtml(preview.filter)}</dd>
-      <dt>${t("bulk.previewMutation")}</dt><dd>${escapeHtml(preview.expectedMutation)}</dd>
-      <dt>${t("bulk.previewAudit")}</dt><dd><code>${escapeHtml(preview.auditPath)}</code></dd>
-      <dt>${t("bulk.previewWarning")}</dt><dd>${escapeHtml(preview.warning)}</dd>
-    </dl>`;
-  addActivity("activity.bulkPreview", `${actionLabel} · ${state.selectedIds.size}`);
-  renderInspector();
-}
-
-function actionLabelKey(action) {
-  if (action === "mark-reviewed") return "reviewed";
-  if (action === "report-set") return "report";
-  if (action === "queue-validation") return "validation";
-  return "export";
-}
-
-function expectedMutation(action) {
-  if (action === "mark-reviewed") return "review_state -> reviewed";
-  if (action === "report-set") return "report_state -> included";
-  if (action === "queue-validation") return "validation job queue preview";
-  return "export manifest rows only";
-}
-
-function activeFilterSummary() {
-  const query = els.searchInput.value.trim();
-  return [
-    `source=${state.activeSource}`,
-    `filter=${state.activeFilter}`,
-    `sort=${state.sort}`,
-    query ? `query=${query}` : "query=<empty>",
-  ].join("; ");
-}
-
-function hashText(value) {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
-  }
-  return hash;
 }
 
 function renderViewer() {
@@ -1102,6 +314,43 @@ function renderViewer() {
   document.querySelectorAll("[data-overlay]").forEach((button) => {
     button.classList.toggle("active", button.dataset.overlay === state.activeOverlay);
   });
+  renderSelectedEvidenceRail(record);
+}
+
+function renderSelectedEvidenceRail(record) {
+  const validationQueued = record.validationQueued || record.outputStateKey === "output.validationQueued";
+  const outputQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
+  const validationBadge = validationQueued ? t("rail.queued") : t("rail.required");
+  const reportBadge = record.report ? t("rail.included") : t("rail.notIncluded");
+  els.selectedEvidenceRail.innerHTML = `
+    <div class="rail-summary">
+      <span class="rail-kicker">${escapeHtml(t("rail.selectedEvidence"))}</span>
+      <strong>${escapeHtml(sourceLabel(record.source))}</strong>
+      <span class="status-pill status-${record.status}">${escapeHtml(statusLabel(record.status))}</span>
+      <code>${escapeHtml(record.id)} · ${escapeHtml(valueLabel(record.readMode || t("meta.notRecorded")))}</code>
+      <span>${escapeHtml(t("rail.readOnly"))} · ${escapeHtml(valueLabel(record.validation))}</span>
+    </div>
+    <div class="rail-actions">
+      ${railActionHtml("queue-validation", "rail.validation", "rail.validationDetail", validationBadge, !validationQueued)}
+      ${railActionHtml("export-mp4", "rail.export", "rail.exportDetail", outputQueued ? t("rail.queued") : t("rail.preview"), outputQueued)}
+      ${railActionHtml("report-set", "rail.report", "rail.reportDetail", reportBadge, record.report)}
+      ${railActionHtml("package-case", "rail.package", "rail.packageDetail", state.packagePreviewQueued ? t("rail.queued") : t("rail.preview"), state.packagePreviewQueued)}
+      ${railActionHtml("preview-open", "rail.previewOpen", "rail.previewDetail", t("rail.preview"), true)}
+      ${railActionHtml("preview-window", "rail.windowMode", "rail.windowDetail", t("rail.preview"), true)}
+    </div>
+  `;
+}
+
+function railActionHtml(action, titleKey, detailKey, badge, emphasized) {
+  const stateClass = emphasized ? "is-queued" : "is-required";
+  return `
+    <button class="rail-action ${stateClass}" type="button" data-rail-action="${action}">
+      <span class="rail-action-copy">
+        <strong>${escapeHtml(t(titleKey))}</strong>
+        <small>${escapeHtml(t(detailKey))}</small>
+      </span>
+      <em>${escapeHtml(badge)}</em>
+    </button>`;
 }
 
 function renderInspector() {
@@ -1110,6 +359,14 @@ function renderInspector() {
     <span class="status-pill status-${record.status}">${statusLabel(record.status)}</span>
     <strong>${escapeHtml(valueLabel(record.validation))}</strong>
     <span class="state-note">${escapeHtml(valueLabel(record.note))}</span>
+    <div class="decision-gate" aria-label="${escapeAttr(t("gate.title"))}">
+      ${decisionGateItems(record).map((item) => `
+        <div class="decision-gate-row gate-${item.state}">
+          <span>${escapeHtml(t(item.labelKey))}</span>
+          <strong>${escapeHtml(t(item.stateKey))}</strong>
+        </div>
+      `).join("")}
+    </div>
   `;
   const fields = [
     [t("meta.id"), `<code>${escapeHtml(record.id)}</code>`],
@@ -1128,45 +385,39 @@ function renderInspector() {
     [t("meta.duration"), record.type === "photo" ? t("meta.still") : formatDuration(record.duration)],
   ];
   els.metaList.innerHTML = fields.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("");
-  els.activityList.innerHTML = state.activity.slice(0, 12).map((item) => (
-    `<div class="activity-item"><strong>${escapeHtml(activityTitle(item))}</strong><span>${escapeHtml(activityDetail(item))}</span></div>`
-  )).join("");
+}
+
+function decisionGateItems(record) {
+  const validationComplete = record.status !== "candidate" && record.status !== "needs_verification";
+  const playbackConfirmed = String(record.validation || "").includes("confirmed") || record.reviewed;
+  const exportQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
+  return [
+    { labelKey: "gate.indexed", state: "complete", stateKey: "gate.complete" },
+    { labelKey: "gate.container", state: validationComplete ? "complete" : "pending", stateKey: validationComplete ? "gate.complete" : "gate.pending" },
+    { labelKey: "gate.playback", state: playbackConfirmed ? "complete" : "pending", stateKey: playbackConfirmed ? "gate.complete" : "gate.pending" },
+    { labelKey: "gate.report", state: record.report ? "complete" : "pending", stateKey: record.report ? "gate.complete" : "gate.pending" },
+    { labelKey: "gate.export", state: exportQueued ? "queued" : "pending", stateKey: exportQueued ? "gate.queued" : "gate.pending" },
+  ];
 }
 
 function renderAll() {
   applyLocalization();
-  renderInventoryControls();
-  renderStats();
-  renderSources();
-  renderQueue();
+  renderWorkbenchFlow();
   renderFilters();
   renderFiles();
   renderViewer();
   renderInspector();
+  renderPreview();
 }
 
-function renderInventoryControls() {
-  document.body.classList.toggle("inventory-focused", state.inventoryFocused);
-  els.focusModeButton.classList.toggle("active", state.inventoryFocused);
-  els.focusModeButton.textContent = state.inventoryFocused ? t("inventory.default") : t("inventory.focus");
-  els.densitySelect.value = state.density;
-  els.sortSelect.value = state.sort;
+function rowStatusLabel(status) {
+  return t(`status.row.${status}`);
 }
 
-function selectRecord(id, additive = false) {
+function selectRecord(id) {
   state.selectedId = id;
-  if (additive) {
-    if (state.selectedIds.has(id)) {
-      state.selectedIds.delete(id);
-    } else {
-      state.selectedIds.add(id);
-    }
-  } else {
-    state.selectedIds = new Set([id]);
-  }
   state.playback = 0;
   stopTimer();
-  addActivity("activity.selectedEvidence", id);
   renderAll();
 }
 
@@ -1174,7 +425,6 @@ function ensureSelectionVisible() {
   const visible = filteredRecords();
   if (!visible.some((record) => record.id === state.selectedId) && visible[0]) {
     state.selectedId = visible[0].id;
-    state.selectedIds = new Set([visible[0].id]);
     state.playback = 0;
   }
 }
@@ -1196,17 +446,97 @@ function updateRecord(mutator) {
   renderAll();
 }
 
-function addActivity(titleKey, detail, detailKey = null) {
-  state.activity.unshift({ titleKey, detail, detailKey });
+function markRecordReviewed() {
+  updateRecord((record) => {
+    record.reviewed = true;
+    if (record.status === "needs_verification") record.status = "reviewed";
+  });
 }
 
-function activityTitle(item) {
-  return item.titleKey ? t(item.titleKey) : valueLabel(item.title);
+function markRecordImportant() {
+  updateRecord((record) => {
+    record.status = "important";
+  });
 }
 
-function activityDetail(item) {
-  if (item.detailKey) return t(item.detailKey);
-  return valueLabel(item.detail || "");
+function toggleRecordReportSet() {
+  updateRecord((record) => {
+    record.report = !record.report;
+  });
+}
+
+function queueMp4Export() {
+  updateRecord((record) => {
+    record.outputStateKey = "output.mp4Queued";
+    record.outputStateTime = formatTimecode(state.playback);
+  });
+}
+
+function queueAviExport() {
+  updateRecord((record) => {
+    record.outputStateKey = "output.aviQueued";
+    record.outputStateTime = formatTimecode(state.playback);
+  });
+}
+
+function queueFrameCapture() {
+  updateRecord((record) => {
+    record.outputStateKey = "output.frameQueued";
+    record.outputStateTime = formatTimecode(state.playback);
+  });
+}
+
+function queueValidation() {
+  updateRecord((record) => {
+    if (record.status === "candidate" || record.status === "needs_verification") {
+      record.validationQueued = true;
+      if (!record.outputStateKey) {
+        record.outputStateKey = "output.validationQueued";
+        record.outputStateTime = null;
+      }
+    }
+  });
+}
+
+function queuePackagePreview() {
+  state.packagePreviewQueued = true;
+  renderAll();
+}
+
+function openPreview(windowMode = false) {
+  state.previewOpen = true;
+  state.previewWindowMode = windowMode;
+  renderPreview();
+  window.requestAnimationFrame(() => els.previewCloseButton.focus());
+}
+
+function closePreview() {
+  state.previewOpen = false;
+  renderPreview();
+}
+
+function renderPreview() {
+  const record = selectedRecord();
+  els.preview.hidden = !state.previewOpen;
+  els.preview.classList.toggle("is-window-mode", state.previewWindowMode);
+  if (!state.previewOpen) return;
+  els.previewTitle.textContent = state.previewWindowMode ? t("preview.windowTitle") : t("preview.title");
+  els.previewModeButton.textContent = state.previewWindowMode ? t("preview.panelMode") : t("preview.windowMode");
+  drawScene(els.previewCanvas, record, state.playback, 1, false);
+  const rows = [
+    [t("preview.status"), `${statusLabel(record.status)} · ${valueLabel(record.validation)}`],
+    [t("preview.source"), `${sourceLabel(record.source)} · ${middleTruncate(record.path, 72)}`],
+    [t("meta.codec"), record.codec || t("meta.notRecorded")],
+    [t("meta.duration"), record.type === "photo" ? t("meta.still") : formatDuration(record.duration)],
+    [t("preview.hash"), valueLabel(record.hashStatus)],
+    [t("preview.output"), formatOutputState(record)],
+  ];
+  els.previewDetails.innerHTML = `
+    <span class="status-pill status-${record.status}">${escapeHtml(statusLabel(record.status))}</span>
+    <strong>${escapeHtml(record.name)}</strong>
+    <p>${escapeHtml(valueLabel(record.note))}</p>
+    <dl>${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
+  `;
 }
 
 function formatOutputState(record) {
@@ -1566,31 +896,6 @@ els.searchInput.addEventListener("input", () => {
   renderAll();
 });
 els.fileRows.addEventListener("scroll", requestInventoryRender);
-els.densitySelect.addEventListener("change", () => {
-  state.density = els.densitySelect.value;
-  els.fileRows.scrollTop = 0;
-  renderAll();
-});
-els.sortSelect.addEventListener("change", () => {
-  state.sort = els.sortSelect.value;
-  els.fileRows.scrollTop = 0;
-  ensureSelectionVisible();
-  renderAll();
-});
-els.focusModeButton.addEventListener("click", () => {
-  state.inventoryFocused = !state.inventoryFocused;
-  els.fileRows.scrollTop = 0;
-  renderAll();
-});
-els.clearSelectionButton.addEventListener("click", () => {
-  state.selectedIds = new Set();
-  els.bulkPreview.hidden = true;
-  document.body.classList.remove("bulk-preview-open");
-  renderAll();
-});
-document.querySelectorAll("[data-bulk-action]").forEach((button) => {
-  button.addEventListener("click", () => showBulkPreview(button.dataset.bulkAction));
-});
 els.playButton.addEventListener("click", togglePlay);
 els.prevButton.addEventListener("click", () => moveSelection(-1));
 els.nextButton.addEventListener("click", () => moveSelection(1));
@@ -1598,7 +903,6 @@ els.stepBackButton.addEventListener("click", () => step(-1 / 30));
 els.stepForwardButton.addEventListener("click", () => step(1 / 30));
 els.speedSelect.addEventListener("change", () => {
   state.speed = Number(els.speedSelect.value);
-  addActivity("activity.playbackSpeed", `${state.speed}x`);
 });
 els.zoomInput.addEventListener("input", () => {
   state.zoom = Number(els.zoomInput.value);
@@ -1614,49 +918,42 @@ els.timelineRail.addEventListener("click", (event) => {
 document.querySelectorAll("[data-overlay]").forEach((button) => {
   button.addEventListener("click", () => {
     state.activeOverlay = button.dataset.overlay;
-    addActivity("activity.viewerOverlay", t(`overlay.${button.dataset.overlay}`));
     renderViewer();
   });
 });
-document.getElementById("markReviewedButton").addEventListener("click", () => updateRecord((record) => {
-  record.reviewed = true;
-  if (record.status === "needs_verification") record.status = "reviewed";
-  addActivity("activity.markedReviewed", record.id);
-}));
-document.getElementById("markImportantButton").addEventListener("click", () => updateRecord((record) => {
-  record.status = "important";
-  addActivity("activity.markedImportant", record.id);
-}));
-document.getElementById("addReportButton").addEventListener("click", () => updateRecord((record) => {
-  record.report = !record.report;
-  addActivity(record.report ? "activity.addedToReport" : "activity.removedFromReport", record.id);
-}));
-document.getElementById("exportMp4Button").addEventListener("click", () => updateRecord((record) => {
-  record.outputStateKey = "output.mp4Queued";
-  record.outputStateTime = formatTimecode(state.playback);
-  addActivity("activity.mp4Queued", record.id);
-}));
-document.getElementById("exportAviButton").addEventListener("click", () => updateRecord((record) => {
-  record.outputStateKey = "output.aviQueued";
-  record.outputStateTime = formatTimecode(state.playback);
-  addActivity("activity.aviQueued", record.id);
-}));
-document.getElementById("captureFrameButton").addEventListener("click", () => updateRecord((record) => {
-  record.outputStateKey = "output.frameQueued";
-  record.outputStateTime = formatTimecode(state.playback);
-  addActivity("activity.frameQueued", `${record.id} ${formatTimecode(state.playback)}`);
-}));
-document.getElementById("verifyButton").addEventListener("click", () => updateRecord((record) => {
-  if (record.status === "candidate" || record.status === "needs_verification") {
-    record.outputStateKey = "output.validationQueued";
-    record.outputStateTime = null;
-  }
-  addActivity("activity.validationQueued", record.id);
-}));
+els.selectedEvidenceRail.addEventListener("click", (event) => {
+  if (!(event.target instanceof Element)) return;
+  const button = event.target.closest("[data-rail-action]");
+  if (!button) return;
+  if (button.dataset.railAction === "queue-validation") queueValidation();
+  if (button.dataset.railAction === "export-mp4") queueMp4Export();
+  if (button.dataset.railAction === "report-set") toggleRecordReportSet();
+  if (button.dataset.railAction === "package-case") queuePackagePreview();
+  if (button.dataset.railAction === "preview-open") openPreview(false);
+  if (button.dataset.railAction === "preview-window") openPreview(true);
+});
+els.previewModeButton.addEventListener("click", () => {
+  state.previewWindowMode = !state.previewWindowMode;
+  renderPreview();
+});
+els.previewCloseButton.addEventListener("click", closePreview);
+els.preview.addEventListener("click", (event) => {
+  if (!(event.target instanceof Element)) return;
+  const command = event.target.closest("[data-preview-command]")?.dataset.previewCommand;
+  if (command === "report") toggleRecordReportSet();
+  if (command === "export") queueMp4Export();
+  if (command === "verify") queueValidation();
+});
+document.getElementById("markReviewedButton").addEventListener("click", markRecordReviewed);
+document.getElementById("markImportantButton").addEventListener("click", markRecordImportant);
+document.getElementById("addReportButton").addEventListener("click", toggleRecordReportSet);
+document.getElementById("exportMp4Button").addEventListener("click", queueMp4Export);
+document.getElementById("exportAviButton").addEventListener("click", queueAviExport);
+document.getElementById("captureFrameButton").addEventListener("click", queueFrameCapture);
+document.getElementById("verifyButton").addEventListener("click", queueValidation);
 document.getElementById("syncViewButton").addEventListener("click", (event) => {
   state.syncView = !state.syncView;
   event.currentTarget.classList.toggle("active", state.syncView);
-  addActivity("activity.synchronizedView", null, state.syncView ? "activity.enabled" : "activity.disabled");
   renderAll();
 });
 els.languageButton.addEventListener("click", () => {
@@ -1664,7 +961,7 @@ els.languageButton.addEventListener("click", () => {
   localStorage.setItem("frametrace.locale", state.locale);
   renderAll();
 });
-document.getElementById("packageButton").addEventListener("click", () => addActivity("activity.packageQueued", null, "activity.packageDetail"));
+document.getElementById("packageButton").addEventListener("click", queuePackagePreview);
 document.addEventListener("keydown", (event) => {
   if (event.target && ["INPUT", "SELECT"].includes(event.target.tagName)) return;
   if (event.key === " ") {
@@ -1678,6 +975,8 @@ document.addEventListener("keydown", (event) => {
     moveSelection(1);
   } else if (event.key.toLowerCase() === "p") {
     moveSelection(-1);
+  } else if (event.key === "Escape" && state.previewOpen) {
+    closePreview();
   }
 });
 

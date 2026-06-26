@@ -1,0 +1,5 @@
+happy_status=0
+failure_capture_status=0
+failure_exit_seen=0
+failure_key_seen=0
+full_status=0

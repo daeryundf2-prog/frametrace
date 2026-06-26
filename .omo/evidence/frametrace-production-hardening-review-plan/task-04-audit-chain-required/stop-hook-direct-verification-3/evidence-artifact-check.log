@@ -1,0 +1,5 @@
+SCENARIO evidence-artifact-check
+INVOCATION python3 -m json.tool .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-blocker-fix-doneclaim.json >/dev/null && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-blocker-fix-doneclaim.json && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/validation-claimed-missing-log.log && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/recovered-filesystem-missing-tsk-log.log && echo evidence_artifacts_present_and_nonempty
+evidence_artifacts_present_and_nonempty
+
+exit_code=0

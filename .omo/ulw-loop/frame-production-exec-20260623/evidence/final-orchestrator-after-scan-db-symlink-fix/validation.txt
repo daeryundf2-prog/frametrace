@@ -1,0 +1,428 @@
+FrameTrace final orchestrator validation after scan db symlink fix
+timestamp: 2026-06-23T12:23:49Z
+
+## git rev-parse HEAD
+f589deaafa1ef8d8c036b1734b6ca3230a266db3
+
+## git status --short --branch
+## codex/frametrace-forensic-hardening...origin/codex/frametrace-forensic-hardening [ahead 7]
+?? .omo/plans/
+?? .omo/ulw-loop/.current-media-session
+?? .omo/ulw-loop/frame-full-ga-20260617222935/
+?? .omo/ulw-loop/frame-gui-20260617102845/
+?? .omo/ulw-loop/frame-master-rcga-cleanup-receipt.txt
+?? .omo/ulw-loop/frame-master-rcga-review-blocker.md
+?? .omo/ulw-loop/frame-media-validation-20260617024104/
+?? .omo/ulw-loop/frame-production-exec-20260623-brief.md
+?? .omo/ulw-loop/frame-production-exec-20260623/
+?? .omo/ulw-loop/frame-production-seq-20260623-brief.md
+?? .omo/ulw-loop/frame-production-seq-20260623/
+?? .omo/ulw-loop/frame-windows-prereq-gate-20260622/
+?? .omo/ulw-loop/frame-winui-20260617-playback-cli.txt
+?? .omo/ulw-loop/frame-winui-cleanup-receipt.txt
+?? .omo/ulw-loop/frame-winui-latest-playback-case.txt
+?? .omo/ulw-loop/frame-winui-playback-cli-pass.txt
+?? .omo/ulw-loop/frame-winui-workstation-status-release.json
+?? .omo/ulw-loop/frame-winui-workstation-status.json
+
+## cargo fmt --all -- --check
+
+## cargo clippy --locked --all-targets --all-features -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+
+## cargo test --locked --test cli_output_policy -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 5 tests
+test make_review_rejects_symlinked_review_directory_without_writing_target ... ok
+test scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside ... ok
+test make_review_rejects_symlinked_review_outputs_without_writing_target ... ok
+test make_report_rejects_symlinked_reports_directory_without_writing_target ... ok
+test make_report_rejects_symlinked_report_outputs_without_writing_target ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+
+## cargo test --locked symlink -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 9 tests
+test util::tests::unique_path_treats_dangling_symlink_as_occupied ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test derived_output_policy_tests::frame_capture_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::inode_recovery_rejects_dangling_symlink_output_before_icat ... ok
+test derived_output_policy_tests::thumbnail_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::video_export_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::proxy_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test package::tests::rejects_symlinked_package_inputs ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_dangling_symlink_output_without_creating_target ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-3dfe7e73d199271c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 5 tests
+test make_review_rejects_symlinked_review_directory_without_writing_target ... ok
+test make_review_rejects_symlinked_review_outputs_without_writing_target ... ok
+test scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside ... ok
+test make_report_rejects_symlinked_report_outputs_without_writing_target ... ok
+test make_report_rejects_symlinked_reports_directory_without_writing_target ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+## cargo test --locked --test cli_inventory -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 1 test
+test inventory_commands_emit_bounded_sqlite_backed_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+
+## cargo test --locked case_db:: -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 18 tests
+test case_db::core_tests::initializes_new_databases_at_current_schema_version ... ok
+test case_db::core_tests::migrates_v1_schema_to_current_with_ordered_backups ... ok
+test case_db::core_tests::migrates_v2_schema_to_inventory_contract_with_backup ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_dangling_symlink_output_without_creating_target ... ok
+test case_db::inventory_tests::inventory_sort_contract_is_explicit_and_stable ... ok
+test case_db::inventory_export_tests::export_manifest_writes_selected_rows_with_output_hash ... ok
+test case_db::metrics_tests::benchmark_rejects_zero_rows ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_registered_source_evidence_output ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_outputs_outside_case_or_over_existing_files ... ok
+test case_db::inventory_tests::bulk_preview_is_auditable_and_does_not_mutate_database ... ok
+test case_db::tests::preserves_manual_source_id_when_auto_registering_same_path ... ok
+test case_db::jobs_tests::marks_running_jobs_interrupted_for_recovery_review ... ok
+test case_db::jobs_tests::interrupt_running_jobs_does_not_overwrite_terminal_jobs ... ok
+test case_db::tests::writes_scan_records_to_sqlite_without_duplicate_rows ... ok
+test case_db::inventory_tests::lists_inventory_with_bounded_sqlite_pagination ... ok
+test case_db::metrics_tests::benchmark_records_indexed_query_latency ... ok
+test case_db::inventory_tests::searches_facets_and_loads_detail_from_sqlite ... ok
+test case_db::inventory_tests::caps_inventory_page_size_for_large_viewer_safety ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.12s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-3dfe7e73d199271c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+## cargo test --locked
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-fde803ee43988907)
+
+running 117 tests
+test artifacts::tests::default_proxy_is_review_sized ... ok
+test artifacts::tests::default_thumbnail_starts_at_zero ... ok
+test artifacts::tests::frame_capture_args_record_exact_time ... ok
+test artifacts::tests::builds_artifact_command_args ... ok
+test carve::tests::explains_validation_boundary_by_signature ... ok
+test carve::tests::finds_avi_and_dhav_signatures ... ok
+test carve::tests::finds_mp4_ftyp_start_offset ... ok
+test audit::tests::hashes_files ... ok
+test audit::tests::rejects_tampered_audit_lines ... ok
+test audit::tests::appends_chained_json_lines ... ok
+test audit::tests::media_audit_statuses_report_verified_missing_and_tampered_logs ... ok
+test artifacts::tests::derived_artifact_log_body_records_provenance_operator_and_ids ... ok
+test case_db::core_tests::initializes_new_databases_at_current_schema_version ... ok
+test case_db::core_tests::migrates_v2_schema_to_inventory_contract_with_backup ... ok
+test case_db::core_tests::migrates_v1_schema_to_current_with_ordered_backups ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_dangling_symlink_output_without_creating_target ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_outputs_outside_case_or_over_existing_files ... ok
+test case_db::inventory_export_tests::export_manifest_writes_selected_rows_with_output_hash ... ok
+test case_db::inventory_tests::bulk_preview_is_auditable_and_does_not_mutate_database ... ok
+test case_db::metrics_tests::benchmark_rejects_zero_rows ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_registered_source_evidence_output ... ok
+test derived_output_policy_tests::frame_capture_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::inode_recovery_rejects_dangling_symlink_output_before_icat ... ok
+test derived_output_policy_tests::proxy_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::thumbnail_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::video_export_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test detector::tests::avoids_overbroad_common_word_matches ... ok
+test detector::tests::detects_blackvue_channel_suffixes ... ok
+test detector::tests::detects_dahua_dav_exports ... ok
+test detector::tests::detects_genetec_g64x_exports ... ok
+test detector::tests::detects_korean_dashcam_recording_folders ... ok
+test detector::tests::detects_raw_dvr_streams ... ok
+test detector::tests::detects_thinkware_style_event_folders ... ok
+test detector::tests::detects_urive_dashcam_paths ... ok
+test detector::tests::does_not_treat_digits_in_path_as_raw_stream_vendor ... ok
+test detector::tests::falls_back_to_generic_media ... ok
+test e01::tests::builds_default_raw_filename ... ok
+test e01::tests::builds_ewfexport_args ... ok
+test e01::tests::maps_requested_raw_path_to_ewfexport_target ... ok
+test e01::tests::missing_ewf_version_reports_unavailable ... ok
+test e01::tests::resolves_requested_ewfexport_output ... ok
+test ffprobe::tests::extracts_json_values_from_ffprobe_like_payload ... ok
+test html_report::tests::evidence_viewer_discloses_bounded_inventory_subset ... ok
+test html_report::tests::evidence_viewer_does_not_auto_load_original_media ... ok
+test html_report::tests::evidence_viewer_includes_derived_artifact_records ... ok
+test html_report::tests::evidence_viewer_includes_filesystem_recovery_records ... ok
+test html_report::tests::evidence_viewer_matches_derived_validation_by_artifact_id_and_hash ... ok
+test media_contract::tests::artifact_ids_are_stable_and_sanitized ... ok
+test media_contract::tests::media_audit_rejects_missing_operator ... ok
+test media_contract::tests::operator_prefers_explicit_then_case_manifest ... ok
+test package::tests::creates_checksummed_package_directory ... ok
+test package::tests::rejects_missing_required_package_files ... ok
+test package::tests::rejects_output_inside_recursively_packaged_tree ... ok
+test package::tests::rejects_symlinked_package_inputs ... ok
+test case_db::inventory_tests::inventory_sort_contract_is_explicit_and_stable ... ok
+test qa::qa_release_gates::tests::global_release_gate_keys_are_unique_and_complete ... ok
+test qa::qa_shell_contract::tests::workstation_contract_accepts_required_tokens ... ok
+test qa::qa_shell_contract::tests::workstation_contract_rejects_full_json_load ... ok
+test qa::qa_tests::accuracy_report_includes_recovery_artifacts ... ok
+test qa::qa_tests::accuracy_report_passes_for_matching_manifest ... ok
+test case_db::tests::preserves_manual_source_id_when_auto_registering_same_path ... ok
+test case_db::jobs_tests::interrupt_running_jobs_does_not_overwrite_terminal_jobs ... ok
+test case_db::jobs_tests::marks_running_jobs_interrupted_for_recovery_review ... ok
+test case_db::tests::writes_scan_records_to_sqlite_without_duplicate_rows ... ok
+test qa::qa_tests::report_defense_rejects_disallowed_legal_claims ... ok
+test qa::qa_tests::reproducibility_detects_recovery_validation_drift ... ok
+test qa::qa_tests::review_manifest_accepts_key_value_and_markdown_gates ... ok
+test qa::qa_tests::reproducibility_normalizes_case_paths_timestamps_and_package_times ... ok
+test resource_monitor::tests::average_cpu_percent_uses_elapsed_wall_time ... ok
+test resource_monitor::tests::parses_ps_cpu_time_variants ... ok
+test resource_monitor::tests::resource_usage_requires_available_metrics ... ok
+test review_bundle::tests::malformed_rows_are_excluded_and_disclosed ... ok
+test scan::tests::collect_candidates_skips_excluded_case_output_tree ... ok
+test scan::tests::extracts_escaped_json_string_values ... ok
+test review_bundle::tests::bounds_embedded_review_inventory_and_discloses_truncation ... ok
+test scan::tests::merges_scan_records_without_dropping_existing_case_index ... ok
+test scan::tests::recognizes_common_video_extensions ... ok
+test scan::tests::rejects_scanning_the_case_directory_as_source ... ok
+test scan::tests::recognizes_mp4_magic_without_extension ... ok
+test sha256::tests::hashes_abc ... ok
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test sha256::tests::hashes_empty_input ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test tsk::tests::builds_tsk_command_args ... ok
+test tsk::tests::parses_deleted_fls_video_entries ... ok
+test tsk::tests::parses_mmls_allocated_partition_offsets ... ok
+test util::tests::compacts_only_well_formed_json_values ... ok
+test util::tests::creates_file_url ... ok
+test tool_policy::tests::rejects_output_that_targets_source_evidence_path ... ok
+test util::tests::escapes_json_control_characters ... ok
+test util::tests::creates_unique_path_with_suffix ... ok
+test util::tests::unique_path_treats_dangling_symlink_as_occupied ... ok
+test validation::tests::classifies_missing_video_stream_as_failed ... ok
+test validation::tests::classifies_successful_video_probe_as_ffprobe_confirmed ... ok
+test validation::tests::extracts_escaped_json_strings ... ok
+test validation::tests::resolves_artifact_path_from_jsonl_log ... ok
+test case_db::inventory_tests::lists_inventory_with_bounded_sqlite_pagination ... ok
+test video_export::tests::builds_export_command_args ... ok
+test case_db::inventory_tests::searches_facets_and_loads_detail_from_sqlite ... ok
+test video_export::tests::parses_export_formats ... ok
+test video_export::tests::sanitizes_clip_names ... ok
+test video_export::tests::unescapes_tsv_paths ... ok
+test case_db::metrics_tests::benchmark_records_indexed_query_latency ... ok
+test windows_prerequisites_tests::status_reports_host_and_release_readiness ... ok
+test windows_prerequisites_tests::empty_winui_directory_is_not_a_project ... ok
+test validation::tests::validation_log_preserves_source_relation_for_derived_artifact_targets ... ok
+test validation::tests::validation_log_body_records_forensic_promotion_contract ... ok
+test windows_prerequisites_tests::winui_solution_or_project_file_is_required_project_evidence ... ok
+test video_export::tests::export_log_body_records_derived_artifact_contract ... ok
+test qa::qa_tests::report_defense_rejects_tampered_media_audit_logs ... ok
+test qa::qa_tests::report_defense_rejects_cases_with_running_jobs ... ok
+test case_db::inventory_tests::caps_inventory_page_size_for_large_viewer_safety ... ok
+test performance_qa::tests::performance_report_writes_query_plan_evidence ... ok
+test qa::qa_tests::performance_report_records_query_latency_metrics ... ok
+
+test result: ok. 117 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+     Running unittests src/main.rs (target/debug/deps/frametrace-a8560905c07f5c56)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cli_inventory.rs (target/debug/deps/cli_inventory-227aa078941f4e5e)
+
+running 1 test
+test inventory_commands_emit_bounded_sqlite_backed_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/cli_lifecycle.rs (target/debug/deps/cli_lifecycle-3dfe7e73d199271c)
+
+running 1 test
+test case_lifecycle_smoke_test_uses_real_binary ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/cli_output_policy.rs (target/debug/deps/cli_output_policy-0625b628ff4fa6eb)
+
+running 5 tests
+test scan_folder_rejects_symlinked_db_directory_without_writing_case_state_outside ... ok
+test make_review_rejects_symlinked_review_outputs_without_writing_target ... ok
+test make_review_rejects_symlinked_review_directory_without_writing_target ... ok
+test make_report_rejects_symlinked_report_outputs_without_writing_target ... ok
+test make_report_rejects_symlinked_reports_directory_without_writing_target ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/cli_review.rs (target/debug/deps/cli_review-9d838afd0033b3a9)
+
+running 2 tests
+test make_review_embeds_bounded_inventory_subset ... ok
+test make_review_uses_sqlite_inventory_when_jsonl_is_absent ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/cli_smoke.rs (target/debug/deps/cli_smoke-139d427e2726bdf2)
+
+running 2 tests
+test help_command_succeeds ... ok
+test external_tool_failure_reports_install_guidance ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-8af70f303abd1430)
+
+running 3 tests
+test windows_release_script_enforces_native_exit_and_winui_receipt ... ok
+test workstation_status_reports_windows_prerequisite_gate ... ok
+test release_readiness_blocks_when_windows_prerequisites_are_missing ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/media_contract.rs (target/debug/deps/media_contract-cdee88d3aa066a60)
+
+running 3 tests
+test report_discloses_derived_provenance_and_validation_failures ... ok
+test playback_confirmation_rejects_missing_ffprobe_validation ... ok
+test playback_confirmation_requires_prior_ffprobe_validation_and_records_separate_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests frametrace
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+## git diff --check
+
+## cleanup process check
+  689     1 S    /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+  891     1 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/chrome_crashpad_handler --monitor-self-annotation=ptype=crashpad-handler --database=/Users/shinyoohag/Library/Application Support/Google/Chrome/Crashpad --url=https://clients2.google.com/cr/report --annotation=channel= --annotation=plat=OS X --annotation=prod=Chrome_Mac --annotation=ver=148.0.7778.168 --handshake-fd=5
+  930   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=gpu-process --gpu-preferences=SAAAAAAAAAAgAQAEAAAAAAAAAAAAAGAAAwAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAQAAAAAAAAABAAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --shared-files --metrics-shmem-handle=1752395122,r,1147167983798349193,13650151321837092593,262144 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190708988185955192 --seatbelt-client=24
+  943   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=network --shared-files --metrics-shmem-handle=1752395122,r,9308643193872304252,3583677592724501249,524288 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190708989122997041 --seatbelt-client=24
+  952   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=storage.mojom.StorageService --lang=en-US --service-sandbox-type=service --shared-files --metrics-shmem-handle=1752395122,r,10017842885641073093,5426101075677329675,524288 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190708990060038890 --seatbelt-client=38
+ 3246   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=audio.mojom.AudioService --lang=en-US --service-sandbox-type=audio --message-loop-type-ui --shared-files --metrics-shmem-handle=1752395122,r,6399690888703126581,17666743786421830972,524288 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190709050030717226 --seatbelt-client=221
+ 3488   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=34354 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1167061814933 --shared-files --metrics-shmem-handle=1752395122,r,109657554949960033,7022863607124573070,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190741177447552040 --seatbelt-client=60
+ 5631   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=video_capture.mojom.VideoCaptureService --lang=en-US --service-sandbox-type=none --message-loop-type-ui --shared-files --metrics-shmem-handle=1752395122,r,6980549276041410156,10846638784532776956,524288 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190709068771554206
+ 7765   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --top-chrome-webui --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=21217 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=650833180993 --shared-files --metrics-shmem-handle=1752395122,r,7714861114817739345,16370707813860261272,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190728867528781727 --seatbelt-client=632
+26855   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=14379 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=512495604251 --shared-files --metrics-shmem-handle=1752395122,r,14279285217294113630,12305811886723518995,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190722460036618265 --seatbelt-client=593
+34216   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=47390 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1697530965853 --shared-files --metrics-shmem-handle=1752395122,r,12686727765670943398,16266315624459447671,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190753392725095604 --seatbelt-client=65
+37922   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38489 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1330556989596 --shared-files --metrics-shmem-handle=1752395122,r,1088981046458326519,2647708175368632252,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190745052115597655 --seatbelt-client=141
+39518   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=17074 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=556336169229 --shared-files --metrics-shmem-handle=1752395122,r,1915328313352312601,11513971450010840236,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190724985364401320 --seatbelt-client=668
+39528   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=40449 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1408300694617 --shared-files --metrics-shmem-handle=1752395122,r,13444778106536058535,17544022030735625887,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190746888717621695 --seatbelt-client=159
+41558 54324 Ss   /bin/zsh -lc mkdir -p .omo/ulw-loop/frame-production-exec-20260623/evidence/final-orchestrator-after-scan-db-symlink-fix\012{\012  printf 'FrameTrace final orchestrator validation after scan db symlink fix\n'\012  printf 'timestamp: '; date -u +%Y-%m-%dT%H:%M:%SZ\012  printf '\n## git rev-parse HEAD\n'\012  git rev-parse HEAD\012  printf '\n## git status --short --branch\n'\012  git status --short --branch\012  printf '\n## cargo fmt --all -- --check\n'\012  cargo fmt --all -- --check\012  printf '\n## cargo clippy --locked --all-targets --all-features -- -D warnings\n'\012  cargo clippy --locked --all-targets --all-features -- -D warnings\012  printf '\n## cargo test --locked --test cli_output_policy -- --nocapture\n'\012  cargo test --locked --test cli_output_policy -- --nocapture\012  printf '\n## cargo test --locked symlink -- --nocapture\n'\012  cargo test --locked symlink -- --nocapture\012  printf '\n## cargo test --locked --test cli_inventory -- --nocapture\n'\012  cargo test --locked --test cli_inventory -- --nocapture\012  printf '\n## cargo test --locked case_db:: -- --nocapture\n'\012  cargo test --locked case_db:: -- --nocapture\012  printf '\n## cargo test --locked\n'\012  cargo test --locked\012  printf '\n## git diff --check\n'\012  git diff --check\012  printf '\n## cleanup process check\n'\012  ps -axo pid,ppid,stat,command | rg -i 'frametrace|headless|chrome|chromium|playwright|puppeteer' || true\012  printf '\n## cleanup temp path check\n'\012  find "${TMPDIR:-/tmp}" -maxdepth 1 \( -name 'frametrace-*' -o -name 'puppeteer_dev_chrome_profile-*' \) -print | sort\012} > .omo/ulw-loop/frame-production-exec-20260623/evidence/final-orchestrator-after-scan-db-symlink-fix/validation.txt 2>&1\012validation_code=$?\012printf 'validation_exit_code=%s\n' "$validation_code" | tee .omo/ulw-loop/frame-production-exec-20260623/evidence/final-orchestrator-after-scan-db-symlink-fix/validation-exit.txt\012exit $validation_code
+42140 41558 R    rg -i frametrace|headless|chrome|chromium|playwright|puppeteer
+58371   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38326 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1323452671238 --shared-files --metrics-shmem-handle=1752395122,r,4357178650579064454,13722630366501358280,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190744899377776268 --seatbelt-client=117
+61419   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=utility --utility-sub-type=media.mojom.CdmServiceBroker --lang=en-US --service-sandbox-type=cdm --shared-files --metrics-shmem-handle=1752395122,r,12708064390216847292,17559908847596757934,524288 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190726909111317317 --seatbelt-client=557
+61466   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38556 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1332420013932 --shared-files --metrics-shmem-handle=1752395122,r,4989060797465515973,11821226966096275843,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190745114897401538 --seatbelt-client=50
+62347   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38343 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1324090941014 --shared-files --metrics-shmem-handle=1752395122,r,2725391654574890640,17367549012924955814,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190744915307487701 --seatbelt-client=116
+79967   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38646 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1334434990436 --shared-files --metrics-shmem-handle=1752395122,r,3809560694546108678,8828071062175793868,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190745199231167948 --seatbelt-client=170
+81689   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=20915 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=640097591686 --shared-files --metrics-shmem-handle=1752395122,r,9002246807291555916,12745719175541369492,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190728584542143329 --seatbelt-client=329
+85000   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=38670 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=1335007385277 --shared-files --metrics-shmem-handle=1752395122,r,14573938009705751988,10985880261903866223,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190745221720172324 --seatbelt-client=133
+86734   689 S    /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/148.0.7778.168/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer) --type=renderer --lang=en-US --num-raster-threads=4 --enable-zero-copy --enable-gpu-memory-buffer-compositor-resources --enable-main-frame-before-activation --renderer-client-id=13945 --time-ticks-at-unix-epoch=-1779399979383315 --launch-time-ticks=501926215240 --shared-files --metrics-shmem-handle=1752395122,r,5943100866135333213,1070883381222610540,2097152 --field-trial-handle=1718379636,r,12808205691412197027,2045129544862540767,262144 --variations-seed-version=20260521-010035.339000-production --pseudonymization-salt-handle=1935764596,r,11250039568683838621,18350811018699312693,4 --trace-process-track-uuid=3190722053360455799 --seatbelt-client=642
+
+## cleanup temp path check

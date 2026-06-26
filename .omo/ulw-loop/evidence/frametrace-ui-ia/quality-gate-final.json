@@ -1,0 +1,208 @@
+{
+  "qualityGate": {
+    "codeReview": {
+      "by": "lazycodex-code-reviewer",
+      "recommendation": "APPROVE",
+      "codeQualityStatus": "CLEAR",
+      "reportPath": ".omo/ulw-loop/evidence/frametrace-ui-ia/final-code-review.md",
+      "evidence": "Final code review is clear after fixing the DESIGN.md responsive mismatch, adding the missing CSS token, and strengthening Playwright assertions for page errors, candidate rows, gate rows, and canvas pixels.",
+      "blockers": []
+    },
+    "manualQa": {
+      "by": "lazycodex-qa-executor",
+      "status": "passed",
+      "evidence": "Browser QA at 1280x900, 768x900, and 375x900 passed with no horizontal overflow, no page errors, visible candidate rows, and required status-honest forensic labels. cargo test --lib passed with 159 passed and 0 failed.",
+      "artifactRefs": [
+        {
+          "id": "desktop-1280",
+          "kind": "screenshot",
+          "description": "Desktop viewer-first evidence review screenshot.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/desktop-1280.png"
+        },
+        {
+          "id": "tablet-768",
+          "kind": "screenshot",
+          "description": "Tablet viewer-first evidence review screenshot.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/tablet-768.png"
+        },
+        {
+          "id": "mobile-375",
+          "kind": "screenshot",
+          "description": "Mobile viewer-first evidence review screenshot.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/mobile-375.png"
+        },
+        {
+          "id": "playwright-assertions",
+          "kind": "data-diff",
+          "description": "Playwright concept, page-error, overflow, candidate-row, gate-row, and canvas-pixel assertions.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/playwright-assertions.json"
+        },
+        {
+          "id": "desktop-overflow",
+          "kind": "data-diff",
+          "description": "Desktop overflow measurement.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/desktop-1280-overflow.json"
+        },
+        {
+          "id": "tablet-overflow",
+          "kind": "data-diff",
+          "description": "Tablet overflow measurement.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/tablet-768-overflow.json"
+        },
+        {
+          "id": "mobile-overflow",
+          "kind": "data-diff",
+          "description": "Mobile overflow measurement.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/mobile-375-overflow.json"
+        },
+        {
+          "id": "cargo-test-lib",
+          "kind": "cli-transcript",
+          "description": "Rust library regression test transcript.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/cargo-test-lib.txt"
+        },
+        {
+          "id": "playwright-run",
+          "kind": "log",
+          "description": "Standalone Playwright run transcript.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/playwright-run.log"
+        },
+        {
+          "id": "quality-summary",
+          "kind": "data-diff",
+          "description": "Compact final quality summary for the viewer-first revision.",
+          "path": ".omo/ulw-loop/evidence/frametrace-ui-ia/quality-gate.json"
+        }
+      ],
+      "surfaceEvidence": [
+        {
+          "id": "desktop-viewer-first",
+          "criterionRef": "C001",
+          "surface": "browser",
+          "invocation": "Playwright Chromium at 1280x900 against http://127.0.0.1:4177/index.html.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "desktop-1280"
+          ]
+        },
+        {
+          "id": "responsive-viewer-first",
+          "criterionRef": "C002",
+          "surface": "browser",
+          "invocation": "Playwright Chromium at 768x900 and 375x900 against http://127.0.0.1:4177/index.html.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "tablet-768",
+            "mobile-375"
+          ]
+        },
+        {
+          "id": "browser-assertions",
+          "criterionRef": "C001,C002",
+          "surface": "data",
+          "invocation": "Parse playwright-assertions.json for visible review concepts, page errors, overflow, rendered rows, gate rows, and canvas pixels.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "playwright-assertions",
+            "desktop-overflow",
+            "tablet-overflow",
+            "mobile-overflow"
+          ]
+        },
+        {
+          "id": "rust-regression",
+          "criterionRef": "C003",
+          "surface": "cli",
+          "invocation": "cargo test --lib.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "cargo-test-lib",
+            "playwright-run"
+          ]
+        }
+      ],
+      "adversarialCases": [
+        {
+          "id": "unnecessary-first-screen-items",
+          "criterionRef": "C001",
+          "scenario": "A reviewer needs to start by viewing video or recovered material rather than scanning decorative workflow/status panels.",
+          "expectedBehavior": "The viewer appears first, source/stat/activity panels are not first-screen blockers, and candidate rows remain visible.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "desktop-1280",
+            "tablet-768",
+            "mobile-375"
+          ]
+        },
+        {
+          "id": "status-honesty",
+          "criterionRef": "C001,C002",
+          "scenario": "The first screen must not imply evidence is validated or release-ready.",
+          "expectedBehavior": "local-first, verification required, and candidate-unvalidated remain visible while exaggerated launch wording is absent.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "playwright-assertions",
+            "quality-summary"
+          ]
+        },
+        {
+          "id": "responsive-overflow-and-errors",
+          "criterionRef": "C002",
+          "scenario": "Small tablet/mobile widths can hide controls, clip text, or create horizontal overflow.",
+          "expectedBehavior": "375, 768, and 1280 viewports have no horizontal overflow and no page errors.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "playwright-assertions",
+            "desktop-overflow",
+            "tablet-overflow",
+            "mobile-overflow"
+          ]
+        },
+        {
+          "id": "regression-scope",
+          "criterionRef": "C003",
+          "scenario": "A GUI-only follow-up should not destabilize Rust library behavior.",
+          "expectedBehavior": "cargo test --lib passes and the Rust engine remains unchanged for this viewer-first follow-up.",
+          "verdict": "passed",
+          "artifactRefs": [
+            "cargo-test-lib"
+          ]
+        }
+      ]
+    },
+    "gateReview": {
+      "by": "lazycodex-gate-reviewer",
+      "recommendation": "APPROVE",
+      "reportPath": ".omo/ulw-loop/evidence/frametrace-ui-ia/final-gate-review.md",
+      "evidence": "Final gate review approves the revised first screen as viewer-first with compact review states, visible candidates, honest local-first/verification-required/candidate-unvalidated copy, no overflow, no page errors, and passing cargo test --lib.",
+      "blockers": []
+    },
+    "iteration": {
+      "fullRerun": true,
+      "status": "passed",
+      "rerunCommands": [
+        "node --check gui/evidence-viewer/app.js",
+        "node --check .omo/ulw-loop/evidence/frametrace-ui-ia/final-ui-check.js",
+        "python3 -m http.server 4177 --directory gui/evidence-viewer plus Playwright Chromium QA at 1280x900, 768x900, and 375x900",
+        "cargo test --lib"
+      ],
+      "evidence": "All rerun evidence is captured under .omo/ulw-loop/evidence/frametrace-ui-ia/, including playwright-assertions.json, screenshot PNGs, playwright-run.log, and cargo-test-lib.txt."
+    },
+    "criteriaCoverage": {
+      "totalCriteria": 3,
+      "passCount": 3,
+      "originalIntent": "Make gui/evidence-viewer read like a local forensic video evidence review tool with evidence sources, video candidates, validation, export, and report flow visible without exaggerated claims.",
+      "desiredOutcome": "After user clarification, the first screen prioritizes viewing video or recovered material and keeps only review-needed source/candidate/validation/export/report states.",
+      "userOutcomeReview": "The first screen now opens on the viewer and candidate list, hides nonessential source/stat/activity blocks, keeps local-first and validation-required status language, and preserves export/report review context compactly.",
+      "adversarialClassesCovered": [
+        "dirty_worktree",
+        "stale_state",
+        "misleading_success_output",
+        "flaky_tests",
+        "hung_or_long_commands",
+        "responsive_overflow",
+        "status_honesty"
+      ]
+    }
+  }
+}

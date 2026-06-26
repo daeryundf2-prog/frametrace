@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/media_contract.rs (target/debug/deps/media_contract-99f7b8d7f591b65c)
+
+running 3 tests
+test report_discloses_derived_provenance_and_validation_failures ... ok
+test playback_confirmation_rejects_missing_ffprobe_validation ... ok
+test playback_confirmation_requires_prior_ffprobe_validation_and_records_separate_state ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+  0.03s user 0.02s system 87% cpu 0.065 total

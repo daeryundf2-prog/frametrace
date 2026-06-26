@@ -1,0 +1,13 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on shared package cache
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.06s
+     Running tests/cli_windows_prereq.rs (target/debug/deps/cli_windows_prereq-3f413ecdf817b41a)
+
+running 1 test
+test release_readiness_blocks_when_windows_prerequisites_are_missing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.95s
+

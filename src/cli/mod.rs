@@ -1,3 +1,4 @@
+use crate::distributable_redaction::RedactionPolicy;
 use clap::Parser;
 use clap::error::ErrorKind;
 
@@ -120,14 +121,27 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 ewfexport,
             },
         ),
-        Commands::MakeReview { case_dir } => make_review(&case_dir),
+        Commands::MakeReview {
+            case_dir,
+            include_full_paths,
+        } => make_review(&case_dir, redaction_policy(include_full_paths)),
         Commands::ListParsers => {
             println!("{}", crate::detector::parser_catalog_json());
             Ok(())
         }
-        Commands::MakeReport { case_dir } => make_report(&case_dir),
-        Commands::PackageCase { case_dir, output } => {
-            let options = PackageOptions { output_dir: output };
+        Commands::MakeReport {
+            case_dir,
+            include_full_paths,
+        } => make_report(&case_dir, redaction_policy(include_full_paths)),
+        Commands::PackageCase {
+            case_dir,
+            output,
+            include_full_paths,
+        } => {
+            let options = PackageOptions {
+                output_dir: output,
+                redaction_policy: redaction_policy(include_full_paths),
+            };
             package_case(&case_dir, options)
         }
         Commands::ExportVideo {
@@ -138,6 +152,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             duration,
             output,
             operator,
+            ffmpeg,
         } => run_export_video(
             &case_dir,
             &selector,
@@ -147,6 +162,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 duration,
                 output,
                 operator,
+                ffmpeg,
             },
         ),
         Commands::MakeProxy {
@@ -155,21 +171,24 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             max_width,
             output,
             operator,
-        } => run_make_proxy(&case_dir, &selector, max_width, output, operator),
+            ffmpeg,
+        } => run_make_proxy(&case_dir, &selector, max_width, output, operator, ffmpeg),
         Commands::MakeThumbnail {
             case_dir,
             selector,
             time,
             output,
             operator,
-        } => run_make_thumbnail(&case_dir, &selector, time, output, operator),
+            ffmpeg,
+        } => run_make_thumbnail(&case_dir, &selector, time, output, operator, ffmpeg),
         Commands::CaptureFrame {
             case_dir,
             selector,
             time,
             output,
             operator,
-        } => run_capture_frame(&case_dir, &selector, time, output, operator),
+            ffmpeg,
+        } => run_capture_frame(&case_dir, &selector, time, output, operator, ffmpeg),
         Commands::CarveFile {
             case_dir,
             source_file,
@@ -226,7 +245,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             selector,
             ffprobe,
             operator,
-        } => run_validate_artifact(&case_dir, &selector, ffprobe, operator),
+            external_source,
+        } => run_validate_artifact(&case_dir, &selector, ffprobe, operator, external_source),
         Commands::ConfirmPlayback {
             case_dir,
             selector,
@@ -248,5 +268,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         | Commands::InventoryBulkPreview { .. }
         | Commands::InventoryExportManifest { .. }) => run_inventory_command(command),
         Commands::Qa { command } => run_qa(command),
+    }
+}
+
+fn redaction_policy(include_full_paths: bool) -> RedactionPolicy {
+    if include_full_paths {
+        RedactionPolicy::local_operator_full_paths()
+    } else {
+        RedactionPolicy::redacted()
     }
 }

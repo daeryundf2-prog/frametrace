@@ -126,15 +126,24 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       border-radius: 8px;
       padding: 24px;
     }}
-    .warnings {{
-      background: #fff7ed;
+	    .warnings {{
+	      background: #fff7ed;
       border: 1px solid #fed7aa;
       border-radius: 8px;
       color: #7c2d12;
       margin: 0 0 16px;
       padding: 12px 14px;
-      font-size: 13px;
-    }}
+	      font-size: 13px;
+	    }}
+	    .privacy {{
+	      background: #eef8f5;
+	      border: 1px solid #b7dfd5;
+	      border-radius: 8px;
+	      color: #164b43;
+	      margin: 0 0 16px;
+	      padding: 12px 14px;
+	      font-size: 13px;
+	    }}
     .table-status {{
       color: #475467;
       font-size: 13px;
@@ -175,7 +184,8 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       <div class="metric">Hash mode<strong id="metric-hash">-</strong></div>
       <div class="metric">ffprobe<strong id="metric-probe">-</strong></div>
     </section>
-    <section id="warnings"></section>
+	    <section id="warnings"></section>
+	    <section class="privacy" id="privacy"></section>
     <section class="toolbar" aria-label="filters">
       <input id="query" type="search" placeholder="Search path, codec, extension, source, parser, confidence">
       <select id="source">
@@ -245,7 +255,8 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     }});
 
     document.getElementById("title").textContent = manifest.title || "FrameTrace Review";
-    document.getElementById("subtitle").textContent = `${{manifest.case_id || "case"}} · source: ${{scan.source_path || "-"}}`;
+	    document.getElementById("subtitle").textContent = `${{manifest.case_id || "case"}} · source: ${{scan.source_path || "-"}}`;
+	    document.getElementById("privacy").textContent = `${{scan.path_disclosure_mode || "redacted"}} · ${{scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}}`;
     document.getElementById("metric-count").textContent = scan.video_count ?? videos.length;
     document.getElementById("metric-bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
     document.getElementById("metric-sources").textContent = sourceNames.length;
@@ -319,7 +330,7 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
               <td>${{escapeHtml(video.video_codec || "-")}} / ${{escapeHtml(video.audio_codec || "-")}}<br><span class="subtle">${{escapeHtml(video.width || "-")}}x${{escapeHtml(video.height || "-")}} · ${{fmtDuration(video.duration_seconds)}}</span></td>
               <td>${{fmtBytes(video.size_bytes)}}</td>
               <td><code>${{escapeHtml(video.sha256 || video.hash_status || "-")}}</code></td>
-              <td class="actions"><a href="${{escapeHtml(video.file_url)}}" target="_blank" rel="noreferrer">Source</a></td>
+	              <td class="actions">${{video.file_url ? `<a href="${{escapeHtml(video.file_url)}}" target="_blank" rel="noreferrer">Source</a>` : "Redacted"}}</td>
             </tr>
           `).join("")}}
         </tbody>
@@ -430,10 +441,10 @@ pub fn render_evidence_viewer_html(inputs: EvidenceViewerInputs<'_>) -> String {
   </style>
 </head>
 <body>
-  <header>
-    <h1>FrameTrace Evidence Viewer</h1>
-    <div class="case-line" id="caseLine"></div>
-    <div class="muted">실제 케이스 데이터</div>
+	  <header>
+	    <h1>FrameTrace Evidence Viewer</h1>
+	    <div class="case-line" id="caseLine"></div>
+	    <div class="muted" id="privacyMode">실제 케이스 데이터</div>
   </header>
   <main class="shell">
     <aside class="panel">
@@ -620,7 +631,8 @@ let currentPage = 1;
 const pageSize = 100;
 
 const els = {{
-  caseLine: document.getElementById("caseLine"),
+	  caseLine: document.getElementById("caseLine"),
+	  privacyMode: document.getElementById("privacyMode"),
   resultCount: document.getElementById("resultCount"),
   metricVideos: document.getElementById("metricVideos"),
   metricCarved: document.getElementById("metricCarved"),
@@ -778,8 +790,9 @@ function renderDetails() {{
     <code>${{escapeHtml(item.target_sha256 || "-")}}</code>
   </div>`).join("") : `<div class="validation-item">검증 로그 없음</div>`;
 }}
-function renderMetrics() {{
-  els.caseLine.textContent = `${{manifest.case_id || "case"}} · ${{manifest.title || "Untitled"}} · ${{scan.source_path || "-"}}`;
+	function renderMetrics() {{
+	  els.caseLine.textContent = `${{manifest.case_id || "case"}} · ${{manifest.title || "Untitled"}} · ${{scan.source_path || "-"}}`;
+	  els.privacyMode.textContent = `${{scan.path_disclosure_mode || "redacted"}} · ${{scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}}`;
   els.metricVideos.textContent = scan.video_count ?? videos.length;
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;

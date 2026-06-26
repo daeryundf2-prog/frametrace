@@ -1,0 +1,15 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/frametrace make-thumbnail --help`
+Generate a JPEG thumbnail for review/reporting
+
+Usage: frametrace make-thumbnail [OPTIONS] <CASE_DIR> <SELECTOR>
+
+Arguments:
+  <CASE_DIR>  
+  <SELECTOR>  
+
+Options:
+      --time <TIME>          
+      --output <OUTPUT>      
+      --operator <OPERATOR>  
+  -h, --help                 Print help

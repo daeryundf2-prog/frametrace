@@ -1,0 +1,4 @@
+$ cargo build --locked
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.79s
+EXIT_CODE=0

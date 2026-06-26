@@ -1,0 +1,5 @@
+error: unexpected argument 'video_export::tests::export_log_body_records_derived_artifact_contract' found
+
+Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
+
+For more information, try '--help'.

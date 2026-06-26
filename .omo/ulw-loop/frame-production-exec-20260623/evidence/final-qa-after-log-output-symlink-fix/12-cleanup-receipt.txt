@@ -1,0 +1,59 @@
+scenario_id=12-cleanup-receipt
+surface=local CLI cleanup inspection
+cwd=/Users/shinyoohag/Desktop/frametrace
+invocation=ps/tmux/docker/podman/temp-dir cleanup checks
+started_at=2026-06-23T13:04:53Z
+--- cleanup output start ---
+QA did not intentionally spawn servers, browsers, tmux sessions, containers, or temp QA dirs. Evidence directory is the intentional retained artifact location.
+
+[processes: cargo/rustc/node-check/frametrace dev servers]
+53691 54324 /bin/zsh -lc EVIDENCE_DIR=/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix\012REPO=/Users/shinyoohag/Desktop/frametrace\012out="$EVIDENCE_DIR/12-cleanup-receipt.txt"\012{\012  printf 'scenario_id=12-cleanup-receipt\n'\012  printf 'surface=local CLI cleanup inspection\n'\012  printf 'cwd=%s\n' "$REPO"\012  printf 'invocation=ps/tmux/docker/podman/temp-dir cleanup checks\n'\012  printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"\012  printf '%s\n' '--- cleanup output start ---'\012  printf 'QA did not intentionally spawn servers, browsers, tmux sessions, containers, or temp QA dirs. Evidence directory is the intentional retained artifact location.\n'\012  printf '\n[processes: cargo/rustc/node-check/frametrace dev servers]\n'\012  ps -axo pid,ppid,command | rg -i 'cargo|rustc|node --check|frametrace.*(serve|server|listen|localhost|127\.0\.0\.1)|playwright|chromium|cargo-nextest' || true\012  printf '\n[tmux sessions]\n'\012  tmux ls 2>&1 || true\012  printf '\n[docker containers]\n'\012  docker ps --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}' 2>&1 || true\012  printf '\n[podman containers]\n'\012  podman ps --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Names}}' 2>&1 || true\012  printf '\n[temp QA dirs]\n'\012  find /tmp /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T -maxdepth 2 -type d \( -name '*final-qa-after-log-output-symlink-fix*' -o -name '*frametrace-final-qa*' -o -name '*ulw-qa*' \) -print 2>/dev/null || true\012  printf '\n[artifact sizes]\n'\012  find "$EVIDENCE_DIR" -maxdepth 1 -type f -print -exec wc -c {} \; | sort\012  printf '%s\n' '--- cleanup output end ---'\012  printf 'finished_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"\012  printf 'exit_code=0\n'\012} > "$out" 2>&1\012wc -c "$out" && sed -n '1,220p' "$out"
+53704 53691 rg -i cargo|rustc|node --check|frametrace.*(serve|server|listen|localhost|127\.0\.0\.1)|playwright|chromium|cargo-nextest
+
+[tmux sessions]
+dfl_strategy_wave10_hard_examples_qa: 1 windows (created Thu Jun  4 21:31:04 2026)
+gajae_code: 1 windows (created Fri May 29 12:47:28 2026)
+gajae_mimo: 1 windows (created Sat May 30 20:48:18 2026)
+task1_inv_t: 1 windows (created Wed Jun  3 18:24:37 2026)
+task4_leader_privacy_qa: 1 windows (created Mon Jun  1 18:51:48 2026)
+
+[docker containers]
+failed to connect to the docker API at unix:///Users/shinyoohag/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/shinyoohag/.docker/run/docker.sock: connect: no such file or directory
+
+[podman containers]
+zsh:19: command not found: podman
+
+[temp QA dirs]
+
+[artifact sizes]
+     250 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/11-git-diff-check.txt
+     255 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/02-cargo-fmt.txt
+     285 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/10-node-check-evidence-viewer.txt
+     369 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/03-cargo-clippy.txt
+     801 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/08-media-contract.txt
+     815 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/qa-notepad.txt
+     867 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/05-cli-tsk-log-output-policy.txt
+     978 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/04-cli-default-output-policy.txt
+     989 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/06-cli-e01-validation-log-output-policy.txt
+     992 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/07-cli-output-policy.txt
+    1207 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/01-head-status.txt
+    2194 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/command-summary.txt
+    3147 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/12-cleanup-receipt.txt
+   13737 /Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/09-cargo-test-locked.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/01-head-status.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/02-cargo-fmt.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/03-cargo-clippy.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/04-cli-default-output-policy.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/05-cli-tsk-log-output-policy.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/06-cli-e01-validation-log-output-policy.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/07-cli-output-policy.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/08-media-contract.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/09-cargo-test-locked.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/10-node-check-evidence-viewer.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/11-git-diff-check.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/12-cleanup-receipt.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/command-summary.txt
+/Users/shinyoohag/Desktop/frametrace/.omo/ulw-loop/frame-production-exec-20260623/evidence/final-qa-after-log-output-symlink-fix/qa-notepad.txt
+--- cleanup output end ---
+finished_at=2026-06-23T13:04:54Z
+exit_code=0

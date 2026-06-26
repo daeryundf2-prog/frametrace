@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/cli_tsk_log_output_policy.rs (target/debug/deps/cli_tsk_log_output_policy-a8c46e6c375c0895)
+
+running 3 tests
+test recover_inode_rejects_symlinked_logs_directory_without_writing_outside ... ok
+test inspect_image_rejects_symlinked_logs_directory_without_writing_outside ... ok
+test inspect_image_rejects_symlinked_filesystem_db_directory_without_writing_outside ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+

@@ -1,0 +1,7 @@
+SCENARIO adversarial-misleading-success-output
+INVOCATION inspect manual QA exit codes and stderr/checklist keys, not success text alone
+BINARY_OBSERVABLE PASS if happy_assertion_exit=0 and failure_assertion_exit=0 while failure command exit_code=1 is recorded
+happy_assertion_exit=0
+failure_assertion_exit=0
+exit_code=1
+exit_code=0

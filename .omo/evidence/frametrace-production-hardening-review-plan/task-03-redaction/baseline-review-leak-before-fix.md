@@ -1,0 +1,15 @@
+# Baseline review leak proof
+tmp_root=/tmp/FrameTrace Client ACME Review 유출 f0Tt
+case_dir=/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review
+source_file=/tmp/FrameTrace Client ACME Review 유출 f0Tt/Client ACME Source/Camera 02/review clip.mp4
+target/debug/frametrace make-review '/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review'
+review written: /tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/index.html
+evidence viewer written: /tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/evidence-viewer.html
+exit_make_review=0
+grep -R -n -F '/tmp/FrameTrace Client ACME Review 유출 f0Tt' '/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review'
+/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/index.html:192:    const scan = {"schema_version":1,"source_path":"SQLite-backed bounded review inventory","inventory_source":"db/videos.jsonl","video_count":1,"embedded_video_count":1,"inventory_truncated":false,"inventory_limit":500,"inventory_query_contract":"frametrace inventory \u003ccase_dir\u003e --limit 500 --offset \u003cn\u003e","warnings":[],"options":{"hash_files":false,"use_ffprobe":false,"max_depth":null},"videos":[{"id":"vid_000002","source_path":"/tmp/FrameTrace Client ACME Review 유출 f0Tt/Client ACME Source/Camera 02/review clip.mp4","file_url":"file:///tmp/FrameTrace Client ACME Review 유출 f0Tt/Client ACME Source/Camera 02/review clip.mp4","relative_path":"Camera 02/review clip.mp4","extension":"mp4","size_bytes":5,"hash_status":"not-hashed","confidence":"candidate","source_profile":{"vendor":"ACME","parser":"synthetic","lane":"fixture","confidence":"candidate","recommended_action":"review"}}]};
+/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/evidence-viewer.html:136:const scan = {"schema_version":1,"source_path":"SQLite-backed bounded review inventory","inventory_source":"db/videos.jsonl","video_count":1,"embedded_video_count":1,"inventory_truncated":false,"inventory_limit":500,"inventory_query_contract":"frametrace inventory \u003ccase_dir\u003e --limit 500 --offset \u003cn\u003e","warnings":[],"options":{"hash_files":false,"use_ffprobe":false,"max_depth":null},"videos":[{"id":"vid_000002","source_path":"/tmp/FrameTrace Client ACME Review 유출 f0Tt/Client ACME Source/Camera 02/review clip.mp4","file_url":"file:///tmp/FrameTrace Client ACME Review 유출 f0Tt/Client ACME Source/Camera 02/review clip.mp4","relative_path":"Camera 02/review clip.mp4","extension":"mp4","size_bytes":5,"hash_status":"not-hashed","confidence":"candidate","source_profile":{"vendor":"ACME","parser":"synthetic","lane":"fixture","confidence":"candidate","recommended_action":"review"}}]};
+grep_exit=0
+/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/evidence-viewer.html
+/tmp/FrameTrace Client ACME Review 유출 f0Tt/Examiner Shin/Case Review/review/index.html
+cleanup_target=/tmp/FrameTrace Client ACME Review 유출 f0Tt

@@ -1,0 +1,12 @@
+Surface: CLI cleanup action
+Invocation: find /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T -maxdepth 1 -name 'frametrace-unique-path-symlink-test-*' -print -exec rm -rf {} +; find /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T -maxdepth 1 -name 'frametrace-unique-path-symlink-test-*' -print
+Started: 2026-06-23T11:48:34Z
+
+[removed candidates]
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-unique-path-symlink-test-90935
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-unique-path-symlink-test-89660
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-unique-path-symlink-test-89741
+/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-unique-path-symlink-test-89481
+
+[remaining candidates]
+Finished: 2026-06-23T11:48:34Z

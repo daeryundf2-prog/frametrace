@@ -1,0 +1,25 @@
+TMP_ROOT=/tmp/frametrace-t8-manual-xTrHe9
+/tmp/frametrace-t8-manual-xTrHe9/case
+report written: /tmp/frametrace-t8-manual-xTrHe9/case/reports/case-report.html
+        0.04 real         0.02 user         0.01 sys
+            12304384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                 927  page reclaims
+                  16  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+                 211  involuntary context switches
+           430706387  instructions retired
+           158772638  cycles elapsed
+             8093984  peak memory footprint
+REPORT_BYTES=99476
+TR_COUNT=27
+CLEANED_TMP_ROOT=/tmp/frametrace-t8-manual-xTrHe9
+EXIT_CODE=0

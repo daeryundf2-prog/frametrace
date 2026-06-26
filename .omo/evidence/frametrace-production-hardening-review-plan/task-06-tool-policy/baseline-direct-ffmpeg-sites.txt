@@ -1,0 +1,6 @@
+src/artifacts.rs:103:    let output = Command::new("ffmpeg")
+src/artifacts.rs:165:    let output = Command::new("ffmpeg")
+src/artifacts.rs:227:    let output = Command::new("ffmpeg")
+src/artifacts.rs:366:    let ffmpeg_version = audit::command_version("ffmpeg");
+src/video_export.rs:106:    let output = Command::new("ffmpeg")
+src/video_export.rs:260:    let ffmpeg_version = audit::command_version("ffmpeg");

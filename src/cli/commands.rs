@@ -87,16 +87,26 @@ pub enum Commands {
         ewfexport: Option<String>,
     },
     /// Generate a serverless HTML review dashboard at review/index.html
-    MakeReview { case_dir: PathBuf },
+    MakeReview {
+        case_dir: PathBuf,
+        #[arg(long)]
+        include_full_paths: bool,
+    },
     /// Print the manufacturer/source parser plugin catalog as JSON
     ListParsers,
     /// Generate a case report at reports/case-report.html
-    MakeReport { case_dir: PathBuf },
+    MakeReport {
+        case_dir: PathBuf,
+        #[arg(long)]
+        include_full_paths: bool,
+    },
     /// Build a checksummed report/review package directory with manifest files
     PackageCase {
         case_dir: PathBuf,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        include_full_paths: bool,
     },
     /// Export an indexed video or selected range as a client-deliverable MP4/AVI
     ExportVideo {
@@ -112,6 +122,8 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         operator: Option<String>,
+        #[arg(long)]
+        ffmpeg: Option<String>,
     },
     /// Generate a lower-bitrate review proxy MP4
     MakeProxy {
@@ -123,6 +135,8 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         operator: Option<String>,
+        #[arg(long)]
+        ffmpeg: Option<String>,
     },
     /// Generate a JPEG thumbnail for review/reporting
     MakeThumbnail {
@@ -134,6 +148,8 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         operator: Option<String>,
+        #[arg(long)]
+        ffmpeg: Option<String>,
     },
     /// Capture a report still frame as a derived photo artifact
     CaptureFrame {
@@ -145,6 +161,8 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         operator: Option<String>,
+        #[arg(long)]
+        ffmpeg: Option<String>,
     },
     /// Scan a raw file or forensic image for contiguous candidates and carve them
     CarveFile {
@@ -194,6 +212,8 @@ pub enum Commands {
         ffprobe: Option<String>,
         #[arg(long)]
         operator: Option<String>,
+        #[arg(long)]
+        external_source: bool,
     },
     /// Record examiner playback confirmation after ffprobe stream validation
     ConfirmPlayback {
@@ -278,7 +298,7 @@ pub enum Commands {
 
 #[derive(Subcommand, Debug)]
 pub enum QaCommands {
-    /// Compare an indexed case against a TSV ground-truth corpus manifest
+    /// Compare an indexed case against a typed or legacy TSV ground-truth corpus manifest
     Accuracy {
         case_dir: PathBuf,
         corpus_manifest: PathBuf,
@@ -294,6 +314,12 @@ pub enum QaCommands {
     },
     /// Check whether required report-defensible artifacts exist
     ReportDefense {
+        case_dir: PathBuf,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
+    /// Check distributable report/review/package outputs for privacy leakage and banned wording
+    PrivacyReview {
         case_dir: PathBuf,
         #[arg(long)]
         output_dir: Option<PathBuf>,

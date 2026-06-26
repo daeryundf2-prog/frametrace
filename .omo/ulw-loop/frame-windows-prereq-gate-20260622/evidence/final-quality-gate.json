@@ -1,0 +1,98 @@
+{
+  "codeReview": {
+    "by": "code-reviewer subagent 019eef72-2c22-7122-9bca-ac7956cd40d2",
+    "recommendation": "APPROVE",
+    "codeQualityStatus": "CLEAR",
+    "reportPath": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/final-quality-gate.json",
+    "evidence": "Reviewer approved revised Windows prereq gate after confirming concrete .sln/.csproj project evidence, WinUI build/test receipt requirement, exact release PASS assertion, and native command exit-code checks.",
+    "blockers": []
+  },
+  "manualQa": {
+    "by": "codex",
+    "status": "passed",
+    "evidence": "Real CLI flow created a synthetic case, ran scan/review/report, verified qa release fails closed on macOS/current repo, and verified workstation-status exposes blockers without claiming Windows readiness.",
+    "surfaceEvidence": [
+      {
+        "id": "surface-workstation-status-prereq",
+        "criterionRef": "C001",
+        "surface": "cli",
+        "invocation": "cargo run --locked -- workstation-status <synthetic-case>",
+        "verdict": "passed",
+        "artifactRefs": ["artifact-workstation-status-prereq"]
+      },
+      {
+        "id": "surface-release-prereq-blocker",
+        "criterionRef": "C002",
+        "surface": "cli",
+        "invocation": "cargo run --locked -- qa release <synthetic-case> ...",
+        "verdict": "passed",
+        "artifactRefs": ["artifact-release-prereq-blocker"]
+      }
+    ],
+    "adversarialCases": [
+      {
+        "id": "adv-empty-winui-directory",
+        "criterionRef": "C003",
+        "scenario": "Empty gui/winui directory is not accepted as a buildable WinUI project.",
+        "expectedBehavior": "windows_prerequisites keeps missing-winui-project blocker.",
+        "verdict": "passed",
+        "artifactRefs": ["artifact-regression-tests"]
+      },
+      {
+        "id": "adv-missing-build-receipt",
+        "criterionRef": "C002",
+        "scenario": "Release QA is run without reports/qa/winui-build.json.",
+        "expectedBehavior": "qa release fails with missing-winui-build-receipt.",
+        "verdict": "passed",
+        "artifactRefs": ["artifact-release-prereq-blocker"]
+      }
+    ],
+    "artifactRefs": [
+      {
+        "id": "artifact-workstation-status-prereq",
+        "kind": "cli-transcript",
+        "description": "workstation-status and real CLI prereq transcript.",
+        "path": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/workstation-status-prereq-cli.txt"
+      },
+      {
+        "id": "artifact-release-prereq-blocker",
+        "kind": "cli-transcript",
+        "description": "qa release fail-closed prereq blocker transcript.",
+        "path": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/release-prereq-blocker-cli.txt"
+      },
+      {
+        "id": "artifact-regression-tests",
+        "kind": "test-transcript",
+        "description": "focused Rust regression transcript.",
+        "path": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/prereq-regression-tests.txt"
+      }
+    ]
+  },
+  "gateReview": {
+    "by": "codex",
+    "recommendation": "APPROVE",
+    "reportPath": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/full-verification.txt",
+    "evidence": "cargo fmt --check, cargo clippy -D warnings, cargo test --locked, node --check, and git diff --check passed. LSP MCP was unavailable and recorded as a gap.",
+    "blockers": []
+  },
+  "iteration": {
+    "fullRerun": true,
+    "status": "passed",
+    "rerunCommands": [
+      "cargo fmt --all -- --check",
+      "cargo clippy --locked --all-targets --all-features -- -D warnings",
+      "cargo test --locked",
+      "node --check gui/evidence-viewer/app.js",
+      "git diff --check"
+    ],
+    "evidence": ".omo/ulw-loop/frame-windows-prereq-gate-20260622/evidence/full-verification.txt"
+  },
+  "criteriaCoverage": {
+    "totalCriteria": 3,
+    "passCount": 3,
+    "originalIntent": "Proceed through the next FrameTrace plan sequentially and review results without falsely claiming Windows/WinUI completion.",
+    "desiredOutcome": "Windows release readiness is blocked unless Windows host/tool/project/build-test prerequisites are present and evidenced.",
+    "userOutcomeReview": "The implemented slice blocks false Windows/WinUI readiness on this macOS host and preserves a clear next Windows validation boundary.",
+    "adversarialClassesCovered": ["misleading_success_output", "missing_prerequisite", "stub_winui_directory", "missing_build_receipt", "dirty_worktree_scoped_review"]
+  }
+}

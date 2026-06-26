@@ -1,0 +1,278 @@
+T6 stop-hook verification claim 03
+started_at=2026-06-24T09:25:28Z
+
+## COMMAND: pwd
+/Users/shinyoohag/Desktop/frametrace
+## EXIT: 0
+
+## COMMAND: test -s .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/evidence-record.md
+## EXIT: 0
+
+## COMMAND: test -s .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/code-review.md
+## EXIT: 0
+
+## COMMAND: test -s .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/security-review.md
+## EXIT: 0
+
+## COMMAND: test -s .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/qa-review.md
+## EXIT: 0
+
+## COMMAND: grep -q \<verdict\>PASS\</verdict\> .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/qa-review.md
+## EXIT: 0
+
+## COMMAND: grep -q VERDICT:\ PASS .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/stop-hook-verification-claim-01-rerun.log
+## EXIT: 0
+
+## COMMAND: grep -q VERDICT:\ PASS .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/stop-hook-verification-claim-02-rerun.log
+## EXIT: 0
+
+## COMMAND_EXPECT_NO_MATCHES: rg Command::new\\\(\"ffmpeg\"\\\)\|Command::new\\\(\"ffprobe\"\\\)\|command_version\\\(\"ffmpeg\"\\\) src tests
+## EXIT: 1 (expected no matches)
+
+## COMMAND: python3 - .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/manual-happy-log-summary.json .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/manual-failure-command.stderr
+manual happy/failure evidence metadata PASS
+## EXIT: 0
+
+## COMMAND: cargo test --locked tool_policy --lib -- --nocapture
+   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.43s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 7 tests
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test tool_policy::tests::rejects_output_that_targets_source_evidence_path ... ok
+test tool_policy::tests::resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 137 filtered out; finished in 0.09s
+
+## EXIT: 0
+
+## COMMAND: cargo test --locked derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata --test cli_default_output_policy -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running tests/cli_default_output_policy.rs (target/debug/deps/cli_default_output_policy-f632a477c5f9e529)
+
+running 1 test
+test derived_media_commands_require_policy_approved_ffmpeg_and_log_resolved_tool_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.29s
+
+## EXIT: 0
+
+## COMMAND: cargo test --locked validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata --test cli_e01_validation_log_output_policy -- --nocapture
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running tests/cli_e01_validation_log_output_policy.rs (target/debug/deps/cli_e01_validation_log_output_policy-865ed60b137c80f3)
+
+running 1 test
+test validate_artifact_requires_policy_approved_ffprobe_and_logs_resolved_tool_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.28s
+
+## EXIT: 0
+
+## COMMAND: cargo clippy --locked --all-targets --all-features -- -D warnings
+    Checking frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.94s
+## EXIT: 0
+
+## COMMAND: cargo test --locked
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
+
+running 144 tests
+test artifacts::tests::default_thumbnail_starts_at_zero ... ok
+test artifacts::tests::default_proxy_is_review_sized ... ok
+test artifacts::tests::frame_capture_args_record_exact_time ... ok
+test artifacts::tests::builds_artifact_command_args ... ok
+test carve::tests::explains_validation_boundary_by_signature ... ok
+test artifacts::tests::derived_artifact_log_body_records_provenance_operator_and_ids ... ok
+test carve::tests::finds_avi_and_dhav_signatures ... ok
+test carve::tests::finds_mp4_ftyp_start_offset ... ok
+test audit::tests::hashes_files ... ok
+test audit::tests::rejects_tampered_audit_lines ... ok
+test audit::tests::appends_chained_json_lines ... ok
+test audit::tests::media_audit_statuses_report_valid_empty_missing_and_tampered_logs ... ok
+test case_db::core_tests::initializes_new_databases_at_current_schema_version ... ok
+test case_db::core_tests::migrates_v2_schema_to_inventory_contract_with_backup ... ok
+test case_db::core_tests::migrates_v1_schema_to_current_with_ordered_backups ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_dangling_symlink_output_without_creating_target ... ok
+test case_db::inventory_tests::bulk_preview_is_auditable_and_does_not_mutate_database ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_outputs_outside_case_or_over_existing_files ... ok
+test case_db::metrics_tests::benchmark_rejects_zero_rows ... ok
+test case_db::inventory_tests::inventory_sort_contract_is_explicit_and_stable ... ok
+test case_db::inventory_export_tests::export_manifest_rejects_registered_source_evidence_output ... ok
+test case_db::inventory_export_tests::export_manifest_writes_selected_rows_with_output_hash ... ok
+test derived_output_policy_tests::frame_capture_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::inode_recovery_rejects_dangling_symlink_output_before_icat ... ok
+test derived_output_policy_tests::proxy_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test derived_output_policy_tests::thumbnail_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test detector::tests::avoids_overbroad_common_word_matches ... ok
+test detector::tests::detects_blackvue_channel_suffixes ... ok
+test detector::tests::detects_dahua_dav_exports ... ok
+test detector::tests::detects_genetec_g64x_exports ... ok
+test derived_output_policy_tests::video_export_rejects_dangling_symlink_output_before_ffmpeg ... ok
+test detector::tests::detects_korean_dashcam_recording_folders ... ok
+test detector::tests::detects_raw_dvr_streams ... ok
+test detector::tests::detects_thinkware_style_event_folders ... ok
+test detector::tests::detects_urive_dashcam_paths ... ok
+test detector::tests::does_not_treat_digits_in_path_as_raw_stream_vendor ... ok
+test detector::tests::falls_back_to_generic_media ... ok
+test distributable_redaction::tests::keeps_generated_html_javascript_const_payloads_that_are_not_json ... ok
+test distributable_redaction::tests::local_operator_mode_keeps_full_json_paths_and_marks_metadata ... ok
+test distributable_redaction::tests::redacts_absolute_json_paths_but_keeps_case_relative_artifacts ... ok
+test distributable_redaction::tests::redacts_generated_html_json_payloads ... ok
+test distributable_redaction::tests::redacts_tsv_path_columns ... ok
+test e01::commands::tests::builds_default_raw_filename ... ok
+test e01::commands::tests::builds_ewfexport_args ... ok
+test e01::commands::tests::maps_requested_raw_path_to_ewfexport_target ... ok
+test e01::commands::tests::missing_ewf_version_reports_unavailable ... ok
+test ffprobe::tests::extracts_json_values_from_ffprobe_like_payload ... ok
+test html_report::tests::evidence_viewer_discloses_bounded_inventory_subset ... ok
+test html_report::tests::evidence_viewer_does_not_auto_load_original_media ... ok
+test html_report::tests::evidence_viewer_includes_derived_artifact_records ... ok
+test e01::commands::tests::resolves_requested_ewfexport_output ... ok
+test html_report::tests::evidence_viewer_includes_filesystem_recovery_records ... ok
+test media_contract::tests::artifact_ids_are_stable_and_sanitized ... ok
+test html_report::tests::evidence_viewer_matches_derived_validation_by_artifact_id_and_hash ... ok
+test media_contract::tests::media_audit_rejects_missing_operator ... ok
+test media_contract::tests::operator_prefers_explicit_then_case_manifest ... ok
+test package::tests::package_opt_in_keeps_paths_and_writes_disclosure ... ok
+test package::tests::creates_checksummed_package_directory ... ok
+test package::tests::rejects_missing_required_package_files ... ok
+test package::tests::rejects_output_inside_recursively_packaged_tree ... ok
+test package::tests::package_redacts_distributable_copies_by_default ... ok
+test package::tests::rejects_symlinked_package_inputs ... ok
+test qa::qa_release_gates::tests::global_release_gate_keys_are_unique_and_complete ... ok
+test qa::qa_release_manifest_tests::review_manifest_accepts_typed_artifact_backed_pass ... ok
+test qa::qa_release_manifest_tests::review_manifest_rejects_broad_text_only_gates ... ok
+test qa::qa_release_manifest_tests::review_manifest_rejects_done_status_without_typed_pass ... ok
+test qa::qa_release_manifest_tests::review_manifest_rejects_missing_artifact_path ... ok
+test qa::qa_release_manifest_tests::review_manifest_rejects_missing_cleanup_or_reviewer_metadata ... ok
+test qa::qa_shell_contract::tests::workstation_contract_accepts_required_tokens ... ok
+test qa::qa_shell_contract::tests::workstation_contract_rejects_full_json_load ... ok
+test qa::qa_tests::accuracy_report_includes_recovery_artifacts ... ok
+test qa::qa_tests::accuracy_report_passes_for_matching_manifest ... ok
+test case_db::tests::preserves_manual_source_id_when_auto_registering_same_path ... ok
+test case_db::jobs_tests::interrupt_running_jobs_does_not_overwrite_terminal_jobs ... ok
+test case_db::jobs_tests::marks_running_jobs_interrupted_for_recovery_review ... ok
+test case_db::tests::writes_scan_records_to_sqlite_without_duplicate_rows ... ok
+test case_db::inventory_tests::lists_inventory_with_bounded_sqlite_pagination ... ok
+test qa::qa_tests::report_defense_allows_valid_required_proxy_audit_log ... ok
+test qa::qa_tests::report_defense_blocks_empty_required_proxy_audit_log ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_recovered_filesystem_artifact ... FAILED
+test case_db::inventory_tests::searches_facets_and_loads_detail_from_sqlite ... ok
+test case_db::metrics_tests::benchmark_records_indexed_query_latency ... ok
+test qa::qa_tests::report_defense_rejects_disallowed_legal_claims ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_proxy ... ok
+test qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_validation ... FAILED
+test resource_monitor::tests::average_cpu_percent_uses_elapsed_wall_time ... ok
+test resource_monitor::tests::parses_ps_cpu_time_variants ... ok
+test resource_monitor::tests::resource_usage_requires_available_metrics ... ok
+test qa::qa_tests::reproducibility_detects_recovery_validation_drift ... ok
+test qa::qa_tests::reproducibility_normalizes_case_paths_timestamps_and_package_times ... ok
+test review_bundle::tests::default_review_bundle_redacts_absolute_source_paths ... ok
+test review_bundle::tests::malformed_rows_are_excluded_and_disclosed ... ok
+test review_bundle::tests::bounds_embedded_review_inventory_and_discloses_truncation ... ok
+test scan::tests::collect_candidates_skips_excluded_case_output_tree ... ok
+test scan::tests::extracts_escaped_json_string_values ... ok
+test scan::tests::merges_scan_records_without_dropping_existing_case_index ... ok
+test scan::tests::recognizes_common_video_extensions ... ok
+test scan::tests::recognizes_mp4_magic_without_extension ... ok
+test scan::tests::rejects_scanning_the_case_directory_as_source ... ok
+test sha256::tests::hashes_abc ... ok
+test sha256::tests::hashes_empty_input ... ok
+test tool_policy::tests::accepts_allowed_bare_tool_names ... ok
+test tool_policy::tests::accepts_case_output_inside_case_root ... ok
+test tool_policy::tests::rejects_case_output_dangling_symlink_leaf ... ok
+test tool_policy::tests::rejects_case_output_outside_case_root ... ok
+test tool_policy::tests::rejects_output_that_targets_source_evidence_path ... ok
+test tool_policy::tests::rejects_unapproved_bare_tool_names ... ok
+test qa::qa_tests::report_defense_blocks_missing_required_proxy_audit_log ... ok
+test tsk::commands::tests::builds_tsk_command_args ... ok
+test qa::qa_tests::report_defense_displays_optional_audit_chain_states_without_pass_labels ... ok
+test tsk::parse::tests::parses_deleted_fls_video_entries ... ok
+test util::tests::compacts_only_well_formed_json_values ... ok
+test tsk::parse::tests::parses_mmls_allocated_partition_offsets ... ok
+test util::tests::creates_file_url ... ok
+test util::tests::escapes_json_control_characters ... ok
+test util::tests::unique_path_treats_dangling_symlink_as_occupied ... ok
+test validation::log::tests::classifies_missing_video_stream_as_failed ... ok
+test validation::log::tests::classifies_successful_video_probe_as_ffprobe_confirmed ... ok
+test util::tests::creates_unique_path_with_suffix ... ok
+test validation::log::tests::validation_log_body_records_forensic_promotion_contract ... ok
+test validation::log::tests::validation_log_preserves_source_relation_for_derived_artifact_targets ... ok
+test validation::target_tests::rejects_external_direct_path_by_default ... ok
+test validation::target_tests::rejects_poisoned_jsonl_records_with_provenance_error ... ok
+test validation::target_tests::rejects_stale_audit_entry_when_signed_path_leaves_case ... ok
+test validation::target_tests::resolves_artifact_path_from_jsonl_log ... ok
+test validation::target_tests::resolves_case_contained_derived_artifact_with_verified_chain ... ok
+test validation::target_tests::resolves_external_direct_path_when_explicitly_enabled ... ok
+test validation::target_tests::resolves_case_relative_direct_path_by_default ... ok
+test video_export::tests::builds_export_command_args ... ok
+test video_export::tests::parses_export_formats ... ok
+test video_export::tests::sanitizes_clip_names ... ok
+test video_export::tests::export_log_body_records_derived_artifact_contract ... ok
+test video_export::tests::unescapes_tsv_paths ... ok
+test windows_prerequisites_tests::status_reports_host_and_release_readiness ... ok
+test windows_prerequisites_tests::empty_winui_directory_is_not_a_project ... ok
+test windows_prerequisites_tests::winui_solution_or_project_file_is_required_project_evidence ... ok
+test qa::qa_tests::report_defense_rejects_cases_with_running_jobs ... ok
+test qa::qa_tests::report_defense_rejects_tampered_media_audit_logs ... ok
+test review_bundle::tests::sqlite_review_bundle_redacts_absolute_source_paths_by_default ... ok
+test review_bundle::tests::sqlite_review_bundle_opt_in_keeps_full_source_paths ... ok
+test case_db::inventory_tests::caps_inventory_page_size_for_large_viewer_safety ... ok
+test tool_policy::tests::resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name ... ok
+test performance_qa::tests::performance_report_writes_query_plan_evidence ... ok
+test qa::qa_tests::performance_report_records_query_latency_metrics ... ok
+
+failures:
+
+---- qa::qa_tests::report_defense_blocks_missing_audit_log_for_recovered_filesystem_artifact stdout ----
+
+thread 'qa::qa_tests::report_defense_blocks_missing_audit_log_for_recovered_filesystem_artifact' (104599057) panicked at src/qa_tests.rs:280:60:
+called `Result::unwrap_err()` on an `Ok` value: QaReport { report_path: "/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-report-recovered-filesystem-chain-test-17541/qa/report-defense-checklist.md", passed: true }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_validation stdout ----
+
+thread 'qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_validation' (104599059) panicked at src/qa_tests.rs:248:60:
+called `Result::unwrap_err()` on an `Ok` value: QaReport { report_path: "/var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T/frametrace-report-claimed-validation-chain-test-17541/qa/report-defense-checklist.md", passed: true }
+
+
+failures:
+    qa::qa_tests::report_defense_blocks_missing_audit_log_for_recovered_filesystem_artifact
+    qa::qa_tests::report_defense_blocks_missing_audit_log_for_report_claimed_validation
+
+test result: FAILED. 142 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `--lib`
+## EXIT: 101
+
+## COMMAND: cargo fmt --all -- --check
+Diff in /Users/shinyoohag/Desktop/frametrace/src/qa_tests.rs:284:
+     let checklist = fs::read_to_string(output_dir.join("report-defense-checklist.md")).unwrap();
+     assert!(checklist.contains("[missing] filesystem recovery"));
+     assert!(checklist.contains("required=yes"));
+-    assert!(checklist
+-        .contains("reason=case surface contains artifacts under artifacts/recovered/filesystem"));
++    assert!(
++        checklist.contains(
++            "reason=case surface contains artifacts under artifacts/recovered/filesystem"
++        )
++    );
+ 
+     let _ = fs::remove_dir_all(root);
+ }
+## EXIT: 1
+
+## COMMAND: git diff --check
+## EXIT: 0
+
+## COMMAND: find .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy -type f -size 0 -print
+## ZERO_BYTE_VERDICT: PASS
+
+finished_at=2026-06-24T09:25:32Z
+VERDICT: FAIL - third stop-hook verification found a blocking failure.

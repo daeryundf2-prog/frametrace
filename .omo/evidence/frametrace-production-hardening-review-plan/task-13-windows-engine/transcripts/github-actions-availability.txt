@@ -1,0 +1,64 @@
+surface: GitHub Actions configuration via local terminal
+exact invocation: git remote -v; sed -n '1,220p' .github/workflows/windows-ci.yml; gh auth status; gh workflow list; gh run list --workflow windows-ci.yml --limit 5
+origin	https://github.com/daeryundf2-prog/frametrace.git (fetch)
+origin	https://github.com/daeryundf2-prog/frametrace.git (push)
+name: Windows CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          components: clippy, rustfmt
+      - name: Format
+        run: cargo fmt --check
+      - name: Check
+        run: cargo check --locked
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked
+      - name: Workstation command contract
+        shell: pwsh
+        run: |
+          cargo run --locked -- --help | Select-String "workstation-status"
+          cargo run --locked -- --help | Select-String "confirm-playback"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Viewer JavaScript syntax
+        run: node --check gui/evidence-viewer/app.js
+      - name: QA performance smoke
+        run: cargo run --locked -- qa performance target/frametrace-ci-performance --rows 1000
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Windows release validation smoke
+        shell: pwsh
+        run: scripts/windows/validate-release.ps1 -CaseRoot "$env:TEMP\frametrace-release-smoke" -PerformanceRows 1000
+
+--- gh auth status ---
+github.com
+  ✓ Logged in to github.com account daeryundf2-prog (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo'
+
+--- gh workflow list ---
+Windows CI	active	279261962
+
+--- gh run list windows-ci ---
+completed	failure	Merge forensic hardening branch	Windows CI	main	push	26700410327	4s	2026-05-31T01:52:05Z
+completed	failure	Sanitize embedded ffprobe JSON output	Windows CI	main	push	26685683458	5s	2026-05-30T13:59:53Z
+completed	failure	Make Windows GUI risks explicit before implementation	Windows CI	main	push	26257936949	4s	2026-05-21T22:56:48Z
+completed	failure	Make the Windows continuation path executable	Windows CI	main	push	26256545223	4s	2026-05-21T22:22:05Z
+completed	failure	Close the pre-Windows validation loop for case review	Windows CI	main	push	26140485715	4s	2026-05-20T04:02:05Z
+exit=0

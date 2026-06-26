@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>FrameTrace 영상 포렌식 보고서</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #202936;
+      background: #ffffff;
+      line-height: 1.45;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 32px 28px 48px;
+    }
+    h1 {
+      font-size: 28px;
+      margin: 0 0 8px;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 30px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #d7dde6;
+      letter-spacing: 0;
+    }
+    .muted {
+      color: #657286;
+      font-size: 13px;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin: 22px 0;
+    }
+    .box {
+      border: 1px solid #d7dde6;
+      border-radius: 8px;
+      padding: 12px;
+      background: #f8fafc;
+    }
+    .box strong {
+      display: block;
+      font-size: 20px;
+      margin-top: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #d7dde6;
+      margin-top: 10px;
+    }
+    th, td {
+      border-bottom: 1px solid #e8edf3;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 12px;
+    }
+    th {
+      background: #eef2f7;
+      font-size: 12px;
+    }
+    code {
+      font-family: Consolas, "SFMono-Regular", monospace;
+      word-break: break-all;
+      font-size: 11px;
+    }
+    .note {
+      border-left: 4px solid #3b82f6;
+      background: #f5f8ff;
+      padding: 10px 12px;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    @media print {
+      main { padding: 0; }
+      .box { break-inside: avoid; }
+      table { break-inside: auto; }
+      tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1 id="title">FrameTrace 영상 포렌식 보고서</h1>
+  <div class="muted" id="case-line"></div>
+  <section class="summary">
+    <div class="box">색인 영상<strong id="count">0</strong></div>
+    <div class="box">증거 총 용량<strong id="bytes">0</strong></div>
+    <div class="box">ffprobe 확인<strong id="confirmed">0</strong></div>
+    <div class="box">추정 소스<strong id="sources">0</strong></div>
+    <div class="box">스캔 경고<strong id="warnings-count">0</strong></div>
+    <div class="box">내보낸 클립<strong id="exports">0</strong></div>
+    <div class="box">리뷰 산출물<strong id="derived">0</strong></div>
+    <div class="box">복구 후보<strong id="carved">0</strong></div>
+    <div class="box">파일시스템 작업<strong id="filesystem-actions">0</strong></div>
+    <div class="box">검증 기록<strong id="validations">0</strong></div>
+  </section>
+
+  <h2>처리 요약</h2>
+    <div id="processing"></div>
+  <div class="note" id="privacy-disclosure"></div>
+  <div class="note">이 보고서는 원본 증거 참조와 파생 리뷰/내보내기 산출물을 분리합니다. carving 또는 파일시스템 복구 결과는 별도 재생/컨테이너 검증 전까지 복구 후보로 취급합니다.</div>
+
+  <h2>감사 체인 검증</h2>
+  <div id="audit-chain"></div>
+
+  <h2>소스 / 파서 평가</h2>
+  <div id="source-assessment"></div>
+
+  <h2>영상 색인</h2>
+  <div id="videos"></div>
+
+  <h2>MP4/AVI 내보내기 산출물</h2>
+  <div id="clip-exports"></div>
+
+  <h2>리뷰 산출물</h2>
+  <div id="derived-artifacts"></div>
+
+  <h2>복구 / Carving 후보</h2>
+  <div id="carved-artifacts"></div>
+
+  <h2>재생 / 컨테이너 검증</h2>
+  <div id="validation-results"></div>
+
+  <h2>파일시스템 조사 / Inode 복구</h2>
+  <div id="filesystem-recovery"></div>
+<script>
+const manifest = {
+  "schema_version": 1,
+  "case_id": "FT-1782298172",
+  "title": "T7 Happy Privacy Case",
+  "created_unix": 1782298172,
+  "tool_name": "frametrace",
+  "tool_version": "0.1.0",
+  "platform": "macos",
+  "operator": "shinyoohag",
+  "host": null,
+  "device_id": null,
+  "device_serial": null,
+  "write_protect": null,
+  "acquisition_tool": null,
+  "evidence_hash": null,
+  "notes": null
+}
+;
+const scan = {"local_operator_full_path_disclosure":false,"options":{"hash_files":false,"local_operator_full_path_disclosure":false,"max_depth":null,"path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","use_ffprobe":false},"path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","scanned_unix":1782298172,"schema_version":1,"source_path":"[redacted-source:artifact]","total_bytes":19,"video_count":1,"videos":[{"audio_codec":null,"confidence":"extension-candidate","duration_seconds":null,"extension":"mp4","ffprobe":null,"ffprobe_error":"ffprobe skipped","ffprobe_ok":false,"file_url":"","format_name":null,"hash_status":"skipped","height":null,"id":"vid_000001","local_operator_full_path_disclosure":false,"modified_unix":1782298172,"path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","relative_path":"clip.mp4","sha256":null,"size_bytes":19,"source_path":"[redacted-source:vid_000001]","source_profile":{"confidence":"medium","evidence":["standard media extension: .mp4"],"lane":"generic-video","local_operator_full_path_disclosure":false,"parser":"generic_media","path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","recommended_action":"Use ffprobe/FFmpeg first; preserve original and export derived clips only when requested.","vendor":"Generic media"},"video_codec":null,"width":null}],"warnings":[]};
+const exportsLog = [];
+const proxyLog = [];
+const thumbnailLog = [];
+const frameLog = [];
+const carveLog = [];
+const filesystemLog = [];
+const validationLog = [];
+const auditChainStatus = [{"name":"clip export","relative_path":"artifacts/clips/export-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"proxy","relative_path":"artifacts/proxies/proxy-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"thumbnail","relative_path":"artifacts/thumbnails/thumbnail-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"frame capture","relative_path":"artifacts/frames/frame-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"carving","relative_path":"artifacts/carved/carve-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"filesystem recovery","relative_path":"evidence/logs/tsk-audit.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"validation","relative_path":"evidence/logs/validation-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"}];
+const videos = Array.isArray(scan.videos) ? scan.videos : [];
+const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
+const derivedLog = [...exportsLog, ...proxyLog, ...thumbnailLog, ...frameLog];
+const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
+
+const escapeHtml = value => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#39;");
+
+const fmtBytes = value => {
+  if (!Number.isFinite(value)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let current = value;
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) {
+    current /= 1024;
+    unit += 1;
+  }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+};
+
+const fmtDuration = value => {
+  if (!Number.isFinite(value)) return "-";
+  const seconds = Math.round(value);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+};
+
+const fmtUnix = value => {
+  if (!Number.isFinite(value)) return "-";
+  return new Date(value * 1000).toLocaleString();
+};
+
+const chainStatus = relPath => {
+  const status = auditStatusByPath.get(relPath);
+  if (!status) return "missing · not listed";
+  const last = status.last_entry_sha256 ? ` · ${status.last_entry_sha256}` : "";
+  const error = status.error ? ` · ${status.error}` : "";
+  return `${status.status} · entries=${status.entries ?? "-"}${last}${error}`;
+};
+
+const auditPathForItem = item => {
+  if (item.event === "export-video") return "artifacts/clips/export-log.jsonl";
+  if (item.event === "make-proxy" || item.kind === "proxy") return "artifacts/proxies/proxy-log.jsonl";
+  if (item.event === "make-thumbnail" || item.kind === "thumbnail") return "artifacts/thumbnails/thumbnail-log.jsonl";
+  if (item.event === "make-frame-capture" || item.kind === "frame-capture") return "artifacts/frames/frame-log.jsonl";
+  if (item.event === "carve-file") return "artifacts/carved/carve-log.jsonl";
+  if (item.event === "validate-artifact") return "evidence/logs/validation-log.jsonl";
+  if (item.event === "inspect-image" || item.event === "recover-inode") return "evidence/logs/tsk-audit.jsonl";
+  return "";
+};
+
+const chainStatusForItem = (item, fallbackRelPath) => {
+  const relPath = fallbackRelPath || auditPathForItem(item);
+  return relPath ? chainStatus(relPath) : "missing · unknown audit log";
+};
+
+const sourceCounts = new Map();
+videos.forEach(video => {
+  const profile = video.source_profile || {};
+  const key = `${profile.vendor || "Unknown"}\t${profile.parser || "unknown"}\t${profile.confidence || "-"}\t${profile.lane || "-"}`;
+  sourceCounts.set(key, (sourceCounts.get(key) || 0) + 1);
+});
+
+document.getElementById("title").textContent = manifest.title || "FrameTrace 영상 포렌식 보고서";
+document.getElementById("case-line").textContent = `${manifest.case_id || "case"} · 로컬 케이스 데이터 기반 생성 · ${manifest.tool_name || "frametrace"} ${manifest.tool_version || ""}`;
+document.getElementById("count").textContent = scan.video_count ?? videos.length;
+document.getElementById("bytes").textContent = fmtBytes(scan.total_bytes ?? 0);
+document.getElementById("confirmed").textContent = videos.filter(video => video.ffprobe_ok).length;
+document.getElementById("sources").textContent = sourceCounts.size;
+document.getElementById("warnings-count").textContent = warnings.length;
+document.getElementById("exports").textContent = exportsLog.length;
+document.getElementById("derived").textContent = derivedLog.length;
+document.getElementById("carved").textContent = carveLog.length;
+document.getElementById("filesystem-actions").textContent = filesystemLog.length;
+document.getElementById("validations").textContent = validationLog.length;
+
+document.getElementById("processing").innerHTML = `<table>
+  <tbody>
+    <tr><th>케이스 ID</th><td>${escapeHtml(manifest.case_id || "-")}</td></tr>
+    <tr><th>작업자 / 호스트</th><td>${escapeHtml(manifest.operator || "-")} / ${escapeHtml(manifest.host || "-")}</td></tr>
+    <tr><th>플랫폼 / 도구</th><td>${escapeHtml(manifest.platform || "-")} / ${escapeHtml(manifest.tool_name || "-")} ${escapeHtml(manifest.tool_version || "")}</td></tr>
+    <tr><th>장치</th><td>${escapeHtml(manifest.device_id || "-")} · serial: ${escapeHtml(manifest.device_serial || "-")} · write-protect: ${escapeHtml(manifest.write_protect || "-")}</td></tr>
+    <tr><th>취득</th><td>${escapeHtml(manifest.acquisition_tool || "-")} · evidence hash: <code>${escapeHtml(manifest.evidence_hash || "-")}</code></td></tr>
+    <tr><th>비고</th><td>${escapeHtml(manifest.notes || "-")}</td></tr>
+    <tr><th>소스 경로</th><td><code>${escapeHtml(scan.source_path || "-")}</code></td></tr>
+    <tr><th>스캔 시각</th><td>${fmtUnix(scan.scanned_unix)} <span class="muted">(${escapeHtml(scan.scanned_unix || "-")})</span></td></tr>
+    <tr><th>해시 모드</th><td>${scan.options?.hash_files ? "파일별 SHA-256 계산" : "파일별 SHA-256 생략"}</td></tr>
+    <tr><th>메타데이터 모드</th><td>${scan.options?.use_ffprobe ? "ffprobe 사용" : "ffprobe 생략"}</td></tr>
+    <tr><th>경고</th><td>${warnings.length ? warnings.map(escapeHtml).join("<br>") : "없음"}</td></tr>
+  </tbody>
+</table>`;
+document.getElementById("privacy-disclosure").textContent = `${scan.path_disclosure_mode || "redacted"} · ${scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}`;
+
+document.getElementById("audit-chain").innerHTML = auditChainStatus.length ? `<table>
+  <thead>
+    <tr><th>로그</th><th>경로</th><th>상태</th><th>엔트리</th><th>마지막 엔트리 SHA-256</th><th>오류</th></tr>
+  </thead>
+  <tbody>
+    ${auditChainStatus.map(item => `<tr>
+      <td>${escapeHtml(item.name || "-")}</td>
+      <td><code>${escapeHtml(item.relative_path || "-")}</code></td>
+      <td>${escapeHtml(item.status || "-")}</td>
+      <td>${escapeHtml(item.entries ?? "-")}</td>
+      <td><code>${escapeHtml(item.last_entry_sha256 || "-")}</code></td>
+      <td>${escapeHtml(item.error || "-")}</td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>감사 체인 상태 정보가 없습니다.</p>";
+
+document.getElementById("source-assessment").innerHTML = sourceCounts.size ? `<table>
+  <thead>
+    <tr><th>추정 소스</th><th>파서 레인</th><th>신뢰도</th><th>파일 수</th><th>처리 메모</th></tr>
+  </thead>
+  <tbody>
+    ${[...sourceCounts.entries()].map(([key, count]) => {
+      const [vendor, parser, confidence, lane] = key.split("\t");
+      const sample = videos.find(video => (video.source_profile?.vendor || "Unknown") === vendor && (video.source_profile?.parser || "unknown") === parser);
+      return `<tr>
+        <td>${escapeHtml(vendor)}</td>
+        <td>${escapeHtml(lane)}<br><code>${escapeHtml(parser)}</code></td>
+        <td>${escapeHtml(confidence)}</td>
+        <td>${count}</td>
+        <td>${escapeHtml(sample?.source_profile?.recommended_action || "-")}</td>
+      </tr>`;
+    }).join("")}
+  </tbody>
+</table>` : "<p>소스 평가 정보가 없습니다.</p>";
+
+document.getElementById("videos").innerHTML = videos.length ? `<table>
+  <thead>
+    <tr>
+      <th>ID</th><th>경로</th><th>소스</th><th>포맷</th><th>길이</th><th>크기</th><th>해시</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${videos.map(video => `<tr>
+      <td>${escapeHtml(video.id)}</td>
+      <td><code>${escapeHtml(video.relative_path || video.source_path)}</code></td>
+      <td>${escapeHtml(video.source_profile?.vendor || "-")}<br><code>${escapeHtml(video.source_profile?.parser || "-")}</code></td>
+      <td>${escapeHtml(video.video_codec || video.extension || "-")} ${video.width && video.height ? `(${video.width}x${video.height})` : ""}</td>
+      <td>${fmtDuration(video.duration_seconds)}</td>
+      <td>${fmtBytes(video.size_bytes)}</td>
+      <td><code>${escapeHtml(video.sha256 || video.hash_status || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>색인된 영상이 없습니다.</p>";
+
+document.getElementById("clip-exports").innerHTML = exportsLog.length ? `<table>
+  <thead>
+    <tr><th>포맷</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>범위</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${exportsLog.map(item => `<tr>
+      <td>${escapeHtml(item.format || "-")}</td>
+      <td><code>${escapeHtml(item.source_path || item.selector || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_sha256 || "-")}</code></td>
+      <td>${item.start_seconds ?? "-"}, ${item.duration_seconds ?? "-"}</td>
+      <td>${escapeHtml(chainStatusForItem(item, "artifacts/clips/export-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>내보낸 클립이 없습니다.</p>";
+
+document.getElementById("derived-artifacts").innerHTML = derivedLog.length ? `<table>
+  <thead>
+    <tr><th>종류</th><th>작업자</th><th>방법</th><th>원본 ID</th><th>파생 ID</th><th>원본</th><th>산출물</th><th>산출물 SHA-256</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${derivedLog.map(item => `<tr>
+      <td>${escapeHtml(item.kind || item.format || "-")}</td>
+      <td>${escapeHtml(item.operator || "-")}</td>
+      <td>${escapeHtml(item.method || item.event || "-")}</td>
+      <td><code>${escapeHtml(item.source_artifact_id || "-")}</code></td>
+      <td><code>${escapeHtml(item.derived_artifact_id || "-")}</code></td>
+      <td><code>${escapeHtml(item.source_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.output_artifact_sha256 || item.output_sha256 || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>프록시 또는 썸네일 산출물이 없습니다.</p>";
+
+document.getElementById("carved-artifacts").innerHTML = carveLog.length ? `<table>
+  <thead>
+    <tr><th>ID</th><th>상태</th><th>시그니처</th><th>오프셋</th><th>크기</th><th>산출물</th><th>SHA-256</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${carveLog.map(item => `<tr>
+      <td>${escapeHtml(item.id || "-")}</td>
+      <td>${escapeHtml(item.validation_status || "candidate-unvalidated")}</td>
+      <td>${escapeHtml(item.signature || item.extension || "-")}</td>
+      <td>${escapeHtml(item.offset ?? "-")}</td>
+      <td>${fmtBytes(item.size_bytes)}</td>
+      <td><code>${escapeHtml(item.output_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.sha256 || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item, "artifacts/carved/carve-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>Carving 후보가 없습니다.</p>";
+
+document.getElementById("validation-results").innerHTML = validationLog.length ? `<table>
+  <thead>
+    <tr><th>상태</th><th>대상</th><th>포맷</th><th>코덱</th><th>길이</th><th>SHA-256</th><th>검증 메모</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${validationLog.map(item => `<tr>
+      <td>${escapeHtml(item.validation_status || "-")}</td>
+      <td><code>${escapeHtml(item.target_path || item.selector || "-")}</code></td>
+      <td>${escapeHtml(item.format_name || "-")}</td>
+      <td>${escapeHtml(item.video_codec || "-")} / ${escapeHtml(item.audio_codec || "-")}</td>
+      <td>${fmtDuration(item.duration_seconds)}</td>
+      <td><code>${escapeHtml(item.target_sha256 || "-")}</code></td>
+      <td>${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</td>
+      <td>${escapeHtml(chainStatusForItem(item, "evidence/logs/validation-log.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>검증 기록이 없습니다.</p>";
+
+document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
+  <thead>
+    <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
+  </thead>
+  <tbody>
+    ${filesystemLog.map(item => `<tr>
+      <td>${escapeHtml(item.event || "-")}</td>
+      <td><code>${escapeHtml(item.image_path || "-")}</code></td>
+      <td>${escapeHtml(item.partition_offset ?? "-")}</td>
+      <td><code>${escapeHtml(item.inode || "-")}</code></td>
+      <td>${escapeHtml(item.validation_status || `${item.entry_count ?? "-"} entries`)}<br><code>${escapeHtml(item.output_path || item.summary_path || "-")}</code></td>
+      <td><code>${escapeHtml(item.sha256 || item.entries_jsonl_path || "-")}</code></td>
+      <td>${escapeHtml(chainStatusForItem(item, "evidence/logs/tsk-audit.jsonl"))}<br><code>${escapeHtml(item.entry_sha256 || "-")}</code></td>
+    </tr>`).join("")}
+  </tbody>
+</table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";
+</script>
+</main>
+</body>
+</html>

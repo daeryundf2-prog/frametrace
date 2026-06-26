@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "checks": {
+    "html_lang_ko": true,
+    "korean_first_labels": true,
+    "conservative_forensic_terms": true,
+    "preview_surface": true,
+    "window_mode": true,
+    "hidden_preview_rule": true,
+    "no_launch_hype": true
+  }
+}

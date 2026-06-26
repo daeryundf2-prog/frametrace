@@ -1,16 +1,15 @@
 use crate::model::ProbeSummary;
-use crate::tool_policy::resolve_tool_binary;
+use crate::tool_policy::{ResolvedExternalTool, resolve_external_tool, run_external_tool};
 use crate::util::compact_json_value_if_well_formed;
 use std::path::Path;
-use std::process::Command;
 
 pub fn probe(path: &Path) -> ProbeSummary {
     probe_with_binary("ffprobe", path)
 }
 
 pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
-    let binary = match resolve_tool_binary(binary, &["ffprobe"]) {
-        Ok(binary) => binary,
+    let tool = match resolve_external_tool(binary, &["ffprobe"], "-version") {
+        Ok(tool) => tool,
         Err(error) => {
             return ProbeSummary {
                 ok: false,
@@ -25,18 +24,18 @@ pub fn probe_with_binary(binary: &str, path: &Path) -> ProbeSummary {
             };
         }
     };
+    probe_with_tool(&tool, path)
+}
 
-    let output = Command::new(&binary)
-        .args(probe_command_args(path))
-        .output();
-
-    let output = match output {
+pub fn probe_with_tool(tool: &ResolvedExternalTool, path: &Path) -> ProbeSummary {
+    let args = probe_command_args(path);
+    let output = match run_external_tool(tool, &args) {
         Ok(output) => output,
         Err(error) => {
             return ProbeSummary {
                 ok: false,
                 raw_json: None,
-                error: Some(format!("failed to run ffprobe: {error}")),
+                error: Some(error),
                 duration_seconds: None,
                 format_name: None,
                 video_codec: None,

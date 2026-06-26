@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "case_id": "FT-PERF-1782469235",
+  "title": "FrameTrace performance benchmark case",
+  "created_unix": 1782469235,
+  "tool_name": "frametrace",
+  "tool_version": "0.1.0",
+  "platform": "macos",
+  "operator": "qa-performance",
+  "host": null,
+  "device_id": null,
+  "device_serial": null,
+  "write_protect": null,
+  "acquisition_tool": "synthetic benchmark",
+  "evidence_hash": null,
+  "notes": "Synthetic large-case survival profile."
+}

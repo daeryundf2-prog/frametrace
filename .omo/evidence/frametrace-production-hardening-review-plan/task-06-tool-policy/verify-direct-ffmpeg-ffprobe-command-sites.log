@@ -1,0 +1,2 @@
+PASS: no direct Command::new("ffmpeg") or Command::new("ffprobe") sites in src/ or tests/
+PASS: no direct Command::new("ffmpeg") or Command::new("ffprobe") matches in src tests.

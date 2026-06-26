@@ -1,0 +1,4 @@
+SCENARIO hook2-fmt-check
+INVOCATION cargo fmt --all -- --check
+BINARY_OBSERVABLE PASS if exit_code=0
+exit_code=0
