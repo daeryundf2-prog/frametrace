@@ -1,41 +1,109 @@
-/* Forensic workflow surfaces: workbench summary, selected evidence rail, and decision gate. */
-.workbench-flow {
+.flow-pane {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: 228px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
   padding: 8px;
-  border-bottom: 1px solid var(--line);
-  background: #fbfcfb;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #e9efec;
 }
 
-.workbench-card {
+.flow-heading {
   min-width: 0;
-  min-height: 44px;
-  padding: 7px 8px 6px;
-  border: 1px solid var(--line);
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   background: var(--panel-strong);
 }
 
-.workbench-card strong,
-.workbench-card span {
-  display: block;
+.flow-heading strong {
+  color: #1e2925;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.flow-heading span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+
+/* Forensic workflow surfaces: workbench summary, selected evidence rail, and decision gate. */
+.workbench-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.workbench-card {
+  min-width: 0;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 7px;
+  align-content: start;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--panel-strong);
 }
 
 .workbench-card strong {
+  min-width: 0;
   color: #26302d;
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
-.workbench-card span {
-  margin-top: 4px;
+.flow-step {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: #dbe6e2;
+  color: #26302d;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.flow-badge {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: #e5ece9;
+  color: #35413d;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.workbench-card small {
+  grid-column: 1 / -1;
+  min-width: 0;
   color: var(--muted);
   font-size: 11px;
-  line-height: 14px;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 
 .viewer-evidence-rail {
@@ -351,29 +419,75 @@
 }
 
 @media (max-width: 1320px) {
+  .flow-pane {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .workbench-flow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 980px) {
+  .flow-pane {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .flow-heading {
+    padding: 7px 8px;
+  }
+
+  .flow-heading span {
+    display: none;
+  }
+
   .workbench-flow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .workbench-card {
+    min-height: 44px;
+    padding: 6px;
+    gap: 3px 5px;
+  }
+
+  .workbench-card small {
+    display: none;
   }
 }
 
 @media (max-width: 720px) {
   .workbench-flow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow-pane {
+    padding: 7px;
   }
 
   .viewer-evidence-rail {
     grid-template-columns: minmax(0, 1fr);
     gap: 7px;
+    max-height: 160px;
+    overflow: auto;
   }
 
   .rail-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rail-action {
+    height: 34px;
+  }
+
+  .rail-action small {
+    display: none;
+  }
+
+  .rail-action:nth-child(n+5) {
+    display: none;
   }
 
   .evidence-preview,
@@ -395,6 +509,6 @@
 
 @media (max-width: 430px) {
   .rail-actions {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

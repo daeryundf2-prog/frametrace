@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>FrameTrace Evidence Viewer</title>
+  <style>
+    :root {
+      --bg: #eef1f0;
+      --panel: #fbfcfb;
+      --ink: #1f2724;
+      --muted: #68736f;
+      --line: #d8dedb;
+      --accent: #0f7c71;
+      --danger: #b14d42;
+      --warn: #b4802a;
+      --ok: #2f7a48;
+      --candidate: #6c5d99;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: var(--sans); letter-spacing: 0; }
+    header { height: 62px; display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 16px; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--line); }
+    h1 { margin: 0; font-size: 18px; }
+    .case-line { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .shell { display: grid; grid-template-columns: 320px minmax(0, 1fr) 300px; gap: 10px; padding: 10px; min-height: calc(100vh - 62px); }
+    aside, section { min-width: 0; min-height: 0; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .panel-title { height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 800; text-transform: uppercase; color: #39433f; }
+    .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }
+    .metric { border: 1px solid var(--line); border-radius: 7px; padding: 9px; background: #fff; color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; margin-top: 2px; color: var(--ink); font-size: 18px; }
+    .notice { margin: 0 10px 10px; border: 1px solid #fed7aa; border-radius: 7px; background: #fff7ed; color: #7c2d12; padding: 8px 10px; font-size: 12px; }
+    .notice[hidden] { display: none; }
+    .filters { display: grid; gap: 8px; padding: 10px; }
+    input, select, button { font: inherit; }
+    input, select { height: 34px; border: 1px solid #bdc9c4; border-radius: 6px; padding: 0 10px; background: #fff; color: var(--ink); }
+    button { height: 32px; border: 1px solid #bdc9c4; border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; }
+    button:disabled { color: #98a2b3; background: #f2f4f7; }
+    .list { overflow: auto; max-height: calc(100vh - 278px); }
+    .row { display: grid; grid-template-columns: 74px 1fr 66px; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #e5ebe8; cursor: pointer; }
+    .row.active { background: #edf8f5; box-shadow: inset 3px 0 0 var(--accent); }
+    .row strong, .row code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    code { font-family: var(--mono); font-size: 11px; word-break: break-all; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .badge { display: inline-flex; align-items: center; max-width: 100%; min-height: 22px; border-radius: 999px; padding: 2px 8px; background: #e9eff6; color: #344054; font-size: 11px; font-weight: 800; white-space: nowrap; }
+    .badge.candidate { background: #eeeafd; color: var(--candidate); }
+    .badge.failed { background: #fff1ef; color: var(--danger); }
+    .badge.ok { background: #edf8f1; color: var(--ok); }
+    .viewer { display: grid; grid-template-rows: minmax(420px, 1fr) 150px; gap: 10px; }
+    .media { display: grid; grid-template-rows: 38px minmax(0, 1fr); background: #101815; border-radius: 8px; overflow: hidden; border: 1px solid #0c1713; }
+    .media-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; color: #eaf3ef; background: #16231f; }
+    video { width: 100%; height: 100%; background: #0b0f0d; object-fit: contain; }
+    .fallback { display: grid; place-items: center; color: #c8d5d0; min-height: 360px; padding: 28px; text-align: center; }
+    .inspector { display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 10px; }
+    dl { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 7px 10px; padding: 10px; margin: 0; }
+    dt { color: var(--muted); font-size: 12px; }
+    dd { margin: 0; min-width: 0; font-size: 12px; }
+    .validation-list { padding: 10px; display: grid; gap: 8px; overflow: auto; max-height: 260px; }
+    .validation-item { border: 1px solid var(--line); border-radius: 7px; padding: 8px; background: #fff; }
+    .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--line); }
+    @media (max-width: 900px) {
+      header { height: auto; min-height: 62px; grid-template-columns: 1fr auto; padding: 10px 12px; }
+      .case-line { grid-column: 1 / -1; white-space: normal; }
+      .shell { grid-template-columns: 1fr; min-height: auto; }
+      .list { max-height: 360px; }
+      .viewer { grid-template-rows: minmax(320px, 60vh) auto; }
+    }
+    @media (max-width: 640px) {
+      header { grid-template-columns: 1fr; gap: 6px; }
+      .shell { gap: 8px; padding: 8px; }
+      .metrics { grid-template-columns: 1fr; }
+      .row { grid-template-columns: minmax(0, 1fr); }
+      .row .badge { justify-self: start; }
+      .viewer { grid-template-rows: minmax(260px, 56vh) auto; }
+      dl { grid-template-columns: 1fr; }
+      .pager { justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+	  <header>
+	    <h1>FrameTrace Evidence Viewer</h1>
+	    <div class="case-line" id="caseLine"></div>
+	    <div class="muted" id="privacyMode">실제 케이스 데이터</div>
+  </header>
+  <main class="shell">
+    <aside class="panel">
+      <div class="panel-title">증거 목록 <span id="resultCount"></span></div>
+      <div class="metrics">
+        <div class="metric">영상<strong id="metricVideos">0</strong></div>
+        <div class="metric">복구 후보<strong id="metricCarved">0</strong></div>
+        <div class="metric">검증됨<strong id="metricVerified">0</strong></div>
+        <div class="metric">검증 실패<strong id="metricFailed">0</strong></div>
+      </div>
+      <div class="notice" id="inventoryNotice" hidden></div>
+      <div class="filters">
+        <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
+        <select id="kind">
+          <option value="">전체 유형</option>
+          <option value="video">색인 영상</option>
+          <option value="carved">carving 후보</option>
+          <option value="filesystem">파일시스템 복구</option>
+        </select>
+        <select id="status">
+          <option value="">전체 검증 상태</option>
+          <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
+          <option value="validation-failed">validation-failed</option>
+          <option value="candidate-unvalidated">candidate-unvalidated</option>
+          <option value="duplicate-candidate">duplicate-candidate</option>
+        </select>
+      </div>
+      <div class="list" id="recordList"></div>
+      <div class="pager">
+        <button id="prevPage">이전</button>
+        <span class="muted" id="pageStatus"></span>
+        <button id="nextPage">다음</button>
+      </div>
+    </aside>
+    <section class="viewer">
+      <div class="media">
+        <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
+        <div id="mediaStage"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">선택 증거 메모</div>
+        <dl id="summaryList"></dl>
+      </div>
+    </section>
+    <aside class="inspector">
+      <section class="panel">
+        <div class="panel-title">포렌식 인스펙터</div>
+        <dl id="metaList"></dl>
+      </section>
+      <section class="panel">
+        <div class="panel-title">검증 로그</div>
+        <div class="validation-list" id="validationList"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-title">운영 원칙</div>
+        <dl>
+          <dt>원본</dt><dd>원본 경로는 수정하지 않음</dd>
+          <dt>복구물</dt><dd>검증 전까지 후보 상태 유지</dd>
+          <dt>보고서</dt><dd>검증 로그와 SHA-256 기준으로 판단</dd>
+        </dl>
+      </section>
+    </aside>
+  </main>
+<script>
+const manifest = {
+  "schema_version": 1,
+  "case_id": "FT-1782530615",
+  "title": "Generated viewer QA",
+  "created_unix": 1782530615,
+  "tool_name": "frametrace",
+  "tool_version": "0.1.0",
+  "platform": "macos",
+  "operator": "Codex QA",
+  "host": null,
+  "device_id": null,
+  "device_serial": null,
+  "write_protect": "QA fixture only",
+  "acquisition_tool": null,
+  "evidence_hash": null,
+  "notes": "Generated under .omo evidence for responsive browser QA"
+}
+;
+const scan = {"schema_version":1,"path_disclosure_mode":"redacted","local_operator_full_path_disclosure":false,"path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","source_path":"SQLite-backed bounded review inventory","inventory_source":"case.db/videos","video_count":2,"embedded_video_count":2,"inventory_truncated":false,"inventory_limit":500,"inventory_query_contract":"frametrace inventory \u003ccase_dir\u003e --limit 500 --offset \u003cn\u003e","warnings":[],"options":{"hash_files":false,"use_ffprobe":false,"max_depth":null},"videos":[{"confidence":"candidate-unvalidated","extension":"mp4","ffprobe_ok":false,"file_url":"","hash_status":"skipped","id":"vid_000001","local_operator_full_path_disclosure":false,"modified_unix":1782530614,"path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","relative_path":"cctv-front-20260627-091530.mp4","sha256":null,"size_bytes":22,"source_path":"[redacted-source:vid_000001]","source_profile":{"confidence":"candidate-unvalidated","lane":"video-index","local_operator_full_path_disclosure":false,"parser":"video-index","path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","recommended_action":"unreviewed","vendor":"vid_000001"}},{"confidence":"candidate-unvalidated","extension":"mov","ffprobe_ok":false,"file_url":"","hash_status":"skipped","id":"vid_000002","local_operator_full_path_disclosure":false,"modified_unix":1782530614,"path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","relative_path":"dashcam-rear-20260627-091545.mov","sha256":null,"size_bytes":22,"source_path":"[redacted-source:vid_000002]","source_profile":{"confidence":"candidate-unvalidated","lane":"video-index","local_operator_full_path_disclosure":false,"parser":"video-index","path_disclosure_mode":"redacted","path_disclosure_notice":"Distributable output redacts local workstation/source paths by default.","recommended_action":"unreviewed","vendor":"vid_000002"}}]};
+const carveLog = [];
+const filesystemLog = [];
+const validationLog = [];
+const exportLog = [];
+const proxyLog = [];
+const thumbnailLog = [];
+const frameLog = [];
+const auditChainStatus = [{"name":"clip export","relative_path":"artifacts/clips/export-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"proxy","relative_path":"artifacts/proxies/proxy-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"thumbnail","relative_path":"artifacts/thumbnails/thumbnail-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"frame capture","relative_path":"artifacts/frames/frame-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"carving","relative_path":"artifacts/carved/carve-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"filesystem recovery","relative_path":"evidence/logs/tsk-audit.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"},{"name":"validation","relative_path":"evidence/logs/validation-log.jsonl","status":"missing","entries":null,"last_entry_sha256":null,"error":"audit log is not present"}];
+const videos = Array.isArray(scan.videos) ? scan.videos : [];
+const validationByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
+const validationByArtifactId = new Map();
+const validationBySha256 = new Map();
+const auditStatusByPath = new Map(auditChainStatus.map(item => [item.relative_path, item]));
+validationLog.forEach(item => {
+  [item.selector, item.source_artifact_id, item.derived_artifact_id, item.target_artifact_id]
+    .filter(Boolean)
+    .forEach(id => validationByArtifactId.set(String(id), item));
+  if (item.target_sha256) validationBySha256.set(String(item.target_sha256).toLowerCase(), item);
+});
+const recoveredFilesystemLog = filesystemLog.filter(item => item.event === "recover-inode" && item.output_path);
+const derivedLog = [...exportLog, ...proxyLog, ...thumbnailLog, ...frameLog];
+const records = [
+  ...videos.map(video => {
+    const validation = validationForFields(video.id, video.source_path, video.sha256, "", "");
+    return {
+      id: video.id,
+      kind: "video",
+      name: video.relative_path || video.id,
+      path: video.source_path,
+      fileUrl: video.file_url,
+      parser: video.source_profile?.parser || "-",
+      vendor: video.source_profile?.vendor || "-",
+      status: validation?.validation_status || (video.ffprobe_ok ? "ffprobe-confirmed" : "candidate-unvalidated"),
+      sha256: validation?.target_sha256 || video.sha256 || video.hash_status || "-",
+      duration: validation?.duration_seconds ?? video.duration_seconds,
+      codec: validation?.video_codec || video.video_codec || "-",
+      size: video.size_bytes,
+      note: validation?.validation_note || video.source_profile?.recommended_action || "-",
+      validation,
+      auditLogPath: ""
+    };
+  }),
+  ...derivedLog.map(item => {
+    const outputPath = item.output_artifact_path || item.output_path;
+    const validation = validationForFields(
+      item.derived_artifact_id || item.selector,
+      outputPath,
+      item.output_artifact_sha256 || item.output_sha256,
+      item.derived_artifact_id,
+      item.source_artifact_id
+    );
+    return {
+      id: item.derived_artifact_id || item.output_path || item.output_artifact_path,
+      kind: "derived",
+      name: outputPath ? outputPath.split(/[\\\\/]/).pop() : item.derived_artifact_id,
+      path: outputPath,
+      fileUrl: fileUrl(outputPath),
+      parser: item.method || item.event || "derived-artifact",
+      vendor: item.kind || item.format || "Derived artifact",
+      status: validation?.validation_status || item.artifact_state || "derived",
+      sha256: validation?.target_sha256 || item.output_artifact_sha256 || item.output_sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || item.format || "-",
+      size: item.size_bytes,
+      note: `${item.operator || "-"} · ${item.source_artifact_id || "-"}`,
+      offset: item.start_seconds ?? item.time_seconds,
+      validation,
+      sourceArtifactId: item.source_artifact_id,
+      derivedArtifactId: item.derived_artifact_id,
+      auditLogPath: auditPathForDerivedItem(item)
+    };
+  }),
+  ...carveLog.map(item => {
+    const validation = validationForFields(item.id, item.output_path, item.sha256, "", "");
+    return {
+      id: item.id || item.output_path,
+      kind: "carved",
+      name: item.output_path ? item.output_path.split(/[\\\\/]/).pop() : item.id,
+      path: item.output_path,
+      fileUrl: fileUrl(item.output_path),
+      parser: item.signature || "carve",
+      vendor: "Recovered candidate",
+      status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
+      sha256: validation?.target_sha256 || item.sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || item.extension || "-",
+      size: item.size_bytes,
+      note: validation?.validation_note || item.validation_note || "-",
+      offset: item.offset,
+      validation,
+      auditLogPath: "artifacts/carved/carve-log.jsonl"
+    };
+  }),
+  ...recoveredFilesystemLog.map(item => {
+    const validation = validationForFields(item.inode, item.output_path, item.sha256, "", "");
+    return {
+      id: `inode:${item.partition_offset ?? 0}:${item.inode || item.output_path}`,
+      kind: "filesystem",
+      name: item.output_path ? item.output_path.split(/[\\\\/]/).pop() : item.inode,
+      path: item.output_path,
+      fileUrl: fileUrl(item.output_path),
+      parser: "tsk/icat",
+      vendor: "Filesystem recovery",
+      status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
+      sha256: validation?.target_sha256 || item.sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || "-",
+      size: item.size_bytes,
+      note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
+      offset: item.partition_offset,
+      validation,
+      auditLogPath: "evidence/logs/tsk-audit.jsonl"
+    };
+  })
+];
+let activeId = records[0]?.id || null;
+let currentPage = 1;
+const pageSize = 100;
+
+const els = {
+	  caseLine: document.getElementById("caseLine"),
+	  privacyMode: document.getElementById("privacyMode"),
+  resultCount: document.getElementById("resultCount"),
+  metricVideos: document.getElementById("metricVideos"),
+  metricCarved: document.getElementById("metricCarved"),
+  metricVerified: document.getElementById("metricVerified"),
+  metricFailed: document.getElementById("metricFailed"),
+  inventoryNotice: document.getElementById("inventoryNotice"),
+  query: document.getElementById("query"),
+  kind: document.getElementById("kind"),
+  status: document.getElementById("status"),
+  recordList: document.getElementById("recordList"),
+  prevPage: document.getElementById("prevPage"),
+  nextPage: document.getElementById("nextPage"),
+  pageStatus: document.getElementById("pageStatus"),
+  mediaTitle: document.getElementById("mediaTitle"),
+  mediaStatus: document.getElementById("mediaStatus"),
+  mediaStage: document.getElementById("mediaStage"),
+  summaryList: document.getElementById("summaryList"),
+  metaList: document.getElementById("metaList"),
+  validationList: document.getElementById("validationList")
+};
+
+function normalizePath(value) { return String(value || "").replaceAll("\\\\", "/").toLowerCase(); }
+function normalizeHash(value) { return String(value || "").toLowerCase(); }
+function fileUrl(path) {
+  if (!path) return "";
+  if (String(path).startsWith("file:")) return path;
+  const normalized = String(path).replaceAll("\\\\", "/");
+  if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encodeURI(normalized);
+  if (normalized.startsWith("/")) return "file://" + encodeURI(normalized);
+  return encodeURI(normalized);
+}
+function escapeHtml(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+function fmtBytes(value) {
+  if (!Number.isFinite(value)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let current = value;
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) { current /= 1024; unit += 1; }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+function fmtDuration(value) {
+  if (!Number.isFinite(value)) return "-";
+  const seconds = Math.round(value);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+function statusClass(status) {
+  if (status === "ffprobe-video-stream-confirmed" || status === "ffprobe-confirmed") return "ok";
+  if (status === "validation-failed") return "failed";
+  return "candidate";
+}
+function auditPathForDerivedItem(item) {
+  if (item.event === "export-video") return "artifacts/clips/export-log.jsonl";
+  if (item.event === "make-proxy" || item.kind === "proxy") return "artifacts/proxies/proxy-log.jsonl";
+  if (item.event === "make-thumbnail" || item.kind === "thumbnail") return "artifacts/thumbnails/thumbnail-log.jsonl";
+  if (item.event === "make-frame-capture" || item.kind === "frame-capture") return "artifacts/frames/frame-log.jsonl";
+  return "";
+}
+function chainStatus(relPath) {
+  const status = auditStatusByPath.get(relPath);
+  if (!status) return "missing · not listed";
+  const error = status.error ? ` · ${status.error}` : "";
+  return `${status.status} · entries=${status.entries ?? "-"}${error}`;
+}
+function validationForFields(id, path, sha256, derivedArtifactId, sourceArtifactId) {
+  return validationByArtifactId.get(String(derivedArtifactId || ""))
+    || validationByArtifactId.get(String(id || ""))
+    || validationByArtifactId.get(String(sourceArtifactId || ""))
+    || validationBySha256.get(normalizeHash(sha256))
+    || validationByPath.get(normalizePath(path));
+}
+function validationForRecord(record) {
+  return validationForFields(
+    record.id,
+    record.path,
+    record.sha256,
+    record.derivedArtifactId,
+    record.sourceArtifactId
+  );
+}
+function relatedValidationsForRecord(record) {
+  return validationLog.filter(item =>
+    normalizePath(item.target_path) === normalizePath(record.path)
+    || item.selector === record.id
+    || item.derived_artifact_id === record.derivedArtifactId
+    || item.target_artifact_id === record.derivedArtifactId
+    || item.source_artifact_id === record.sourceArtifactId
+    || normalizeHash(item.target_sha256) === normalizeHash(record.sha256)
+  );
+}
+function filteredRecords() {
+  const query = els.query.value.trim().toLowerCase();
+  return records.filter(record => {
+    if (els.kind.value && record.kind !== els.kind.value) return false;
+    if (els.status.value && record.status !== els.status.value) return false;
+    if (!query) return true;
+    return [record.id, record.name, record.path, record.parser, record.vendor, record.sha256, record.note].some(value => String(value ?? "").toLowerCase().includes(query));
+  });
+}
+function selectedRecord() { return records.find(record => record.id === activeId) || records[0]; }
+function renderList() {
+  const filtered = filteredRecords();
+  if (!filtered.some(record => record.id === activeId)) activeId = filtered[0]?.id || records[0]?.id || null;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  currentPage = Math.min(currentPage, pageCount);
+  const start = (currentPage - 1) * pageSize;
+  const pageRows = filtered.slice(start, start + pageSize);
+  els.resultCount.textContent = `${filtered.length}`;
+  els.pageStatus.textContent = `${currentPage} / ${pageCount}`;
+  els.prevPage.disabled = currentPage <= 1;
+  els.nextPage.disabled = currentPage >= pageCount;
+  els.recordList.innerHTML = pageRows.map(record => `<div class="row ${record.id === activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
+    <span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>
+    <span><strong>${escapeHtml(record.name)}</strong><code>${escapeHtml(record.path)}</code><span class="muted">${escapeHtml(record.vendor)} · ${escapeHtml(record.parser)}</span></span>
+    <span class="muted">${escapeHtml(record.kind)}</span>
+  </div>`).join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
+  els.recordList.querySelectorAll(".row").forEach(row => row.addEventListener("click", () => { activeId = row.dataset.id; render(); }));
+}
+function renderDetails() {
+  const record = selectedRecord();
+  if (!record) {
+    els.mediaStage.innerHTML = `<div class="fallback">색인된 증거가 없습니다.</div>`;
+    return;
+  }
+  els.mediaTitle.textContent = record.name || record.id;
+  els.mediaStatus.textContent = record.status;
+  els.mediaStatus.className = `badge ${statusClass(record.status)}`;
+  els.mediaStage.innerHTML = `<div class="fallback">
+    <strong>자동 미디어 로딩 비활성화</strong>
+    <span>원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.</span>
+    ${record.fileUrl ? `<a href="${escapeHtml(record.fileUrl)}" target="_blank" rel="noreferrer">수동으로 파일 열기</a>` : ""}
+  </div>`;
+  els.summaryList.innerHTML = [
+    ["ID", record.id],
+    ["상태", record.status],
+    ["메모", record.note],
+    ["길이", fmtDuration(record.duration)]
+  ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
+  els.metaList.innerHTML = [
+    ["경로", `<code>${escapeHtml(record.path)}</code>`],
+    ["제조사", record.vendor],
+    ["파서", `<code>${escapeHtml(record.parser)}</code>`],
+    ["코덱", record.codec],
+    ["크기", fmtBytes(record.size)],
+    ["SHA-256", `<code>${escapeHtml(record.sha256)}</code>`],
+    ["원본 ID", `<code>${escapeHtml(record.sourceArtifactId || "-")}</code>`],
+    ["파생 ID", `<code>${escapeHtml(record.derivedArtifactId || "-")}</code>`],
+    ["감사 체인", `<code>${escapeHtml(record.auditLogPath ? chainStatus(record.auditLogPath) : "-")}</code>`],
+    ["오프셋", record.offset ?? "-"]
+  ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
+  const related = relatedValidationsForRecord(record);
+  els.validationList.innerHTML = related.length ? related.map(item => `<div class="validation-item">
+    <strong>${escapeHtml(item.validation_status || "-")}</strong>
+    <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>
+    <div class="muted">${escapeHtml(chainStatus("evidence/logs/validation-log.jsonl"))}</div>
+    <code>${escapeHtml(item.target_sha256 || "-")}</code>
+  </div>`).join("") : `<div class="validation-item">검증 로그 없음</div>`;
+}
+	function renderMetrics() {
+	  els.caseLine.textContent = `${manifest.case_id || "case"} · ${manifest.title || "Untitled"} · ${scan.source_path || "-"}`;
+	  els.privacyMode.textContent = `${scan.path_disclosure_mode || "redacted"} · ${scan.path_disclosure_notice || "Distributable path privacy metadata unavailable."}`;
+  els.metricVideos.textContent = scan.video_count ?? videos.length;
+  els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
+  els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
+  els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
+  if (scan.inventory_truncated) {
+    els.inventoryNotice.hidden = false;
+    els.inventoryNotice.textContent = `이 HTML 뷰어는 ${scan.video_count ?? videos.length}개 중 ${scan.embedded_video_count ?? videos.length}개만 포함합니다. 전체 목록은 ${scan.inventory_query_contract || "frametrace inventory"}로 페이지 조회하세요.`;
+  } else {
+    els.inventoryNotice.hidden = true;
+    els.inventoryNotice.textContent = "";
+  }
+}
+function render() { renderMetrics(); renderList(); renderDetails(); }
+els.query.addEventListener("input", () => { currentPage = 1; render(); });
+els.kind.addEventListener("change", () => { currentPage = 1; render(); });
+els.status.addEventListener("change", () => { currentPage = 1; render(); });
+els.prevPage.addEventListener("click", () => { currentPage -= 1; render(); });
+els.nextPage.addEventListener("click", () => { currentPage += 1; render(); });
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+Cleanup receipt for ULW evidence recording
+Before cleanup:
+COMMAND   PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Python  57832 shinyoohag    3u  IPv4 0x4001530a4b97bda6      0t0  TCP 127.0.0.1:4173 (LISTEN)
+COMMAND   PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+Python  22426 shinyoohag    3u  IPv4 0x5ea1a8b2e4267c4d      0t0  TCP 127.0.0.1:4175 (LISTEN)
+running: true
+tabs: 1
+cdpUrl: http://127.0.0.1:9222
+
+Stopping known QA servers: 57832 22426
+
+Stopping agbrowse
+🌐 Chrome stopped
+
+After cleanup ports:
+Port 4173 clear
+Port 4175 clear
+
+After cleanup agbrowse status:
+running: false
+tabs: 0
+cdpUrl: n/a

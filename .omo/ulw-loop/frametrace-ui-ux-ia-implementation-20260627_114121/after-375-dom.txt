@@ -1,0 +1,344 @@
+FT
+FrameTrace
+
+현장 증거 리뷰 워크벤치
+
+사건 FT-2026-0519
+로컬 사건 검토
+local-first · verification required · 보고서 초안
+EN
+2ch
+패키지 초안
+현장 증거 리뷰 워크벤치
+1
+Evidence source · 증거 소스
+local-first
+2
+Video candidates · 영상 후보
+candidate-unvalidated
+3
+Verification status · 검증 상태
+verification required
+4
+Export · 내보내기
+export draft
+5
+Report · 보고서
+not court-ready
+전체
+영상
+사진
+복구
+검증
+중요
+보고서
+검색
+10000개 일치
+1-22 표시
+50 ms
+20260519_120000_F_000505.mp4
+SD001 BlackVue microSD/case-folder-003/20260519_120000_F.mp4
+vid_000505
+05-01 00:48
+영상 / blackvue_channel_suffix
+4.1 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_001345.mp4
+SD001 BlackVue microSD/case-folder-006/20260519_120000_F.mp4
+vid_001345
+05-01 00:48
+영상 / blackvue_channel_suffix
+10.8 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_002185.mp4
+SD001 BlackVue microSD/case-folder-009/20260519_120000_F.mp4
+vid_002185
+05-01 00:48
+영상 / blackvue_channel_suffix
+17.4 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_003025.mp4
+SD001 BlackVue microSD/case-folder-013/20260519_120000_F.mp4
+vid_003025
+05-01 00:48
+영상 / blackvue_channel_suffix
+24.1 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_003865.mp4
+SD001 BlackVue microSD/case-folder-016/20260519_120000_F.mp4
+vid_003865
+05-01 00:48
+영상 / blackvue_channel_suffix
+30.7 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_004705.mp4
+SD001 BlackVue microSD/case-folder-019/20260519_120000_F.mp4
+vid_004705
+05-01 00:48
+영상 / blackvue_channel_suffix
+37.4 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_005545.mp4
+SD001 BlackVue microSD/case-folder-023/20260519_120000_F.mp4
+vid_005545
+05-01 00:48
+영상 / blackvue_channel_suffix
+44.0 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_006385.mp4
+SD001 BlackVue microSD/case-folder-026/20260519_120000_F.mp4
+vid_006385
+05-01 00:48
+영상 / blackvue_channel_suffix
+50.7 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_007225.mp4
+SD001 BlackVue microSD/case-folder-029/20260519_120000_F.mp4
+vid_007225
+05-01 00:48
+영상 / blackvue_channel_suffix
+57.3 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_008065.mp4
+SD001 BlackVue microSD/case-folder-033/20260519_120000_F.mp4
+vid_008065
+05-01 00:48
+영상 / blackvue_channel_suffix
+64.0 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_008905.mp4
+SD001 BlackVue microSD/case-folder-036/20260519_120000_F.mp4
+vid_008905
+05-01 00:48
+영상 / blackvue_channel_suffix
+70.6 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+20260519_120000_F_009745.mp4
+SD001 BlackVue microSD/case-folder-039/20260519_120000_F.mp4
+vid_009745
+05-01 00:48
+영상 / blackvue_channel_suffix
+77.3 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_000365.mp4
+SD001 BlackVue microSD/case-folder-002/carved_000009_offset_771751936.mp4
+carve_000365
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+3.0 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_001205.mp4
+SD001 BlackVue microSD/case-folder-005/carved_000009_offset_771751936.mp4
+carve_001205
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+9.7 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_002045.mp4
+SD001 BlackVue microSD/case-folder-009/carved_000009_offset_771751936.mp4
+carve_002045
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+16.3 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_002885.mp4
+SD001 BlackVue microSD/case-folder-012/carved_000009_offset_771751936.mp4
+carve_002885
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+23.0 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_003725.mp4
+SD001 BlackVue microSD/case-folder-015/carved_000009_offset_771751936.mp4
+carve_003725
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+29.6 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_004565.mp4
+SD001 BlackVue microSD/case-folder-019/carved_000009_offset_771751936.mp4
+carve_004565
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+36.3 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_005405.mp4
+SD001 BlackVue microSD/case-folder-022/carved_000009_offset_771751936.mp4
+carve_005405
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+42.9 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_006245.mp4
+SD001 BlackVue microSD/case-folder-025/carved_000009_offset_771751936.mp4
+carve_006245
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+49.6 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_007085.mp4
+SD001 BlackVue microSD/case-folder-029/carved_000009_offset_771751936.mp4
+carve_007085
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+56.2 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+carved_000009_offset_771751936_007925.mp4
+SD001 BlackVue microSD/case-folder-032/carved_000009_offset_771751936.mp4
+carve_007925
+05-01 04:28
+복구 후보 / mp4_ftyp_carver
+62.9 MB
+candidate-unvalidated
+검증 필요
+hash/check pending
+미리보기
+영상
+20260519_120000_F_000505.mp4
+메타
+레벨
+비교
+00:00:00.000
+원본
+선택 증거
+SD001 BlackVue microSD
+candidate-unvalidated 후보
+vid_000505 · 소스 읽기전용 마운트
+local-first · 소스 증거 읽기전용 · candidate-unvalidated
+검증 대기
+필요
+Export draft
+미리보기
+보고서 세트
+포함
+패키지 미리보기
+미리보기
+00:00
+00:21
+00:43
+01:04
+01:26
+◀◀
+◀
+▶
+▶
+▶▶
+0.25x
+0.5x
+1x
+2x
+확대
+포렌식 결정 게이트
+candidate-unvalidated 후보
+candidate-unvalidated
+연속 후보, 검증 대기
+색인 완료
+완료
+컨테이너 확인
+VERIFICATION REQUIRED
+재생 확인
+VERIFICATION REQUIRED
+보고서 선택
+완료
+내보내기
+VERIFICATION REQUIRED
+검토자 확인
+중요
+보고서 초안
+메타데이터
+ID
+vid_000505
+소스
+SD001 BlackVue microSD
+경로
+SD001 BlackVue microSD/case-folder-003/20260519_120000_F.mp4
+제조사
+BlackVue
+파서
+blackvue_channel_suffix
+해시
+0f29436d87a1cbe50f29436d87a1cbe50f29436d87a1cbe50f29436d87a1cbe5
+해시 상태
+완료
+입수시각
+2026-05-19 13:12:04 KST
+읽기모드
+소스 읽기전용 마운트
+오프셋
+논리 파일
+코덱
+H.264 / MP4
+출력
+대기 중 작업 없음
+채널
+전방
+길이
+01:26
+내보내기 대기
+MP4 내보내기 대기
+AVI 내보내기 대기
+프레임 캡처 대기
+검증 대기열

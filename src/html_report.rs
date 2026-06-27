@@ -398,12 +398,12 @@ pub fn render_evidence_viewer_html(inputs: EvidenceViewerInputs<'_>) -> String {
       --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; min-width: 1180px; background: var(--bg); color: var(--ink); font-family: var(--sans); letter-spacing: 0; }}
+    body {{ margin: 0; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: var(--sans); letter-spacing: 0; }}
     header {{ height: 62px; display: grid; grid-template-columns: 240px 1fr auto; align-items: center; gap: 16px; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--line); }}
     h1 {{ margin: 0; font-size: 18px; }}
     .case-line {{ color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
     .shell {{ display: grid; grid-template-columns: 320px minmax(0, 1fr) 300px; gap: 10px; padding: 10px; min-height: calc(100vh - 62px); }}
-    aside, section {{ min-height: 0; }}
+    aside, section {{ min-width: 0; min-height: 0; }}
     .panel {{ background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }}
     .panel-title {{ height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 800; text-transform: uppercase; color: #39433f; }}
     .metrics {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }}
@@ -438,6 +438,23 @@ pub fn render_evidence_viewer_html(inputs: EvidenceViewerInputs<'_>) -> String {
     .validation-list {{ padding: 10px; display: grid; gap: 8px; overflow: auto; max-height: 260px; }}
     .validation-item {{ border: 1px solid var(--line); border-radius: 7px; padding: 8px; background: #fff; }}
     .pager {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--line); }}
+    @media (max-width: 900px) {{
+      header {{ height: auto; min-height: 62px; grid-template-columns: 1fr auto; padding: 10px 12px; }}
+      .case-line {{ grid-column: 1 / -1; white-space: normal; }}
+      .shell {{ grid-template-columns: 1fr; min-height: auto; }}
+      .list {{ max-height: 360px; }}
+      .viewer {{ grid-template-rows: minmax(320px, 60vh) auto; }}
+    }}
+    @media (max-width: 640px) {{
+      header {{ grid-template-columns: 1fr; gap: 6px; }}
+      .shell {{ gap: 8px; padding: 8px; }}
+      .metrics {{ grid-template-columns: 1fr; }}
+      .row {{ grid-template-columns: minmax(0, 1fr); }}
+      .row .badge {{ justify-self: start; }}
+      .viewer {{ grid-template-rows: minmax(260px, 56vh) auto; }}
+      dl {{ grid-template-columns: 1fr; }}
+      .pager {{ justify-content: space-between; }}
+    }}
   </style>
 </head>
 <body>

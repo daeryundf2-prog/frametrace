@@ -1,0 +1,94 @@
+{
+  "url": "http://127.0.0.1:4175/evidence-viewer.html?after-row-fix=1",
+  "innerWidth": 500,
+  "outerWidth": 500,
+  "clientWidth": 500,
+  "scrollWidth": 500,
+  "bodyScrollWidth": 500,
+  "hasHorizontalOverflow": false,
+  "rowCount": 2,
+  "candidateText": true,
+  "reviewNotCourtReady": true,
+  "badgeOverflow": false,
+  "badgeWithinRow": true,
+  "boxes": {
+    ".shell": {
+      "x": 0,
+      "y": 98.5,
+      "width": 500,
+      "height": 2212.0546875,
+      "scrollWidth": 500,
+      "clientWidth": 500,
+      "text": "증거 목록 2\n      \n        영상2\n        복구 후보0\n        검증됨0\n        검증 실패0\n      \n      \n      \n        \n        \n          전체 유형\n          색인 영상\n          carving 후보\n          파일시스템 복구",
+      "overflowX": "visible",
+      "whiteSpace": "normal"
+    },
+    ".list": {
+      "x": 9,
+      "y": 559.5,
+      "width": 482,
+      "height": 243,
+      "scrollWidth": 482,
+      "clientWidth": 482,
+      "text": "candidate-unvalidated\n    cctv-front-20260627-091530.mp4[redacted-source:vid_000001]vid_000001 · video-index\n    video\n  \n    candidate-unvalidated\n    dashcam-rear-20260627-091545",
+      "overflowX": "auto",
+      "whiteSpace": "normal"
+    },
+    ".viewer": {
+      "x": 8,
+      "y": 862.5,
+      "width": 484,
+      "height": 652.5546875,
+      "scrollWidth": 484,
+      "clientWidth": 484,
+      "text": "cctv-front-20260627-091530.mp4candidate-unvalidated\n        \n    자동 미디어 로딩 비활성화\n    원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.\n    \n  \n      \n      \n        선택 증거 메모\n        IDvid_",
+      "overflowX": "visible",
+      "whiteSpace": "normal"
+    },
+    ".media": {
+      "x": 8,
+      "y": 862.5,
+      "width": 484,
+      "height": 420.5546875,
+      "scrollWidth": 482,
+      "clientWidth": 482,
+      "text": "cctv-front-20260627-091530.mp4candidate-unvalidated\n        \n    자동 미디어 로딩 비활성화\n    원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.",
+      "overflowX": "hidden",
+      "whiteSpace": "normal"
+    },
+    ".inspector": {
+      "x": 8,
+      "y": 1523.0546875,
+      "width": 484,
+      "height": 779.5,
+      "scrollWidth": 484,
+      "clientWidth": 484,
+      "text": "포렌식 인스펙터\n        경로[redacted-source:vid_000001]제조사vid_000001파서video-index코덱-크기22 BSHA-256skipped원본 ID-파생 ID-감사 체인-오프셋-\n      \n      \n        검증 로그\n        검증 로그 없음\n      \n      \n  ",
+      "overflowX": "visible",
+      "whiteSpace": "normal"
+    },
+    ".row": {
+      "x": 9,
+      "y": 559.5,
+      "width": 482,
+      "height": 121.5,
+      "scrollWidth": 482,
+      "clientWidth": 482,
+      "text": "candidate-unvalidated\n    cctv-front-20260627-091530.mp4[redacted-source:vid_000001]vid_000001 · video-index\n    video",
+      "overflowX": "visible",
+      "whiteSpace": "normal"
+    },
+    ".row .badge": {
+      "x": 19,
+      "y": 568.5,
+      "width": 145.2265625,
+      "height": 22,
+      "scrollWidth": 145,
+      "clientWidth": 145,
+      "text": "candidate-unvalidated",
+      "overflowX": "visible",
+      "whiteSpace": "nowrap"
+    }
+  },
+  "bodyText": "FrameTrace Evidence Viewer\nFT-1782530615 · Generated viewer QA · SQLite-backed bounded review inventory\nredacted · Distributable output redacts local workstation/source paths by default.\n증거 목록\n2\n영상\n2\n복구 후보\n0\n검증됨\n0\n검증 실패\n0\n전체 유형\n색인 영상\ncarving 후보\n파일시스템 복구\n전체 검증 상태\nffprobe-video-stream-confirmed\nvalidation-failed\ncandidate-unvalidated\nduplicate-candidate\ncandidate-unvalidated\ncctv-front-20260627-091530.mp4\n[redacted-source:vid_000001]\nvid_000001 · video-index\nvideo\ncandidate-unvalidated\ndashcam-rear-20260627-091545.mov\n[redacted-source:vid_000002]\nvid_000002 · video-index\nvideo\n이전\n1 / 1\n다음\ncctv-front-20260627-091530.mp4\ncandidate-unvalidated\n자동 미디어 로딩 비활성화\n원본 또는 파생 산출물은 검증 로그와 해시를 확인한 뒤 별도 도구로 여세요.\n선택 증거 메모\nID\nvid_000001\n상태\ncandidate-unvalidated\n메모\nunreviewed\n길이\n-\n포렌식 인스펙터\n경로\n[redacted-source:vid_000001]\n제조사\nvid_000001\n파서\nvideo-index\n코덱\n-\n크기\n22 B\nSHA-256\nskipped\n원본 ID\n-\n파생 ID\n-\n감사 체인\n-\n오프셋\n-\n검증 로그\n검증 로그 없음\n운영 원칙\n원본\n원본 경로는 수정하지 않음\n복구물\n검증 전까지 후보 상태 유지\n보고서\n검증 로그와 SHA-256 기준으로 판단"
+}

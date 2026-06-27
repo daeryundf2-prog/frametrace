@@ -3,7 +3,7 @@ const records = window.FrameTraceRecords || [];
 const translations = window.FrameTraceTranslations || {};
 
 const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
-const rowHeight = 40;
+const rowHeight = 88;
 const defaultSelectedId = defaultSelectedRecordId();
 
 const state = {
@@ -195,21 +195,51 @@ function renderWorkbenchFlow() {
   const counts = {
     sources: sources.length,
     candidates: records.filter((record) => record.type === "candidate").length,
-    validation: records.filter((record) => record.status === "needs_verification" || record.status === "candidate").length,
+    validation: records.filter((record) => (
+      record.status === "needs_verification"
+      || record.status === "candidate"
+      || record.hashStatus === "pending selected hash"
+    )).length,
+    exportDraft: records.filter((record) => (
+      record.outputStateKey === "output.mp4Queued"
+      || record.outputStateKey === "output.aviQueued"
+    )).length,
     report: records.filter((record) => record.report).length,
   };
   const cards = [
-    ["summary.sources", t("summary.sourcesDetail", { count: counts.sources, names: sourceNames })],
-    ["summary.candidates", t("summary.candidatesDetail", { count: counts.candidates })],
-    ["summary.validation", t("summary.validationDetail", { count: counts.validation })],
-    ["summary.export", t("summary.exportDetail")],
-    ["summary.report", t("summary.reportDetail", { count: counts.report })],
+    {
+      titleKey: "summary.sources",
+      detail: t("summary.sourcesDetail", { count: counts.sources, names: sourceNames }),
+      badgeKey: "summary.sourceBadge",
+    },
+    {
+      titleKey: "summary.candidates",
+      detail: t("summary.candidatesDetail", { count: counts.candidates }),
+      badgeKey: "summary.candidateBadge",
+    },
+    {
+      titleKey: "summary.validation",
+      detail: t("summary.validationDetail", { count: counts.validation }),
+      badgeKey: "summary.validationBadge",
+    },
+    {
+      titleKey: "summary.export",
+      detail: t("summary.exportDetail", { count: counts.exportDraft }),
+      badgeKey: "summary.exportBadge",
+    },
+    {
+      titleKey: "summary.report",
+      detail: t("summary.reportDetail", { count: counts.report }),
+      badgeKey: "summary.reportBadge",
+    },
   ];
-  els.workbenchFlow.innerHTML = cards.map(([titleKey, detail]) => `
-    <div class="workbench-card">
-      <strong>${escapeHtml(t(titleKey))}</strong>
-      <span>${escapeHtml(detail)}</span>
-    </div>
+  els.workbenchFlow.innerHTML = cards.map((card, index) => `
+    <article class="workbench-card" aria-label="${escapeAttr(t(card.titleKey))}">
+      <span class="flow-step">${index + 1}</span>
+      <strong>${escapeHtml(t(card.titleKey))}</strong>
+      <span class="flow-badge">${escapeHtml(t(card.badgeKey))}</span>
+      <small>${escapeHtml(card.detail)}</small>
+    </article>
   `).join("");
 }
 
@@ -257,6 +287,16 @@ function renderFiles() {
     row.addEventListener("click", () => selectRecord(row.dataset.id));
     row.addEventListener("keydown", activateOnKeyboard(() => selectRecord(row.dataset.id)));
   });
+  els.fileRows.querySelectorAll("[data-row-preview]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectRecord(button.dataset.rowPreview);
+      openPreview(false);
+    });
+    button.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+    });
+  });
   els.fileRows.querySelectorAll("canvas[data-thumb]").forEach((canvas) => {
     const record = records.find((item) => item.id === canvas.dataset.thumb);
     if (record) drawScene(canvas, record, 0, 1, true);
@@ -265,20 +305,43 @@ function renderFiles() {
 }
 
 function fileRowHtml(record) {
+  const reportState = record.report ? t("row.reportDraft") : t("row.reportUnset");
+  const outputState = record.outputStateKey ? formatOutputState(record) : t("row.exportDraft");
+  const hashCheckState = formatHashCheckState(record);
   return `
     <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
-      <span class="status-pill status-${record.status}">${rowStatusLabel(record.status)}</span>
-      <span class="review-cell">${record.reviewed ? t("status.reviewed") : t("status.unreviewed")}</span>
-      <code class="id-cell">${escapeHtml(record.id)}</code>
-      <span class="file-name"><strong>${escapeHtml(record.name)}</strong><span>${escapeHtml(middleTruncate(record.path, 72))}</span></span>
-      <span class="source-cell">${escapeHtml(sourceLabel(record.source))}</span>
-      <span class="time-cell">${escapeHtml(shortTimestamp(record.timestamp))}</span>
-      <span class="type-cell">${typeLabel(record.type)} / ${escapeHtml(record.parser)}</span>
-      <span class="validation-cell">${escapeHtml(valueLabel(record.validation))}</span>
-      <span class="size-cell">${escapeHtml(record.size)}</span>
-      <span class="hash-cell">${escapeHtml(valueLabel(record.hashStatus))}</span>
-      <span class="report-cell">${record.report ? "IN" : "-"}</span>
-      <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-label="${escapeAttr(t("table.previewFor", { name: record.name }))}"></canvas>
+      <span class="row-preview" role="cell" aria-label="${escapeAttr(t("table.previewFor", { name: record.name }))}">
+        <canvas class="thumb" width="132" height="84" data-thumb="${record.id}" aria-hidden="true"></canvas>
+      </span>
+      <span class="row-main" role="cell">
+        <span class="file-name">
+          <strong>${escapeHtml(record.name)}</strong>
+          <span>${escapeHtml(middleTruncate(record.path, 88))}</span>
+        </span>
+        <span class="row-meta">
+          <code>${escapeHtml(record.id)}</code>
+          <span>${escapeHtml(shortTimestamp(record.timestamp))}</span>
+          <span>${typeLabel(record.type)} / ${escapeHtml(record.parser)}</span>
+          <span>${escapeHtml(record.size)}</span>
+        </span>
+      </span>
+      <span class="row-source" role="cell">
+        <strong>${escapeHtml(sourceLabel(record.source))}</strong>
+        <span>${escapeHtml(valueLabel(record.readMode || "source mounted read-only"))}</span>
+      </span>
+      <span class="row-states" role="cell">
+        <span class="status-pill status-${record.status}">${rowStatusLabel(record.status)}</span>
+        <span class="row-chip">${escapeHtml(record.reviewed ? t("status.reviewed") : t("status.unreviewed"))}</span>
+        <span class="row-chip row-chip-warn">${escapeHtml(hashCheckState)}</span>
+        <span class="row-chip">${escapeHtml(valueLabel(record.validation))}</span>
+        <span class="row-chip">${escapeHtml(reportState)}</span>
+        <span class="row-chip">${escapeHtml(outputState)}</span>
+      </span>
+      <span class="row-actions" role="cell">
+        <button class="row-preview-button" type="button" data-row-preview="${record.id}" aria-label="${escapeAttr(t("row.openPreviewFor", { name: record.name }))}">
+          ${escapeHtml(t("row.openPreview"))}
+        </button>
+      </span>
     </div>`;
 }
 
@@ -375,7 +438,7 @@ function renderInspector() {
     [t("meta.vendor"), escapeHtml(record.vendor)],
     [t("meta.parser"), `<code>${escapeHtml(record.parser)}</code>`],
     [t("meta.hash"), `<code>${escapeHtml(valueLabel(record.fullHash || record.hash))}</code>`],
-    [t("meta.hashState"), escapeHtml(valueLabel(record.hashStatus))],
+    [t("meta.hashState"), escapeHtml(formatHashCheckState(record))],
     [t("meta.acquired"), escapeHtml(record.acquiredAt || t("meta.notRecorded"))],
     [t("meta.readMode"), escapeHtml(valueLabel(record.readMode || t("meta.notRecorded")))],
     [t("meta.offset"), escapeHtml(valueLabel(record.offset || t("meta.notRecorded")))],
@@ -528,7 +591,7 @@ function renderPreview() {
     [t("preview.source"), `${sourceLabel(record.source)} · ${middleTruncate(record.path, 72)}`],
     [t("meta.codec"), record.codec || t("meta.notRecorded")],
     [t("meta.duration"), record.type === "photo" ? t("meta.still") : formatDuration(record.duration)],
-    [t("preview.hash"), valueLabel(record.hashStatus)],
+    [t("preview.hash"), formatHashCheckState(record)],
     [t("preview.output"), formatOutputState(record)],
   ];
   els.previewDetails.innerHTML = `
@@ -537,6 +600,13 @@ function renderPreview() {
     <p>${escapeHtml(valueLabel(record.note))}</p>
     <dl>${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
   `;
+}
+
+function formatHashCheckState(record) {
+  if (record.status === "candidate" || record.status === "needs_verification") {
+    return t("row.hashCheckPending");
+  }
+  return valueLabel(record.hashStatus);
 }
 
 function formatOutputState(record) {

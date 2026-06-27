@@ -1,0 +1,103 @@
+{
+  "requestedWidth": 375,
+  "actualAgbrowseViewport": {
+    "w": 500,
+    "h": 725
+  },
+  "overflowX": false,
+  "body": {
+    "scrollWidth": 500,
+    "clientWidth": 500
+  },
+  "metrics": [
+    "10000개 일치",
+    "1-22 표시",
+    "52 ms"
+  ],
+  "rowCount": 22,
+  "firstRow": {
+    "w": 478,
+    "h": 88,
+    "scrollWidth": 478,
+    "clientWidth": 478,
+    "overflow": false,
+    "text": "20260519_120000_F_000505.mp4 SD001 BlackVue microSD/case-folder-003/20260519_120000_F.mp4 vid_000505 05-01 00:48 영상 / blackvue_channel_suffix 4.1 MB SD001 BlackVue microSD 소스 읽기전용 마운트 candidate-unvalidated 검증 필요 hash/check pending candidate-unvalidated report draft export draft 미리보기"
+  },
+  "rowsBox": {
+    "w": 478,
+    "h": 460,
+    "scrollWidth": 478,
+    "clientWidth": 478,
+    "overflow": false
+  },
+  "surfaceRects": {
+    ".viewer-stage": {
+      "y": 130,
+      "w": 480,
+      "h": 540,
+      "scrollH": 538,
+      "clientH": 538
+    },
+    ".media-frame": {
+      "y": 189,
+      "w": 478,
+      "h": 163,
+      "scrollH": 274,
+      "clientH": 163
+    },
+    ".viewer-evidence-rail": {
+      "y": 352,
+      "w": 478,
+      "h": 160,
+      "scrollH": 180,
+      "clientH": 158
+    },
+    ".browser-pane": {
+      "y": 680,
+      "w": 480,
+      "h": 571,
+      "scrollH": 569,
+      "clientH": 569
+    }
+  },
+  "thumb": {
+    "display": "block",
+    "w": 58,
+    "h": 38
+  },
+  "previewButtons": 22,
+  "visibleLabels": {
+    "localFirst": true,
+    "candidate": true,
+    "verificationRequired": true,
+    "hashPending": true,
+    "exportDraft": true,
+    "notCourtReady": true
+  },
+  "order": [
+    {
+      "cls": "flow-pane",
+      "y": 1261,
+      "h": 355
+    },
+    {
+      "cls": "browser-pane",
+      "y": 680,
+      "h": 571
+    },
+    {
+      "cls": "viewer-pane",
+      "y": 130,
+      "h": 540
+    },
+    {
+      "cls": "inspector-pane",
+      "y": 1626,
+      "h": 1262
+    }
+  ],
+  "firstViewport": [
+    "browser-pane",
+    "viewer-pane"
+  ]
+}

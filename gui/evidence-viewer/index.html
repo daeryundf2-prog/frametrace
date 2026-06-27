@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>FrameTrace 증거 뷰어</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="./styles.css">
-    <link rel="stylesheet" href="./workflow.css">
+    <link rel="stylesheet" href="./styles.css?v=20260627-triage7">
+    <link rel="stylesheet" href="./workflow.css?v=20260627-triage7">
   </head>
   <body>
     <div class="app-shell">
@@ -31,8 +31,14 @@
       </header>
 
       <main class="workspace">
-        <section class="browser-pane" aria-label="증거 브라우저" data-i18n-aria-label="browser.aria">
+        <section class="flow-pane" aria-label="현장 증거 리뷰 워크벤치" data-i18n-aria-label="workflow.aria">
+          <div class="flow-heading">
+            <strong data-i18n="workflow.title">현장 증거 리뷰 워크벤치</strong>
+            <span data-i18n="workflow.promise">local-first: 원본은 읽기전용, 해시/체인 오브 커스터디와 보고서 채택은 별도 검토 전까지 대기 상태입니다.</span>
+          </div>
           <div class="workbench-flow" id="workbenchFlow" aria-label="포렌식 작업 요약" data-i18n-aria-label="summary.aria"></div>
+        </section>
+        <section class="browser-pane" aria-label="증거 브라우저" data-i18n-aria-label="browser.aria">
           <div class="browser-toolbar">
             <div class="segmented" id="filterTabs" role="tablist" aria-label="증거 필터" data-i18n-aria-label="filters.aria"></div>
             <label class="search-box">
@@ -166,8 +172,8 @@
         </footer>
       </section>
     </div>
-    <script src="./translations.js"></script>
-    <script src="./data.js"></script>
-    <script src="./app.js"></script>
+    <script src="./translations.js?v=20260627-triage7"></script>
+    <script src="./data.js?v=20260627-triage7"></script>
+    <script src="./app.js?v=20260627-triage7"></script>
   </body>
 </html>

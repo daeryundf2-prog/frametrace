@@ -1,0 +1,73 @@
+{
+  "viewport": {
+    "w": 1280,
+    "h": 754
+  },
+  "overflowX": false,
+  "body": {
+    "scrollWidth": 1280,
+    "clientWidth": 1280
+  },
+  "metrics": [
+    "10000개 일치",
+    "1-21 표시",
+    "53 ms"
+  ],
+  "rowCount": 21,
+  "firstRow": {
+    "w": 467,
+    "h": 88,
+    "scrollWidth": 467,
+    "clientWidth": 467,
+    "overflow": false,
+    "text": "20260519_120000_F_000505.mp4 SD001 BlackVue microSD/case-folder-003/20260519_120000_F.mp4 vid_000505 05-01 00:48 영상 / blackvue_channel_suffix 4.1 MB SD001 BlackVue microSD 소스 읽기전용 마운트 candidate-unvalidated 검증 필요 hash/check pending candidate-unvalidated report draft export draft 미리보기"
+  },
+  "rowsBox": {
+    "w": 467,
+    "h": 360,
+    "scrollWidth": 467,
+    "clientWidth": 467,
+    "overflow": false
+  },
+  "thumb": {
+    "display": "block",
+    "w": 52,
+    "h": 34
+  },
+  "previewButtons": 21,
+  "visibleLabels": {
+    "source": true,
+    "candidates": true,
+    "verification": true,
+    "export": true,
+    "report": true,
+    "localFirst": true,
+    "candidate": true,
+    "verificationRequired": true,
+    "hashPending": true,
+    "exportDraft": true,
+    "notCourtReady": true
+  },
+  "order": [
+    {
+      "cls": "flow-pane",
+      "y": 74,
+      "h": 196
+    },
+    {
+      "cls": "browser-pane",
+      "y": 280,
+      "h": 464
+    },
+    {
+      "cls": "viewer-pane",
+      "y": 280,
+      "h": 464
+    },
+    {
+      "cls": "inspector-pane",
+      "y": 280,
+      "h": 464
+    }
+  ]
+}

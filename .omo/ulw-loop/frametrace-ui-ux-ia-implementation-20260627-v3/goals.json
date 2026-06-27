@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "createdAt": "2026-06-27T02:41:09.285Z",
+  "updatedAt": "2026-06-27T04:38:19.685Z",
+  "briefPath": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/brief.md",
+  "goalsPath": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/goals.json",
+  "ledgerPath": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/ledger.jsonl",
+  "codexGoalMode": "aggregate",
+  "goals": [
+    {
+      "id": "G001-implement-the-frametrace-evidence-vi",
+      "title": "Implement the FrameTrace evidence-viewer P0/P1 UI improvements as one...",
+      "objective": "Implement the FrameTrace evidence-viewer P0/P1 UI improvements as one aggregate delivery: fix visible candidate rows when metrics show matches, add safe preview-first triage placeholders and actions, improve 375/768/1280 first-viewport IA so evidence and candidate context precede full workflow cards, separate Korean-first forensic chips for candidate-unvalidated, verification required, ffprobe confirmed, reviewed, report draft, export draft, and not court-ready without overclaiming, soften generated viewer min-width mobile blockers where safe, capture local test and browser visual QA evidence, write implementation-summary and remaining-ui-backlog artifacts, preserve the existing dirty worktree, create a local commit only if verification is sufficient, and never push.",
+      "status": "complete",
+      "successCriteria": [
+        {
+          "id": "C001",
+          "scenario": "Browser use: serve gui/evidence-viewer locally, open the real page, capture 1280px screenshot and DOM/layout evidence. PASS iff result metrics show matches/window counts and visible candidate rows include preview placeholder, primary label, metadata, status chips, and preview/open action; no row body blanking.",
+          "userModel": "happy",
+          "expectedEvidence": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/desktop-1280-after.png plus layout JSON and console log",
+          "essential": true,
+          "capturedEvidence": "Browser static 1280 evidence: after-1280.png, after-1280-layout.json, after-1280-snapshot.txt, after-1280-console.txt; preview action: after-preview-action.png/json shows candidate-unvalidated, verification required, hash/check pending; final code review APPROVE and gate APPROVE. | cleanup: .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/cleanup-receipt-post-qa.txt: killed QA servers 57832/22426; agbrowse stop; ports 4173/4175 clear; agbrowse running false",
+          "status": "pass",
+          "capturedAt": "2026-06-27T04:35:57.903Z"
+        },
+        {
+          "id": "C002",
+          "scenario": "Browser use: serve gui/evidence-viewer locally and capture 375px, 768px, and 1280px screenshots plus layout metrics. PASS iff mobile/tablet first viewport shows current evidence/preview/candidate context before full workflow cards, no horizontal overflow, and not court-ready/export draft/report draft/status chips remain visible and conservative.",
+          "userModel": "edge",
+          "expectedEvidence": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/mobile-375-after.png, tablet-768-after.png, desktop-1280-after.png, layout JSON, and console logs",
+          "essential": true,
+          "capturedEvidence": "Responsive browser evidence: after-768.png/layout/console, after-500-agbrowse.png/layout/snapshot/console via headed agbrowse, exact supplemental after-375.png/layout/dom/console; no horizontal overflow and conservative statuses visible. | cleanup: .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/cleanup-receipt-post-qa.txt: killed QA servers 57832/22426; agbrowse stop; ports 4173/4175 clear; agbrowse running false",
+          "status": "pass",
+          "capturedAt": "2026-06-27T04:35:57.953Z"
+        },
+        {
+          "id": "C003",
+          "scenario": "CLI/data regression: run git diff --check, forbidden overclaim scan, available cargo/frontend checks, generated viewer min-width search, artifact existence checks, and final staged diff inspection. PASS iff no overclaiming language is introduced, generated viewer mobile blocker is removed or documented, implementation-summary/backlog exist, and any local commit contains only intended verified files.",
+          "userModel": "regression",
+          "expectedEvidence": ".omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/verification-transcript.txt, implementation-summary.md, remaining-ui-backlog.md, and commit/status log if committed",
+          "essential": false,
+          "capturedEvidence": "Regression evidence: final-static-checks-post-review-report.txt, final-static-checks-after-removing-css-token-test.txt, final-cargo-html-report-after-removing-css-token-test.txt, final-cargo-test-after-removing-css-token-test.txt, generated-500-agbrowse.png/layout/snapshot/console, generated-375.png/layout/console, manualQa-post-row-fix.json, quality-gate-post-row-fix.json; forbidden overclaim scan passed. | cleanup: .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627_114121/cleanup-receipt-post-qa.txt: killed QA servers 57832/22426; agbrowse stop; ports 4173/4175 clear; agbrowse running false",
+          "status": "pass",
+          "capturedAt": "2026-06-27T04:35:58.003Z"
+        }
+      ],
+      "attempt": 1,
+      "createdAt": "2026-06-27T02:41:09.285Z",
+      "updatedAt": "2026-06-27T04:38:19.685Z",
+      "startedAt": "2026-06-27T02:42:01.542Z",
+      "completedAt": "2026-06-27T04:38:19.685Z",
+      "evidence": "C001-C003 passed with browser/static/cargo/generated-viewer/manual QA evidence; code review APPROVE; final gate APPROVE; cleanup receipt confirms servers and agbrowse stopped."
+    }
+  ],
+  "codexObjective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/ledger.jsonl as the audit trail.",
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-06-27T04:38:19.685Z",
+    "evidence": "C001-C003 passed with browser/static/cargo/generated-viewer/manual QA evidence; code review APPROVE; final gate APPROVE; cleanup receipt confirms servers and agbrowse stopped.",
+    "codexGoal": {
+      "goal": {
+        "threadId": "019f0323-5200-7963-b6bc-61fd1c751257",
+        "objective": "Complete the durable ulw-loop plan in .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/goals.json, including later accepted/appended stories, under the original brief constraints; use .omo/ulw-loop/frametrace-ui-ux-ia-implementation-20260627-v3/ledger.jsonl as the audit trail.",
+        "status": "complete",
+        "tokensUsed": 1731231,
+        "timeUsedSeconds": 6787,
+        "createdAt": 1782528200,
+        "updatedAt": 1782534988
+      },
+      "remainingTokens": null,
+      "completionBudgetReport": "Goal achieved. Report final usage from this tool result's structured goal fields. If goal.tokenBudget is present, include token usage from goal.tokensUsed and goal.tokenBudget. If goal.timeUsedSeconds is greater than 0, summarize elapsed time in a concise, human-friendly form appropriate to the response language."
+    }
+  }
+}
