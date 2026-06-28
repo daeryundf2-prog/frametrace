@@ -1,5 +1,6 @@
 use super::target::{resolve_from_log, resolve_validation_target};
 use crate::audit;
+use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
 
@@ -43,12 +44,14 @@ fn resolves_artifact_path_from_jsonl_log() {
 fn rejects_poisoned_jsonl_records_with_provenance_error() {
     let dir = unique_temp_dir("poisoned-jsonl");
     let target = write_case_frame(&dir);
+    let target_text = target.to_string_lossy().to_string();
     audit::append_chained_jsonl(
         &dir.join("artifacts/frames/frame-log.jsonl"),
-        &format!(
-            r#"{{"derived_artifact_id":"derived-frame-capture-poison","output_artifact_path":"{}"}}"#,
-            target.display()
-        ),
+        &json!({
+            "derived_artifact_id": "derived-frame-capture-poison",
+            "output_artifact_path": target_text,
+        })
+        .to_string(),
     )
     .unwrap();
     fs::write(
@@ -77,12 +80,14 @@ fn rejects_stale_audit_entry_when_signed_path_leaves_case() {
     fs::create_dir_all(&external).unwrap();
     let external_target = external.join("frame.jpg");
     fs::write(&external_target, b"frame").unwrap();
+    let external_target_text = external_target.to_string_lossy().to_string();
     audit::append_chained_jsonl(
         &dir.join("artifacts/frames/frame-log.jsonl"),
-        &format!(
-            r#"{{"derived_artifact_id":"derived-frame-capture-stale","output_artifact_path":"{}"}}"#,
-            external_target.display()
-        ),
+        &json!({
+            "derived_artifact_id": "derived-frame-capture-stale",
+            "output_artifact_path": external_target_text,
+        })
+        .to_string(),
     )
     .unwrap();
 
@@ -140,12 +145,16 @@ fn resolves_case_relative_direct_path_by_default() {
 fn resolves_case_contained_derived_artifact_with_verified_chain() {
     let dir = unique_temp_dir("contained-derived");
     let target = write_case_frame(&dir);
+    let target_text = target.to_string_lossy().to_string();
     audit::append_chained_jsonl(
         &dir.join("artifacts/frames/frame-log.jsonl"),
-        &format!(
-            r#"{{"derived_artifact_id":"derived-frame-capture-contained","source_artifact_id":"source-vid_000001-aaaaaaaaaaaa","source_artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","output_artifact_path":"{}"}}"#,
-            target.display()
-        ),
+        &json!({
+            "derived_artifact_id": "derived-frame-capture-contained",
+            "source_artifact_id": "source-vid_000001-aaaaaaaaaaaa",
+            "source_artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "output_artifact_path": target_text,
+        })
+        .to_string(),
     )
     .unwrap();
 

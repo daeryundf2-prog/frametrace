@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::json;
+
 fn frametrace() -> &'static str {
     env!("CARGO_BIN_EXE_frametrace")
 }
@@ -81,24 +83,20 @@ fn release_gate_reports_typed_review_manifest_blockers() {
     fs::write(&artifact, "{}").expect("review artifact should be written");
     fs::write(
         &manifest,
-        format!(
-            r#"{{
-  "schema_version": 1,
-  "gates": [
-    {{
-      "key": "technical_review",
-      "status": "done",
-      "artifact_path": "{}",
-      "tool": "manual-review-recorder",
-      "evidence": "manual review artifact",
-      "timestamp": "2026-06-24T00:00:00Z",
-      "reviewer": "qa",
-      "cleanup_status": "clean"
-    }}
-  ]
-}}"#,
-            artifact.display()
-        ),
+        serde_json::to_string_pretty(&json!({
+            "schema_version": 1,
+            "gates": [{
+                "key": "technical_review",
+                "status": "done",
+                "artifact_path": artifact.to_string_lossy(),
+                "tool": "manual-review-recorder",
+                "evidence": "manual review artifact",
+                "timestamp": "2026-06-24T00:00:00Z",
+                "reviewer": "qa",
+                "cleanup_status": "clean",
+            }]
+        }))
+        .unwrap(),
     )
     .expect("manifest should be written");
 
@@ -122,24 +120,20 @@ fn release_gate_reports_typed_review_manifest_blockers() {
 
     fs::write(
         &manifest,
-        format!(
-            r#"{{
-  "schema_version": 1,
-  "gates": [
-    {{
-      "key": "technical_review",
-      "status": "PASS",
-      "artifact_path": "{}",
-      "tool": "manual-review-recorder",
-      "evidence": "manual review artifact",
-      "timestamp": "2026-06-24T00:00:00Z",
-      "reviewer": "qa",
-      "cleanup_status": "clean"
-    }}
-  ]
-}}"#,
-            artifact.display()
-        ),
+        serde_json::to_string_pretty(&json!({
+            "schema_version": 1,
+            "gates": [{
+                "key": "technical_review",
+                "status": "PASS",
+                "artifact_path": artifact.to_string_lossy(),
+                "tool": "manual-review-recorder",
+                "evidence": "manual review artifact",
+                "timestamp": "2026-06-24T00:00:00Z",
+                "reviewer": "qa",
+                "cleanup_status": "clean",
+            }]
+        }))
+        .unwrap(),
     )
     .expect("valid manifest should be written");
 

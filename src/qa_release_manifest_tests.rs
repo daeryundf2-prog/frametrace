@@ -1,4 +1,5 @@
 use super::read_review_manifest;
+use serde_json::json;
 use std::fs;
 
 #[test]
@@ -38,24 +39,20 @@ fn review_manifest_rejects_done_status_without_typed_pass() {
     let manifest = root.join("release-review.json");
     fs::write(
         &manifest,
-        format!(
-            r#"{{
-  "schema_version": 1,
-  "gates": [
-    {{
-      "key": "technical_review",
-      "status": "done",
-      "artifact_path": "{}",
-      "tool": "manual-review-recorder",
-      "evidence": "manual review artifact",
-      "timestamp": "2026-06-24T00:00:00Z",
-      "reviewer": "qa",
-      "cleanup_status": "clean"
-    }}
-  ]
-}}"#,
-            artifact.display()
-        ),
+        serde_json::to_string_pretty(&json!({
+            "schema_version": 1,
+            "gates": [{
+                "key": "technical_review",
+                "status": "done",
+                "artifact_path": artifact.to_string_lossy(),
+                "tool": "manual-review-recorder",
+                "evidence": "manual review artifact",
+                "timestamp": "2026-06-24T00:00:00Z",
+                "reviewer": "qa",
+                "cleanup_status": "clean",
+            }]
+        }))
+        .unwrap(),
     )
     .unwrap();
 

@@ -464,7 +464,12 @@ mod tests {
     use crate::distributable_redaction::RedactionPolicy;
 
     use super::package_case;
+    use serde_json::{Value, json};
     use std::fs;
+
+    fn jsonl(value: Value) -> String {
+        format!("{value}\n")
+    }
 
     #[test]
     fn creates_checksummed_package_directory() {
@@ -513,22 +518,29 @@ mod tests {
         fs::create_dir_all(source_path.parent().unwrap()).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        let source_path_text = source_path.to_string_lossy().to_string();
+        let source_file_url = format!("file://{source_path_text}");
+        let frame_path_text = frame_path.to_string_lossy().to_string();
         fs::write(
             case_dir.join("db/video_index.json"),
-            format!(
-                r#"{{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file://{}","relative_path":"Camera/source clip.mp4"}}]}}"#,
-                source_path.display(),
-                source_path.display()
-            ),
+            json!({
+                "videos": [{
+                    "id": "vid_000001",
+                    "source_path": source_path_text,
+                    "file_url": source_file_url,
+                    "relative_path": "Camera/source clip.mp4",
+                }]
+            })
+            .to_string(),
         )
         .unwrap();
         fs::write(
             case_dir.join("db/videos.jsonl"),
-            format!(
-                r#"{{"id":"vid_000001","source_path":"{}","file_url":"file://{}"}}"#,
-                source_path.display(),
-                source_path.display()
-            ),
+            jsonl(json!({
+                "id": "vid_000001",
+                "source_path": source_path_text,
+                "file_url": source_file_url,
+            })),
         )
         .unwrap();
         fs::write(
@@ -538,11 +550,12 @@ mod tests {
         .unwrap();
         fs::write(
             case_dir.join("artifacts/frames/frame-log.jsonl"),
-            format!(
-                r#"{{"event":"make-frame-capture","derived_artifact_id":"derived-frame","source_path":"{}","output_path":"{}"}}"#,
-                source_path.display(),
-                frame_path.display()
-            ),
+            jsonl(json!({
+                "event": "make-frame-capture",
+                "derived_artifact_id": "derived-frame",
+                "source_path": source_path_text,
+                "output_path": frame_path_text,
+            })),
         )
         .unwrap();
         fs::write(&frame_path, b"frame").unwrap();
@@ -550,10 +563,15 @@ mod tests {
             case_dir.join("review/index.html"),
             format!(
                 r#"<script>
-const scan = {{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file://{}"}}]}};
+const scan = {};
 </script>"#,
-                source_path.display(),
-                source_path.display()
+                json!({
+                    "videos": [{
+                        "id": "vid_000001",
+                        "source_path": source_path_text,
+                        "file_url": source_file_url,
+                    }]
+                })
             ),
         )
         .unwrap();
@@ -591,20 +609,24 @@ const scan = {{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file
         fs::create_dir_all(source_path.parent().unwrap()).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        let source_path_text = source_path.to_string_lossy().to_string();
         fs::write(
             case_dir.join("db/video_index.json"),
-            format!(
-                r#"{{"videos":[{{"id":"vid_000001","source_path":"{}"}}]}}"#,
-                source_path.display()
-            ),
+            json!({
+                "videos": [{
+                    "id": "vid_000001",
+                    "source_path": source_path_text,
+                }]
+            })
+            .to_string(),
         )
         .unwrap();
         fs::write(
             case_dir.join("db/videos.jsonl"),
-            format!(
-                r#"{{"id":"vid_000001","source_path":"{}"}}"#,
-                source_path.display()
-            ),
+            jsonl(json!({
+                "id": "vid_000001",
+                "source_path": source_path_text,
+            })),
         )
         .unwrap();
         fs::write(
@@ -621,10 +643,11 @@ const scan = {{"videos":[{{"id":"vid_000001","source_path":"{}","file_url":"file
         .unwrap();
 
         let index = fs::read_to_string(output_dir.join("db/video_index.json")).unwrap();
+        let index_json: Value = serde_json::from_str(&index).unwrap();
         let disclosure =
             fs::read_to_string(output_dir.join("privacy-full-path-disclosure.json")).unwrap();
         let manifest = fs::read_to_string(output_dir.join("package-manifest.json")).unwrap();
-        assert!(index.contains(&source_path.to_string_lossy().to_string()));
+        assert_eq!(index_json["videos"][0]["source_path"], source_path_text);
         assert!(disclosure.contains("\"local_operator_full_path_disclosure\": true"));
         assert!(manifest.contains("\"path_disclosure_mode\": \"local_operator_full_paths\""));
 

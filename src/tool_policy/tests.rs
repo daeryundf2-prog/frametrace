@@ -1,7 +1,8 @@
-use super::{
-    reject_source_output_path, require_case_output_path, resolve_external_tool, resolve_tool_binary,
-};
+#[cfg(unix)]
+use super::resolve_external_tool;
+use super::{reject_source_output_path, require_case_output_path, resolve_tool_binary};
 use std::fs;
+#[cfg(unix)]
 use std::path::Path;
 
 #[test]

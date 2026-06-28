@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn resolved_external_tool_cannot_be_forged_by_downstream_crates() {
     let root = unique_temp_dir("tool-policy-api-forge");
     let src_dir = root.join("src");
+    let manifest_dir = env!("CARGO_MANIFEST_DIR").replace('\\', "/");
     fs::create_dir_all(&src_dir).expect("temporary crate src directory should be created");
     fs::write(
         root.join("Cargo.toml"),
@@ -19,7 +20,7 @@ edition = "2024"
 [dependencies]
 frametrace = {{ path = "{}" }}
 "#,
-            env!("CARGO_MANIFEST_DIR")
+            manifest_dir
         ),
     )
     .expect("temporary Cargo.toml should be written");

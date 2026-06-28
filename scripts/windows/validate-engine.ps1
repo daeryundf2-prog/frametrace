@@ -9,23 +9,24 @@ $ErrorActionPreference = "Stop"
 function Invoke-Step {
     param(
         [string]$Name,
-        [scriptblock]$Script
+        [scriptblock]$StepAction
     )
     Write-Host "== $Name"
-    & $Script
+    & $StepAction
 }
 
 function Invoke-NativeStep {
     param(
         [string]$Name,
-        [scriptblock]$Script
+        [scriptblock]$NativeAction
     )
-    Invoke-Step $Name {
-        & $Script
+    $WrappedAction = {
+        & $NativeAction
         if ($LASTEXITCODE -ne 0) {
             throw "$Name failed with exit code $LASTEXITCODE"
         }
-    }
+    }.GetNewClosure()
+    Invoke-Step $Name $WrappedAction
 }
 
 function Require-Command {
@@ -115,6 +116,40 @@ function Test-SamePath {
     )
 }
 
+function Test-FullyQualifiedPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    try {
+        $FullPath = [System.IO.Path]::GetFullPath($Path)
+        $RootPath = [System.IO.Path]::GetPathRoot($Path)
+    } catch {
+        return $false
+    }
+
+    if ([string]::IsNullOrWhiteSpace($RootPath)) {
+        return $false
+    }
+    if ($Path -match '^[\\/](?![\\/])') {
+        return $false
+    }
+    if ($Path -match '^[A-Za-z]:($|[^\\/])') {
+        return $false
+    }
+
+    $ComparableInput = $Path.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $ComparableFull = $FullPath.TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    return [StringComparer]::OrdinalIgnoreCase.Equals($ComparableInput, $ComparableFull)
+}
+
 function Assert-SafeCaseRoot {
     param(
         [string]$Path,
@@ -125,7 +160,7 @@ function Assert-SafeCaseRoot {
     }
 
     $ExpandedPath = [Environment]::ExpandEnvironmentVariables($Path)
-    if (-not [System.IO.Path]::IsPathFullyQualified($ExpandedPath)) {
+    if (-not (Test-FullyQualifiedPath $ExpandedPath)) {
         throw "unsafe CaseRoot: path must be fully qualified"
     }
 
@@ -208,7 +243,7 @@ try {
 
     Invoke-Step "engine workflow" {
         Invoke-NativeStep "init case" { & $Binary init-case $CaseDir --title "Windows engine smoke" --operator "engine-validator" }
-        Invoke-NativeStep "register source" { & $Binary register-source $CaseDir $SourceDir --kind folder --write-protect "synthetic fixture" --operator "engine-validator" }
+        Invoke-NativeStep "register source" { & $Binary register-source $CaseDir $SourceDir --kind folder --write-protect "synthetic fixture" }
         Invoke-NativeStep "scan folder" { & $Binary scan-folder $CaseDir $SourceDir --hash }
         Invoke-NativeStep "repeated scan" { & $Binary scan-folder $CaseDir $SourceDir --hash }
         Invoke-NativeStep "validate artifact" { & $Binary validate-artifact $CaseDir vid_000001 --operator "engine-validator" }
@@ -220,9 +255,11 @@ try {
         Invoke-NativeStep "workstation status" { & $Binary workstation-status $CaseDir }
     }
 
-    $UnicodeDir = Join-Path $CaseRoot "source-media-unicode-긴경로"
+    $UnicodePathSuffix = -join ([char[]](0xAE34, 0xACBD, 0xB85C))
+    $UnicodeFilePrefix = -join ([char[]](0xAC80, 0xC99D))
+    $UnicodeDir = Join-Path $CaseRoot "source-media-unicode-$UnicodePathSuffix"
     New-Item -ItemType Directory -Force -Path $UnicodeDir | Out-Null
-    Copy-Item -LiteralPath $SampleVideo -Destination (Join-Path $UnicodeDir "검증-sample-long-path-name-000000000000000000000000000000000000000000000000000000000000.mp4")
+    Copy-Item -LiteralPath $SampleVideo -Destination (Join-Path $UnicodeDir "$UnicodeFilePrefix-sample-long-path-name-000000000000000000000000000000000000000000000000000000000000.mp4")
     Invoke-NativeStep "unicode long path scan" { & $Binary scan-folder $CaseDir $UnicodeDir --hash }
 
     $LockPath = Join-Path $SourceDir "locked-sample.mp4"
@@ -238,6 +275,8 @@ try {
     Assert-File $ValidationLog
     Assert-Contains $ValidationLog '"validation_status":"ffprobe-video-stream-confirmed"'
     Assert-Contains $ValidationLog '"validation_status":"playback-confirmed"'
+
+    New-Item -ItemType Directory -Force -Path $QaReportDir | Out-Null
 
     $StatusPath = Join-Path $QaReportDir "workstation-status.json"
     & $Binary workstation-status $CaseDir | Out-File -LiteralPath $StatusPath -Encoding utf8
@@ -256,7 +295,7 @@ try {
         throw "inventory page failed with exit code $LASTEXITCODE"
     }
     Assert-Contains $InventoryPath '"view":"inventory"'
-    Assert-Contains $InventoryPath '"limit":10'
+    Assert-Contains $InventoryPath '"page_size":10'
 
     Invoke-NativeStep "performance smoke" { & $Binary qa performance (Join-Path $CaseRoot "qa-performance") --rows $PerformanceRows }
 

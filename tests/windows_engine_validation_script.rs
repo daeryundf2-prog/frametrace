@@ -26,6 +26,32 @@ fn release_engine_only_mode_delegates_before_winui_release_preflight() {
 }
 
 #[test]
+fn engine_validation_script_stays_ascii_for_windows_powershell_51() {
+    // Given: Windows PowerShell 5.1 reads UTF-8 without BOM through the local
+    // ANSI code page, which can corrupt non-ASCII string literals before parse.
+    let script = fs::read("scripts/windows/validate-engine.ps1")
+        .expect("Windows engine script should be readable");
+
+    // When/Then: keep the committed script source ASCII-only and construct
+    // Unicode validation paths at runtime.
+    assert!(
+        script.is_ascii(),
+        "validate-engine.ps1 must stay ASCII-only for Windows PowerShell 5.1 parsing"
+    );
+}
+
+#[test]
+fn engine_validation_native_step_does_not_shadow_scriptblock_variable() {
+    let script = fs::read_to_string("scripts/windows/validate-engine.ps1")
+        .expect("Windows engine script should be readable");
+
+    assert!(script.contains("[scriptblock]$StepAction"));
+    assert!(script.contains("[scriptblock]$NativeAction"));
+    assert!(script.contains(".GetNewClosure()"));
+    assert!(!script.contains("[scriptblock]$Script"));
+}
+
+#[test]
 fn engine_validation_script_is_engine_only_and_fail_closed() {
     let script = fs::read_to_string("scripts/windows/validate-engine.ps1")
         .expect("Windows engine script should be readable");
@@ -33,8 +59,7 @@ fn engine_validation_script_is_engine_only_and_fail_closed() {
     assert!(script.contains("Windows engine validation must run on Windows 10/11 x64."));
     assert!(script.contains("host: .*windows-msvc"));
     assert!(
-        script
-            .contains("foreach ($CommandName in @(\"rustc\", \"cargo\", \"ffmpeg\", \"ffprobe\"))")
+        script.contains(r#"foreach ($CommandName in @("rustc", "cargo", "ffmpeg", "ffprobe"))"#)
     );
     assert!(!script.contains("Require-Command dotnet"));
     assert!(!script.contains("gui\\winui"));
@@ -48,6 +73,36 @@ fn engine_validation_script_is_engine_only_and_fail_closed() {
         script
             .contains("If this status is BLOCKED, T12 must write release-decision.json as BLOCKED")
     );
+}
+
+#[test]
+fn engine_validation_creates_qa_output_dir_before_writing_receipt_artifacts() {
+    let script = fs::read_to_string("scripts/windows/validate-engine.ps1")
+        .expect("Windows engine script should be readable");
+
+    let qa_dir = find_required(&script, r#"$QaReportDir = Join-Path $CaseDir "reports\qa""#);
+    let create_dir = find_required(
+        &script,
+        "New-Item -ItemType Directory -Force -Path $QaReportDir",
+    );
+    let status_out = find_required(
+        &script,
+        r#"$StatusPath = Join-Path $QaReportDir "workstation-status.json""#,
+    );
+    let inventory_out = find_required(
+        &script,
+        r#"$InventoryPath = Join-Path $QaReportDir "inventory-page.json""#,
+    );
+    let page_size_assertion = find_required(
+        &script,
+        r#"Assert-Contains $InventoryPath '"page_size":10'"#,
+    );
+
+    assert!(qa_dir < create_dir);
+    assert!(create_dir < status_out);
+    assert!(create_dir < inventory_out);
+    assert!(inventory_out < page_size_assertion);
+    assert!(!script.contains(r#"Assert-Contains $InventoryPath '"limit":10'"#));
 }
 
 #[test]
@@ -98,8 +153,10 @@ fn engine_validation_caseroot_guard_rejects_broad_unsafe_paths() {
     // frametrace-* leaf, drive/filesystem root, repo root, user profile, and
     // temp root values before the script can clear CaseRoot.
     assert!(guard.contains("[string]::IsNullOrWhiteSpace($Path)"));
-    assert!(guard.contains("[System.IO.Path]::IsPathFullyQualified($ExpandedPath)"));
-    assert!(guard.contains("$LeafName -notlike \"frametrace-*\""));
+    assert!(script.contains("function Test-FullyQualifiedPath"));
+    assert!(guard.contains("Test-FullyQualifiedPath $ExpandedPath"));
+    assert!(!guard.contains("IsPathFullyQualified"));
+    assert!(guard.contains(r#"$LeafName -notlike "frametrace-*""#));
     assert!(guard.contains("[System.IO.Path]::GetPathRoot($FullPath)"));
     assert!(guard.contains("Test-SamePath $FullPath $RepoRoot"));
     assert!(

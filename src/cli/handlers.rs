@@ -23,6 +23,21 @@ use crate::workstation;
 use std::env;
 use std::path::{Path, PathBuf};
 
+const REPORT_RENDER_STACK_SIZE: usize = 16 * 1024 * 1024;
+
+struct OwnedReportInputs {
+    manifest_json: String,
+    index_json: String,
+    export_log: String,
+    proxy_log: String,
+    thumbnail_log: String,
+    frame_log: String,
+    carve_log: String,
+    filesystem_log: String,
+    validation_log: String,
+    audit_chain_status: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct InitCaseOptions {
     pub title: Option<String>,
@@ -378,24 +393,47 @@ pub fn make_report(case_dir: &Path, redaction_policy: RedactionPolicy) -> Result
     )?;
     let audit_chain_status =
         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
-    let html = report::render_case_report(&report::ReportInputs {
-        manifest_json: &manifest_json,
-        index_json: &index_json,
-        export_log_jsonl: &export_log,
-        proxy_log_jsonl: &proxy_log,
-        thumbnail_log_jsonl: &thumbnail_log,
-        frame_log_jsonl: &frame_log,
-        carve_log_jsonl: &carve_log,
-        filesystem_log_jsonl: &filesystem_log,
-        validation_log_jsonl: &validation_log,
-        audit_chain_status_json: &audit_chain_status,
-    });
+    let html = render_case_report_with_stack(OwnedReportInputs {
+        manifest_json,
+        index_json,
+        export_log,
+        proxy_log,
+        thumbnail_log,
+        frame_log,
+        carve_log,
+        filesystem_log,
+        validation_log,
+        audit_chain_status,
+    })?;
     let report_path = case_dir.join("reports/case-report.html");
     require_case_output_path(case_dir, &report_path, "case report html")?;
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
     write_full_path_disclosure_artifact(&case_dir.join("reports"), "report", redaction_policy)?;
     println!("report written: {}", report_path.display());
     Ok(())
+}
+
+fn render_case_report_with_stack(inputs: OwnedReportInputs) -> Result<String, String> {
+    std::thread::Builder::new()
+        .name("frametrace-report-render".to_string())
+        .stack_size(REPORT_RENDER_STACK_SIZE)
+        .spawn(move || {
+            report::render_case_report(&report::ReportInputs {
+                manifest_json: &inputs.manifest_json,
+                index_json: &inputs.index_json,
+                export_log_jsonl: &inputs.export_log,
+                proxy_log_jsonl: &inputs.proxy_log,
+                thumbnail_log_jsonl: &inputs.thumbnail_log,
+                frame_log_jsonl: &inputs.frame_log,
+                carve_log_jsonl: &inputs.carve_log,
+                filesystem_log_jsonl: &inputs.filesystem_log,
+                validation_log_jsonl: &inputs.validation_log,
+                audit_chain_status_json: &inputs.audit_chain_status,
+            })
+        })
+        .map_err(|err| format!("failed to start report rendering worker: {err}"))?
+        .join()
+        .map_err(|_| "report rendering worker panicked".to_string())
 }
 
 pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {

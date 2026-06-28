@@ -44,19 +44,30 @@ fn accuracy_report_includes_recovery_artifacts() {
     fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
     fs::write(case_dir.join("db/videos.jsonl"), "").unwrap();
     let carved_path = root.join("case/artifacts/carved/carve_000001.mp4");
+    let carved_path_text = carved_path.to_string_lossy().to_string();
     fs::write(
         case_dir.join("artifacts/carved/carve-log.jsonl"),
         format!(
-            "{{\"id\":\"carve_000001\",\"output_path\":\"{}\",\"sha256\":\"abc\",\"validation_status\":\"candidate-unvalidated\"}}\n",
-            carved_path.display()
+            "{}\n",
+            json!({
+                "id": "carve_000001",
+                "output_path": carved_path_text,
+                "sha256": "abc",
+                "validation_status": "candidate-unvalidated",
+            })
         ),
     )
     .unwrap();
     fs::write(
         case_dir.join("evidence/logs/validation-log.jsonl"),
         format!(
-            "{{\"selector\":\"carve_000001\",\"target_path\":\"{}\",\"target_sha256\":\"abc\",\"validation_status\":\"ffprobe-video-stream-confirmed\"}}\n",
-            carved_path.display()
+            "{}\n",
+            json!({
+                "selector": "carve_000001",
+                "target_path": carved_path_text,
+                "target_sha256": "abc",
+                "validation_status": "ffprobe-video-stream-confirmed",
+            })
         ),
     )
     .unwrap();

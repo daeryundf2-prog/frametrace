@@ -29,11 +29,15 @@ pub fn scan_folder(
         .map_err(|err| format!("failed to canonicalize source: {err}"))?;
     let excluded_dirs = excluded_case_dirs(case_dir, &source_dir)?;
     let collection = collect_video_candidates(&source_dir, options.max_depth, &excluded_dirs)?;
+    let CandidateCollection {
+        files,
+        mut warnings,
+    } = collection;
     let mut id_registry = load_existing_video_ids(case_dir)?;
-    let mut records = Vec::with_capacity(collection.files.len());
+    let mut records = Vec::with_capacity(files.len());
     let mut total_bytes = 0u64;
 
-    for path in collection.files {
+    for path in files {
         let metadata = fs::metadata(&path)
             .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
         total_bytes = total_bytes.saturating_add(metadata.len());
@@ -48,15 +52,7 @@ pub fn scan_folder(
             .to_string_lossy()
             .to_string();
 
-        let (sha256, hash_status) = if options.hash_files {
-            let file = File::open(&path)
-                .map_err(|err| format!("failed to open {} for hashing: {err}", path.display()))?;
-            let digest = sha256::digest_reader(BufReader::new(file))
-                .map_err(|err| format!("failed to hash {}: {err}", path.display()))?;
-            (Some(digest), "complete".to_string())
-        } else {
-            (None, "skipped".to_string())
-        };
+        let (sha256, hash_status) = hash_candidate_if_requested(&path, options, &mut warnings);
 
         let probe = if options.use_ffprobe {
             ffprobe::probe(&path)
@@ -91,13 +87,45 @@ pub fn scan_folder(
         scanned_unix: now_unix()?,
         video_count: records.len(),
         total_bytes,
-        warnings: collection.warnings,
+        warnings,
         options: options.clone(),
         records,
     };
 
     write_scan_outputs(case_dir, &result)?;
     Ok(result)
+}
+
+fn hash_candidate_if_requested(
+    path: &Path,
+    options: &ScanOptions,
+    warnings: &mut Vec<String>,
+) -> (Option<String>, String) {
+    if !options.hash_files {
+        return (None, "skipped".to_string());
+    }
+
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            warnings.push(format!(
+                "hash unavailable for {}: failed to open for hashing: {err}",
+                path.display()
+            ));
+            return (None, "unavailable".to_string());
+        }
+    };
+
+    match sha256::digest_reader(BufReader::new(file)) {
+        Ok(digest) => (Some(digest), "complete".to_string()),
+        Err(err) => {
+            warnings.push(format!(
+                "hash unavailable for {}: failed to read for hashing: {err}",
+                path.display()
+            ));
+            (None, "unavailable".to_string())
+        }
+    }
 }
 
 struct CandidateCollection {
@@ -868,12 +896,14 @@ fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
 mod tests {
     use super::{
         collect_video_candidates, excluded_case_dirs, extract_json_string, looks_like_video,
-        merge_existing_with_scan, scan_index_json, write_jsonl_records, write_scan_outputs,
-        write_tsv_records,
+        merge_existing_with_scan, scan_folder, scan_index_json, write_jsonl_records,
+        write_scan_outputs, write_tsv_records,
     };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
     use std::io::{self, Write};
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
     use std::path::PathBuf;
 
     #[test]
@@ -943,6 +973,51 @@ mod tests {
                 .any(|warning| warning.contains("skipped FrameTrace case output directory"))
         );
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn scan_folder_records_warning_when_hash_source_is_locked() {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-locked-hash-test-{}",
+            std::process::id()
+        ));
+        let case_dir = root.join("case");
+        let source_dir = root.join("source");
+        let locked_path = source_dir.join("locked.mp4");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&case_dir).unwrap();
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::write(&locked_path, b"not actually media").unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&locked_path)
+            .unwrap();
+
+        let result = scan_folder(
+            &case_dir,
+            &source_dir,
+            &ScanOptions {
+                hash_files: true,
+                use_ffprobe: false,
+                max_depth: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.video_count, 1);
+        assert_eq!(result.records[0].sha256, None);
+        assert_eq!(result.records[0].hash_status, "unavailable");
+        assert!(result.warnings.iter().any(|warning| {
+            warning.contains("hash unavailable") && warning.contains("failed to open for hashing")
+        }));
+        let jsonl = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        assert!(jsonl.contains("\"sha256\":null"));
+        assert!(jsonl.contains("\"hash_status\":\"unavailable\""));
+
+        drop(lock);
         let _ = fs::remove_dir_all(root);
     }
 

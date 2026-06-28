@@ -1,5 +1,5 @@
 use super::super::qa_test_fixtures::seed_repro_case;
-use super::super::{performance_report, reproducibility_report};
+use super::super::{performance_report_for_test, reproducibility_report};
 use super::helpers::read_json;
 use std::fs;
 
@@ -94,7 +94,7 @@ fn performance_report_records_query_latency_metrics() {
     ));
     let _ = fs::remove_dir_all(&root);
 
-    let report = performance_report(&root, 1_000).unwrap();
+    let report = performance_report_for_test(&root, 1_000).unwrap();
     let text = fs::read_to_string(&report.report_path).unwrap();
 
     assert!(report.passed);

@@ -18,6 +18,9 @@ const PERFORMANCE_100K_MAX_RSS_TARGET_BYTES: u64 = (GIB * 3) / 2;
 const PERFORMANCE_1M_MAX_RSS_TARGET_BYTES: u64 = (GIB * 7) / 2;
 const CPU_GATE_ENFORCED_FOR_SQLITE_BENCHMARK: bool = false;
 
+#[cfg(test)]
+static PERFORMANCE_REPORT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, String> {
     let monitor = ResourceMonitor::start();
     prepare_benchmark_case(output_dir)?;
@@ -79,6 +82,17 @@ pub fn performance_report(output_dir: &Path, rows: usize) -> Result<QaReport, St
             render::optional_f64_json(resources.average_cpu_percent)
         ))
     }
+}
+
+#[cfg(test)]
+pub(crate) fn performance_report_for_test(
+    output_dir: &Path,
+    rows: usize,
+) -> Result<QaReport, String> {
+    let _guard = PERFORMANCE_REPORT_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    performance_report(output_dir, rows)
 }
 
 fn prepare_benchmark_case(output_dir: &Path) -> Result<(), String> {

@@ -27,6 +27,8 @@ mod qa_test_fixtures;
 mod qa_tests;
 
 pub use crate::performance_qa::performance_report;
+#[cfg(test)]
+pub(crate) use crate::performance_qa::performance_report_for_test;
 pub use qa_accuracy::accuracy_report;
 pub use qa_release::release_readiness_report;
 pub(crate) use qa_release_gates::REVIEW_GATES;

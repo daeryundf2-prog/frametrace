@@ -4,7 +4,7 @@ use super::survival::{FullJsonLoadDenial, InventoryTiming, LargeCaseSurvivalEvid
 use super::{
     PERFORMANCE_1M_MAX_RSS_TARGET_BYTES, PERFORMANCE_100K_MAX_RSS_TARGET_BYTES,
     PERFORMANCE_QUERY_LATENCY_TARGET_MS, max_rss_target_for_rows, performance_passed,
-    performance_report,
+    performance_report_for_test,
 };
 use crate::case_db::{DbBenchmarkQueryPlan, DbBenchmarkResult};
 use crate::resource_monitor::ResourceUsage;
@@ -20,7 +20,7 @@ fn performance_report_writes_query_plan_evidence() {
     ));
     let _ = fs::remove_dir_all(&root);
 
-    let report = performance_report(&root, 1_000).unwrap();
+    let report = performance_report_for_test(&root, 1_000).unwrap();
     let json = fs::read_to_string(&report.report_path).unwrap();
     let markdown = fs::read_to_string(root.join("performance-report.md")).unwrap();
 
@@ -46,7 +46,7 @@ fn performance_report_preserves_existing_output_shape_when_t10_metrics_are_added
     ));
     let _ = fs::remove_dir_all(&root);
 
-    let report = performance_report(&root, 1_000).unwrap();
+    let report = performance_report_for_test(&root, 1_000).unwrap();
     let json = fs::read_to_string(&report.report_path).unwrap();
 
     assert!(report.passed);
@@ -69,7 +69,7 @@ fn performance_report_records_t10_large_case_survival_surfaces() {
     ));
     let _ = fs::remove_dir_all(&root);
 
-    let report = performance_report(&root, 1_000).unwrap();
+    let report = performance_report_for_test(&root, 1_000).unwrap();
     let json = fs::read_to_string(&report.report_path).unwrap();
     let parsed: Value = serde_json::from_str(&json).unwrap();
     let survival = parsed["large_case_survival"].as_object().unwrap();
