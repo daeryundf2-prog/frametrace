@@ -1,3 +1,0 @@
-[browser] launching: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-[browser] user-data-dir: /Users/shinyoohag/.browser-agent/browser-profile
-🌐 Chrome started (CDP: http://127.0.0.1:9222)

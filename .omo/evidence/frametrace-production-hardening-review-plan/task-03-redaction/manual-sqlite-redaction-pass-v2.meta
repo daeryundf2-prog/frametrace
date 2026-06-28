@@ -1,5 +1,0 @@
-command=manual SQLite default report/review/package grep scenario v2
-exit_code=0
-elapsed_seconds=0
-artifact=.omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-redaction-pass-v2.md
-temp_root=/tmp/FrameTrace Client ACME SQLite 유출 PASS v2 gFN1

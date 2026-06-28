@@ -1,9 +1,0 @@
-command: cargo test --locked cli_smoke release_gate -- --nocapture
-error: unexpected argument 'release_gate' found
-
-Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
-
-For more information, try '--help'.
-
-exit_code: 1
-elapsed_seconds: 0

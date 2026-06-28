@@ -1,5 +1,0 @@
-SCENARIO final-failure-missing-required-proxy-audit-chain
-INVOCATION rm <case>/artifacts/proxies/proxy-log.jsonl; target/debug/frametrace qa report-defense <case>
-BINARY_OBSERVABLE PASS if command exits nonzero and stderr/checklist contain artifacts/proxies/proxy-log.jsonl [missing]
-error: report defensibility QA failed: missing 0 required artifacts, 0 disallowed claim(s), 1 audit chain failure(s), 0 active job(s); audit blockers: proxy: artifacts/proxies/proxy-log.jsonl [missing] (audit log is not present)
-exit_code=1

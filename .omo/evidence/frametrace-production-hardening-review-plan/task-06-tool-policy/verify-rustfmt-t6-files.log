@@ -1,1 +1,0 @@
-PASS: rustfmt --edition 2024 --check exited 0 for T6-touched files.

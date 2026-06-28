@@ -1,1 +1,0 @@
-PASS: cargo fmt --all -- --check exited 0 after ffprobe fix.

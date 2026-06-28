@@ -1,9 +1,0 @@
-scenario_id=02-cargo-fmt
-surface=local CLI
-cwd=/Users/shinyoohag/Desktop/frametrace
-invocation=cargo fmt --all -- --check
-started_at=2026-06-23T13:04:30Z
---- command output start ---
---- command output end ---
-finished_at=2026-06-23T13:04:31Z
-exit_code=0

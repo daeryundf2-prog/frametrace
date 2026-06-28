@@ -1,5 +1,0 @@
-TMP_ROOT=/tmp/frametrace-t8-legacy-uonG2Q
-COMMAND_EXIT_CODE=1
-error: SQLite case db required for bounded report generation; rerun scan-folder to create db/case.db before make-report
-CLEANED_TMP_ROOT=/tmp/frametrace-t8-legacy-uonG2Q
-EXIT_CODE=0

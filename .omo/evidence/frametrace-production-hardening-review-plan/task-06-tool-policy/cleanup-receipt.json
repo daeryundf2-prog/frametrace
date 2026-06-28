@@ -1,5 +1,0 @@
-{
-  "status": "cleaned",
-  "removed_patterns": ["/tmp/frametrace-tool-policy-api-forge-*", "/tmp/frametrace-artifact-tool-test-*", "/tmp/frametrace-export-tool-test-*", "/tmp/frametrace-validation-tool-test-*"],
-  "remaining_matches": []
-}

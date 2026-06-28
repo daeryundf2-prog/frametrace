@@ -1,5 +1,0 @@
-command=manual SQLite opt-in full path disclosure scenario
-exit_code=0
-elapsed_seconds=0
-artifact=.omo/evidence/frametrace-production-hardening-review-plan/task-03-redaction/manual-sqlite-opt-in-disclosure.md
-temp_root=/tmp/FrameTrace Client ACME SQLite OptIn 유출 Exvz

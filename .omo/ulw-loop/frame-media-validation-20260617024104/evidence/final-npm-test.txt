@@ -1,3 +1,0 @@
-command: test -f package.json
-exit_code: 1
-result: package.json absent; npm test not applicable

@@ -1,9 +1,0 @@
-   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
-error[E0432]: unresolved import `super::privacy_review_check`
- --> src/qa_tests.rs:3:42
-  |
-3 |     accuracy_report, performance_report, privacy_review_check, release_readiness_report,
-  |                                          ^^^^^^^^^^^^^^^^^^^^ no `privacy_review_check` in `qa`
-
-For more information about this error, try `rustc --explain E0432`.
-error: could not compile `frametrace` (lib test) due to 1 previous error

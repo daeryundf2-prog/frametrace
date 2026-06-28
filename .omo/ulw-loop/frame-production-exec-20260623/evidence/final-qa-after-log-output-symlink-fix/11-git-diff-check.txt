@@ -1,9 +1,0 @@
-scenario_id=11-git-diff-check
-surface=local CLI
-cwd=/Users/shinyoohag/Desktop/frametrace
-invocation=git diff --check
-started_at=2026-06-23T13:04:35Z
---- command output start ---
---- command output end ---
-finished_at=2026-06-23T13:04:35Z
-exit_code=0

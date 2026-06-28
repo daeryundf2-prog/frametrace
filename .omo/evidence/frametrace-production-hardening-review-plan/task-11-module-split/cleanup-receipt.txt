@@ -1,7 +1,0 @@
-Cleanup receipt for T11 module split
-removed_baseline_temp_root=/tmp/frametrace-t11-baseline-smoke.3ArAdw exists=no
-removed_post_temp_root=/tmp/frametrace-t11-post-smoke.jBZrYD exists=no
-backup_temp_exists=no
-leftover_t11_tmp_roots:
-running_target_debug_frametrace_processes:
-EXIT_CODE: 0

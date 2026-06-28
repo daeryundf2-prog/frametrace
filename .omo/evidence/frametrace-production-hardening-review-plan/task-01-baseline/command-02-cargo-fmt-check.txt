@@ -1,6 +1,0 @@
-Command: cargo fmt --all -- --check
-CWD: /Users/shinyoohag/Desktop/frametrace
-Started: 2026-06-24T06:46:13Z
-Finished: 2026-06-24T06:46:13Z
-ElapsedSeconds: 0
-ExitCode: 0

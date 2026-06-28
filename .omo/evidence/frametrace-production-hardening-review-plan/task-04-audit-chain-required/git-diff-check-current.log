@@ -1,3 +1,0 @@
-SCENARIO git diff whitespace check after T4 evidence repair
-INVOCATION git diff --check
-exit_code=0

@@ -1,6 +1,0 @@
-surface: CLI
-invocation: git diff --check
-criterion: whitespace/error diff check exits 0
---- output ---
-
---- exit_code: 0 ---

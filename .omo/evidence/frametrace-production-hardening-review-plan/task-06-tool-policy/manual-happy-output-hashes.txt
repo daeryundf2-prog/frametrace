@@ -1,4 +1,0 @@
-284197db4641369ffcec098f8b03be69556205a542dc8a6c774fe5c3fc57ad6e  /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-happy.J555uP/case/artifacts/clips/manual-clip.mp4
-284197db4641369ffcec098f8b03be69556205a542dc8a6c774fe5c3fc57ad6e  /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-happy.J555uP/case/artifacts/frames/vid_000001_frame_1782290904.jpg
-284197db4641369ffcec098f8b03be69556205a542dc8a6c774fe5c3fc57ad6e  /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-happy.J555uP/case/artifacts/proxies/vid_000001_proxy_1782290904.mp4
-284197db4641369ffcec098f8b03be69556205a542dc8a6c774fe5c3fc57ad6e  /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-happy.J555uP/case/artifacts/thumbnails/vid_000001_thumb_1782290904.jpg

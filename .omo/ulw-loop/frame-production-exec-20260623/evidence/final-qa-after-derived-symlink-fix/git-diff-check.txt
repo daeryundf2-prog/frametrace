@@ -1,5 +1,0 @@
-Surface: CLI whitespace checker
-Invocation: git diff --check
-Started: 2026-06-23T11:47:30Z
-Exit code: 0
-Finished: 2026-06-23T11:47:30Z

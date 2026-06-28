@@ -1,5 +1,0 @@
-T6 stop-hook verification claim 01
-started_at=2026-06-24T09:22:33Z
-
-## COMMAND: test -s .omo/evidence/frametrace-production-hardening-review-plan/task-06-tool-policy/evidence-record.md
-run_cmd:3: read-only variable: status

@@ -1,3 +1,0 @@
-COMMAND: diff -u baseline-cli-smoke-contract.json post-cli-smoke-contract.json
-EXIT_CODE: 0
-RESULT: no normalized CLI smoke contract drift

@@ -1,3 +1,0 @@
-COMMAND: ruby -rjson -e JSON.parse doneclaim.json
-valid
-EXIT_CODE: 0

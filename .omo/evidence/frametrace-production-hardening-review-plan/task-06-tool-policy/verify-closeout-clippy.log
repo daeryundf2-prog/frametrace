@@ -1,3 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
-
-PASS: cargo clippy --locked --all-targets --all-features -- -D warnings exited 0.

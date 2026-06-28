@@ -1,4 +1,0 @@
-SCENARIO hook2-evidence-artifact-check
-INVOCATION test -s required hook2 evidence files
-BINARY_OBSERVABLE PASS if every required artifact is non-empty
-exit_code=0

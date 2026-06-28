@@ -1,5 +1,0 @@
-# final QA rerun cleanup
-checked_at=2026-06-23T11:15:00Z
-run_root=/tmp/frametrace-finalqa-VzlNqb
-invocation=rm -rf /tmp/frametrace-finalqa-VzlNqb
-cleanup_verified=true

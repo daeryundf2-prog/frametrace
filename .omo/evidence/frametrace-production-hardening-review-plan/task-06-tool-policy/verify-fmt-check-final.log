@@ -1,2 +1,0 @@
-
-PASS: cargo fmt --all -- --check

@@ -1,4 +1,0 @@
-timestamp_utc=2026-06-26T09:31:33Z
-remaining_t8_tmp_roots:
-remaining_t8_processes:
-EXIT_CODE=0

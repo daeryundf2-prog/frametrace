@@ -1,1 +1,0 @@
-"{\"y\":2248,\"innerWidth\":375,\"innerHeight\":900,\"scrollWidth\":375}"

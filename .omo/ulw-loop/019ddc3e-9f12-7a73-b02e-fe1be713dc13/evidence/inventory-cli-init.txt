@@ -1,4 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/frametrace init-case ./target/frametrace-inventory-cli-evidence/case --title 'Inventory Evidence Case'`
-case created: ./target/frametrace-inventory-cli-evidence/case
-case id: FT-1781624654

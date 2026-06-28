@@ -1,1 +1,0 @@
-cleanup: rm -rf /var/folders/32/z9wr5xpx5yzbyyynfrz1kjq80000gn/T//frametrace-t6-happy.J555uP; status=0; no tmux/browser/server processes were started

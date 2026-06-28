@@ -1,7 +1,0 @@
-surface: CLI
-invocation: cargo clippy --locked --all-targets --all-features -- -D warnings
-criterion: clippy exits 0 with warnings denied
---- output ---
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
-
---- exit_code: 0 ---

@@ -1,5 +1,0 @@
-error: unexpected argument 'cli_smoke::release_gate_reports_typed_review_manifest_blockers' found
-
-Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
-
-For more information, try '--help'.

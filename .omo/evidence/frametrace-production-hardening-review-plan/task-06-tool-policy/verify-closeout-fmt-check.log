@@ -1,3 +1,0 @@
-Invocation: cargo fmt --all -- --check
-Verdict: PASS
-Details: command exited 0 and produced no formatter diff.

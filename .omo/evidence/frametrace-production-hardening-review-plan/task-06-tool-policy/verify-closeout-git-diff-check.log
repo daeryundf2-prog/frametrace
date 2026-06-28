@@ -1,3 +1,0 @@
-Invocation: git diff --check
-Verdict: PASS
-Details: command exited 0 after closeout artifacts were written.

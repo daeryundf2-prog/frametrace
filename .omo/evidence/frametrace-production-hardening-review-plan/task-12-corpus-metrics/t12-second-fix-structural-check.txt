@@ -1,8 +1,0 @@
-$ jq -e . corpus/manifest/synthetic-video-corpus.json >/dev/null
-$ jq -e .external_references == [] corpus/manifest/synthetic-video-corpus.json
-true
-$ ! jq -e .. | strings | select(. == "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") corpus/manifest/synthetic-video-corpus.json >/dev/null
-$ ! rg "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff|large-non-client-video-reference" corpus/manifest/synthetic-video-corpus.json docs/validation-corpus.md
-$ jq -e supported domain ground_truth_schema exact required fields
-true
-EXIT_CODE=0

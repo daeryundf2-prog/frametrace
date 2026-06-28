@@ -1,4 +1,0 @@
-focused_status=0
-fmt_status=0
-clippy_status=0
-diff_status=0

@@ -1,2 +1,0 @@
-Invocation: git diff --check
-Result: PASS (exit 0; no whitespace errors reported)

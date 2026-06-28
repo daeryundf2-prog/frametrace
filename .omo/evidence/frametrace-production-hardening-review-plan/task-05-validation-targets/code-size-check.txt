@@ -1,8 +1,0 @@
-src/validation/target.rs      199
-src/validation/target_tests.rs      147
-src/validation.rs       65
-src/cli/commands.rs      206
-src/cli/mod.rs      271
-src/cli/media_cmd.rs      137
-src/cli/handlers.rs      817
-src/validation/log.rs      224

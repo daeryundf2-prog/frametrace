@@ -1,3 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/frametrace inventory-bulk-preview ./target/frametrace-inventory-cli-evidence/case --action exclude-from-report --operator qa vid_000001 missing`
-{"schema_version":1,"view":"bulk-preview","selected_count":1,"missing_ids":["missing"],"audit_event":{"schema_version":1,"event":"bulk-preview","created_unix":1781624655,"operator":"qa","action":"exclude-from-report","requested_count":2,"selected_count":1,"missing_ids":["missing"],"mutation_committed":false,"filters_json":null}}

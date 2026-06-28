@@ -1,5 +1,0 @@
-LSP diagnostics attempt
-captured_at=2026-06-22T12:54:08Z
-status=blocked
-reason=mcp lsp/status and lsp/diagnostics returned Transport closed
-fallback=cargo clippy --locked --all-targets --all-features -- -D warnings passed; cargo test --locked passed

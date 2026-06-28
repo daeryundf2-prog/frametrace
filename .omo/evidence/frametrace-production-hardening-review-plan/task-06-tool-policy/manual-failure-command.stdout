@@ -1,1 +1,0 @@
-stdout intentionally empty: rejected ffmpeg command writes diagnostics to manual-failure-command.stderr; see manual-failure-transcript.log for non-zero exit and absent output proof.

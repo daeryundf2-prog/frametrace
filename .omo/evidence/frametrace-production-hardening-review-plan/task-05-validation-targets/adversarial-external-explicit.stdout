@@ -1,9 +1,0 @@
-artifact validated
-job: job_1782287507_000002 (validate-artifact)
-selector: /tmp/frametrace-t5-adv.JSNgVN/external/outside.mp4
-target: /private/tmp/frametrace-t5-adv.JSNgVN/external/outside.mp4
-sha256: 31207a2065f46a5b948fce6fe5c13e85abaf5631e2f894b47dcd4fce14f6c57b
-status: ffprobe-video-stream-confirmed
-note: ffprobe parsed a video stream; examiner playback review is still required before final reporting.
-video codec: h264
-duration seconds: 1.000

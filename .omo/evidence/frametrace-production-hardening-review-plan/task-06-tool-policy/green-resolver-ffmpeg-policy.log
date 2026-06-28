@@ -1,9 +1,0 @@
-   Compiling frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.79s
-     Running unittests src/lib.rs (target/debug/deps/frametrace-44d5147c08ce3d8f)
-
-running 1 test
-test tool_policy::tests::resolves_approved_ffmpeg_path_and_rejects_disallowed_path_name ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 136 filtered out; finished in 0.21s
-

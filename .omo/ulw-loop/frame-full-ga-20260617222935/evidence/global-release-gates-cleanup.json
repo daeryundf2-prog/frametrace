@@ -1,8 +1,0 @@
-{
-  "status": "not-applicable",
-  "reason": "implementation and verification used short-lived build/test/package/documentation subprocesses only; no server, browser, worker, tmux session, container, bound port, app instance, or persistent runtime was left running",
-  "checkedAt": "2026-06-17T13:38:04Z",
-  "noRemainingProcesses": true,
-  "noOpenBrowsers": true,
-  "noWorkers": true
-}

@@ -1,4 +1,0 @@
-$ cargo fmt --all -- --check
-
-exit_code=0
-elapsed_seconds=0

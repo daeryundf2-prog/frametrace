@@ -1,8 +1,0 @@
-Post-review-report static checks
-Command: node --check gui/evidence-viewer/app.js
-Command: node --check gui/evidence-viewer/translations.js
-Command: git diff --check
-Command: forbidden overclaim scan
-Forbidden overclaim scan: PASS
-Command: stale CSS-token summary scan
-Stale CSS-token summary scan: PASS

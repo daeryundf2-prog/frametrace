@@ -1,9 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/frametrace scan-folder ./target/frametrace-inventory-cli-evidence/case ./target/frametrace-inventory-cli-evidence/media --no-ffprobe`
-scan complete
-source registered: src_3e30316d71df3e91 (folder)
-job: job_1781624655_000001 (scan-folder)
-videos indexed: 1
-bytes indexed: 19
-index: ./target/frametrace-inventory-cli-evidence/case/db/video_index.json
-sqlite: ./target/frametrace-inventory-cli-evidence/case/db/case.db

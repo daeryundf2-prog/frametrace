@@ -1,4 +1,0 @@
-viewer_png=/Users/shinyoohag/Desktop/frametrace/output/playwright/phase3-evidence-viewer-sourcepath.png
-report_png=/Users/shinyoohag/Desktop/frametrace/output/playwright/phase3-case-report-sourcepath.png
-8907728214e8ce10514c87ab1bcf5d666f3873097d10f4632ebfb859b686be03  output/playwright/phase3-evidence-viewer-sourcepath.png
-1357bc0f55e42306d77ad7d7429c87d5ff21074234f2fa79e7253cc4cc0e4c08  output/playwright/phase3-case-report-sourcepath.png

@@ -1,5 +1,0 @@
-SCENARIO hook2-clippy-check
-INVOCATION cargo clippy --locked --all-targets --all-features -- -D warnings
-BINARY_OBSERVABLE PASS if exit_code=0
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
-exit_code=0

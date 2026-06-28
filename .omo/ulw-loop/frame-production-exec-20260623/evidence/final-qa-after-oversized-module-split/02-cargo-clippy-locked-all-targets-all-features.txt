@@ -1,5 +1,0 @@
-COMMAND: cargo clippy --locked --all-targets --all-features -- -D warnings
-START: 2026-06-23T13:26:52Z
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
-END: 2026-06-23T13:26:52Z
-EXIT_STATUS: 0

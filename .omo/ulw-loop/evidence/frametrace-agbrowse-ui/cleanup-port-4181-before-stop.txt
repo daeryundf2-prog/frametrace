@@ -1,2 +1,0 @@
-COMMAND   PID       USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
-Python  90479 shinyoohag    4u  IPv6 0xb91227a2f2e50b4c      0t0  TCP *:4181 (LISTEN)

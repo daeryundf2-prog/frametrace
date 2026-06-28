@@ -1,7 +1,0 @@
-COMMAND: cargo test --locked qa_release qa_report_defense -- --nocapture
-error: unexpected argument 'qa_report_defense' found
-
-Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
-
-For more information, try '--help'.
-EXIT_CODE: 1

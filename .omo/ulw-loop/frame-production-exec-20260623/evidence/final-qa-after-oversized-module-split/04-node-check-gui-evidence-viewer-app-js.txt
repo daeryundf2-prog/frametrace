@@ -1,4 +1,0 @@
-COMMAND: node --check gui/evidence-viewer/app.js
-START: 2026-06-23T13:27:21Z
-END: 2026-06-23T13:27:21Z
-EXIT_STATUS: 0

@@ -1,4 +1,0 @@
-[
-  {
-    "description": "",
-    "devtoolsFrontendUrl": "https://chrome-devtools-frontend.appspot.com/serve_rev/@cd0bc356a693574f1eb1fa12a130f259abbcf4dd/inspector.html?ws=127.0.0.1:9222/devtools/page/4ACB94CEDAAC9E62EEF

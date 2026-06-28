@@ -1,5 +1,0 @@
-happy_status=0
-failure_capture_status=0
-failure_exit_seen=0
-failure_key_seen=0
-clippy_status=0

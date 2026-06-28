@@ -1,4 +1,0 @@
-SCENARIO target-cargo-fmt-check
-INVOCATION cargo fmt -- --check src/qa_report_defense.rs src/qa_tests.rs
-
-exit_code=0

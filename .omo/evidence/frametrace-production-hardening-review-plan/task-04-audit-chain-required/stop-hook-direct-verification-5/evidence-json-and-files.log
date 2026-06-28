@@ -1,5 +1,0 @@
-SCENARIO evidence-json-and-files
-INVOCATION python3 -m json.tool .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-blocker-fix-doneclaim.json >/dev/null && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/t4-blocker-fix-doneclaim.json && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/validation-claimed-missing-log.log && test -s .omo/evidence/frametrace-production-hardening-review-plan/task-04-audit-chain-required/fix-manual-qa/recovered-filesystem-missing-tsk-log.log && echo evidence-json-valid-and-files-nonempty
-evidence-json-valid-and-files-nonempty
-
-exit_code=0

@@ -1,3 +1,0 @@
-running: true
-tabs: 1
-cdpUrl: http://127.0.0.1:9222

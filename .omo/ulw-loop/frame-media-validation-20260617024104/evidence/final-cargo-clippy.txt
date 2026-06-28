@@ -1,4 +1,0 @@
-command: cargo clippy --all-targets --all-features -- -D warnings
-    Checking frametrace v0.1.0 (/Users/shinyoohag/Desktop/frametrace)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.91s
-exit_code: 0

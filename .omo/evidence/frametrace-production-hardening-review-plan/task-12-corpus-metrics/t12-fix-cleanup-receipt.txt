@@ -1,5 +1,0 @@
-$ rm -rf tests/fixtures/corpus/synthetic-video-case-a/reports/qa tests/fixtures/corpus/synthetic-video-case-b/reports/qa
-$ find tests/fixtures/corpus -path "*/reports/qa*" -print
-$ pgrep -lf "target/debug/frametrace|frametrace qa|cargo test|cargo clippy|cargo build"
-$ git diff --name-only -- .omo/boulder.json .omo/start-work/ledger.jsonl .omo/plans
-EXIT_CODE=0

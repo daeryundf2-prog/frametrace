@@ -1,6 +1,0 @@
-Command: git diff --check
-CWD: /Users/shinyoohag/Desktop/frametrace
-Started: 2026-06-24T06:51:53Z
-Finished: 2026-06-24T06:51:53Z
-ElapsedSeconds: 0
-ExitCode: 0

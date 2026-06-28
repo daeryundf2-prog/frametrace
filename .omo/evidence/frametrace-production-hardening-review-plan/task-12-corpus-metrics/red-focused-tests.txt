@@ -1,7 +1,0 @@
-$ cargo test --locked accuracy_report_accepts_typed_corpus_manifest_and_records_metric_shape accuracy_report_rejects_synthetic_only_mixed_real_world_release_key reproducibility_report_records_diff_threshold_metrics
-error: unexpected argument 'accuracy_report_rejects_synthetic_only_mixed_real_world_release_key' found
-
-Usage: cargo test [OPTIONS] [TESTNAME] [-- [ARGS]...]
-
-For more information, try '--help'.
-EXIT_CODE=1

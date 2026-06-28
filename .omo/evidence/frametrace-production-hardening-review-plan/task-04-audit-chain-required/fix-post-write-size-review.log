@@ -1,4 +1,0 @@
-src/audit.rs pure_loc=403
-src/qa_report_defense.rs pure_loc=361
-src/qa_tests.rs pure_loc=396
-tests/media_contract.rs pure_loc=87

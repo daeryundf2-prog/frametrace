@@ -1,2 +1,0 @@
-validation-claimed-missing-log FAIL
-recovered-filesystem-missing-tsk-log FAIL

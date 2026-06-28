@@ -1,4 +1,0 @@
-cleanup_receipt_fix:
-timestamp_utc=2026-06-26T09:25:08Z
-remaining_t8_tmp_roots:
-remaining_t8_processes:

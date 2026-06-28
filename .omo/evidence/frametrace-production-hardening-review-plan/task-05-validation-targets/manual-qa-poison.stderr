@@ -1,1 +1,0 @@
-error: validation target provenance rejected for derived-frame-capture-t5qa: audit chain rejected /tmp/frametrace-t5-qa.zOKTHX/poison-case/artifacts/frames/frame-log.jsonl: audit line 2 is missing previous_entry_sha256

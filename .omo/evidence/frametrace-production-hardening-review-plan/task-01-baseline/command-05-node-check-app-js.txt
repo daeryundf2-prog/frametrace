@@ -1,6 +1,0 @@
-Command: node --check gui/evidence-viewer/app.js
-CWD: /Users/shinyoohag/Desktop/frametrace
-Started: 2026-06-24T06:46:57Z
-Finished: 2026-06-24T06:46:57Z
-ElapsedSeconds: 0
-ExitCode: 0

@@ -1,3 +1,0 @@
-$ target/debug/frametrace qa accuracy tests/fixtures/corpus/synthetic-video-case-a corpus/manifest/synthetic-video-corpus.json
-error: accuracy QA failed: precision=0.333333, recall=1.000000, false_positive=2, false_negative=0, hash_mismatch=0
-EXIT_CODE=1

@@ -1,7 +1,0 @@
-Command: python3 scripts/qa/verify-plan-evidence.py --self-test
-CWD: /Users/shinyoohag/Desktop/frametrace
-Started: 2026-06-24T06:48:50Z
-/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '/Users/shinyoohag/Desktop/frametrace/scripts/qa/verify-plan-evidence.py': [Errno 2] No such file or directory
-Finished: 2026-06-24T06:48:50Z
-ElapsedSeconds: 0
-ExitCode: 2

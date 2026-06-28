@@ -1,8 +1,0 @@
-Task: final QA execution reviewer after commit a961661.
-Skills: ultraqa - used as rigorous QA discipline for command-line regression and cleanup evidence. No product code/test edits authorized.
-Tier: HEAVY. Justification: final release QA over full regression surfaces after a commit fix, user explicitly demanded final review and full command evidence.
-Success criteria:
-1. Write final QA report to the requested review path, ending with exactly APPROVE or BLOCKED.
-2. Capture non-empty transcript artifacts for every required command and cleanup receipt under the requested evidence directory.
-3. Verify HEAD is a961661 and no required command fails; any failure blocks approval.
-Safety: no production code/test edits, no destructive commands, no spawned servers/browsers/tmux/containers for this CLI-only suite.

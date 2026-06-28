@@ -1,3 +1,0 @@
-🌐 Chrome stopped
-
-exit=0

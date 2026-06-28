@@ -1,2 +1,0 @@
-full_status=0
-artifact_status=0
