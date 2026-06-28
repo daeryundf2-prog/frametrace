@@ -1,0 +1,140 @@
+FrameTrace WinUI bootstrap prerequisite gate
+Generated UTC: 2026-06-28T05:16:57.4476910Z
+Status: BLOCKED
+Implementation started: false
+Install attempted: false
+
+Blockers:
+- shell isAdmin=False; install not attempted per instruction
+- C:\Work\frametrace missing; actual repo path recorded instead
+- dotnet SDK missing; dotnet --list-sdks returned no SDK entries
+- WinUI template/workload unavailable; dotnet new list winui failed or returned no WinUI template
+- NEXT_CODEX_PROMPT_WINUI_RELEASE.txt missing; not created because gate failed
+
+## admin-check
+started_at_utc=2026-06-28T05:16:58.7833120Z
+exit_code=0
+stdout:
+False
+stderr:
+
+
+## repo-path-check
+started_at_utc=2026-06-28T05:16:58.8353045Z
+exit_code=0
+stdout:
+C:\Work exists: False
+C:\Work\frametrace exists: False
+actual repo path: C:\Users\HP\Documents\Codex\2026-06-28\v\frametrace
+actual repo exists: True
+stderr:
+
+
+## git-status-branch-head
+command=git status --short --branch && git branch --show-current && git rev-parse HEAD && git rev-parse --abbrev-ref @{upstream}
+started_at_utc=2026-06-28T05:16:58.8516827Z
+exit_code=0
+stdout:
+## codex/frametrace-forensic-hardening...origin/codex/frametrace-forensic-hardening
+?? BLOCKED-missing-dotnet-winui-admin.json
+?? bootstrap-missing-dotnet-winui-admin.log
+codex/frametrace-forensic-hardening
+4c24dd24ff371dd07fa0af7c56339ee48c86931d
+origin/codex/frametrace-forensic-hardening
+stderr:
+
+
+## dotnet-info
+command=dotnet --info
+started_at_utc=2026-06-28T05:17:00.5872734Z
+exit_code=0
+stdout:
+
+Host:
+  Version:      8.0.14
+  Architecture: x64
+  Commit:       1584e49360
+  RID:          win-x64
+
+.NET SDKs installed:
+  No SDKs were found.
+
+.NET runtimes installed:
+  Microsoft.AspNetCore.App 6.0.16 [C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App]
+  Microsoft.AspNetCore.App 8.0.2 [C:\Program Files\dotnet\shared\Microsoft.AspNetCore.App]
+  Microsoft.NETCore.App 3.1.18 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 6.0.16 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 6.0.32 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 8.0.2 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 8.0.10 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.NETCore.App 8.0.14 [C:\Program Files\dotnet\shared\Microsoft.NETCore.App]
+  Microsoft.WindowsDesktop.App 3.1.18 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+  Microsoft.WindowsDesktop.App 6.0.32 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+  Microsoft.WindowsDesktop.App 8.0.10 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+  Microsoft.WindowsDesktop.App 8.0.14 [C:\Program Files\dotnet\shared\Microsoft.WindowsDesktop.App]
+
+Other architectures found:
+  None
+
+Environment variables:
+  Not set
+
+global.json file:
+  Not found
+
+Learn more:
+  https://aka.ms/dotnet/info
+
+Download .NET:
+  https://aka.ms/dotnet/download
+stderr:
+
+
+## dotnet-list-sdks
+command=dotnet --list-sdks
+started_at_utc=2026-06-28T05:17:00.7205167Z
+exit_code=0
+stdout:
+
+stderr:
+
+
+## dotnet-new-list-winui
+command=dotnet new list winui
+started_at_utc=2026-06-28T05:17:00.8703775Z
+exit_code=-2147450735
+stdout:
+
+stderr:
+cmd.exe : The command could not be loaded, possibly because:
+At line:29 char:5
++     & cmd.exe /c $Command > $outFile 2> $errFile
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (The command cou...ssibly because::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+  * You intended to execute a .NET application:
+      The application 'new' does not exist.
+  * You intended to execute a .NET SDK command:
+      No .NET SDKs were found.
+
+Download a .NET SDK:
+https://aka.ms/dotnet/download
+
+Learn about SDK resolution:
+https://aka.ms/dotnet/sdk-not-found
+
+## next-prompt-check
+started_at_utc=2026-06-28T05:17:01.1285429Z
+exit_code=0
+stdout:
+NEXT_CODEX_PROMPT_WINUI_RELEASE.txt missing
+stderr:
+
+
+## gui-winui-check
+started_at_utc=2026-06-28T05:17:01.1586299Z
+exit_code=0
+stdout:
+gui/winui missing; not created because prerequisite gate failed
+stderr:

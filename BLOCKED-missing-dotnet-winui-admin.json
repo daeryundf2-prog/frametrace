@@ -1,0 +1,109 @@
+{
+    "schema_version":  "frametrace-winui-bootstrap-blocker-v1",
+    "generated_at_utc":  "2026-06-28T05:16:57.4476910Z",
+    "status":  "BLOCKED",
+    "blocker_file":  "BLOCKED-missing-dotnet-winui-admin.json",
+    "bootstrap_log":  "bootstrap-missing-dotnet-winui-admin.log",
+    "implementation_started":  false,
+    "install_attempted":  false,
+    "install_skipped_reason":  "Administrator shell is required by the requested bootstrap procedure; current shell isAdmin=False.",
+    "repo":  {
+                 "requested_path":  "C:\\Work\\frametrace",
+                 "requested_path_exists":  false,
+                 "actual_repo_path":  "C:\\Users\\HP\\Documents\\Codex\\2026-06-28\\v\\frametrace",
+                 "actual_repo_exists":  true,
+                 "branch":  "codex/frametrace-forensic-hardening",
+                 "expected_branch":  "codex/frametrace-forensic-hardening",
+                 "branch_ok":  true,
+                 "head":  "4c24dd24ff371dd07fa0af7c56339ee48c86931d",
+                 "upstream":  "origin/codex/frametrace-forensic-hardening",
+                 "dirty_status_before_receipt":  "?? BLOCKED-missing-dotnet-winui-admin.json\n?? bootstrap-missing-dotnet-winui-admin.log"
+             },
+    "prerequisites":  {
+                          "is_admin":  false,
+                          "dotnet_info_exit_code":  0,
+                          "dotnet_sdk_present":  false,
+                          "dotnet_list_sdks_exit_code":  0,
+                          "dotnet_list_sdks_stdout":  "",
+                          "winui_template_present":  false,
+                          "dotnet_new_list_winui_exit_code":  -2147450735,
+                          "next_prompt_exists":  false,
+                          "gui_winui_exists":  false,
+                          "build_receipt_created":  false
+                      },
+    "gate":  {
+                 "passed":  false,
+                 "allowed_to_create_gui_winui":  false,
+                 "allowed_to_create_build_receipt":  false,
+                 "allowed_to_create_next_prompt":  false,
+                 "blocked_reasons":  [
+                                         "shell isAdmin=False; install not attempted per instruction",
+                                         "C:\\Work\\frametrace missing; actual repo path recorded instead",
+                                         "dotnet SDK missing; dotnet --list-sdks returned no SDK entries",
+                                         "WinUI template/workload unavailable; dotnet new list winui failed or returned no WinUI template",
+                                         "NEXT_CODEX_PROMPT_WINUI_RELEASE.txt missing; not created because gate failed"
+                                     ]
+             },
+    "command_results":  [
+                            {
+                                "id":  "admin-check",
+                                "started_at_utc":  "2026-06-28T05:16:58.7833120Z",
+                                "exit_code":  0,
+                                "stdout":  "False",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "repo-path-check",
+                                "started_at_utc":  "2026-06-28T05:16:58.8353045Z",
+                                "exit_code":  0,
+                                "stdout":  "C:\\Work exists: False\r\nC:\\Work\\frametrace exists: False\r\nactual repo path: C:\\Users\\HP\\Documents\\Codex\\2026-06-28\\v\\frametrace\r\nactual repo exists: True",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "git-status-branch-head",
+                                "command":  "git status --short --branch \u0026\u0026 git branch --show-current \u0026\u0026 git rev-parse HEAD \u0026\u0026 git rev-parse --abbrev-ref @{upstream}",
+                                "started_at_utc":  "2026-06-28T05:16:58.8516827Z",
+                                "exit_code":  0,
+                                "stdout":  "## codex/frametrace-forensic-hardening...origin/codex/frametrace-forensic-hardening\r\n?? BLOCKED-missing-dotnet-winui-admin.json\r\n?? bootstrap-missing-dotnet-winui-admin.log\r\ncodex/frametrace-forensic-hardening\r\n4c24dd24ff371dd07fa0af7c56339ee48c86931d\r\norigin/codex/frametrace-forensic-hardening",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "dotnet-info",
+                                "command":  "dotnet --info",
+                                "started_at_utc":  "2026-06-28T05:17:00.5872734Z",
+                                "exit_code":  0,
+                                "stdout":  "\r\nHost:\r\n  Version:      8.0.14\r\n  Architecture: x64\r\n  Commit:       1584e49360\r\n  RID:          win-x64\r\n\r\n.NET SDKs installed:\r\n  No SDKs were found.\r\n\r\n.NET runtimes installed:\r\n  Microsoft.AspNetCore.App 6.0.16 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.AspNetCore.App 8.0.2 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]\r\n  Microsoft.NETCore.App 3.1.18 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 6.0.16 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 6.0.32 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 8.0.2 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 8.0.10 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.NETCore.App 8.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]\r\n  Microsoft.WindowsDesktop.App 3.1.18 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 6.0.32 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 8.0.10 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n  Microsoft.WindowsDesktop.App 8.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]\r\n\r\nOther architectures found:\r\n  None\r\n\r\nEnvironment variables:\r\n  Not set\r\n\r\nglobal.json file:\r\n  Not found\r\n\r\nLearn more:\r\n  https://aka.ms/dotnet/info\r\n\r\nDownload .NET:\r\n  https://aka.ms/dotnet/download",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "dotnet-list-sdks",
+                                "command":  "dotnet --list-sdks",
+                                "started_at_utc":  "2026-06-28T05:17:00.7205167Z",
+                                "exit_code":  0,
+                                "stdout":  "",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "dotnet-new-list-winui",
+                                "command":  "dotnet new list winui",
+                                "started_at_utc":  "2026-06-28T05:17:00.8703775Z",
+                                "exit_code":  -2147450735,
+                                "stdout":  "",
+                                "stderr":  "cmd.exe : The command could not be loaded, possibly because:\r\nAt line:29 char:5\r\n+     \u0026 cmd.exe /c $Command \u003e $outFile 2\u003e $errFile\r\n+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (The command cou...ssibly because::String) [], RemoteException\r\n    + FullyQualifiedErrorId : NativeCommandError\r\n \r\n  * You intended to execute a .NET application:\r\n      The application \u0027new\u0027 does not exist.\r\n  * You intended to execute a .NET SDK command:\r\n      No .NET SDKs were found.\r\n\r\nDownload a .NET SDK:\r\nhttps://aka.ms/dotnet/download\r\n\r\nLearn about SDK resolution:\r\nhttps://aka.ms/dotnet/sdk-not-found"
+                            },
+                            {
+                                "id":  "next-prompt-check",
+                                "started_at_utc":  "2026-06-28T05:17:01.1285429Z",
+                                "exit_code":  0,
+                                "stdout":  "NEXT_CODEX_PROMPT_WINUI_RELEASE.txt missing",
+                                "stderr":  ""
+                            },
+                            {
+                                "id":  "gui-winui-check",
+                                "started_at_utc":  "2026-06-28T05:17:01.1586299Z",
+                                "exit_code":  0,
+                                "stdout":  "gui/winui missing; not created because prerequisite gate failed",
+                                "stderr":  ""
+                            }
+                        ]
+}
