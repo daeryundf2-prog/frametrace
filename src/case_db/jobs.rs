@@ -229,5 +229,5 @@ pub(crate) fn count_jobs_by_status(conn: &Connection, status: &str) -> Result<u6
             |row| row.get(0),
         )
         .map_err(|err| format!("failed to count SQLite jobs with status {status}: {err}"))?;
-    Ok(count.max(0) as u64)
+    Ok(u64::try_from(count.max(0)).unwrap_or(0))
 }

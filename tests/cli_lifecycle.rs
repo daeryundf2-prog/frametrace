@@ -280,6 +280,7 @@ fn write_release_review_manifest(path: &Path, keys: &[&str]) {
       "status": "PASS",
       "artifact_path": "{artifact_name}",
       "tool": "cli-lifecycle-test",
+      "evidence": "cli lifecycle review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"

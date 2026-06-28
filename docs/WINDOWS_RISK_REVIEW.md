@@ -209,7 +209,7 @@ GUI 규칙:
 문제:
 
 - `ffprobe-video-stream-confirmed`는 `ffprobe`가 video stream을 본 상태이고, `playback-confirmed`는 examiner playback 확인 상태다. 둘 다 법정 제출 가능성을 뜻하지 않는다.
-- 복구 후보가 검증 완료 영상처럼 보이면 보고서 품질이 떨어진다.
+- 복구 후보가 엔진 확인 또는 재생 검토 기록이 있는 영상처럼 보이면 보고서 품질이 떨어진다.
 
 필요 기능:
 

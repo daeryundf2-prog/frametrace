@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
+
 fn frametrace() -> &'static str {
     env!("CARGO_BIN_EXE_frametrace")
 }
@@ -47,6 +49,11 @@ fn assert_failure_contains(output: &Output, expected: &str) {
         combined.contains(expected),
         "expected output to contain {expected:?}\nactual:\n{combined}"
     );
+}
+
+fn json_stdout(output: &Output) -> Value {
+    assert_success(output);
+    serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON")
 }
 
 #[test]
@@ -142,6 +149,15 @@ fn inventory_commands_emit_bounded_sqlite_backed_json() {
     assert!(preview_stdout.contains("\"expected_mutation\":\"report_state -> excluded\""));
     assert!(preview_stdout.contains("\"audit_path\":\"evidence/logs/bulk-preview-"));
     assert!(preview_stdout.contains("\"mutation_committed\":false"));
+
+    let post_preview_detail = json_stdout(&run(&[
+        "inventory",
+        path(&case_dir),
+        "--file-id",
+        "vid_000001",
+    ]));
+    assert_eq!(post_preview_detail["row"]["review_state"], "unreviewed");
+    assert_eq!(post_preview_detail["row"]["report_state"], "not-selected");
 
     let manifest_path = case_dir.join("reports/inventory-export.json");
     let export = run(&[

@@ -129,61 +129,28 @@ Rules:
 
 `qa release` must receive `--review-manifest`; otherwise the release readiness report is blocked. The manifest records non-automatable release gates that require human or external evidence:
 
-```text
-technical_review=pass
-security_review=pass
-privacy_review=pass
-supply_chain_review=pass
-accuracy_validation=pass
-reproducibility_validation=pass
-performance_validation=pass
-migration_validation=pass
-operator_review=pass
-report_defensibility_review=pass
-legal_wording_review=pass
-installer_package_validation=pass
-windows_workstation_validation=pass
-known_limitations_review=pass
-release_notes_review=pass
-support_triage_policy=pass
-hotfix_policy=pass
-incident_response_plan=pass
-corpus_governance=pass
-feature_intake_governance=pass
-post_ga_monitoring=pass
-external_review_readiness=pass
-regression_schedule=pass
+```json
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "key": "technical_review",
+      "status": "PASS",
+      "artifact_path": "release-review-artifacts/technical_review.json",
+      "tool": "scripts/windows/validate-release.ps1",
+      "evidence": "typed technical review receipt",
+      "timestamp": "2026-06-27T00:00:00Z",
+      "reviewer": "release-validator",
+      "operator": "release-validator",
+      "cleanup_status": "clean"
+    }
+  ]
+}
 ```
 
-Markdown checkboxes are also accepted:
+Every required release gate must appear as a typed JSON entry with a status, artifact path, tool, evidence, timestamp, reviewer or operator, and clean cleanup status. Text key/value manifests and Markdown checkboxes are rejected. Any missing, non-`PASS`, unsupported, or artifact-missing gate is a release blocker. `reports/qa/release-decision.json` is written for each release run with `FIELD_PILOT_GO`, `NO_GO`, or `BLOCKED` plus exact blockers.
 
-```text
-- [x] Technical Review
-- [x] Security Review
-- [x] Privacy Review
-- [x] Supply-chain Review
-- [x] Accuracy Validation
-- [x] Reproducibility Validation
-- [x] Performance Validation
-- [x] Migration Validation
-- [x] Operator Review
-- [x] Report-defensibility Review
-- [x] Legal Wording Review
-- [x] Installer/Package Validation
-- [x] Windows Workstation Validation
-- [x] Known Limitations Review
-- [x] Release Notes Review
-- [x] Support/Triage Policy
-- [x] Hotfix Policy
-- [x] Incident Response Plan
-- [x] Corpus Governance
-- [x] Feature Intake Governance
-- [x] Post-GA Monitoring
-- [x] External Review Readiness
-- [x] Regression Schedule
-```
-
-Any missing, unchecked, or unapproved gate is a release blocker.
+`scripts/windows/validate-release.ps1` requires an externally prepared typed manifest via `-ReviewManifestPath` for a release-ready run. If the path is missing or omitted, the script writes a typed BLOCKED manifest and `release-decision.json` before exiting.
 
 ## Required Regression Cases
 
@@ -195,11 +162,11 @@ Any missing, unchecked, or unapproved gate is a release blocker.
 6. Explicit recovery/export outputs outside the case directory are rejected.
 7. Version 1 SQLite databases migrate to the current schema with ordered backups for every migration step.
 8. Evidence viewer includes TSK inode recovery outputs.
-9. Release readiness command writes `release-readiness.json` and fails on missing review blockers.
+9. Release readiness command writes `release-readiness.json` and `release-decision.json`, rejects text review manifests, and fails on missing review blockers.
 10. Report defensibility command fails if report/viewer outputs contain disallowed legal-overclaim terms.
 11. Reproducibility command compares recovery logs, validation status, filesystem listings, and package manifests while normalizing case-local paths and volatile timestamps.
 12. Report defensibility command fails while any SQLite job remains `running`; the operator must complete it or mark it interrupted before release review.
 
 ## Evidence Retention
 
-Keep generated QA artifacts under `<case_dir>/reports/qa` unless a test-specific output directory is required. Preserve `case.json`, `db/case.db`, `db/videos.jsonl`, `db/video_paths.tsv`, `reports/case-report.html`, `review/evidence-viewer.html`, release review manifest, and QA JSON/HTML/Markdown reports for release review.
+Keep generated QA artifacts under `<case_dir>/reports/qa` unless a test-specific output directory is required. Preserve `case.json`, `db/case.db`, `db/videos.jsonl`, `db/video_paths.tsv`, `reports/case-report.html`, `review/evidence-viewer.html`, typed release review manifest, `release-decision.json`, and QA JSON/HTML/Markdown reports for release review.

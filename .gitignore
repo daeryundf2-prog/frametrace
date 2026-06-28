@@ -12,9 +12,31 @@
 /artifacts
 
 # Generated OMO evidence datasets can exceed GitHub's per-object limit.
-# Keep the textual receipts/transcripts, but do not commit synthetic case DBs.
+# Keep execution plans in Git, but do not commit local QA/browser/session output.
+.omo/drafts/
+.omo/evidence/
+.omo/ulw-loop/
+.omo/ulw-loop/**/evidence/
+.omo/ulw-loop/**/manual-qa-audit-*/
+.omo/ulw-loop/**/generated-viewer-case/
+.omo/ulw-loop/**/server.log
+.omo/ulw-loop/**/server.pid
+.omo/ulw-loop/**/browser-profile/
+.omo/ulw-loop/**/agent-home/
+.omo/ulw-loop/**/Cache/
+.omo/ulw-loop/**/GPUCache/
+.omo/ulw-loop/**/DawnGraphiteCache/
+.omo/ulw-loop/**/DawnWebGPUCache/
 .omo/evidence/**/db/
 .omo/evidence/**/performance/db/
+.omo/evidence/**/browser-profile/
+.omo/evidence/**/agent-home/
+.omo/evidence/**/Cache/
+.omo/evidence/**/GPUCache/
+.omo/evidence/**/DawnGraphiteCache/
+.omo/evidence/**/DawnWebGPUCache/
+.omo/evidence/**/server.log
+.omo/evidence/**/server.pid
 
 # Do not accidentally commit client media or forensic images.
 *.avi

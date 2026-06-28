@@ -4,7 +4,8 @@
 
 - Changed: `qa release` now enforces the full global release-blocker review manifest, not only the older five review gates.
 - Changed: `qa release` now also enforces the executable `windows_prerequisites` gate, so macOS or a Windows host missing required tools, concrete WinUI project files, or WinUI build/test receipt cannot be reported as release-ready.
-- Changed: Windows release validation and recovery test documentation now use the full release-blocker manifest.
+- Changed: Windows release validation and recovery test documentation now use the full typed JSON release-blocker manifest and reject text or checkbox review manifests.
+- Changed: `qa release` and Windows release preflight write `reports/qa/release-decision.json` with `FIELD_PILOT_GO`, `NO_GO`, or `BLOCKED` plus exact blockers.
 - Changed: The WinUI shell contract now states that release readiness requires all global blocker gates plus `workstation_shell_contract`.
 - Intentionally not changed: no real C#/WinUI 3 shell was introduced in this pass. The Rust engine, SQLite case DB, and audit chain remain the source of truth.
 - Remaining limitation: Phase 4 is not fully complete because there is no buildable WinUI 3 project in this repo and this macOS host has no `dotnet` command. That limitation is now an explicit release blocker, not a manual note.

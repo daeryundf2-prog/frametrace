@@ -24,7 +24,7 @@ The file list must be treated as a first-class review surface, not a small compa
 
 ### Inventory Layout
 
-- Top inventory strip: total files, displayed matches, selected rows, hidden-by-filter count, video/photo/candidate/derived counts, hash-complete count, validation-risk count, and current query latency.
+- Top inventory strip: total files, displayed matches, selected rows, hidden-by-filter count, video/photo/candidate/derived counts, hash-check recorded count, validation-risk count, and current query latency.
 - Left inventory tree: source -> partition/container -> folder -> parser lane -> validation state. Each node shows total count, unreviewed count, report-selected count, and risk count.
 - Center inventory grid: dense tabular rows with sticky header, resizable columns, sortable columns, keyboard navigation, multi-select, and virtual scrolling.
 - Right detail drawer: selected row metadata, source path, parent/child derived artifact links, hash status, offsets/inodes, validation logs, and report inclusion history.
@@ -172,6 +172,7 @@ Use `docs/gui-large-inventory-traceability.md` to confirm every large inventory 
 - Every derived artifact must link to source file ID, source hash when available, command parameters, operator, timestamp, and output hash.
 - Carved files are displayed as candidates until playback/container validation is recorded.
 - The viewer must distinguish `candidate-unvalidated`, `duplicate-candidate`, `ffprobe-video-stream-confirmed`, and `derived artifact`.
+- Report and export labels stay in draft/queued states until durable engine artifacts and examiner review are recorded.
 
 ## Video Review
 

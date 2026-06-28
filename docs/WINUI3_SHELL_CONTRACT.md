@@ -83,6 +83,27 @@ WinUI shell actions call these commands instead of reimplementing forensic logic
     "playback_confirmed_count": 0,
     "ffprobe_and_playback_are_separate_states": true
   },
+  "runtime_readiness": {
+    "bounded_status": true,
+    "jobs": {
+      "recent_limit": 20,
+      "running_count": 0,
+      "interrupted_count": 0,
+      "completed_count": 0,
+      "resume_policy": "blocked-unless-idempotence-proven"
+    },
+    "disk_preflight": {
+      "status": "blocked",
+      "features": ["import", "carve", "proxy", "export", "package"]
+    },
+    "feature_gates": [
+      {
+        "feature": "proxy",
+        "status": "blocked",
+        "blockers": ["missing-tool:ffmpeg"]
+      }
+    ]
+  },
   "windows_prerequisites": {
     "host_os": "windows",
     "required_tools": ["rustc", "cargo", "ffmpeg", "ffprobe", "dotnet"],
@@ -105,6 +126,8 @@ WinUI shell actions call these commands instead of reimplementing forensic logic
 
 The shell should call this at case open, after command completion, and after resume. Large inventory rows still come from `inventory` with bounded page size.
 
+The exact GUI-facing adapter surfaces are pinned in `docs/GUI_DATA_ADAPTER_CONTRACT.md`. The WinUI shell must consume those engine JSON surfaces and must not promote the static HTML prototype or any GUI cache into the production durable state owner.
+
 ## Long-Running Job Rules
 
 1. GUI starts a Rust engine command.
@@ -112,6 +135,9 @@ The shell should call this at case open, after command completion, and after res
 3. GUI polls status through `workstation-status`, `inspect`, or future bounded job status command.
 4. GUI never marks a job complete directly.
 5. If the app exits mid-command, next open must display active/interrupted jobs and require `mark-interrupted-jobs` before release packaging.
+6. GUI must treat interrupted job resume as blocked unless the engine reports proven idempotent resume semantics for that job type.
+7. GUI must show `runtime_readiness.disk_preflight` blockers before import/carve/proxy/export/package when exact required bytes are unknown.
+8. GUI must disable feature actions with `runtime_readiness.feature_gates[].blockers` such as `missing-tool:ffmpeg` or `missing-tool:ewfexport`.
 
 ## Release Readiness
 

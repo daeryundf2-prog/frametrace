@@ -149,3 +149,46 @@ fn release_rejects_stale_report_defense_json_when_current_check_errors() {
 
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn release_writes_no_go_decision_when_checks_fail() {
+    let root = std::env::temp_dir().join(format!(
+        "frametrace-release-decision-fail-test-{}",
+        std::process::id()
+    ));
+    let case_dir = root.join("case");
+    let output_dir = case_dir.join("reports/qa");
+    let _ = fs::remove_dir_all(&root);
+    seed_report_defense_case(
+        &case_dir,
+        r#"<html><body>{"path_disclosure_mode":"redacted","local_operator_full_path_disclosure":false,"validation_status":"candidate-unvalidated"}</body></html>"#,
+    );
+
+    let err = release_readiness_report(
+        &case_dir,
+        &output_dir,
+        &ReleaseReadinessOptions {
+            corpus_manifest: None,
+            comparison_case_dir: None,
+            review_manifest: None,
+            performance_output_dir: Some(root.join("performance")),
+            performance_rows: 1_000,
+        },
+    )
+    .unwrap_err();
+
+    assert!(err.contains("release readiness failed"));
+    let decision = read_json(&output_dir.join("release-decision.json"));
+    assert_eq!(decision["qa_type"], "release_decision");
+    assert_eq!(decision["decision"], "BLOCKED");
+    assert!(
+        decision["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|blocker| blocker["name"] == "review_gate_technical_review"
+                && blocker["evidence"] == "missing --review-manifest")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}

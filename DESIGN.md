@@ -23,7 +23,7 @@ The current CSS source of truth is `gui/evidence-viewer/styles.css`. OpenDesign 
 | Action/secondary | `--accent-2` | `--frametrace-accent-secondary` | `#1c5d8f` | Secondary navigation and analytical context |
 | Status/danger | `--danger` | `--frametrace-danger` | `#b14d42` | Important, destructive, or risk states |
 | Status/warning | `--warn` | `--frametrace-warning` | `#b4802a` | `verification-needed`, timeline events |
-| Status/ok | `--ok` | `--frametrace-ok` | `#2f7a48` | Reviewed or verified states |
+| Status/ok | `--ok` | `--frametrace-ok` | `#2f7a48` | Reviewed or engine-confirmed states |
 | Status/candidate | `--candidate` | `--frametrace-candidate` | `#6c5d99` | `candidate-unvalidated`, recovered/carved candidates |
 | Depth/shadow | `--shadow` | `--frametrace-shadow` | `0 14px 38px rgba(33, 43, 39, 0.14)` | Workstation elevation when needed |
 
@@ -31,7 +31,7 @@ The current CSS source of truth is `gui/evidence-viewer/styles.css`. OpenDesign 
 
 - State colors always carry text labels. Never rely on color alone.
 - `--accent` is operational, not decorative. Use it for active, selected, hover, and command states.
-- Use amber only for `verification-needed` or event warnings, violet only for `candidate-unvalidated`, green only for reviewed or engine-verified states, and red only for important risk or destructive states.
+- Use amber only for `verification-needed` or event warnings, violet only for `candidate-unvalidated`, green only for reviewed or engine-confirmed states, and red only for important risk or destructive states.
 - Preserve evidence values verbatim across Korean and English locale changes; do not recolor or relabel evidence data in ways that change meaning.
 
 ## 3. Typography
@@ -128,7 +128,7 @@ FrameTrace uses a dense 4px-compatible workstation rhythm with common steps at 6
 ### Status Badges
 
 - **Structure**: text badge with pill shape.
-- **Variants**: `unreviewed`, `reviewed`, `important`, `verification-needed`, `candidate-unvalidated`, `verified playable`, `derived artifact`, `report selected`, `exported`.
+- **Variants**: `unreviewed`, `reviewed`, `important`, `verification-needed`, `candidate-unvalidated`, `playback review recorded`, `derived artifact`, `report draft selected`, `export draft queued`.
 - **Spacing**: `24px` height, `64px` minimum width, `999px` radius.
 - **States**: color-coded by semantic token plus explicit text label.
 - **Rules**: carved or recovered media uses `candidate-unvalidated` until validation exists; engine-pending items use `verification-needed`.

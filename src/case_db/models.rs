@@ -61,6 +61,19 @@ pub struct JobRecord {
     pub status: String,
 }
 
+pub struct JobStatusRow {
+    pub job_id: String,
+    pub job_type: String,
+    pub status: String,
+    pub subject_path: String,
+    pub started_unix: u64,
+    pub updated_unix: u64,
+    pub completed_unix: Option<u64>,
+    pub total_units: Option<u64>,
+    pub completed_units: u64,
+    pub error: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct DbBenchmarkResult {
     pub path: PathBuf,

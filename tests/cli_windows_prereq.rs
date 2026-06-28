@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -145,6 +146,29 @@ fn release_readiness_blocks_when_windows_prerequisites_are_missing() {
     assert!(release_readiness.contains("\"name\":\"windows_prerequisites\""));
     assert!(release_readiness.contains("\"status\":\"FAIL\""));
     assert!(release_readiness.contains("missing-winui-build-receipt"));
+    let release_decision = fs::read_to_string(case_dir.join("reports/qa/release-decision.json"))
+        .expect("release decision JSON should be written");
+    let decision = serde_json::from_str::<Value>(&release_decision)
+        .expect("release decision JSON should parse");
+    assert_eq!(decision["decision"], "NO_GO");
+    let blockers = decision["blockers"]
+        .as_array()
+        .expect("release decision blockers should be an array");
+    assert!(
+        blockers
+            .iter()
+            .any(|blocker| blocker["name"] == "windows_prerequisites")
+    );
+    let names = blockers
+        .iter()
+        .map(|blocker| blocker["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    let unique = names.iter().collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        unique.len(),
+        names.len(),
+        "duplicate blocker names: {names:?}"
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -160,8 +184,40 @@ fn windows_release_script_enforces_native_exit_and_winui_receipt() {
     assert!(script.contains("dotnet_build = \"pass\""));
     assert!(script.contains("dotnet_test = \"pass\""));
     assert!(script.contains("$LASTEXITCODE"));
+    assert!(script.contains("[string]$ReviewManifestPath"));
+    assert!(script.contains("missing -ReviewManifestPath"));
+    assert!(script.contains("\"BLOCKED\""));
+    assert!(!script.contains("status = \"PASS\""));
     assert!(script.contains("'\"name\":\"windows_prerequisites\",\"status\":\"PASS\"'"));
     assert!(script.contains("'\"passed\": true'"));
+}
+
+#[test]
+fn windows_release_script_deduplicates_release_decision_blocker_names() {
+    let script = fs::read_to_string("scripts/windows/validate-release.ps1")
+        .expect("Windows release script should be readable");
+    let preflight_body = powershell_function_body(&script, "Get-ReleasePreflightBlockers");
+    let write_body = powershell_function_body(&script, "Write-ReleaseDecision");
+
+    assert!(
+        preflight_body.contains("foreach ($CommandName in @(")
+            && preflight_body.contains("name = \"windows_prerequisites\"")
+            && preflight_body.contains("missing required command: $CommandName"),
+        "preflight fixture should cover loop-generated windows_prerequisites blockers"
+    );
+    assert!(
+        count_occurrences(&preflight_body, "name = \"winui_build_test\"") > 1,
+        "preflight fixture should cover repeated winui_build_test blockers"
+    );
+    assert!(write_body.contains("Merge-ReleaseDecisionBlockers $Blockers"));
+    assert!(write_body.contains("blocker_count = $ReleaseBlockers.Count"));
+    assert!(write_body.contains("blockers = @($ReleaseBlockers)"));
+    assert!(!write_body.contains("blocker_count = $Blockers.Count"));
+    assert!(!write_body.contains("blockers = @($Blockers)"));
+
+    let merge_body = powershell_function_body(&script, "Merge-ReleaseDecisionBlockers");
+    assert!(merge_body.contains("evidence_details"));
+    assert!(merge_body.contains("-join \"; \""));
 }
 
 fn write_corpus_manifest(corpus_manifest: &Path, media_dir: &Path) {
@@ -178,6 +234,36 @@ fn write_corpus_manifest(corpus_manifest: &Path, media_dir: &Path) {
 
 fn path(path: &Path) -> &str {
     path.to_str().expect("test paths should be UTF-8")
+}
+
+fn powershell_function_body(script: &str, function_name: &str) -> String {
+    let marker = format!("function {function_name}");
+    let function_start = script
+        .find(&marker)
+        .unwrap_or_else(|| panic!("{function_name} should be present"));
+    let body_start = script[function_start..]
+        .find('{')
+        .map(|offset| function_start + offset)
+        .unwrap_or_else(|| panic!("{function_name} should have a body"));
+    let mut depth = 0_i32;
+    for (offset, byte) in script[body_start..].bytes().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let body_end = body_start + offset + 1;
+                    return script[body_start..body_end].to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("{function_name} body should close");
+}
+
+fn count_occurrences(haystack: &str, needle: &str) -> usize {
+    haystack.match_indices(needle).count()
 }
 
 fn repo_has_winui_project_files() -> bool {
@@ -242,6 +328,7 @@ fn write_release_review_manifest(path: &Path, keys: &[&str]) {
       "status": "PASS",
       "artifact_path": "{artifact_name}",
       "tool": "cli-windows-prereq-test",
+      "evidence": "cli windows prerequisite review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"

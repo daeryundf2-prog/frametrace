@@ -12,6 +12,7 @@ mod inventory_query;
 #[cfg(test)]
 mod inventory_tests;
 pub mod inventory_types;
+mod job_status;
 pub mod jobs;
 #[cfg(test)]
 mod jobs_tests;
@@ -32,6 +33,7 @@ pub use inventory::*;
 pub use inventory_export::*;
 pub use inventory_facets::*;
 pub use inventory_types::*;
+pub use job_status::*;
 pub use jobs::*;
 pub use metrics::*;
 pub use models::*;

@@ -2,6 +2,8 @@
 mod qa_accuracy;
 #[path = "qa_release.rs"]
 mod qa_release;
+#[path = "qa_release_decision.rs"]
+mod qa_release_decision;
 #[path = "qa_release_gates.rs"]
 mod qa_release_gates;
 #[path = "qa_release_manifest.rs"]

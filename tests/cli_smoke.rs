@@ -90,6 +90,7 @@ fn release_gate_reports_typed_review_manifest_blockers() {
       "status": "done",
       "artifact_path": "{}",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"
@@ -114,9 +115,9 @@ fn release_gate_reports_typed_review_manifest_blockers() {
     assert!(!output.status.success());
     let readiness = fs::read_to_string(output_dir.join("release-readiness.json"))
         .expect("release readiness JSON should be written");
-    assert!(readiness.contains(r#""name":"technical_review""#));
+    assert!(readiness.contains(r#""name":"review_gate_technical_review""#));
     assert!(readiness.contains(r#""status":"FAIL""#));
-    assert!(readiness.contains("expected typed PASS artifact"));
+    assert!(readiness.contains("unsupported status"));
     assert!(readiness.contains(r#""name":"privacy_review""#));
 
     fs::write(
@@ -130,6 +131,7 @@ fn release_gate_reports_typed_review_manifest_blockers() {
       "status": "PASS",
       "artifact_path": "{}",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"
@@ -154,8 +156,8 @@ fn release_gate_reports_typed_review_manifest_blockers() {
     assert!(!output.status.success());
     let readiness = fs::read_to_string(output_dir.join("release-readiness.json"))
         .expect("release readiness JSON should be written");
-    assert!(readiness.contains(r#"{"name":"technical_review","status":"PASS""#));
-    assert!(readiness.contains(r#"{"name":"privacy_review","status":"FAIL""#));
+    assert!(readiness.contains(r#"{"name":"review_gate_technical_review","status":"PASS""#));
+    assert!(readiness.contains(r#"{"name":"review_gate_privacy_review","status":"BLOCKED""#));
 
     let _ = fs::remove_dir_all(root);
 }

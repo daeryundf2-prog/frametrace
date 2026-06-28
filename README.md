@@ -112,6 +112,9 @@ cargo run -- qa performance ./target/frametrace-qa-performance --rows 10000
 cargo run -- qa release ./case-001 --corpus-manifest ./corpus.tsv --comparison-case ./case-001 --performance-output-dir ./target/frametrace-release-performance --performance-rows 10000
 cargo run -- package-case ./case-001
 cargo run -- inspect ./case-001
+cargo run -- workstation-status ./case-001
+cargo run -- mark-interrupted-jobs ./case-001 --reason "operator reviewed stopped run"
+cargo run -- verify-audit ./case-001/evidence/logs/validation-log.jsonl
 cargo run -- list-parsers
 cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 ```
@@ -138,3 +141,4 @@ Export, proxy, thumbnail, validation, and carve logs include SHA-256 values and 
 
 E01 support requires libewf command-line tools in `PATH`: `ewfinfo`, `ewfverify`, and `ewfexport`. `import-e01` verifies the E01, exports a raw image, hashes the raw output, and writes `evidence/logs/e01-audit.jsonl`. To inspect file-system contents, mount the E01/raw image read-only with a forensic mounter and run `scan-folder` on the mounted volume. To recover contiguous embedded video candidates directly from the raw image, run `carve-file` against the exported `.raw`.
 For file-system-aware deleted-file triage, install Sleuth Kit tools in `PATH` and run `inspect-image`/`recover-inode` against the exported `.raw`. These outputs remain `candidate-unvalidated` until examiner playback/container validation is recorded.
+Validation, playback, export, and report labels describe recorded tool or examiner steps only; export/report outputs remain drafts until examiner and legal review.

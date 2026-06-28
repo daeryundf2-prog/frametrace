@@ -3,12 +3,45 @@ const records = window.FrameTraceRecords || [];
 const translations = window.FrameTraceTranslations || {};
 
 const filters = ["all", "video", "photo", "candidate", "needs_verification", "important", "report"];
-const rowHeight = 88;
+const rowHeights = {
+  compact: 34,
+  normal: 44,
+  media: 64,
+};
+const inventoryFocusRowHeight = 24;
+const facetKeys = ["source", "type", "parser", "validation", "review", "hash", "report", "size", "time"];
+const actionLabels = {
+  "mark-reviewed": "action.reviewed",
+  "mark-important": "action.important",
+  "report-set": "action.report",
+  "export-mp4": "action.exportMp4",
+  "export-avi": "action.exportAvi",
+  "capture-frame": "action.frame",
+  "queue-validation": "action.queueVerify",
+  "package-case": "package.title",
+  "preview-open": "rail.previewOpen",
+  "preview-window": "rail.windowMode",
+};
+const expectedMutations = {
+  "mark-reviewed": "review_state -> reviewed",
+  "mark-important": "review_state -> important",
+  "report-set": "report_state -> draft-included",
+  "export-mp4": "export draft -> MP4 manifest request",
+  "export-avi": "export draft -> AVI manifest request",
+  "capture-frame": "derived artifact draft -> frame capture request",
+  "queue-validation": "validation job draft -> engine queue request",
+  "package-case": "package draft -> engine package request",
+  "preview-open": "preview only; no case mutation",
+  "preview-window": "preview window only; no case mutation",
+};
 const defaultSelectedId = defaultSelectedRecordId();
 
 const state = {
   locale: localStorage.getItem("frametrace.locale") || "ko",
   activeFilter: "all",
+  density: localStorage.getItem("frametrace.density") || "compact",
+  inventoryFocused: localStorage.getItem("frametrace.inventoryFocused") === "true",
+  facets: Object.fromEntries(facetKeys.map((key) => [key, "all"])),
   selectedId: defaultSelectedId,
   playback: 0,
   playing: false,
@@ -19,9 +52,10 @@ const state = {
   visibleWindow: { start: 0, end: 0 },
   renderQueued: false,
   syncView: false,
-  packagePreviewQueued: false,
   previewOpen: false,
   previewWindowMode: false,
+  actionPreview: null,
+  actionPreviewSequence: 0,
   dataVersion: 0,
   queryCache: { key: "", rows: [] },
 };
@@ -29,7 +63,10 @@ const state = {
 const els = {
   workbenchFlow: document.getElementById("workbenchFlow"),
   filterTabs: document.getElementById("filterTabs"),
+  facetWorkstation: document.getElementById("facetWorkstation"),
   searchInput: document.getElementById("searchInput"),
+  densitySelect: document.getElementById("densitySelect"),
+  focusModeButton: document.getElementById("focusModeButton"),
   resultCount: document.getElementById("resultCount"),
   visibleWindow: document.getElementById("visibleWindow"),
   queryLatency: document.getElementById("queryLatency"),
@@ -119,6 +156,7 @@ function filteredRecords() {
     ) return false;
     if (state.activeFilter === "important" && record.status !== "important") return false;
     if (state.activeFilter === "report" && !record.report) return false;
+    if (!matchesFacets(record)) return false;
     if (!query) return true;
     const haystack = [
       record.id,
@@ -142,8 +180,27 @@ function inventoryQueryKey() {
   return [
     state.dataVersion,
     state.activeFilter,
+    state.density,
+    ...facetKeys.map((key) => `${key}:${state.facets[key]}`),
     els.searchInput.value.trim().toLowerCase(),
   ].join("|");
+}
+
+function matchesFacets(record) {
+  return facetKeys.every((key) => {
+    const value = state.facets[key];
+    if (value === "all") return true;
+    if (key === "source") return record.source === value;
+    if (key === "type") return record.type === value;
+    if (key === "parser") return record.parser === value;
+    if (key === "validation") return record.validation === value;
+    if (key === "review") return reviewFacetValue(record) === value;
+    if (key === "hash") return record.hashStatus === value;
+    if (key === "report") return reportFacetValue(record) === value;
+    if (key === "size") return sizeFacetValue(record) === value;
+    if (key === "time") return timeFacetValue(record) === value;
+    return true;
+  });
 }
 
 function compareInventoryRows(a, b) {
@@ -257,12 +314,94 @@ function renderFilters() {
   });
 }
 
+function renderFacets() {
+  const facetGroups = [
+    { key: "source", labelKey: "facet.source", options: uniqueFacetOptions((record) => record.source, sourceLabel) },
+    { key: "type", labelKey: "facet.type", options: uniqueFacetOptions((record) => record.type, typeLabel) },
+    { key: "parser", labelKey: "facet.parser", options: uniqueFacetOptions((record) => record.parser, (value) => value) },
+    { key: "validation", labelKey: "facet.validation", options: uniqueFacetOptions((record) => record.validation, valueLabel) },
+    { key: "review", labelKey: "facet.review", options: [
+      { value: "reviewed", label: t("facet.reviewed"), count: countByFacet((record) => reviewFacetValue(record) === "reviewed") },
+      { value: "unreviewed", label: t("facet.unreviewed"), count: countByFacet((record) => reviewFacetValue(record) === "unreviewed") },
+    ] },
+    { key: "hash", labelKey: "facet.hash", options: uniqueFacetOptions((record) => record.hashStatus, valueLabel) },
+    { key: "report", labelKey: "facet.report", options: [
+      { value: "included", label: t("facet.reportIncluded"), count: countByFacet((record) => reportFacetValue(record) === "included") },
+      { value: "unset", label: t("facet.reportUnset"), count: countByFacet((record) => reportFacetValue(record) === "unset") },
+    ] },
+    { key: "size", labelKey: "facet.size", options: [
+      { value: "small", label: t("facet.sizeSmall"), count: countByFacet((record) => sizeFacetValue(record) === "small") },
+      { value: "medium", label: t("facet.sizeMedium"), count: countByFacet((record) => sizeFacetValue(record) === "medium") },
+      { value: "large", label: t("facet.sizeLarge"), count: countByFacet((record) => sizeFacetValue(record) === "large") },
+    ] },
+    { key: "time", labelKey: "facet.time", options: [
+      { value: "known", label: t("facet.timeKnown"), count: countByFacet((record) => timeFacetValue(record) === "known") },
+      { value: "unknown", label: t("facet.timeUnknown"), count: countByFacet((record) => timeFacetValue(record) === "unknown") },
+    ] },
+  ];
+  const selectedCount = facetKeys.filter((key) => state.facets[key] !== "all").length;
+  els.facetWorkstation.innerHTML = `
+    <div class="facet-summary">
+      <strong>${escapeHtml(t("facet.title"))}</strong>
+      <span>${escapeHtml(t("facet.prototype"))}</span>
+      <button type="button" data-clear-facets ${selectedCount ? "" : "disabled"}>${escapeHtml(t("facet.clear"))}</button>
+    </div>
+    <div class="facet-grid">
+      ${facetGroups.map(facetControlHtml).join("")}
+    </div>
+  `;
+  els.facetWorkstation.querySelectorAll("select[data-facet]").forEach((select) => {
+    select.addEventListener("change", () => {
+      state.facets[select.dataset.facet] = select.value;
+      els.fileRows.scrollTop = 0;
+      ensureSelectionVisible();
+      renderAll();
+    });
+  });
+  els.facetWorkstation.querySelector("[data-clear-facets]").addEventListener("click", () => {
+    state.facets = Object.fromEntries(facetKeys.map((key) => [key, "all"]));
+    els.fileRows.scrollTop = 0;
+    ensureSelectionVisible();
+    renderAll();
+  });
+}
+
+function facetControlHtml(group) {
+  const options = [
+    `<option value="all">${escapeHtml(t("facet.all"))}</option>`,
+    ...group.options.map((option) => (
+      `<option value="${escapeAttr(option.value)}" ${state.facets[group.key] === option.value ? "selected" : ""}>${escapeHtml(option.label)} (${option.count})</option>`
+    )),
+  ].join("");
+  return `
+    <label class="facet-control">
+      <span>${escapeHtml(t(group.labelKey))}</span>
+      <select data-facet="${escapeAttr(group.key)}">${options}</select>
+    </label>`;
+}
+
+function uniqueFacetOptions(getValue, getLabel) {
+  const counts = new Map();
+  records.forEach((record) => {
+    const value = getValue(record);
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort(([a], [b]) => compareText(a, b))
+    .map(([value, count]) => ({ value, label: getLabel(value), count }));
+}
+
+function countByFacet(predicate) {
+  return records.filter(predicate).length;
+}
+
 function renderFiles() {
   const startedAt = performance.now();
   const visible = filteredRecords();
   state.lastQueryMs = Math.max(0, Math.round(performance.now() - startedAt));
+  const rowHeight = currentRowHeight();
   els.fileRows.style.setProperty("--row-height", `${rowHeight}px`);
-  els.fileRows.className = "file-rows";
+  els.fileRows.className = `file-rows density-${state.density}`;
   if (!visible.length) {
     els.fileRows.innerHTML = `<div class="empty-state">${t("empty.noMatches")}</div>`;
     state.visibleWindow = { start: 0, end: 0 };
@@ -273,25 +412,27 @@ function renderFiles() {
   const scrollTop = els.fileRows.scrollTop;
   const overscan = 8;
   const visibleCount = Math.ceil(viewportHeight / rowHeight);
-  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const endIndex = Math.min(visible.length, startIndex + visibleCount + overscan * 2);
-  state.visibleWindow = { start: startIndex + 1, end: endIndex };
-  const pageRows = visible.slice(startIndex, endIndex);
+  const firstVisibleIndex = Math.max(0, Math.floor(scrollTop / rowHeight));
+  const lastVisibleIndex = Math.min(visible.length, firstVisibleIndex + visibleCount);
+  const renderStartIndex = Math.max(0, firstVisibleIndex - overscan);
+  const renderEndIndex = Math.min(visible.length, firstVisibleIndex + visibleCount + overscan);
+  state.visibleWindow = { start: firstVisibleIndex + 1, end: lastVisibleIndex };
+  const pageRows = visible.slice(renderStartIndex, renderEndIndex);
   els.fileRows.innerHTML = `
     <div class="virtual-spacer" style="height:${visible.length * rowHeight}px">
-      <div class="virtual-window" style="transform:translateY(${startIndex * rowHeight}px)">
+      <div class="virtual-window" style="transform:translateY(${renderStartIndex * rowHeight}px)">
         ${pageRows.map(fileRowHtml).join("")}
       </div>
     </div>`;
   els.fileRows.querySelectorAll(".data-row").forEach((row) => {
     row.addEventListener("click", () => selectRecord(row.dataset.id));
-    row.addEventListener("keydown", activateOnKeyboard(() => selectRecord(row.dataset.id)));
+    row.addEventListener("keydown", (event) => handleRowKeydown(event, row.dataset.id));
   });
   els.fileRows.querySelectorAll("[data-row-preview]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       selectRecord(button.dataset.rowPreview);
-      openPreview(false);
+      queuePreviewAction(false);
     });
     button.addEventListener("keydown", (event) => {
       event.stopPropagation();
@@ -304,9 +445,13 @@ function renderFiles() {
   renderInventoryMetrics(visible.length);
 }
 
+function currentRowHeight() {
+  const baseHeight = rowHeights[state.density] || rowHeights.normal;
+  return state.inventoryFocused ? Math.min(baseHeight, inventoryFocusRowHeight) : baseHeight;
+}
+
 function fileRowHtml(record) {
   const reportState = record.report ? t("row.reportDraft") : t("row.reportUnset");
-  const outputState = record.outputStateKey ? formatOutputState(record) : t("row.exportDraft");
   const hashCheckState = formatHashCheckState(record);
   return `
     <div class="file-row data-row ${record.id === state.selectedId ? "active" : ""}" role="row" tabindex="0" aria-selected="${record.id === state.selectedId}" data-id="${record.id}">
@@ -316,7 +461,7 @@ function fileRowHtml(record) {
       <span class="row-main" role="cell">
         <span class="file-name">
           <strong>${escapeHtml(record.name)}</strong>
-          <span>${escapeHtml(middleTruncate(record.path, 88))}</span>
+          <span>${escapeHtml(middleTruncate(record.path, 96))}</span>
         </span>
         <span class="row-meta">
           <code>${escapeHtml(record.id)}</code>
@@ -335,7 +480,6 @@ function fileRowHtml(record) {
         <span class="row-chip row-chip-warn">${escapeHtml(hashCheckState)}</span>
         <span class="row-chip">${escapeHtml(valueLabel(record.validation))}</span>
         <span class="row-chip">${escapeHtml(reportState)}</span>
-        <span class="row-chip">${escapeHtml(outputState)}</span>
       </span>
       <span class="row-actions" role="cell">
         <button class="row-preview-button" type="button" data-row-preview="${record.id}" aria-label="${escapeAttr(t("row.openPreviewFor", { name: record.name }))}">
@@ -343,6 +487,44 @@ function fileRowHtml(record) {
         </button>
       </span>
     </div>`;
+}
+
+function reviewFacetValue(record) {
+  return record.reviewed ? "reviewed" : "unreviewed";
+}
+
+function reportFacetValue(record) {
+  return record.report ? "included" : "unset";
+}
+
+function sizeFacetValue(record) {
+  const bytes = record.sizeBytes || parseDisplaySize(record.size);
+  if (bytes >= 100 * 1024 * 1024) return "large";
+  if (bytes >= 1024 * 1024) return "medium";
+  return "small";
+}
+
+function timeFacetValue(record) {
+  return !record.timestamp || record.timestamp === "unknown" ? "unknown" : "known";
+}
+
+function parseDisplaySize(value) {
+  const match = String(value).match(/^([\d.]+)\s*(KB|MB|GB)$/i);
+  if (!match) return 0;
+  const amount = Number(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === "GB") return amount * 1024 * 1024 * 1024;
+  if (unit === "MB") return amount * 1024 * 1024;
+  return amount * 1024;
+}
+
+function handleRowKeydown(event, id) {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSelectionFrom(id, event.key === "ArrowDown" ? 1 : -1, true);
+    return;
+  }
+  activateOnKeyboard(() => selectRecord(id))(event);
 }
 
 function renderInventoryMetrics(total) {
@@ -385,6 +567,7 @@ function renderSelectedEvidenceRail(record) {
   const outputQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
   const validationBadge = validationQueued ? t("rail.queued") : t("rail.required");
   const reportBadge = record.report ? t("rail.included") : t("rail.notIncluded");
+  const activeAction = state.actionPreview?.action;
   els.selectedEvidenceRail.innerHTML = `
     <div class="rail-summary">
       <span class="rail-kicker">${escapeHtml(t("rail.selectedEvidence"))}</span>
@@ -394,12 +577,12 @@ function renderSelectedEvidenceRail(record) {
       <span>${escapeHtml(t("rail.readOnly"))} · ${escapeHtml(valueLabel(record.validation))}</span>
     </div>
     <div class="rail-actions">
-      ${railActionHtml("queue-validation", "rail.validation", "rail.validationDetail", validationBadge, !validationQueued)}
-      ${railActionHtml("export-mp4", "rail.export", "rail.exportDetail", outputQueued ? t("rail.queued") : t("rail.preview"), outputQueued)}
-      ${railActionHtml("report-set", "rail.report", "rail.reportDetail", reportBadge, record.report)}
-      ${railActionHtml("package-case", "rail.package", "rail.packageDetail", state.packagePreviewQueued ? t("rail.queued") : t("rail.preview"), state.packagePreviewQueued)}
-      ${railActionHtml("preview-open", "rail.previewOpen", "rail.previewDetail", t("rail.preview"), true)}
-      ${railActionHtml("preview-window", "rail.windowMode", "rail.windowDetail", t("rail.preview"), true)}
+      ${railActionHtml("queue-validation", "rail.validation", "rail.validationDetail", validationBadge, activeAction === "queue-validation" || !validationQueued)}
+      ${railActionHtml("export-mp4", "rail.export", "rail.exportDetail", outputQueued ? t("rail.queued") : t("rail.preview"), activeAction === "export-mp4" || outputQueued)}
+      ${railActionHtml("report-set", "rail.report", "rail.reportDetail", reportBadge, activeAction === "report-set" || record.report)}
+      ${railActionHtml("package-case", "rail.package", "rail.packageDetail", activeAction === "package-case" ? t("rail.draft") : t("rail.preview"), activeAction === "package-case")}
+      ${railActionHtml("preview-open", "rail.previewOpen", "rail.previewDetail", t("rail.preview"), activeAction === "preview-open")}
+      ${railActionHtml("preview-window", "rail.windowMode", "rail.windowDetail", t("rail.preview"), activeAction === "preview-window")}
     </div>
   `;
 }
@@ -430,6 +613,7 @@ function renderInspector() {
         </div>
       `).join("")}
     </div>
+    ${actionPreviewHtml(record)}
   `;
   const fields = [
     [t("meta.id"), `<code>${escapeHtml(record.id)}</code>`],
@@ -450,27 +634,64 @@ function renderInspector() {
   els.metaList.innerHTML = fields.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("");
 }
 
+function actionPreviewHtml(record) {
+  const preview = state.actionPreview;
+  if (!preview || preview.fileId !== record.id) {
+    return `<div class="action-preview-panel is-empty">${escapeHtml(t("actionPreview.empty"))}</div>`;
+  }
+  return actionPreviewPanelHtml(preview);
+}
+
+function actionPreviewPanelHtml(preview, extraClass = "") {
+  const rows = [
+    [t("actionPreview.surface"), t(preview.surfaceKey)],
+    [t("actionPreview.previewId"), preview.previewId],
+    [t("actionPreview.auditPath"), preview.auditPath],
+    [t("actionPreview.selectedCount"), String(preview.selectedCount)],
+    [t("actionPreview.filters"), preview.filters],
+    [t("actionPreview.expectedMutation"), preview.expectedMutation],
+    [t("actionPreview.operator"), preview.operator],
+    [t("actionPreview.warnings"), preview.warnings.join("; ") || t("actionPreview.noWarnings")],
+  ];
+  return `
+    <div class="action-preview-panel ${extraClass}" role="status" aria-live="polite">
+      <span>${escapeHtml(t("actionPreview.kicker"))}</span>
+      <strong>${escapeHtml(t(actionLabels[preview.action] || "actionPreview.unknownAction"))}</strong>
+      <dl>${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
+    </div>`;
+}
+
 function decisionGateItems(record) {
-  const validationComplete = record.status !== "candidate" && record.status !== "needs_verification";
+  const containerCheckRecorded = record.status !== "candidate" && record.status !== "needs_verification";
   const playbackConfirmed = String(record.validation || "").includes("confirmed") || record.reviewed;
   const exportQueued = Boolean(record.outputStateKey) && record.outputStateKey !== "output.validationQueued";
   return [
-    { labelKey: "gate.indexed", state: "complete", stateKey: "gate.complete" },
-    { labelKey: "gate.container", state: validationComplete ? "complete" : "pending", stateKey: validationComplete ? "gate.complete" : "gate.pending" },
-    { labelKey: "gate.playback", state: playbackConfirmed ? "complete" : "pending", stateKey: playbackConfirmed ? "gate.complete" : "gate.pending" },
-    { labelKey: "gate.report", state: record.report ? "complete" : "pending", stateKey: record.report ? "gate.complete" : "gate.pending" },
-    { labelKey: "gate.export", state: exportQueued ? "queued" : "pending", stateKey: exportQueued ? "gate.queued" : "gate.pending" },
+    { labelKey: "gate.indexed", state: "queued", stateKey: "gate.indexedRecorded" },
+    { labelKey: "gate.container", state: containerCheckRecorded ? "queued" : "pending", stateKey: containerCheckRecorded ? "gate.containerRecorded" : "gate.pending" },
+    { labelKey: "gate.playback", state: playbackConfirmed ? "queued" : "pending", stateKey: playbackConfirmed ? "gate.playbackRecorded" : "gate.pending" },
+    { labelKey: "gate.report", state: record.report ? "queued" : "pending", stateKey: record.report ? "gate.reportDraft" : "gate.pending" },
+    { labelKey: "gate.export", state: exportQueued ? "queued" : "pending", stateKey: exportQueued ? "gate.exportDraft" : "gate.pending" },
   ];
 }
 
 function renderAll() {
   applyLocalization();
+  applyWorkstationMode();
   renderWorkbenchFlow();
   renderFilters();
+  renderFacets();
   renderFiles();
   renderViewer();
   renderInspector();
   renderPreview();
+}
+
+function applyWorkstationMode() {
+  document.body.classList.toggle("inventory-focused", state.inventoryFocused);
+  els.densitySelect.value = state.density;
+  els.focusModeButton.classList.toggle("active", state.inventoryFocused);
+  els.focusModeButton.setAttribute("aria-pressed", String(state.inventoryFocused));
+  els.focusModeButton.textContent = state.inventoryFocused ? t("inventory.previewMode") : t("inventory.focusMode");
 }
 
 function rowStatusLabel(status) {
@@ -501,69 +722,85 @@ function requestInventoryRender() {
   });
 }
 
-function updateRecord(mutator) {
-  const record = selectedRecord();
-  mutator(record);
-  state.dataVersion += 1;
-  ensureSelectionVisible();
-  renderAll();
-}
-
 function markRecordReviewed() {
-  updateRecord((record) => {
-    record.reviewed = true;
-    if (record.status === "needs_verification") record.status = "reviewed";
-  });
+  queueActionPreview("mark-reviewed");
 }
 
 function markRecordImportant() {
-  updateRecord((record) => {
-    record.status = "important";
-  });
+  queueActionPreview("mark-important");
 }
 
 function toggleRecordReportSet() {
-  updateRecord((record) => {
-    record.report = !record.report;
-  });
+  queueActionPreview("report-set");
 }
 
 function queueMp4Export() {
-  updateRecord((record) => {
-    record.outputStateKey = "output.mp4Queued";
-    record.outputStateTime = formatTimecode(state.playback);
-  });
+  queueActionPreview("export-mp4");
 }
 
 function queueAviExport() {
-  updateRecord((record) => {
-    record.outputStateKey = "output.aviQueued";
-    record.outputStateTime = formatTimecode(state.playback);
-  });
+  queueActionPreview("export-avi");
 }
 
 function queueFrameCapture() {
-  updateRecord((record) => {
-    record.outputStateKey = "output.frameQueued";
-    record.outputStateTime = formatTimecode(state.playback);
-  });
+  queueActionPreview("capture-frame");
 }
 
 function queueValidation() {
-  updateRecord((record) => {
-    if (record.status === "candidate" || record.status === "needs_verification") {
-      record.validationQueued = true;
-      if (!record.outputStateKey) {
-        record.outputStateKey = "output.validationQueued";
-        record.outputStateTime = null;
-      }
-    }
-  });
+  queueActionPreview("queue-validation");
 }
 
 function queuePackagePreview() {
-  state.packagePreviewQueued = true;
-  renderAll();
+  queueActionPreview("package-case");
+}
+
+function queuePreviewAction(windowMode) {
+  queueActionPreview(windowMode ? "preview-window" : "preview-open");
+  openPreview(windowMode);
+}
+
+function queueActionPreview(action, render = true) {
+  const record = selectedRecord();
+  state.actionPreviewSequence += 1;
+  const previewId = `draft-preview-${String(state.actionPreviewSequence).padStart(3, "0")}-${record.id}-${action}`;
+  state.actionPreview = {
+    action,
+    fileId: record.id,
+    previewId,
+    auditPath: `draft-audit/${previewId}.jsonl`,
+    selectedCount: 1,
+    filters: activeFilterSummary(),
+    expectedMutation: expectedMutations[action] || expectedMutations["preview-open"],
+    operator: "prototype-operator",
+    warnings: actionWarnings(action, record),
+    surfaceKey: engineReceiptAvailable(record) ? "actionPreview.engineReceipt" : "actionPreview.draftSurface",
+  };
+  if (render) renderAll();
+}
+
+function activeFilterSummary() {
+  const parts = [`filter=${t(`filter.${state.activeFilter}`)}`];
+  const query = els.searchInput.value.trim();
+  if (query) parts.push(`search=${query}`);
+  facetKeys.forEach((key) => {
+    if (state.facets[key] !== "all") parts.push(`${t(`facet.${key}`)}=${state.facets[key]}`);
+  });
+  return parts.join(", ");
+}
+
+function actionWarnings(action, record) {
+  const warnings = [t("actionPreview.staticWarning")];
+  if (record.status === "candidate" || record.status === "needs_verification") {
+    warnings.push(t("actionPreview.validationWarning"));
+  }
+  if (action.startsWith("export") || action === "package-case") {
+    warnings.push(t("actionPreview.engineRequiredWarning"));
+  }
+  return warnings;
+}
+
+function engineReceiptAvailable(record) {
+  return Boolean(record.engineReceipt || record.auditReceipt || record.engine_receipt);
 }
 
 function openPreview(windowMode = false) {
@@ -594,10 +831,13 @@ function renderPreview() {
     [t("preview.hash"), formatHashCheckState(record)],
     [t("preview.output"), formatOutputState(record)],
   ];
+  const modalActionPreview =
+    state.actionPreview?.fileId === record.id ? actionPreviewPanelHtml(state.actionPreview, "is-modal") : "";
   els.previewDetails.innerHTML = `
     <span class="status-pill status-${record.status}">${escapeHtml(statusLabel(record.status))}</span>
     <strong>${escapeHtml(record.name)}</strong>
     <p>${escapeHtml(valueLabel(record.note))}</p>
+    ${modalActionPreview}
     <dl>${rows.map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd>`).join("")}</dl>
   `;
 }
@@ -651,11 +891,25 @@ function step(seconds) {
   renderViewer();
 }
 
-function moveSelection(delta) {
+function moveSelection(delta, refocus = false) {
+  moveSelectionFrom(state.selectedId, delta, refocus);
+}
+
+function moveSelectionFrom(id, delta, refocus = false) {
   const visible = filteredRecords();
-  const index = visible.findIndex((record) => record.id === state.selectedId);
+  const index = visible.findIndex((record) => record.id === id);
   const next = visible[Math.min(visible.length - 1, Math.max(0, index + delta))];
-  if (next) selectRecord(next.id);
+  if (next) {
+    selectRecord(next.id);
+    if (refocus) {
+      const focusRow = () => {
+        document.querySelector(`.data-row[data-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: true });
+      };
+      focusRow();
+      window.requestAnimationFrame(focusRow);
+      window.setTimeout(focusRow, 0);
+    }
+  }
 }
 
 function drawScene(canvas, record, time, zoom, thumb) {
@@ -965,7 +1219,19 @@ els.searchInput.addEventListener("input", () => {
   ensureSelectionVisible();
   renderAll();
 });
+els.densitySelect.addEventListener("change", () => {
+  state.density = els.densitySelect.value;
+  localStorage.setItem("frametrace.density", state.density);
+  els.fileRows.scrollTop = 0;
+  renderAll();
+});
+els.focusModeButton.addEventListener("click", () => {
+  state.inventoryFocused = !state.inventoryFocused;
+  localStorage.setItem("frametrace.inventoryFocused", String(state.inventoryFocused));
+  renderAll();
+});
 els.fileRows.addEventListener("scroll", requestInventoryRender);
+window.addEventListener("resize", requestInventoryRender);
 els.playButton.addEventListener("click", togglePlay);
 els.prevButton.addEventListener("click", () => moveSelection(-1));
 els.nextButton.addEventListener("click", () => moveSelection(1));
@@ -999,8 +1265,8 @@ els.selectedEvidenceRail.addEventListener("click", (event) => {
   if (button.dataset.railAction === "export-mp4") queueMp4Export();
   if (button.dataset.railAction === "report-set") toggleRecordReportSet();
   if (button.dataset.railAction === "package-case") queuePackagePreview();
-  if (button.dataset.railAction === "preview-open") openPreview(false);
-  if (button.dataset.railAction === "preview-window") openPreview(true);
+  if (button.dataset.railAction === "preview-open") queuePreviewAction(false);
+  if (button.dataset.railAction === "preview-window") queuePreviewAction(true);
 });
 els.previewModeButton.addEventListener("click", () => {
   state.previewWindowMode = !state.previewWindowMode;

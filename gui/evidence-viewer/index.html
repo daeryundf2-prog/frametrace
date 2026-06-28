@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>FrameTrace 증거 뷰어</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="./styles.css?v=20260627-triage7">
+    <link rel="stylesheet" href="./styles.css?v=20260627-t5preview1">
     <link rel="stylesheet" href="./workflow.css?v=20260627-triage7">
   </head>
   <body>
@@ -35,6 +35,7 @@
           <div class="flow-heading">
             <strong data-i18n="workflow.title">현장 증거 리뷰 워크벤치</strong>
             <span data-i18n="workflow.promise">local-first: 원본은 읽기전용, 해시/체인 오브 커스터디와 보고서 채택은 별도 검토 전까지 대기 상태입니다.</span>
+            <em data-i18n="workflow.prototype">MOCK DATA · prototype workstation</em>
           </div>
           <div class="workbench-flow" id="workbenchFlow" aria-label="포렌식 작업 요약" data-i18n-aria-label="summary.aria"></div>
         </section>
@@ -45,12 +46,24 @@
               <span data-i18n="search.label">검색</span>
               <input id="searchInput" type="search" autocomplete="off" placeholder="경로, 해시, 파서, 메모" data-i18n-placeholder="search.placeholder">
             </label>
+            <div class="inventory-controls" aria-label="목록 표시 옵션" data-i18n-aria-label="inventory.controlsAria">
+              <label>
+                <span data-i18n="inventory.density">밀도</span>
+                <select id="densitySelect">
+                  <option value="compact" selected data-i18n="density.compact">34px compact</option>
+                  <option value="normal" data-i18n="density.normal">44px normal</option>
+                  <option value="media" data-i18n="density.media">64px media</option>
+                </select>
+              </label>
+              <button id="focusModeButton" type="button" data-i18n="inventory.focusMode">목록 집중</button>
+            </div>
             <div class="inventory-metrics" aria-live="polite">
               <span id="resultCount">0</span>
               <span id="visibleWindow">0</span>
               <span id="queryLatency">0 ms</span>
             </div>
           </div>
+          <div class="facet-workstation" id="facetWorkstation" aria-label="소스 및 필터 워크스테이션" data-i18n-aria-label="facets.aria"></div>
           <div class="file-table" role="table" aria-label="색인된 증거 파일" data-i18n-aria-label="table.aria">
             <div class="file-row file-head" role="row">
               <span data-i18n="table.status">상태</span>
@@ -124,9 +137,9 @@
             <div class="panel-title" data-i18n="panel.fileState">파일 상태</div>
             <div class="status-card" id="statusCard"></div>
             <div class="review-actions">
-              <button id="markReviewedButton" type="button" data-i18n="action.reviewed">검토완료</button>
-              <button id="markImportantButton" type="button" data-i18n="action.important">중요</button>
-              <button id="addReportButton" type="button" data-i18n="action.report">보고서</button>
+              <button id="markReviewedButton" type="button" data-i18n="action.reviewed">검토 초안</button>
+              <button id="markImportantButton" type="button" data-i18n="action.important">중요 초안</button>
+              <button id="addReportButton" type="button" data-i18n="action.report">보고서 초안 미리보기</button>
             </div>
           </section>
 
@@ -138,10 +151,10 @@
           <section class="inspector-section">
             <div class="panel-title" data-i18n="panel.outputQueue">출력 큐</div>
             <div class="output-grid">
-              <button id="exportMp4Button" type="button" data-i18n="action.exportMp4">MP4 출력 대기</button>
-              <button id="exportAviButton" type="button" data-i18n="action.exportAvi">AVI 출력 대기</button>
-              <button id="captureFrameButton" type="button" data-i18n="action.frame">프레임</button>
-              <button id="verifyButton" type="button" data-i18n="action.queueVerify">검증 대기</button>
+              <button id="exportMp4Button" type="button" data-i18n="action.exportMp4">MP4 내보내기 초안</button>
+              <button id="exportAviButton" type="button" data-i18n="action.exportAvi">AVI 내보내기 초안</button>
+              <button id="captureFrameButton" type="button" data-i18n="action.frame">프레임 캡처 초안</button>
+              <button id="verifyButton" type="button" data-i18n="action.queueVerify">검증 초안</button>
             </div>
           </section>
 
@@ -165,15 +178,15 @@
           <aside class="preview-details" id="previewDetails"></aside>
         </div>
         <footer class="preview-actions">
-          <button type="button" data-preview-command="report" data-i18n="preview.report">보고서 포함</button>
-          <button type="button" data-preview-command="export" data-i18n="preview.export">MP4 내보내기 대기</button>
-          <button type="button" data-preview-command="verify" data-i18n="preview.verify">검증 대기</button>
+          <button type="button" data-preview-command="report" data-i18n="preview.report">보고서 초안 미리보기</button>
+          <button type="button" data-preview-command="export" data-i18n="preview.export">MP4 내보내기 초안</button>
+          <button type="button" data-preview-command="verify" data-i18n="preview.verify">검증 초안</button>
           <span data-i18n="preview.esc">Esc로 닫기</span>
         </footer>
       </section>
     </div>
-    <script src="./translations.js?v=20260627-triage7"></script>
+    <script src="./translations.js?v=20260627-t5preview1"></script>
     <script src="./data.js?v=20260627-triage7"></script>
-    <script src="./app.js?v=20260627-triage7"></script>
+    <script src="./app.js?v=20260627-t5preview1"></script>
   </body>
 </html>

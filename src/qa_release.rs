@@ -1,10 +1,11 @@
+use super::qa_release_decision::{ReleaseDecisionCheck, release_decision_json};
 use super::qa_release_manifest::evaluate_review_manifest;
 use crate::qa::{
     QaReport, REVIEW_GATES, ReleaseReadinessOptions, accuracy_report, performance_report,
     privacy_review_check, report_defense_check, reproducibility_report,
     workstation_shell_contract_check,
 };
-use crate::util::{json_escape, write_text};
+use crate::util::{json_escape, now_unix, write_text};
 use crate::windows_prerequisites;
 use serde::Deserialize;
 use std::fs;
@@ -75,10 +76,25 @@ pub fn release_readiness_report(
     let blocker_count = checks.iter().filter(|check| check.status != "PASS").count();
     let json_path = output_dir.join("release-readiness.json");
     let markdown_path = output_dir.join("release-readiness.md");
+    let decision_path = output_dir.join("release-decision.json");
+    let generated_at_unix = now_unix()?;
+    let decision_checks = checks
+        .iter()
+        .map(|check| ReleaseDecisionCheck {
+            name: &check.name,
+            status: &check.status,
+            evidence: &check.evidence,
+        })
+        .collect::<Vec<_>>();
     write_text(&json_path, &release_json(passed, &checks))
         .map_err(|err| format!("failed to write release readiness JSON: {err}"))?;
     write_text(&markdown_path, &release_markdown(passed, &checks))
         .map_err(|err| format!("failed to write release readiness checklist: {err}"))?;
+    write_text(
+        &decision_path,
+        &release_decision_json(generated_at_unix, &decision_checks),
+    )
+    .map_err(|err| format!("failed to write release decision JSON: {err}"))?;
 
     if passed {
         Ok(QaReport {
@@ -189,7 +205,9 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
     let Some(path) = manifest_path else {
         return REVIEW_GATES
             .iter()
-            .map(|(key, _)| ReleaseCheck::blocked(key, "missing --review-manifest"))
+            .map(|(key, _)| {
+                ReleaseCheck::blocked(&review_gate_check_name(key), "missing --review-manifest")
+            })
             .collect();
     };
 
@@ -198,18 +216,18 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
             .iter()
             .map(|(key, label)| match evaluation.errors.get(*key) {
                 Some(err) => ReleaseCheck {
-                    name: (*key).to_string(),
-                    status: "FAIL".to_string(),
-                    evidence: err.clone(),
+                    name: review_gate_check_name(key),
+                    status: err.status.clone(),
+                    evidence: err.message.clone(),
                 },
                 None if evaluation.gates.get(*key).copied().unwrap_or(false) => ReleaseCheck {
-                    name: (*key).to_string(),
+                    name: review_gate_check_name(key),
                     status: "PASS".to_string(),
                     evidence: path.to_string_lossy().to_string(),
                 },
                 None => ReleaseCheck {
-                    name: (*key).to_string(),
-                    status: "FAIL".to_string(),
+                    name: review_gate_check_name(key),
+                    status: "BLOCKED".to_string(),
                     evidence: format!("{label} ({key}) is not approved in {}", path.display()),
                 },
             })
@@ -217,12 +235,16 @@ fn review_gate_checks(manifest_path: Option<&Path>) -> Vec<ReleaseCheck> {
         Err(err) => REVIEW_GATES
             .iter()
             .map(|(key, _)| ReleaseCheck {
-                name: (*key).to_string(),
+                name: review_gate_check_name(key),
                 status: "FAIL".to_string(),
                 evidence: err.clone(),
             })
             .collect(),
     }
+}
+
+fn review_gate_check_name(key: &str) -> String {
+    format!("review_gate_{key}")
 }
 
 fn release_json(passed: bool, checks: &[ReleaseCheck]) -> String {

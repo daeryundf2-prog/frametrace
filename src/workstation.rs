@@ -1,7 +1,9 @@
 use crate::audit;
 use crate::case_db::{self, CaseDbSummary, InventoryFacet, InventoryFacetCounts};
+use crate::runtime_readiness;
 use crate::util::{compact_json_value_if_well_formed, json_escape, read_to_string};
 use crate::windows_prerequisites;
+use crate::workstation_contract;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -31,6 +33,7 @@ pub fn workstation_status_json(case_dir: &Path) -> Result<String, String> {
     let audit_chain_json =
         audit::audit_chain_statuses_json(&audit::media_audit_chain_statuses(case_dir));
     let artifacts_json = generated_artifacts_json(case_dir);
+    let runtime_readiness_json = runtime_readiness::runtime_readiness_json(case_dir)?;
     let windows_prerequisites_json = windows_prerequisites::status_json();
 
     Ok(format!(
@@ -38,7 +41,8 @@ pub fn workstation_status_json(case_dir: &Path) -> Result<String, String> {
 \"engine_source_of_truth\":true,\"gui_durable_state_allowed\":false,\
 \"case_dir\":\"{}\",\"case_manifest\":{},\"sqlite\":{},\"inventory\":{},\
 \"validation\":{},\"audit_chain\":{},\"generated_artifacts\":{},\
-\"engine_commands\":{},\"windows_prerequisites\":{},\"winui_contract\":{}}}",
+\"runtime_readiness\":{},\"gui_data_adapter\":{},\"engine_commands\":{},\
+\"windows_prerequisites\":{},\"winui_contract\":{}}}",
         json_escape(&case_dir.to_string_lossy()),
         manifest_json,
         sqlite_json,
@@ -46,9 +50,11 @@ pub fn workstation_status_json(case_dir: &Path) -> Result<String, String> {
         validation_json,
         audit_chain_json,
         artifacts_json,
+        runtime_readiness_json,
+        workstation_contract::gui_data_adapter_json(),
         ENGINE_COMMANDS_JSON,
         windows_prerequisites_json,
-        winui_contract_json()
+        workstation_contract::winui_contract_json()
     ))
 }
 
@@ -205,16 +211,6 @@ fn artifact_path_json(path: &Path) -> String {
         json_escape(&path.to_string_lossy()),
         path.is_file()
     )
-}
-
-fn winui_contract_json() -> String {
-    "{\"durable_mutation\":\"engine-command-only\",\
-\"state_owner\":\"rust-engine-sqlite-audit\",\
-\"inventory_transport\":\"paged-sqlite-query\",\
-\"large_case_full_json_load_allowed\":false,\
-\"candidate_promotion\":\"validate-artifact then confirm-playback\",\
-\"release_language\":\"report-defensible\"}"
-        .to_string()
 }
 
 fn extract_json_string(line: &str, key: &str) -> Option<String> {

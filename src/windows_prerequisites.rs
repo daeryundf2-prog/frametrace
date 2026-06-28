@@ -175,15 +175,36 @@ fn winui_build_receipt_is_valid(path: &Path) -> bool {
     compact.contains("\"dotnet_build\":\"pass\"") && compact.contains("\"dotnet_test\":\"pass\"")
 }
 
-fn command_available(command: &str) -> bool {
+pub(crate) fn command_available(command: &str) -> bool {
     let Some(path) = env::var_os("PATH") else {
         return false;
     };
     env::split_paths(&path).any(|dir| {
         command_candidates(&dir, command)
             .iter()
-            .any(|path| path.is_file())
+            .any(|path| command_candidate_available(path))
     })
+}
+
+fn command_candidate_available(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    executable_file(path)
+}
+
+#[cfg(unix)]
+fn executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    path.metadata()
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 fn command_candidates(dir: &Path, command: &str) -> Vec<PathBuf> {

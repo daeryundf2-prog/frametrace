@@ -19,6 +19,7 @@ pub mod qa;
 pub mod report;
 mod resource_monitor;
 pub mod review_bundle;
+pub mod runtime_readiness;
 pub mod scan;
 pub mod sha256;
 pub mod tool_policy;
@@ -30,3 +31,4 @@ pub mod windows_prerequisites;
 #[cfg(test)]
 mod windows_prerequisites_tests;
 pub mod workstation;
+pub mod workstation_contract;

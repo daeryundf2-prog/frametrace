@@ -47,6 +47,7 @@ fn review_manifest_rejects_done_status_without_typed_pass() {
       "status": "done",
       "artifact_path": "{}",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"
@@ -84,6 +85,7 @@ fn review_manifest_rejects_missing_artifact_path() {
       "status": "PASS",
       "artifact_path": "missing-review.json",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"
@@ -121,6 +123,7 @@ fn review_manifest_rejects_missing_cleanup_or_reviewer_metadata() {
       "status": "PASS",
       "artifact_path": "technical-review.json",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "cleanup_status": ""
     }
@@ -156,6 +159,7 @@ fn review_manifest_accepts_typed_artifact_backed_pass() {
       "status": "PASS",
       "artifact_path": "technical-review.json",
       "tool": "manual-review-recorder",
+      "evidence": "manual review artifact",
       "timestamp": "2026-06-24T00:00:00Z",
       "reviewer": "qa",
       "cleanup_status": "clean"

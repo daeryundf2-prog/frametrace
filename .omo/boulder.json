@@ -1,7 +1,27 @@
 {
   "schema_version": 2,
-  "active_work_id": "frametrace-production-hardening-review-plan-20260624",
+  "active_work_id": "frametrace-overall-completion-uplift-20260627",
   "works": {
+    "frametrace-overall-completion-uplift-20260627": {
+      "work_id": "frametrace-overall-completion-uplift-20260627",
+      "active_plan": ".omo/plans/frametrace-overall-completion-uplift-20260627.md",
+      "plan_name": "frametrace-overall-completion-uplift-20260627",
+      "session_ids": [
+        "codex:019f0323-5200-7963-b6bc-61fd1c751257"
+      ],
+      "status": "blocked",
+      "worktree_path": null,
+      "blocked_task": "T7. Complete T13 on real Windows or preserve the hard blocker",
+      "blocked_reason": "No real Windows 10/11 x64 MSVC host or safely triggerable Windows runner is available from this session. T8-T11 remain N/A and T12 release-decision.json remains BLOCKED until T7 passes on Windows.",
+      "blocked_receipt": ".omo/evidence/frametrace-overall-completion-uplift-20260627/task-07-windows-t13/BLOCKED-missing-windows-runner-20260628.json",
+      "stopped_tasks": [
+        "T8",
+        "T9",
+        "T10",
+        "T11"
+      ],
+      "terminal_decision": ".omo/evidence/frametrace-overall-completion-uplift-20260627/task-12-final-field-pilot/release-decision.json"
+    },
     "frametrace-production-hardening-review-plan-20260624": {
       "work_id": "frametrace-production-hardening-review-plan-20260624",
       "active_plan": ".omo/plans/frametrace-production-hardening-review-plan.md",

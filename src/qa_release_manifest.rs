@@ -7,7 +7,13 @@ use std::path::Path;
 #[derive(Debug)]
 pub(crate) struct ReviewManifestEvaluation {
     pub(crate) gates: HashMap<String, bool>,
-    pub(crate) errors: HashMap<String, String>,
+    pub(crate) errors: HashMap<String, ReviewGateError>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ReviewGateError {
+    pub(crate) status: String,
+    pub(crate) message: String,
 }
 
 pub(crate) fn evaluate_review_manifest(path: &Path) -> Result<ReviewManifestEvaluation, String> {
@@ -57,7 +63,7 @@ pub(crate) fn evaluate_review_manifest(path: &Path) -> Result<ReviewManifestEval
 pub(crate) fn read_review_manifest(path: &Path) -> Result<HashMap<String, bool>, String> {
     let evaluation = evaluate_review_manifest(path)?;
     if let Some(err) = evaluation.errors.values().next() {
-        return Err(err.clone());
+        return Err(err.message.clone());
     }
     Ok(evaluation.gates)
 }
@@ -74,6 +80,7 @@ struct ReviewGateEntry {
     status: String,
     artifact_path: String,
     tool: String,
+    evidence: String,
     timestamp: String,
     reviewer: Option<String>,
     operator: Option<String>,
@@ -81,22 +88,36 @@ struct ReviewGateEntry {
 }
 
 impl ReviewGateEntry {
-    fn validate(&self, manifest_path: &Path, key: &str) -> Result<(), String> {
+    fn validate(&self, manifest_path: &Path, key: &str) -> Result<(), ReviewGateError> {
         require_non_empty(key, "artifact_path", &self.artifact_path)?;
         require_non_empty(key, "tool", &self.tool)?;
+        require_non_empty(key, "evidence", &self.evidence)?;
         require_non_empty(key, "timestamp", &self.timestamp)?;
         require_non_empty(key, "cleanup_status", &self.cleanup_status)?;
-        if !self.status.eq_ignore_ascii_case("PASS") {
-            return Err(format!(
-                "review gate {key} has status `{}`; expected typed PASS artifact",
+        let status = normalized_status(&self.status).ok_or_else(|| ReviewGateError {
+            status: "FAIL".to_string(),
+            message: format!(
+                "review gate {key} has unsupported status `{}`; expected PASS, FAIL, or BLOCKED",
                 self.status
-            ));
+            ),
+        })?;
+        if status != "PASS" {
+            return Err(ReviewGateError {
+                status,
+                message: format!(
+                    "review gate {key} has status `{}`; expected typed PASS artifact",
+                    self.status
+                ),
+            });
         }
         if !self.cleanup_status.eq_ignore_ascii_case("clean") {
-            return Err(format!(
-                "review gate {key} cleanup_status `{}` is not clean",
-                self.cleanup_status
-            ));
+            return Err(ReviewGateError {
+                status: "FAIL".to_string(),
+                message: format!(
+                    "review gate {key} cleanup_status `{}` is not clean",
+                    self.cleanup_status
+                ),
+            });
         }
         if self
             .reviewer
@@ -111,30 +132,42 @@ impl ReviewGateEntry {
                 .filter(|value| !value.is_empty())
                 .is_none()
         {
-            return Err(format!(
-                "review gate {key} requires reviewer or operator metadata"
-            ));
+            return Err(ReviewGateError {
+                status: "FAIL".to_string(),
+                message: format!("review gate {key} requires reviewer or operator metadata"),
+            });
         }
         let artifact_path = manifest_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join(&self.artifact_path);
         if !artifact_path.is_file() {
-            return Err(format!(
-                "review gate {key} artifact_path `{}` does not exist",
-                artifact_path.display()
-            ));
+            return Err(ReviewGateError {
+                status: "FAIL".to_string(),
+                message: format!(
+                    "review gate {key} artifact_path `{}` does not exist",
+                    artifact_path.display()
+                ),
+            });
         }
         Ok(())
     }
 }
 
-fn require_non_empty(key: &str, field: &str, value: &str) -> Result<(), String> {
+fn require_non_empty(key: &str, field: &str, value: &str) -> Result<(), ReviewGateError> {
     if value.trim().is_empty() {
-        Err(format!("review gate {key} requires {field}"))
+        Err(ReviewGateError {
+            status: "FAIL".to_string(),
+            message: format!("review gate {key} requires {field}"),
+        })
     } else {
         Ok(())
     }
+}
+
+fn normalized_status(value: &str) -> Option<String> {
+    let status = value.trim().to_ascii_uppercase();
+    matches!(status.as_str(), "PASS" | "FAIL" | "BLOCKED").then_some(status)
 }
 
 fn normalize_review_gate(value: &str) -> String {
