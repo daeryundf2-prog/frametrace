@@ -490,7 +490,7 @@ function renderList() {
   });
   els.recordList.querySelectorAll(".row").forEach(row => {
     row.addEventListener("click", event => {
-      if (event.target.matches("input[type='checkbox']")) return;
+      if (event.target.closest(".check-cell")) return;
       state.activeId = row.dataset.id;
       render();
     });
@@ -519,7 +519,7 @@ function renderRow(record) {
   const recWhen = record.recTime ? " · " + fmtUnix(record.recTime) : "";
   const original = record.originalPath ? `<code title="복구 전 원본 경로">${highlightEscape(record.originalPath, state.query)}</code>` : "";
   return `<div class="row ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
-      <input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">
+      <label class="check-cell" title="선택"><input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}"></label>
       <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
       <span class="cell-main"><strong>${highlightEscape(record.name, state.query)}</strong>${original}<code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}${escapeHtml(recWhen)}</span>${markChip}${staleTag}</span>
       <span class="muted kind-cell">${escapeHtml(record.kind)}</span>
