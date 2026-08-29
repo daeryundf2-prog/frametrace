@@ -1,5 +1,5 @@
 use crate::audit;
-use crate::tool_policy::require_case_output_path;
+use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
 use crate::util::{json_escape, now_unix, read_to_string, unique_path};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -90,10 +90,15 @@ fn run_ffmpeg_export(
     options: &ExportOptions,
 ) -> Result<(), String> {
     let args = ffmpeg_export_args(source_path, output_path, options);
-    let output = Command::new("ffmpeg")
-        .args(&args)
-        .output()
-        .map_err(|err| format!("failed to run ffmpeg: {err}"))?;
+    let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    let output = Command::new(&ffmpeg).args(&args).output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            format!("failed to run ffmpeg: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
+        } else {
+            format!("failed to run ffmpeg: {err}")
+        }
+    })?;
 
     if !output.status.success() {
         return Err(format!(
@@ -228,7 +233,7 @@ fn write_export_log(
         options.format.extension(),
         optional_f64(options.start_seconds),
         optional_f64(options.duration_seconds),
-        json_escape(&audit::command_version("ffmpeg")),
+        json_escape(&command_version("ffmpeg", &["ffmpeg"], "-version")),
         audit::json_string_array(&args)
     );
     audit::append_chained_jsonl(&path, &line)

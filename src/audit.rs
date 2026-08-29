@@ -3,7 +3,6 @@ use crate::util::{json_escape, read_to_string, write_text};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditChainVerification {
@@ -16,22 +15,6 @@ pub fn digest_file(path: &Path) -> Result<String, String> {
         .map_err(|err| format!("failed to open {} for hashing: {err}", path.display()))?;
     sha256::digest_reader(BufReader::new(file))
         .map_err(|err| format!("failed to hash {}: {err}", path.display()))
-}
-
-pub fn command_version(binary: &str) -> String {
-    match Command::new(binary).arg("-version").output() {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()
-            .unwrap_or("unknown")
-            .trim()
-            .to_string(),
-        Ok(output) => format!(
-            "unavailable: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(err) => format!("unavailable: {err}"),
-    }
 }
 
 pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> {

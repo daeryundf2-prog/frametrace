@@ -6,7 +6,8 @@ Phase 2 review focused on local file handling, external command boundaries, repo
 
 | Severity | Finding | Status | Owner |
 | --- | --- | --- | --- |
-| High | User-configurable external binary names can execute arbitrary binaries through `Command::new`. | Fixed for ffprobe, libewf, and Sleuth Kit user-configurable binaries. | Security Owner |
+| High | User-configurable external binary names can execute arbitrary binaries through `Command::new`. | Fixed for ffprobe, ffmpeg, libewf, and Sleuth Kit user-configurable binaries. | Security Owner |
+| High | Bare tool names resolved by `Command::new` let the Windows loader search the current directory (binary planting from evidence media). | Fixed: bare names are resolved manually against PATH only, returning canonical paths or failing. | Security Owner |
 | High | Output paths can be directed outside the case workspace for some export/proxy/package/recovery operations. | Fixed for E01 raw export, video export, proxy, thumbnail, inode recovery, and recursive package traversal. | Security Owner |
 | High | Reports and viewer payloads expose full source paths by default. | Pending | Security Owner |
 | Medium | Generated HTML/JS serialization is manual and should move toward typed JSON serialization. | Pending | Engineering Lead |
@@ -16,12 +17,14 @@ Phase 2 review focused on local file handling, external command boundaries, repo
 
 ## Implemented Security Fixes
 
-1. Recursive package inputs now reject symlinks instead of following them.
-2. Required package files are validated before package generation.
-3. Invalid `ffprobe` JSON output now fails closed instead of corrupting JSON index output.
-4. Scan now rejects using the case directory as the source and skips nested case output directories.
-5. `src/tool_policy.rs` allowlists external tool binaries and rejects unapproved bare names.
-6. Explicit derived-output paths must resolve under the case directory for recovery/export artifacts.
+1. `ffmpeg` invocations (export, proxy, thumbnail, version logging) now go through the same tool-policy allowlist as ffprobe/libewf/Sleuth Kit, and the unvalidated `audit::command_version` helper was removed.
+2. Bare tool names are resolved manually against PATH (current directory excluded), removing the Windows binary-planting window for planted executables.
+3. Recursive package inputs now reject symlinks instead of following them.
+4. Required package files are validated before package generation.
+5. Invalid `ffprobe` JSON output now fails closed instead of corrupting JSON index output.
+6. Scan now rejects using the case directory as the source and skips nested case output directories.
+7. `src/tool_policy.rs` allowlists external tool binaries and rejects unapproved bare names.
+8. Explicit derived-output paths must resolve under the case directory for recovery/export artifacts.
 
 ## Remaining Security Work
 

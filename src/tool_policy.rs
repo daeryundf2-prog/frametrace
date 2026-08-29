@@ -11,7 +11,7 @@ pub fn resolve_tool_binary(input: &str, allowed_names: &[&str]) -> Result<String
     }
 
     if is_allowed_tool_name(trimmed, allowed_names) {
-        return Ok(trimmed.to_string());
+        return Ok(resolve_bare_tool_name(trimmed, allowed_names));
     }
 
     if !looks_like_path(trimmed) {
@@ -113,6 +113,49 @@ fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
     })
 }
 
+/// Bare tool names are resolved against PATH here instead of being handed to
+/// `Command::new`, because the Windows loader also searches the current
+/// directory, which would let a planted binary ride along with evidence media.
+/// When the tool cannot be found, the bare name is returned so the downstream
+/// failure message stays identical.
+fn resolve_bare_tool_name(name: &str, allowed_names: &[&str]) -> String {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    match find_in_path_dirs(name, allowed_names, &path_var) {
+        Some(path) => path.to_string_lossy().to_string(),
+        None => name.to_string(),
+    }
+}
+
+fn find_in_path_dirs(name: &str, allowed_names: &[&str], path_var: &str) -> Option<PathBuf> {
+    for dir in std::env::split_paths(path_var) {
+        // An empty PATH entry conventionally means the current directory.
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(dir) = dir.canonicalize() else {
+            continue;
+        };
+        for candidate_name in [name.to_string(), format!("{name}.exe")] {
+            let candidate = dir.join(&candidate_name);
+            let Ok(metadata) = std::fs::metadata(&candidate) else {
+                continue;
+            };
+            if !metadata.is_file() {
+                continue;
+            }
+            let Ok(canonical) = candidate.canonicalize() else {
+                continue;
+            };
+            if let Some(file_name) = canonical.file_name().and_then(|file| file.to_str())
+                && is_allowed_tool_name(file_name, allowed_names)
+            {
+                return Some(canonical);
+            }
+        }
+    }
+    None
+}
+
 fn looks_like_path(value: &str) -> bool {
     value.contains('/')
         || value.contains('\\')
@@ -159,8 +202,9 @@ fn nearest_existing_parent(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{require_case_output_path, resolve_tool_binary};
+    use super::{find_in_path_dirs, require_case_output_path, resolve_tool_binary};
     use std::fs;
+    use std::path::Path;
 
     #[test]
     fn rejects_unapproved_bare_tool_names() {
@@ -169,11 +213,44 @@ mod tests {
     }
 
     #[test]
-    fn accepts_allowed_bare_tool_names() {
-        assert_eq!(
-            resolve_tool_binary("ffprobe", &["ffprobe"]).unwrap(),
-            "ffprobe"
+    fn accepted_bare_tool_names_resolve_to_allowed_files_or_bare_name() {
+        let resolved = resolve_tool_binary("ffprobe", &["ffprobe"]).unwrap();
+        let file_name = Path::new(&resolved)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(resolved.as_str());
+        assert!(
+            file_name == "ffprobe"
+                || file_name
+                    .strip_suffix(".exe")
+                    .is_some_and(|without_exe| without_exe == "ffprobe"),
+            "unexpected resolution: {resolved}"
         );
+    }
+
+    #[test]
+    fn finds_tool_in_custom_path_dirs_without_current_directory() {
+        let base = std::env::temp_dir().join(format!(
+            "frametrace-path-search-test-{}",
+            std::process::id()
+        ));
+        let tool_dir = base.join("tools");
+        let dot_dir = base.join(".");
+        fs::create_dir_all(&tool_dir).unwrap();
+        fs::write(tool_dir.join("ffprobe.exe"), b"not really ffprobe").unwrap();
+
+        let custom_path = format!(";{};{}", dot_dir.display(), tool_dir.display());
+        let found = find_in_path_dirs("ffprobe", &["ffprobe"], &custom_path).unwrap();
+        assert_eq!(found.file_name().unwrap(), "ffprobe.exe");
+
+        // A directory that only holds an unapproved variant must not match.
+        let impostor_dir = base.join("impostor");
+        fs::create_dir_all(&impostor_dir).unwrap();
+        fs::write(impostor_dir.join("ffprobe.bat"), b"impostor").unwrap();
+        let impostor_path = impostor_dir.display().to_string();
+        assert!(find_in_path_dirs("ffprobe", &["ffprobe"], &impostor_path).is_none());
+
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]

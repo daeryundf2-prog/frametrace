@@ -50,15 +50,15 @@ pub struct BenchmarkOptions {
 pub fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), String> {
     create_case_layout(case_dir).map_err(|err| format!("failed to create case layout: {err}"))?;
 
-    let case_id = format!("FT-{}", now_unix()?);
+    let created_unix = now_unix()?;
     let manifest = CaseManifest {
         schema_version: 1,
-        case_id,
+        case_id: format!("FT-{created_unix}"),
         title: options
             .title
             .clone()
             .unwrap_or_else(|| "Untitled FrameTrace case".to_string()),
-        created_unix: now_unix()?,
+        created_unix,
         tool_name: env!("CARGO_PKG_NAME").to_string(),
         tool_version: env!("CARGO_PKG_VERSION").to_string(),
         platform: env::consts::OS.to_string(),

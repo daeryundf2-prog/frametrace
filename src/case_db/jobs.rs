@@ -2,6 +2,7 @@ use super::*;
 use crate::util::now_unix;
 use rusqlite::{Connection, params};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn start_job(
     case_dir: &Path,
@@ -14,7 +15,13 @@ pub fn start_job(
     init_schema(&conn)?;
     let now = now_unix()?;
     let job_number = count_table_rows(&conn, "jobs")?.saturating_add(1);
-    let job_id = format!("job_{now}_{job_number:06}");
+    // Sub-second precision keeps concurrent workers in the same second from
+    // generating the same primary key.
+    let subsec_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| format!("system time before UNIX epoch: {err}"))?
+        .subsec_nanos();
+    let job_id = format!("job_{now}_{subsec_nanos:09}_{job_number:06}");
     conn.execute(
         r#"
         INSERT INTO jobs (

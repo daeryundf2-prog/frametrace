@@ -1,5 +1,5 @@
 use crate::audit;
-use crate::tool_policy::require_case_output_path;
+use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
 use crate::util::{json_escape, now_unix, unique_path};
 use crate::video_export::{resolve_video_source, sanitize_filename};
 use std::path::{Path, PathBuf};
@@ -72,10 +72,18 @@ pub fn generate_proxy(
     ensure_parent(&output_path)?;
 
     let args = proxy_ffmpeg_args(&source_path, &output_path, options);
-    let output = Command::new("ffmpeg")
+    let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    let output = Command::new(&ffmpeg)
         .args(&args)
         .output()
-        .map_err(|err| format!("failed to run ffmpeg for proxy: {err}"))?;
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                format!("failed to run ffmpeg for proxy: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
+            } else {
+                format!("failed to run ffmpeg for proxy: {err}")
+            }
+        })?;
 
     if !output.status.success() {
         return Err(format!(
@@ -128,10 +136,18 @@ pub fn generate_thumbnail(
     ensure_parent(&output_path)?;
 
     let args = thumbnail_ffmpeg_args(&source_path, &output_path, options);
-    let output = Command::new("ffmpeg")
+    let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    let output = Command::new(&ffmpeg)
         .args(&args)
         .output()
-        .map_err(|err| format!("failed to run ffmpeg for thumbnail: {err}"))?;
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                format!("failed to run ffmpeg for thumbnail: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
+            } else {
+                format!("failed to run ffmpeg for thumbnail: {err}")
+            }
+        })?;
 
     if !output.status.success() {
         return Err(format!(
@@ -238,7 +254,7 @@ fn append_artifact_log(
         audit::optional_string(source_sha256.as_deref()),
         json_escape(&artifact.output_path.to_string_lossy()),
         json_escape(&output_sha256),
-        json_escape(&audit::command_version("ffmpeg")),
+        json_escape(&command_version("ffmpeg", &["ffmpeg"], "-version")),
         audit::json_string_array(command_args)
     );
     audit::append_chained_jsonl(&path, &line)
