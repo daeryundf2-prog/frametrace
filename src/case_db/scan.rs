@@ -121,6 +121,28 @@ pub(crate) fn upsert_indexed_record(
             record_json
         )
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, NULL, ?23)
+        ON CONFLICT(id) DO UPDATE SET
+            source_path = excluded.source_path,
+            file_url = excluded.file_url,
+            relative_path = excluded.relative_path,
+            extension = excluded.extension,
+            size_bytes = excluded.size_bytes,
+            modified_unix = excluded.modified_unix,
+            sha256 = excluded.sha256,
+            hash_status = excluded.hash_status,
+            confidence = excluded.confidence,
+            source_profile_json = excluded.source_profile_json,
+            duration_seconds = excluded.duration_seconds,
+            format_name = excluded.format_name,
+            video_codec = excluded.video_codec,
+            audio_codec = excluded.audio_codec,
+            width = excluded.width,
+            height = excluded.height,
+            ffprobe_ok = excluded.ffprobe_ok,
+            ffprobe_error = excluded.ffprobe_error,
+            ffprobe_json = excluded.ffprobe_json,
+            last_indexed_unix = excluded.last_indexed_unix,
+            record_json = excluded.record_json
         ON CONFLICT(source_path) DO UPDATE SET
             id = excluded.id,
             file_url = excluded.file_url,
@@ -208,6 +230,29 @@ pub(crate) fn upsert_scanned_record(
             record_json
         )
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+        ON CONFLICT(id) DO UPDATE SET
+            source_path = excluded.source_path,
+            file_url = excluded.file_url,
+            relative_path = excluded.relative_path,
+            extension = excluded.extension,
+            size_bytes = excluded.size_bytes,
+            modified_unix = excluded.modified_unix,
+            sha256 = excluded.sha256,
+            hash_status = excluded.hash_status,
+            confidence = excluded.confidence,
+            source_profile_json = excluded.source_profile_json,
+            duration_seconds = excluded.duration_seconds,
+            format_name = excluded.format_name,
+            video_codec = excluded.video_codec,
+            audio_codec = excluded.audio_codec,
+            width = excluded.width,
+            height = excluded.height,
+            ffprobe_ok = excluded.ffprobe_ok,
+            ffprobe_error = excluded.ffprobe_error,
+            ffprobe_json = excluded.ffprobe_json,
+            last_indexed_unix = excluded.last_indexed_unix,
+            last_scanned_unix = excluded.last_scanned_unix,
+            record_json = excluded.record_json
         ON CONFLICT(source_path) DO UPDATE SET
             id = excluded.id,
             file_url = excluded.file_url,

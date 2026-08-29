@@ -1,6 +1,6 @@
 use crate::audit;
 use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
-use crate::util::{json_escape, now_unix, read_to_string, unique_path};
+use crate::util::{canonicalize_display, json_escape, now_unix, read_to_string, unique_path};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -171,8 +171,7 @@ fn ffmpeg_export_args(
 pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
     let direct = PathBuf::from(selector);
     if direct.is_file() {
-        return direct
-            .canonicalize()
+        return canonicalize_display(&direct)
             .map_err(|err| format!("failed to canonicalize source path: {err}"));
     }
 
@@ -195,8 +194,7 @@ pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, 
         if selector == id || selector == source_path || selector == relative_path {
             let path = PathBuf::from(&source_path);
             if path.is_file() {
-                return path
-                    .canonicalize()
+                return canonicalize_display(&path)
                     .map_err(|err| format!("failed to canonicalize source path: {err}"));
             }
             return Err(format!(

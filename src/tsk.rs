@@ -1,6 +1,6 @@
 use crate::audit;
 use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
-use crate::util::{json_escape, now_unix, unique_path, write_text};
+use crate::util::{canonicalize_display, json_escape, now_unix, unique_path, write_text};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -308,8 +308,7 @@ pub fn recover_inode(
         ));
     }
 
-    let output_path = output_path
-        .canonicalize()
+    let output_path = canonicalize_display(&output_path)
         .map_err(|err| format!("failed to canonicalize recovered output: {err}"))?;
     let size_bytes = fs::metadata(&output_path)
         .map_err(|err| format!("failed to read recovered output metadata: {err}"))?

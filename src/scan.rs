@@ -3,7 +3,9 @@ use crate::detector;
 use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
 use crate::sha256;
-use crate::util::{json_escape, now_unix, read_to_string, unique_path, write_text};
+use crate::util::{
+    canonicalize_display, json_escape, now_unix, read_to_string, unique_path, write_text,
+};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, ErrorKind};
@@ -21,8 +23,7 @@ pub fn scan_folder(
     source_dir: &Path,
     options: &ScanOptions,
 ) -> Result<ScanResult, String> {
-    let source_dir = source_dir
-        .canonicalize()
+    let source_dir = canonicalize_display(source_dir)
         .map_err(|err| format!("failed to canonicalize source: {err}"))?;
     let excluded_dirs = excluded_case_dirs(case_dir, &source_dir)?;
     let collection = collect_video_candidates(&source_dir, options.max_depth, &excluded_dirs)?;
@@ -213,7 +214,10 @@ fn has_video_magic(path: &Path) -> bool {
         return false;
     }
 
-    buffer.windows(4).any(|window| window == b"ftyp")
+    // `ftyp` must sit in an MP4 box header at the file start (4-byte size then
+    // `ftyp`). Scanning the whole buffer would misclassify any file whose text
+    // merely contains "ftyp", such as our own JSONL audit logs.
+    buffer.len() >= 8 && &buffer[4..8] == b"ftyp"
         || buffer.starts_with(&[0x00, 0x00, 0x00, 0x01])
         || buffer.starts_with(&[0x00, 0x00, 0x01])
         || buffer.starts_with(b"RIFF")
@@ -280,7 +284,7 @@ struct IdRegistry {
 
 impl IdRegistry {
     fn id_for(&mut self, path: &Path) -> String {
-        let source_path = path.to_string_lossy().to_string();
+        let source_path = normalize_source_key(&path.to_string_lossy());
         if let Some(id) = self.ids_by_source.get(&source_path) {
             return id.clone();
         }
@@ -290,6 +294,15 @@ impl IdRegistry {
         self.ids_by_source.insert(source_path, id.clone());
         id
     }
+}
+
+/// Older case indexes stored source paths with the Windows extended-length
+/// prefix (`\\?\`), newer ones store clean paths. Matching on the normalized
+/// form keeps video ids stable across binary upgrades.
+fn normalize_source_key(source_path: &str) -> String {
+    crate::util::strip_windows_extended_prefix(Path::new(source_path))
+        .to_string_lossy()
+        .to_string()
 }
 
 #[derive(Debug, Clone)]
@@ -373,14 +386,14 @@ fn load_existing_video_ids(case_dir: &Path) -> Result<IdRegistry, String> {
         if let Some(number) = record.id.strip_prefix("vid_").and_then(parse_usize) {
             max_number = max_number.max(number);
         }
-        ids_by_source.insert(record.source_path, record.id);
+        ids_by_source.insert(normalize_source_key(&record.source_path), record.id);
     }
 
     for record in existing {
         if let Some(number) = record.id.strip_prefix("vid_").and_then(parse_usize) {
             max_number = max_number.max(number);
         }
-        ids_by_source.insert(record.source_path, record.id);
+        ids_by_source.insert(normalize_source_key(&record.source_path), record.id);
     }
 
     Ok(IdRegistry {
@@ -397,13 +410,19 @@ fn merge_existing_with_scan(
         .records
         .iter()
         .map(IndexedRecordLine::from_record)
-        .map(|record| (record.source_path.clone(), record))
+        .map(|record| (normalize_source_key(&record.source_path), record))
         .collect::<HashMap<_, _>>();
 
     let mut merged = Vec::new();
+    let mut updated_keys = std::collections::HashSet::new();
     for existing in load_existing_record_lines(case_dir)? {
-        if let Some(updated) = current_by_source.get(&existing.source_path) {
-            merged.push(updated.clone());
+        let key = normalize_source_key(&existing.source_path);
+        if let Some(updated) = current_by_source.get(&key) {
+            // Legacy and clean spellings of one file may both exist in old
+            // indexes; converge to a single refreshed record.
+            if updated_keys.insert(key.clone()) {
+                merged.push(updated.clone());
+            }
         } else {
             merged.push(existing.mark_stale(result.scanned_unix));
         }
@@ -411,10 +430,10 @@ fn merge_existing_with_scan(
 
     let existing_sources = merged
         .iter()
-        .map(|record| record.source_path.clone())
+        .map(|record| normalize_source_key(&record.source_path))
         .collect::<std::collections::HashSet<_>>();
     for record in result.records.iter().map(IndexedRecordLine::from_record) {
-        if !existing_sources.contains(&record.source_path) {
+        if !existing_sources.contains(&normalize_source_key(&record.source_path)) {
             merged.push(record);
         }
     }
@@ -844,6 +863,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_files_that_mention_ftyp_in_text() {
+        let path = std::env::temp_dir().join(format!(
+            "frametrace-false-magic-test-{}.jsonl",
+            std::process::id()
+        ));
+        fs::write(
+            &path,
+            r#"{"signature":"mp4-ftyp","note":"audit text mentioning ftyp boxes"}"#,
+        )
+        .unwrap();
+        assert!(!looks_like_video(&path));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
     fn rejects_scanning_the_case_directory_as_source() {
         let root = std::env::temp_dir().join(format!(
             "frametrace-case-source-reject-test-{}",
@@ -963,6 +997,59 @@ mod tests {
         assert!(merged[0].json_line.contains("\"stale_since_unix\":1"));
         assert!(merged[1].json_line.contains("\"id\":\"vid_000002\""));
         assert!(merged[1].json_line.contains("\"sha256\":\"abc\""));
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn upgrades_legacy_extended_prefix_paths_without_duplicating_ids() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-legacy-path-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+
+        let legacy = VideoRecord {
+            id: "vid_000001".to_string(),
+            source_path: PathBuf::from(r"\\?\C:\evidence\one.mp4"),
+            relative_path: "one.mp4".to_string(),
+            extension: "mp4".to_string(),
+            size_bytes: 1,
+            modified_unix: None,
+            sha256: None,
+            hash_status: "skipped".to_string(),
+            probe: ProbeSummary::skipped(),
+            confidence: "extension-candidate".to_string(),
+            source_profile: SourceProfile::generic_media("test"),
+        };
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            format!("{}\n", legacy.to_json()),
+        )
+        .unwrap();
+
+        let rescanned = VideoRecord {
+            source_path: PathBuf::from(r"C:\evidence\one.mp4"),
+            sha256: Some("abc".to_string()),
+            hash_status: "complete".to_string(),
+            ..legacy
+        };
+        let result = ScanResult {
+            source_path: PathBuf::from(r"C:\evidence"),
+            scanned_unix: 2,
+            video_count: 1,
+            total_bytes: 1,
+            warnings: Vec::new(),
+            options: ScanOptions::default(),
+            records: vec![rescanned],
+        };
+
+        let merged = merge_existing_with_scan(&case_dir, &result).unwrap();
+        assert_eq!(merged.len(), 1, "same file must not duplicate records");
+        assert!(merged[0].json_line.contains("\"id\":\"vid_000001\""));
+        assert!(merged[0].json_line.contains(r"C:\\evidence\\one.mp4"));
+        assert!(!merged[0].json_line.contains("index_status"));
 
         let _ = fs::remove_dir_all(case_dir);
     }

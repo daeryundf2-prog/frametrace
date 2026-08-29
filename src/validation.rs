@@ -2,7 +2,7 @@ use crate::audit;
 use crate::ffprobe;
 use crate::model::ProbeSummary;
 use crate::tool_policy::command_version;
-use crate::util::{json_escape, now_unix, read_to_string};
+use crate::util::{canonicalize_display, json_escape, now_unix, read_to_string};
 use crate::video_export::resolve_video_source;
 use std::path::{Path, PathBuf};
 
@@ -56,8 +56,7 @@ pub fn validate_artifact(
 fn resolve_validation_target(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
     let direct = PathBuf::from(selector);
     if direct.is_file() {
-        return direct
-            .canonicalize()
+        return canonicalize_display(&direct)
             .map_err(|err| format!("failed to canonicalize validation target: {err}"));
     }
 
@@ -76,8 +75,7 @@ fn resolve_validation_target(case_dir: &Path, selector: &str) -> Result<PathBuf,
             continue;
         };
         if path.is_file() {
-            return path
-                .canonicalize()
+            return canonicalize_display(&path)
                 .map_err(|err| format!("failed to canonicalize validation target: {err}"));
         }
     }

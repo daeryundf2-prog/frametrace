@@ -73,6 +73,24 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
 }
 
+/// Canonicalizes a path and strips the Windows extended-length prefix (`\\?\`)
+/// so user-facing output and audit logs keep ordinary paths. `\\?\UNC\` maps
+/// back to the leading `\\server\share` form.
+pub fn canonicalize_display(path: &Path) -> io::Result<PathBuf> {
+    Ok(strip_windows_extended_prefix(&path.canonicalize()?))
+}
+
+pub fn strip_windows_extended_prefix(path: &Path) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest.to_string())
+    } else {
+        path.to_path_buf()
+    }
+}
+
 pub fn json_escape(input: &str) -> String {
     let mut out = String::with_capacity(input.len() + 8);
     for ch in input.chars() {
@@ -108,7 +126,11 @@ pub fn json_for_script(input: &str) -> String {
 }
 
 pub fn path_to_file_url(path: &Path) -> String {
-    let path = path.canonicalize().unwrap_or_else(|_| PathBuf::from(path));
+    // `std::fs::canonicalize` returns `\\?\`-prefixed paths on Windows; those
+    // prefixes would survive into the URL and break it (`file:////?/C:/...`),
+    // so strip them before encoding.
+    let path =
+        strip_windows_extended_prefix(&path.canonicalize().unwrap_or_else(|_| PathBuf::from(path)));
     let raw = path.to_string_lossy().replace('\\', "/");
     if cfg!(windows) {
         format!("file:///{}", percent_encode_path(&raw))
@@ -185,9 +207,12 @@ fn percent_encode_path(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{compact_json_value_if_well_formed, json_escape, path_to_file_url, unique_path};
+    use super::{
+        canonicalize_display, compact_json_value_if_well_formed, json_escape, path_to_file_url,
+        strip_windows_extended_prefix, unique_path,
+    };
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn escapes_json_control_characters() {
@@ -195,10 +220,51 @@ mod tests {
     }
 
     #[test]
+    fn strips_windows_extended_prefixes() {
+        assert_eq!(
+            strip_windows_extended_prefix(Path::new(r"\\?\C:\Cases\a.mp4")),
+            PathBuf::from(r"C:\Cases\a.mp4")
+        );
+        assert_eq!(
+            strip_windows_extended_prefix(Path::new(r"\\?\UNC\server\share\a.mp4")),
+            PathBuf::from(r"\\server\share\a.mp4")
+        );
+        assert_eq!(
+            strip_windows_extended_prefix(Path::new(r"C:\Cases\a.mp4")),
+            PathBuf::from(r"C:\Cases\a.mp4")
+        );
+    }
+
+    #[test]
+    fn canonicalizes_to_display_paths() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-canonical-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let canonical = canonicalize_display(&dir).unwrap();
+        assert!(
+            !canonical.as_os_str().to_string_lossy().starts_with(r"\\?\"),
+            "unexpected extended prefix: {canonical:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn creates_file_url() {
         let url = path_to_file_url(Path::new("/tmp/a b.mp4"));
         assert!(url.starts_with("file://"));
         assert!(url.contains("a%20b.mp4"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn file_url_never_contains_extended_prefix() {
+        let url = path_to_file_url(Path::new(r"C:\Windows\System32\drivers\etc\hosts"));
+        assert!(
+            url.starts_with("file:///C:/Windows"),
+            "unexpected url: {url}"
+        );
+        assert!(!url.contains("%3F"), "unexpected encoded prefix: {url}");
     }
 
     #[test]

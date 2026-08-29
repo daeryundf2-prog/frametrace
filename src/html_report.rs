@@ -578,12 +578,27 @@ const els = {{
   validationList: document.getElementById("validationList")
 }};
 
-function normalizePath(value) {{ return String(value || "").replaceAll("\\\\", "/").toLowerCase(); }}
+function normalizePath(value) {{
+  const BS = String.fromCharCode(92);
+  const ext = BS + BS + "?" + BS;
+  let text = String(value || "");
+  if (text.slice(0, 4).toLowerCase() === ext) text = text.slice(4);
+  return text.split(BS).join("/").toLowerCase();
+}}
 function fileUrl(path) {{
+  const BS = String.fromCharCode(92);
+  const ext = BS + BS + "?" + BS;
+  const extUnc = ext + "unc" + BS;
   if (!path) return "";
-  if (String(path).startsWith("file:")) return path;
-  const normalized = String(path).replaceAll("\\\\", "/");
+  let value = String(path);
+  if (value.startsWith("file:")) return value;
+  // Older case logs may carry the Windows extended-length prefix; strip it
+  // before building a playable URL.
+  if (value.slice(0, 8).toLowerCase() === extUnc) value = BS + BS + value.slice(8);
+  else if (value.slice(0, 4).toLowerCase() === ext) value = value.slice(4);
+  const normalized = value.split(BS).join("/");
   if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encodeURI(normalized);
+  if (normalized.startsWith("//")) return "file:" + encodeURI(normalized);
   if (normalized.startsWith("/")) return "file://" + encodeURI(normalized);
   return encodeURI(normalized);
 }}
@@ -701,6 +716,8 @@ fn jsonl_to_array(jsonl: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::render_evidence_viewer_html;
+    use std::path::PathBuf;
+    use std::process::Command;
 
     #[test]
     fn evidence_viewer_includes_filesystem_recovery_records() {
@@ -711,5 +728,79 @@ mod tests {
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
         assert!(html.contains("inode_1304.bin"));
+    }
+
+    fn extract_script_blocks(html: &str) -> Vec<String> {
+        let mut blocks = Vec::new();
+        let mut rest = html;
+        while let Some(start) = rest.find("<script>") {
+            let after = &rest[start + "<script>".len()..];
+            let Some(end) = after.find("</script>") else {
+                break;
+            };
+            blocks.push(after[..end].to_string());
+            rest = &after[end..];
+        }
+        blocks
+    }
+
+    fn assert_script_blocks_parse_with_node(page_name: &str, html: &str) {
+        let Ok(node_version) = Command::new("node").arg("--version").output() else {
+            return; // node is optional locally; CI checks explicitly.
+        };
+        if !node_version.status.success() {
+            return;
+        }
+        for (index, script) in extract_script_blocks(html).into_iter().enumerate() {
+            let path: PathBuf = std::env::temp_dir().join(format!(
+                "frametrace-script-check-{}-{}-{}.js",
+                page_name,
+                index,
+                std::process::id()
+            ));
+            std::fs::write(&path, &script).expect("script temp file should write");
+            let output = Command::new("node")
+                .arg("--check")
+                .arg(&path)
+                .output()
+                .expect("node should run after a successful --version");
+            let _ = std::fs::remove_file(&path);
+            assert!(
+                output.status.success(),
+                "{page_name} script block {index} has a syntax error:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    fn generated_page_scripts_are_syntactically_valid() {
+        let manifest = r#"{"case_id":"FT-1","title":"테스트 케이스"}"#;
+        let index = r#"{"videos":[{"id":"vid_000001","source_path":"C:\\case\\a.mp4","file_url":"file:///C:/case/a.mp4","relative_path":"a.mp4","size_bytes":1,"source_profile":{"vendor":"v","parser":"p"},"ffprobe_ok":true}]}"#;
+        let carve = r#"{"id":"carve_000001","output_path":"\\\\?\\C:\\case\\carved\\a.mp4","signature":"mp4-ftyp","size_bytes":2,"sha256":"d","validation_status":"candidate-unvalidated"}"#;
+        let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"\\\\?\\C:\\case\\inode.bin","size_bytes":10,"sha256":"a","validation_status":"candidate-unvalidated"}"#;
+        let validation = r#"{"selector":"vid_000001","target_path":"C:\\case\\a.mp4","validation_status":"ffprobe-video-stream-confirmed"}"#;
+
+        assert_script_blocks_parse_with_node(
+            "review",
+            &crate::html_report::render_review_html(manifest, index),
+        );
+        assert_script_blocks_parse_with_node(
+            "viewer",
+            &render_evidence_viewer_html(manifest, index, carve, filesystem, validation),
+        );
+        assert_script_blocks_parse_with_node(
+            "report",
+            &crate::report::render_case_report(&crate::report::ReportInputs {
+                manifest_json: manifest,
+                index_json: index,
+                export_log_jsonl: "",
+                proxy_log_jsonl: "",
+                thumbnail_log_jsonl: "",
+                carve_log_jsonl: carve,
+                filesystem_log_jsonl: filesystem,
+                validation_log_jsonl: validation,
+            }),
+        );
     }
 }

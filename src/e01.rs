@@ -1,6 +1,6 @@
 use crate::audit;
 use crate::tool_policy::{command_version, require_case_output_path, resolve_tool_binary};
-use crate::util::{json_escape, now_unix, unique_path, write_text};
+use crate::util::{canonicalize_display, json_escape, now_unix, unique_path, write_text};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -157,8 +157,7 @@ pub fn import_e01(
             )
         })?;
     }
-    let raw_output_path = requested_raw_path
-        .canonicalize()
+    let raw_output_path = canonicalize_display(&requested_raw_path)
         .map_err(|err| format!("failed to canonicalize raw E01 output: {err}"))?;
     let raw_sha256 = audit::digest_file(&raw_output_path)?;
     let e01_sha256 = if options.hash_e01 {
@@ -209,8 +208,7 @@ pub fn import_e01(
 }
 
 fn canonical_e01_path(path: &Path) -> Result<PathBuf, String> {
-    let path = path
-        .canonicalize()
+    let path = canonicalize_display(path)
         .map_err(|err| format!("failed to canonicalize E01 path: {err}"))?;
     if !path.is_file() {
         return Err(format!("E01 path is not a file: {}", path.display()));

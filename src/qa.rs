@@ -42,18 +42,18 @@ pub fn accuracy_report(
     let indexed = read_indexed_evidence(case_dir)?;
     let indexed_by_source = indexed
         .iter()
-        .map(|item| (item.source_path.as_str(), item))
+        .map(|item| (normalize_evidence_path(&item.source_path), item))
         .collect::<HashMap<_, _>>();
     let expected_sources = expected
         .iter()
-        .map(|item| item.source_path.as_str())
+        .map(|item| normalize_evidence_path(&item.source_path))
         .collect::<HashSet<_>>();
 
     let mut true_positive = 0usize;
     let mut false_negative = 0usize;
     let mut hash_mismatch = 0usize;
     for item in &expected {
-        match indexed_by_source.get(item.source_path.as_str()) {
+        match indexed_by_source.get(normalize_evidence_path(&item.source_path).as_str()) {
             Some(indexed) if item.sha256.is_none() || item.sha256 == indexed.sha256 => {
                 true_positive += 1;
             }
@@ -66,7 +66,7 @@ pub fn accuracy_report(
     }
     let false_positive = indexed
         .iter()
-        .filter(|item| !expected_sources.contains(item.source_path.as_str()))
+        .filter(|item| !expected_sources.contains(&normalize_evidence_path(&item.source_path)))
         .count();
     let predicted_positive = true_positive + false_positive;
     let ground_truth_positive = expected.len();
@@ -374,6 +374,15 @@ fn release_markdown(passed: bool, checks: &[ReleaseCheck]) -> String {
         ));
     }
     text
+}
+
+/// Corpus manifests are written by external tooling, so the same file may be
+/// spelled with or without the Windows extended-length prefix that
+/// `std::fs::canonicalize` produces. Normalize both sides before comparing.
+fn normalize_evidence_path(source_path: &str) -> String {
+    crate::util::strip_windows_extended_prefix(Path::new(source_path))
+        .to_string_lossy()
+        .to_string()
 }
 
 fn read_expected_manifest(path: &Path) -> Result<Vec<ExpectedEvidence>, String> {
