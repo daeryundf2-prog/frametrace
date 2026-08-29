@@ -73,6 +73,15 @@ function fmtDuration(value) {
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
 }
 
+function statusLabel(status) {
+  if (status === "ffprobe-video-stream-confirmed") return "검증됨";
+  if (status === "ffprobe-confirmed") return "ffprobe 확인";
+  if (status === "validation-failed") return "검증 실패";
+  if (status === "candidate-unvalidated") return "미검증 후보";
+  if (status === "duplicate-candidate") return "중복 후보";
+  return status;
+}
+
 function statusClass(status) {
   if (status === "ffprobe-video-stream-confirmed" || status === "ffprobe-confirmed") return "ok";
   if (status === "validation-failed") return "failed";
@@ -315,9 +324,9 @@ function renderList() {
     const staleTag = record.indexStatus === "stale" ? ' <span class="muted">(stale)</span>' : "";
     return `<div class="row ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
       <input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">
-      <span class="badge ${statusClass(record.status)}">${escapeHtml(record.status)}</span>
-      <span><strong>${highlightEscape(record.name, state.query)}</strong><code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}</span>${markChip}${staleTag}</span>
-      <span class="muted">${escapeHtml(record.kind)}</span>
+      <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
+      <span class="cell-main"><strong>${highlightEscape(record.name, state.query)}</strong><code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}</span>${markChip}${staleTag}</span>
+      <span class="muted kind-cell">${escapeHtml(record.kind)}</span>
     </div>`;
   }).join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
 

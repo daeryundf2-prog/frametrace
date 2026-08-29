@@ -53,9 +53,11 @@ button.mini { height: 22px; font-size: 11px; padding: 0 8px; }
 .row.active { background: #edf8f5; box-shadow: inset 3px 0 0 var(--accent); }
 .row input[type="checkbox"] { margin: 3px 0 0; }
 .row strong, .row code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .cell-main { min-width: 0; overflow: hidden; }
+.mark-chip { margin-left: 4px; }
 code { font-family: var(--mono); font-size: 11px; word-break: break-all; }
 .muted { color: var(--muted); font-size: 12px; }
-.badge { display: inline-flex; align-items: center; max-width: 100%; min-height: 22px; border-radius: 999px; padding: 2px 8px; background: #e9eff6; color: #344054; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; max-width: 100%; min-height: 22px; border-radius: 999px; padding: 2px 8px; background: #e9eff6; color: #344054; font-size: 11px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge.candidate { background: #eeeafd; color: var(--candidate); }
 .badge.failed { background: #fff1ef; color: var(--danger); }
 .badge.ok { background: #edf8f1; color: var(--ok); }
@@ -109,6 +111,9 @@ body.narrow #panelInspector.open-drawer { display: grid; position: fixed; top: 7
 body.narrow .splitter { display: none; }
 body.narrow .viewer { grid-template-rows: minmax(360px, 60vh) auto; }
 body.stack .shell { grid-template-columns: minmax(0, 1fr); }
+body.stack .row { grid-template-columns: 18px 64px minmax(0, 1fr); }
+body.stack .row .kind-cell { display: none; }
+body.narrow .row { grid-template-columns: 18px 64px minmax(0, 1fr) 66px; }
 body.stack #panelInspector { display: none; }
 body.stack .splitter { display: none; }
 
