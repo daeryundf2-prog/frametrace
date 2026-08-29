@@ -26,7 +26,9 @@ jobs:
         with:
           node-version: 22
       - name: Viewer JavaScript syntax
-        run: node --check gui/evidence-viewer/app.js
+        run: |
+          node --check gui/evidence-viewer/app.js
+          node --check assets/evidence_viewer.js
       - name: QA performance smoke
         run: cargo run --locked -- qa performance target/frametrace-ci-performance --rows 1000
       - name: Release build
