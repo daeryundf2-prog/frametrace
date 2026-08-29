@@ -52,13 +52,30 @@ impl Sha256State {
 
     fn update(&mut self, input: &[u8]) {
         self.len_bits = self.len_bits.wrapping_add((input.len() as u64) * 8);
-        self.buffer.extend_from_slice(input);
-        while self.buffer.len() >= 64 {
-            let mut block = [0u8; 64];
-            block.copy_from_slice(&self.buffer[..64]);
-            self.compress(&block);
-            self.buffer.drain(..64);
+        let mut rest = input;
+
+        // Complete a pending block from a previous update without draining
+        // the buffer repeatedly (drain per block made large inputs quadratic).
+        if !self.buffer.is_empty() {
+            let need = 64 - self.buffer.len();
+            let take = need.min(rest.len());
+            self.buffer.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+            if self.buffer.len() == 64 {
+                let mut block = [0u8; 64];
+                block.copy_from_slice(&self.buffer);
+                self.compress(&block);
+                self.buffer.clear();
+            }
         }
+
+        let full = rest.len() - rest.len() % 64;
+        for chunk in rest[..full].chunks_exact(64) {
+            let mut block = [0u8; 64];
+            block.copy_from_slice(chunk);
+            self.compress(&block);
+        }
+        self.buffer.extend_from_slice(&rest[full..]);
     }
 
     fn finalize_hex(mut self) -> String {
@@ -144,7 +161,7 @@ impl Sha256State {
 
 #[cfg(test)]
 mod tests {
-    use super::{digest_bytes, digest_reader};
+    use super::{Sha256State, digest_bytes, digest_reader};
     use std::io::Cursor;
 
     #[test]
@@ -154,6 +171,23 @@ mod tests {
             digest,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[test]
+    fn hashes_identically_across_chunk_boundaries() {
+        let data: Vec<u8> = (0..200_000u32).map(|v| (v % 251) as u8).collect();
+        let expected = digest_bytes(&data);
+        for chunk in [1usize, 3, 63, 64, 65, 1000, 65536] {
+            let mut state = Sha256State::new();
+            for part in data.chunks(chunk) {
+                state.update(part);
+            }
+            assert_eq!(
+                state.finalize_hex(),
+                expected,
+                "mismatch at chunk size {chunk}"
+            );
+        }
     }
 
     #[test]
