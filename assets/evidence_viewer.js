@@ -281,7 +281,7 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
-  layout: Object.assign({ col1: 320, col3: 300, inspectorOpen: false, videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ col1: 420, col3: 300, inspectorOpen: false, videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -407,7 +407,7 @@ function saveLayoutSoon() {
 
 function applyLayout() {
   const layout = state.layout;
-  els.shell.style.setProperty("--col1", Math.max(220, layout.col1) + "px");
+  els.shell.style.setProperty("--col1", Math.max(280, layout.col1) + "px");
   els.shell.style.setProperty("--col3", Math.max(220, layout.col3) + "px");
   document.body.classList.toggle("theater", !!layout.theater);
   applyResponsive();
@@ -496,10 +496,17 @@ function renderList() {
     });
   });
   els.recordList.querySelectorAll("input[type='checkbox']").forEach(box => {
+    // change (not click): label-wrapped boxes can deliver a forwarded click
+    // on top of the direct one, which would toggle selection twice. change
+    // carries no modifier state, so click captures shift first.
+    let shiftRange = false;
     box.addEventListener("click", event => {
       event.stopPropagation();
+      shiftRange = event.shiftKey && !!state.lastCheckedKey;
+    });
+    box.addEventListener("change", () => {
       const id = box.dataset.check;
-      if (event.shiftKey && state.lastCheckedKey) {
+      if (shiftRange) {
         selectRange(state.lastCheckedKey, id, box.checked);
       } else if (box.checked) {
         state.selectedIds.add(id);
@@ -919,7 +926,7 @@ function setupSplitters() {
   const move = event => {
     if (!drag) return;
     if (drag.side === "left") {
-      state.layout.col1 = Math.max(220, Math.min(640, drag.start1 + event.clientX - drag.startX));
+      state.layout.col1 = Math.max(280, Math.min(760, drag.start1 + event.clientX - drag.startX));
     } else {
       state.layout.col3 = Math.max(220, Math.min(560, drag.start3 - (event.clientX - drag.startX)));
     }
@@ -935,7 +942,7 @@ function setupSplitters() {
   right.addEventListener("pointerdown", event => begin(event, "right"));
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", end);
-  left.addEventListener("dblclick", () => { state.layout.col1 = 320; saveLayout(); applyLayout(); });
+  left.addEventListener("dblclick", () => { state.layout.col1 = 420; saveLayout(); applyLayout(); });
   right.addEventListener("dblclick", () => { state.layout.col3 = 300; saveLayout(); applyLayout(); });
 }
 

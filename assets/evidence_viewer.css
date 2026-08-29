@@ -48,11 +48,11 @@ button.mini { height: 22px; font-size: 11px; padding: 0 8px; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .list { overflow: auto; max-height: calc(100vh - 318px); }
-.row { display: grid; grid-template-columns: 28px 74px 1fr 66px; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #e5ebe8; cursor: pointer; align-items: start; }
+.row { display: grid; grid-template-columns: 48px 74px 1fr 66px; gap: 8px; padding: 9px 10px; border-bottom: 1px solid #e5ebe8; cursor: pointer; align-items: start; }
 .row:hover { background: #f4f9f7; }
 .row.active { background: #edf8f5; box-shadow: inset 3px 0 0 var(--accent); }
-.check-cell { display: flex; align-items: center; justify-content: center; min-height: 44px; margin: -9px 0 -9px -10px; padding: 9px 4px; cursor: pointer; }
-.check-cell:hover { background: #d9ece8; }
+.check-cell { display: flex; align-items: center; justify-content: center; min-height: 48px; margin: -9px 0 -9px -10px; padding: 9px 8px; cursor: pointer; border-right: 1px solid #e5ebe8; }
+.check-cell:hover { background: #cfe7e2; box-shadow: inset 3px 0 0 var(--accent); }
 .check-cell input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .row strong, .row code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .cell-main { min-width: 0; overflow: hidden; }
@@ -113,9 +113,9 @@ body.narrow #panelInspector.open-drawer { display: grid; position: fixed; top: 7
 body.narrow .splitter { display: none; }
 body.narrow .viewer { grid-template-rows: minmax(360px, 60vh) auto; }
 body.stack .shell { grid-template-columns: minmax(0, 1fr); }
-body.stack .row { grid-template-columns: 28px 64px minmax(0, 1fr); }
+body.stack .row { grid-template-columns: 48px 64px minmax(0, 1fr); }
 body.stack .row .kind-cell { display: none; }
-body.narrow .row { grid-template-columns: 28px 64px minmax(0, 1fr) 66px; }
+body.narrow .row { grid-template-columns: 48px 64px minmax(0, 1fr) 66px; }
 body.stack #panelInspector { display: none; }
 body.stack .splitter { display: none; }
 
