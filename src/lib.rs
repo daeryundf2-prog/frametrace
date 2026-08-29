@@ -12,6 +12,7 @@ pub mod package;
 pub mod qa;
 pub mod report;
 pub mod scan;
+pub mod selection;
 pub mod sha256;
 pub mod tool_policy;
 pub mod tsk;

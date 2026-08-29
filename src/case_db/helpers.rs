@@ -24,3 +24,7 @@ pub(crate) fn u64_to_i64(value: u64) -> i64 {
 pub(crate) fn usize_to_i64(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
+
+pub(crate) fn i64_to_u64(value: i64) -> u64 {
+    value.max(0) as u64
+}

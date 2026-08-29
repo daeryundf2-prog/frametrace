@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub(crate) const SCHEMA_VERSION: &str = "2";
+pub(crate) const SCHEMA_VERSION: &str = "3";
 
 pub fn case_db_path(case_dir: &Path) -> PathBuf {
     case_dir.join("db/case.db")
@@ -150,19 +150,56 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
     match stored.as_deref() {
         None => {
             apply_schema_v2_indexes(conn)?;
+            apply_schema_v3_tables(conn)?;
             conn.execute(
                 "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
                 [SCHEMA_VERSION],
             )
             .map_err(|err| format!("failed to store SQLite schema version: {err}"))?;
         }
-        Some("1") => migrate_v1_to_v2(conn)?,
-        Some(SCHEMA_VERSION) => apply_schema_v2_indexes(conn)?,
+        Some("1") => {
+            migrate_v1_to_v2(conn)?;
+            migrate_v2_to_v3(conn)?;
+        }
+        Some("2") => migrate_v2_to_v3(conn)?,
+        Some(SCHEMA_VERSION) => {
+            apply_schema_v2_indexes(conn)?;
+            apply_schema_v3_tables(conn)?;
+        }
         Some(version) => {
             return Err(format!("unsupported SQLite schema version: {version}"));
         }
     }
     Ok(())
+}
+
+fn migrate_v2_to_v3(conn: &Connection) -> Result<(), String> {
+    backup_database(conn, "2", "3")?;
+    apply_schema_v3_tables(conn)?;
+    conn.execute(
+        "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION],
+    )
+    .map_err(|err| format!("failed to update SQLite schema version: {err}"))?;
+    Ok(())
+}
+
+fn apply_schema_v3_tables(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS review_marks (
+            record_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            marked_unix INTEGER NOT NULL,
+            record_path TEXT,
+            examiner TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS review_marks_status_idx
+            ON review_marks (status);
+        "#,
+    )
+    .map_err(|err| format!("failed to apply SQLite v3 review marks schema: {err}"))
 }
 
 fn migrate_v1_to_v2(conn: &Connection) -> Result<(), String> {
@@ -251,7 +288,7 @@ pub(crate) fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, 
 
 #[cfg(test)]
 mod tests {
-    use super::{SCHEMA_VERSION, case_db_path, init_schema, open_case_db};
+    use super::{SCHEMA_VERSION, case_db_path, init_schema, open_case_db, table_exists};
     use rusqlite::{Connection, OptionalExtension};
     use std::fs;
 
@@ -295,6 +332,7 @@ mod tests {
         init_schema(&conn).unwrap();
         assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
         assert!(index_exists(&conn, "videos_extension_modified_idx"));
+        assert!(table_exists(&conn, "review_marks").unwrap());
         let backup_exists = fs::read_dir(case_dir.join("db"))
             .unwrap()
             .filter_map(Result::ok)
@@ -303,6 +341,46 @@ mod tests {
                     .file_name()
                     .to_string_lossy()
                     .starts_with("case.db.backup-v1-to-v2-")
+            });
+        assert!(backup_exists);
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn migrates_v2_schema_to_v3_with_review_marks() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-schema-v2-migrate-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        let db_path = case_db_path(&case_dir);
+        let seed = Connection::open(&db_path).unwrap();
+        seed.execute_batch(
+            r#"
+            CREATE TABLE schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO schema_meta (key, value) VALUES ('schema_version', '2');
+            "#,
+        )
+        .unwrap();
+        drop(seed);
+
+        let conn = open_case_db(&case_dir).unwrap();
+        init_schema(&conn).unwrap();
+        assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
+        assert!(table_exists(&conn, "review_marks").unwrap());
+        let backup_exists = fs::read_dir(case_dir.join("db"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("case.db.backup-v2-to-v3-")
             });
         assert!(backup_exists);
 

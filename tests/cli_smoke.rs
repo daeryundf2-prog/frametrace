@@ -109,6 +109,42 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     assert_success(&run(&["package-case", path(&case_dir)]));
     assert_success(&run(&["inspect", path(&case_dir)]));
 
+    let selection_file = root.join("selection.json");
+    let fixture_id = "vid_000001";
+    fs::write(
+        &selection_file,
+        format!(
+            r#"{{"schema_version":1,"items":[{{"selector":"{fixture_id}","kind":"video","action":"export","format":"mp4"}}]}}"#
+        ),
+    )
+    .expect("selection file should be written");
+    let dry_run = run(&[
+        "export-batch",
+        path(&case_dir),
+        path(&selection_file),
+        "--dry-run",
+    ]);
+    assert_success(&dry_run);
+    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("would export"));
+
+    let marks_file = root.join("marks.json");
+    fs::write(
+        &marks_file,
+        r#"{"schema_version":1,"marks":[{"id":"vid_000001","status":"important","marked_unix":100}]}"#,
+    )
+    .expect("marks file should be written");
+    assert_success(&run(&["import-marks", path(&case_dir), path(&marks_file)]));
+    let marks_out = root.join("exported-marks.json");
+    assert_success(&run(&[
+        "export-marks",
+        path(&case_dir),
+        "--output",
+        path(&marks_out),
+    ]));
+    let exported = fs::read_to_string(&marks_out).expect("marks export should be readable");
+    assert!(exported.contains("vid_000001"));
+    assert!(exported.contains("important"));
+
     assert!(case_dir.join("db/video_index.json").is_file());
     assert!(case_dir.join("review/index.html").is_file());
     assert!(case_dir.join("review/evidence-viewer.html").is_file());

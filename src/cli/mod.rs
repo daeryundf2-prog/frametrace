@@ -189,6 +189,26 @@ pub enum Commands {
     },
     /// Verify a chained JSONL audit log and report tamper status
     VerifyAudit { log_path: PathBuf },
+    /// Batch-process a viewer selection file (export/proxy/thumbnail per item)
+    ExportBatch {
+        case_dir: PathBuf,
+        selection: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Batch-validate a viewer selection file with ffprobe
+    ValidateBatch {
+        case_dir: PathBuf,
+        selection: PathBuf,
+    },
+    /// Import reviewer marks exported from the evidence viewer into the case DB
+    ImportMarks { case_dir: PathBuf, marks: PathBuf },
+    /// Export stored reviewer marks as a JSON file for the viewer
+    ExportMarks {
+        case_dir: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Create a synthetic SQLite index benchmark database for scale validation
     BenchmarkDb {
         output_dir: PathBuf,
@@ -475,6 +495,17 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             validate_artifact(&case_dir, &selector, options)
         }
         Commands::VerifyAudit { log_path } => verify_audit(&log_path),
+        Commands::ExportBatch {
+            case_dir,
+            selection,
+            dry_run,
+        } => export_batch(&case_dir, &selection, dry_run),
+        Commands::ValidateBatch {
+            case_dir,
+            selection,
+        } => validate_batch(&case_dir, &selection),
+        Commands::ImportMarks { case_dir, marks } => import_marks(&case_dir, &marks),
+        Commands::ExportMarks { case_dir, output } => export_marks(&case_dir, output.as_deref()),
         Commands::BenchmarkDb { output_dir, rows } => {
             let options = BenchmarkOptions { rows };
             benchmark_db(&output_dir, options)

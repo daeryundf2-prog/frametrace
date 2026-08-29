@@ -9,7 +9,7 @@ use crate::package;
 use crate::report;
 use crate::scan;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
-use crate::util::{create_case_layout, now_unix, read_to_string, write_text};
+use crate::util::{create_case_layout, json_escape, now_unix, read_to_string, write_text};
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
@@ -591,6 +591,313 @@ pub fn verify_audit(log_path: &Path) -> Result<(), String> {
     println!("entries: {}", result.entries);
     println!("last entry sha256: {}", result.last_entry_sha256);
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct BatchOutcome {
+    selector: String,
+    action: &'static str,
+    status: &'static str,
+    detail: String,
+}
+
+pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let selection = crate::selection::parse_selection_file(selection_path)?;
+    let job = case_db::start_job(
+        case_dir,
+        "export-batch",
+        selection_path,
+        Some(selection.items.len() as u64),
+        &format!(
+            "{{\"dry_run\":{dry_run},\"items\":{}}}",
+            selection.items.len()
+        ),
+    )?;
+
+    let mut outcomes = Vec::new();
+    for item in &selection.items {
+        let action = crate::selection::effective_action(item);
+        let outcome = (|| -> Result<BatchOutcome, String> {
+            match action {
+                "export" => {
+                    let format = crate::selection::effective_format(item)?;
+                    let options = crate::video_export::ExportOptions {
+                        format: crate::video_export::ExportFormat::parse(format)?,
+                        start_seconds: None,
+                        duration_seconds: None,
+                        output_path: None,
+                    };
+                    if dry_run {
+                        let source =
+                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "dry-run-ok",
+                            detail: format!("would export {} from {}", format, source.display()),
+                        })
+                    } else {
+                        let result =
+                            video_export::export_video(case_dir, &item.selector, &options)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "ok",
+                            detail: result.output_path.display().to_string(),
+                        })
+                    }
+                }
+                "proxy" => {
+                    if dry_run {
+                        let source =
+                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "dry-run-ok",
+                            detail: format!("would generate proxy from {}", source.display()),
+                        })
+                    } else {
+                        let options = crate::artifacts::ProxyOptions::default();
+                        let result = artifacts::generate_proxy(case_dir, &item.selector, &options)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "ok",
+                            detail: result.output_path.display().to_string(),
+                        })
+                    }
+                }
+                "thumbnail" => {
+                    let options = crate::artifacts::ThumbnailOptions {
+                        time_seconds: item.time_seconds.unwrap_or(0.0),
+                        output_path: None,
+                    };
+                    if dry_run {
+                        let source =
+                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "dry-run-ok",
+                            detail: format!("would generate thumbnail from {}", source.display()),
+                        })
+                    } else {
+                        let result =
+                            artifacts::generate_thumbnail(case_dir, &item.selector, &options)?;
+                        Ok(BatchOutcome {
+                            selector: item.selector.clone(),
+                            action,
+                            status: "ok",
+                            detail: result.output_path.display().to_string(),
+                        })
+                    }
+                }
+                _ => Ok(BatchOutcome {
+                    selector: item.selector.clone(),
+                    action,
+                    status: "skipped",
+                    detail: format!(
+                        "action '{}' is not part of export-batch; use validate-batch",
+                        action
+                    ),
+                }),
+            }
+        })();
+        outcomes.push(match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => BatchOutcome {
+                selector: item.selector.clone(),
+                action,
+                status: "failed",
+                detail: error,
+            },
+        });
+    }
+
+    let ok = outcomes
+        .iter()
+        .filter(|o| o.status == "ok" || o.status == "dry-run-ok")
+        .count();
+    let failed = outcomes.iter().filter(|o| o.status == "failed").count();
+    let skipped = outcomes.iter().filter(|o| o.status == "skipped").count();
+
+    if !dry_run {
+        let line = format!(
+            "{{\"schema_version\":1,\"event\":\"export-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"skipped\":{},\"results\":{}}}",
+            json_escape(&selection_path.display().to_string()),
+            outcomes.len(),
+            ok,
+            failed,
+            skipped,
+            outcomes_json(&outcomes),
+        );
+        audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
+    }
+
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        outcomes.len() as u64,
+        if dry_run {
+            "export-batch dry run"
+        } else {
+            "export-batch completed"
+        },
+    )?;
+
+    println!(
+        "export batch {}",
+        if dry_run { "dry run" } else { "complete" }
+    );
+    println!("requested: {}", outcomes.len());
+    println!("ok: {ok}");
+    println!("failed: {failed}");
+    println!("skipped: {skipped}");
+    for outcome in &outcomes {
+        println!(
+            "  [{}] {} ({}): {}",
+            outcome.status, outcome.selector, outcome.action, outcome.detail
+        );
+    }
+    Ok(())
+}
+
+pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let selection = crate::selection::parse_selection_file(selection_path)?;
+    let job = case_db::start_job(
+        case_dir,
+        "validate-batch",
+        selection_path,
+        Some(selection.items.len() as u64),
+        &format!("{{\"items\":{}}}", selection.items.len()),
+    )?;
+
+    let mut outcomes = Vec::new();
+    for item in &selection.items {
+        let options = ValidationOptions::default();
+        let outcome = validation::validate_artifact(case_dir, &item.selector, &options);
+        outcomes.push(match outcome {
+            Ok(result) => BatchOutcome {
+                selector: item.selector.clone(),
+                action: "validate",
+                status: if result.validation_status == "validation-failed" {
+                    "failed"
+                } else {
+                    "ok"
+                },
+                detail: format!("{} ({})", result.validation_status, result.target_sha256),
+            },
+            Err(error) => BatchOutcome {
+                selector: item.selector.clone(),
+                action: "validate",
+                status: "failed",
+                detail: error,
+            },
+        });
+    }
+
+    let ok = outcomes.iter().filter(|o| o.status == "ok").count();
+    let failed = outcomes.iter().filter(|o| o.status == "failed").count();
+    let line = format!(
+        "{{\"schema_version\":1,\"event\":\"validate-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"results\":{}}}",
+        json_escape(&selection_path.display().to_string()),
+        outcomes.len(),
+        ok,
+        failed,
+        outcomes_json(&outcomes),
+    );
+    audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        outcomes.len() as u64,
+        "validate-batch completed",
+    )?;
+
+    println!("validate batch complete");
+    println!("requested: {}", outcomes.len());
+    println!("ok: {ok}");
+    println!("failed: {failed}");
+    for outcome in &outcomes {
+        println!(
+            "  [{}] {}: {}",
+            outcome.status, outcome.selector, outcome.detail
+        );
+    }
+    Ok(())
+}
+
+pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let marks_file = crate::selection::parse_marks_file(marks_path)?;
+    let rows = marks_file
+        .marks
+        .iter()
+        .map(|entry| case_db::ReviewMarkRow {
+            record_id: entry.id.clone(),
+            status: entry.status.clone(),
+            marked_unix: entry.marked_unix.unwrap_or_else(|| now_unix().unwrap_or(0)),
+            record_path: None,
+            examiner: None,
+        })
+        .collect::<Vec<_>>();
+    let stored = case_db::upsert_review_marks(case_dir, &rows)?;
+    println!("marks imported");
+    println!("source: {}", marks_path.display());
+    println!("marks stored: {stored}");
+    println!("sqlite: {}", case_db::case_db_path(case_dir).display());
+    Ok(())
+}
+
+pub fn export_marks(case_dir: &Path, output: Option<&Path>) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let marks = case_db::load_review_marks(case_dir)?;
+    let entries = marks
+        .iter()
+        .map(|mark| {
+            format!(
+                "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}}}",
+                crate::util::json_escape(&mark.record_id),
+                crate::util::json_escape(&mark.status),
+                mark.marked_unix
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n    ");
+    let text = format!(
+        "{{\n  \"schema_version\": 1,\n  \"case_id\": null,\n  \"exported_unix\": {},\n  \"marks\": [\n    {}\n  ]\n}}\n",
+        now_unix()?,
+        entries
+    );
+    let output_path = output
+        .map(|path| path.to_path_buf())
+        .unwrap_or_else(|| case_dir.join("db/review-marks.json"));
+    write_text(&output_path, &text)
+        .map_err(|err| format!("failed to write marks export: {err}"))?;
+    println!("marks exported");
+    println!("marks: {}", marks.len());
+    println!("output: {}", output_path.display());
+    Ok(())
+}
+
+fn outcomes_json(outcomes: &[BatchOutcome]) -> String {
+    let items = outcomes
+        .iter()
+        .map(|outcome| {
+            format!(
+                "{{\"selector\":\"{}\",\"action\":\"{}\",\"status\":\"{}\",\"detail\":\"{}\"}}",
+                crate::util::json_escape(&outcome.selector),
+                crate::util::json_escape(outcome.action),
+                crate::util::json_escape(outcome.status),
+                crate::util::json_escape(&outcome.detail),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{items}]")
 }
 
 pub fn inspect(case_dir: &Path) -> Result<(), String> {
