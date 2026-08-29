@@ -12,7 +12,7 @@ const validationLog = Array.isArray(DATA.validationLog) ? DATA.validationLog : [
 const BS = String.fromCharCode(92);
 const EXT_PREFIX = BS + BS + "?" + BS;
 const EXT_UNC = EXT_PREFIX + "unc" + BS;
-const LAYOUT_KEY = "ft.viewer." + (manifest.case_id || "case") + ".layout";
+const LAYOUT_KEY = "ft.viewer." + (manifest.case_id || "case") + ".layout.v2";
 const MARKS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".marks";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
 
@@ -281,7 +281,7 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
-  layout: Object.assign({ col1: 420, col3: 300, inspectorOpen: false, videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ col1: 50, col1Unit: "%", col3: 300, inspectorOpen: false, videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -395,8 +395,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { col1, col3, inspectorOpen, videoMode, videoZoom, theater } = state.layout;
-  storageSet(LAYOUT_KEY, { col1, col3, inspectorOpen, videoMode, videoZoom, theater });
+  const { col1, col1Unit, col3, inspectorOpen, videoMode, videoZoom, theater } = state.layout;
+  storageSet(LAYOUT_KEY, { col1, col1Unit, col3, inspectorOpen, videoMode, videoZoom, theater });
 }
 
 let layoutSaveTimer = null;
@@ -407,7 +407,10 @@ function saveLayoutSoon() {
 
 function applyLayout() {
   const layout = state.layout;
-  els.shell.style.setProperty("--col1", Math.max(280, layout.col1) + "px");
+  const col1 = layout.col1Unit === "%"
+    ? `${Math.max(15, Math.min(80, layout.col1))}%`
+    : `${Math.max(280, layout.col1)}px`;
+  els.shell.style.setProperty("--col1", col1);
   els.shell.style.setProperty("--col3", Math.max(220, layout.col3) + "px");
   document.body.classList.toggle("theater", !!layout.theater);
   applyResponsive();
@@ -919,14 +922,25 @@ function setupSplitters() {
   const right = document.getElementById("splitterRight");
   let drag = null;
   const begin = (event, side) => {
-    drag = { side, startX: event.clientX, start1: state.layout.col1, start3: state.layout.col3 };
+    drag = {
+      side,
+      startX: event.clientX,
+      start1: state.layout.col1,
+      start3: state.layout.col3,
+      shellWidth: Math.max(1, els.shell.clientWidth)
+    };
     event.target.classList.add("dragging");
     event.preventDefault();
   };
   const move = event => {
     if (!drag) return;
     if (drag.side === "left") {
-      state.layout.col1 = Math.max(280, Math.min(760, drag.start1 + event.clientX - drag.startX));
+      if (state.layout.col1Unit === "%") {
+        state.layout.col1 = Math.max(15, Math.min(80,
+          drag.start1 + ((event.clientX - drag.startX) / drag.shellWidth) * 100));
+      } else {
+        state.layout.col1 = Math.max(280, Math.min(760, drag.start1 + event.clientX - drag.startX));
+      }
     } else {
       state.layout.col3 = Math.max(220, Math.min(560, drag.start3 - (event.clientX - drag.startX)));
     }
@@ -942,7 +956,7 @@ function setupSplitters() {
   right.addEventListener("pointerdown", event => begin(event, "right"));
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", end);
-  left.addEventListener("dblclick", () => { state.layout.col1 = 420; saveLayout(); applyLayout(); });
+  left.addEventListener("dblclick", () => { state.layout.col1 = 50; state.layout.col1Unit = "%"; saveLayout(); applyLayout(); });
   right.addEventListener("dblclick", () => { state.layout.col3 = 300; saveLayout(); applyLayout(); });
 }
 
