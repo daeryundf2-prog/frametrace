@@ -35,7 +35,7 @@ pub fn validate_artifact(
     selector: &str,
     options: &ValidationOptions,
 ) -> Result<ValidationResult, String> {
-    let target_path = resolve_validation_target(case_dir, selector)?;
+    let target_path = resolve_artifact_path(case_dir, selector)?;
     let validated_unix = now_unix()?;
     let target_sha256 = audit::digest_file(&target_path)?;
     let probe = ffprobe::probe_with_binary(&options.ffprobe_bin, &target_path);
@@ -53,7 +53,10 @@ pub fn validate_artifact(
     Ok(result)
 }
 
-fn resolve_validation_target(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
+/// Resolves an indexed video id, artifact id, inode recovery id, or direct
+/// path to an existing file. Shared by validate-artifact and the batch
+/// commands so carved/recovered selectors work everywhere.
+pub fn resolve_artifact_path(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
     let direct = PathBuf::from(selector);
     if direct.is_file() {
         return canonicalize_display(&direct)

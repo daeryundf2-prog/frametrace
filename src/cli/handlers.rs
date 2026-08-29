@@ -601,6 +601,33 @@ struct BatchOutcome {
     detail: String,
 }
 
+/// Selection items may reference indexed videos (vid_*), carved candidates
+/// (carve_*), inode recoveries (inode:*), or direct paths. Indexed lookup
+/// comes first; artifact-log resolution covers the rest.
+fn resolve_batch_selector(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
+    crate::video_export::resolve_video_source(case_dir, selector)
+        .or_else(|_| crate::validation::resolve_artifact_path(case_dir, selector))
+}
+
+/// Names batch outputs after the selection item (not the resolved source
+/// path, which would produce path-mangled filenames).
+fn batch_output_path(
+    case_dir: &Path,
+    relative_dir: &str,
+    selector: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    let unix = now_unix()?;
+    Ok(crate::util::unique_path(&case_dir.join(relative_dir).join(
+        format!(
+            "{}_{}.{}",
+            crate::video_export::sanitize_filename(selector),
+            unix,
+            extension
+        ),
+    )))
+}
+
 pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let selection = crate::selection::parse_selection_file(selection_path)?;
@@ -622,24 +649,28 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
             match action {
                 "export" => {
                     let format = crate::selection::effective_format(item)?;
-                    let options = crate::video_export::ExportOptions {
-                        format: crate::video_export::ExportFormat::parse(format)?,
-                        start_seconds: None,
-                        duration_seconds: None,
-                        output_path: None,
-                    };
+                    let resolved = resolve_batch_selector(case_dir, &item.selector)?;
                     if dry_run {
-                        let source =
-                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
                             status: "dry-run-ok",
-                            detail: format!("would export {} from {}", format, source.display()),
+                            detail: format!("would export {} from {}", format, resolved.display()),
                         })
                     } else {
-                        let result =
-                            video_export::export_video(case_dir, &item.selector, &options)?;
+                        let options = crate::video_export::ExportOptions {
+                            format: crate::video_export::ExportFormat::parse(format)?,
+                            start_seconds: None,
+                            duration_seconds: None,
+                            output_path: Some(batch_output_path(
+                                case_dir,
+                                "artifacts/clips",
+                                &item.selector,
+                                format,
+                            )?),
+                        };
+                        let selector = resolved.display().to_string();
+                        let result = video_export::export_video(case_dir, &selector, &options)?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
@@ -649,18 +680,29 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                     }
                 }
                 "proxy" => {
+                    let resolved = resolve_batch_selector(case_dir, &item.selector)?;
                     if dry_run {
-                        let source =
-                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
                             status: "dry-run-ok",
-                            detail: format!("would generate proxy from {}", source.display()),
+                            detail: format!("would generate proxy from {}", resolved.display()),
                         })
                     } else {
-                        let options = crate::artifacts::ProxyOptions::default();
-                        let result = artifacts::generate_proxy(case_dir, &item.selector, &options)?;
+                        let options = crate::artifacts::ProxyOptions {
+                            output_path: Some(batch_output_path(
+                                case_dir,
+                                "artifacts/proxies",
+                                &item.selector,
+                                "mp4",
+                            )?),
+                            ..crate::artifacts::ProxyOptions::default()
+                        };
+                        let result = artifacts::generate_proxy(
+                            case_dir,
+                            &resolved.display().to_string(),
+                            &options,
+                        )?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
@@ -670,22 +712,29 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                     }
                 }
                 "thumbnail" => {
-                    let options = crate::artifacts::ThumbnailOptions {
-                        time_seconds: item.time_seconds.unwrap_or(0.0),
-                        output_path: None,
-                    };
+                    let resolved = resolve_batch_selector(case_dir, &item.selector)?;
                     if dry_run {
-                        let source =
-                            crate::video_export::resolve_video_source(case_dir, &item.selector)?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
                             status: "dry-run-ok",
-                            detail: format!("would generate thumbnail from {}", source.display()),
+                            detail: format!("would generate thumbnail from {}", resolved.display()),
                         })
                     } else {
-                        let result =
-                            artifacts::generate_thumbnail(case_dir, &item.selector, &options)?;
+                        let options = crate::artifacts::ThumbnailOptions {
+                            time_seconds: item.time_seconds.unwrap_or(0.0),
+                            output_path: Some(batch_output_path(
+                                case_dir,
+                                "artifacts/thumbnails",
+                                &item.selector,
+                                "jpg",
+                            )?),
+                        };
+                        let result = artifacts::generate_thumbnail(
+                            case_dir,
+                            &resolved.display().to_string(),
+                            &options,
+                        )?;
                         Ok(BatchOutcome {
                             selector: item.selector.clone(),
                             action,
