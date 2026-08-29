@@ -266,12 +266,14 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let fls_entries = latest_fls_entries_jsonl(case_dir);
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
         &carve_log,
         &filesystem_log,
         &validation_log,
+        &fls_entries,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(&evidence_viewer_path, &evidence_viewer)
@@ -982,6 +984,30 @@ pub fn inspect(case_dir: &Path) -> Result<(), String> {
         None => println!("sqlite: not created yet"),
     }
     Ok(())
+}
+
+/// Recovers-inode outputs are named inode_*.bin, but the Sleuth Kit listing
+/// keeps each inode's original path (with recorder timestamps and channels).
+/// Pass the newest listing to the viewer so recovered rows can show original
+/// names and recording times.
+fn latest_fls_entries_jsonl(case_dir: &Path) -> String {
+    let entries_dir = case_dir.join("db/filesystem");
+    let Ok(entries) = std::fs::read_dir(&entries_dir) else {
+        return String::new();
+    };
+    let best = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("tsk-files-") && name.ends_with(".jsonl"))
+        })
+        .max();
+    let Some(path) = best else {
+        return String::new();
+    };
+    read_to_string(&path).unwrap_or_default()
 }
 
 fn ensure_case(case_dir: &Path) -> Result<(), String> {

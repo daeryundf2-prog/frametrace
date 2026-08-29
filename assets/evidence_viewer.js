@@ -18,6 +18,83 @@ const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
 
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 
+const flsEntryByInode = new Map();
+(DATA.flsEntries || []).forEach(entry => {
+  if (entry.inode != null) flsEntryByInode.set(String(entry.inode), entry);
+});
+
+const TIME_PATTERNS = [
+  { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])[:_.\-]?([0-5]\d)[:_.\-]?([0-5]\d)/, hasTime: true },
+  { re: /(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])([0-5]\d)([0-5]\d)/, hasTime: true },
+  { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])(?!\d)/, hasTime: false }
+];
+
+function parseTimeFromName(name) {
+  const text = String(name || "");
+  for (const pattern of TIME_PATTERNS) {
+    const match = text.match(pattern.re);
+    if (!match) continue;
+    const [year, month, day] = [match[1], match[2], match[3]];
+    const hh = match[4] ?? "00";
+    const mm = match[5] ?? "00";
+    const ss = match[6] ?? "00";
+    const ts = new Date(+year, +month - 1, +day, +hh, +mm, +ss).getTime() / 1000;
+    if (Number.isFinite(ts)) {
+      return { ts, date: `${year}-${month}-${day}`, source: "name" };
+    }
+  }
+  return null;
+}
+
+function recordingTimeFor(record) {
+  for (const candidate of [record.originalPath, record.name, record.path]) {
+    const parsed = parseTimeFromName(candidate);
+    if (parsed) return parsed;
+  }
+  if (record.kind === "video" && record.modifiedUnix) {
+    const day = new Date(record.modifiedUnix * 1000).toLocaleDateString("sv-SE");
+    return { ts: record.modifiedUnix, date: day, source: "mtime" };
+  }
+  return null;
+}
+
+function channelFor(record) {
+  const name = `${record.originalPath || ""} ${record.name || ""}`;
+  let match = name.match(/[_\-. ]([FRIB])(?:[_.\- ]|[a-z0-9]*$)/i);
+  if (match) {
+    const code = match[1].toUpperCase();
+    return { F: "전방(F)", R: "후방(R)", I: "내부(I)", B: "후방2(B)" }[code] || code;
+  }
+  if (/front/i.test(name)) return "전방(F)";
+  if (/rear/i.test(name)) return "후방(R)";
+  if (/interior|inside/i.test(name)) return "내부(I)";
+  return null;
+}
+
+function prefixFor(record) {
+  const name = String(record.originalPath || record.name || "");
+  const match = name.match(/[A-Za-z가-힣_\-]+/);
+  return match ? match[0].replace(/[_\-]+$/, "") || "기타" : "기타";
+}
+
+function originalPathFor(record) {
+  if (record.inode && flsEntryByInode.has(String(record.inode))) {
+    return flsEntryByInode.get(String(record.inode)).path || "";
+  }
+  // Recovered outputs are named inode_<num>.bin; map that back to the
+  // original path recorded by inspect-image.
+  const match = String(record.name || "").match(/inode_(\d+)/);
+  if (match && flsEntryByInode.has(match[1])) {
+    return flsEntryByInode.get(match[1]).path || "";
+  }
+  return "";
+}
+
+function fmtUnix(value) {
+  if (!Number.isFinite(value)) return "-";
+  return new Date(value * 1000).toLocaleString();
+}
+
 function normalizePath(value) {
   let text = String(value || "");
   if (text.slice(0, 4).toLowerCase() === EXT_PREFIX) text = text.slice(4);
@@ -137,6 +214,8 @@ const records = [
       size: video.size_bytes,
       note: validation?.validation_note || video.source_profile?.recommended_action || "-",
       indexStatus: video.index_status || "active",
+      modifiedUnix: video.modified_unix,
+      inode: video.inode,
       validation
     };
   }),
@@ -162,6 +241,7 @@ const records = [
     };
   }),
   ...recoveredFilesystemLog.map(item => {
+    const original = item.inode && flsEntryByInode.get(String(item.inode));
     const validation = validationsByPath.get(normalizePath(item.output_path));
     return {
       id: `inode:${item.partition_offset ?? 0}:${item.inode || item.output_path}`,
@@ -178,11 +258,23 @@ const records = [
       size: item.size_bytes,
       note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
       offset: item.partition_offset,
+      inode: item.inode,
+      originalPath: original?.path || "",
       indexStatus: "active",
       validation
     };
   })
 ];
+
+records.forEach(record => {
+  record.originalPath = record.originalPath || originalPathFor(record);
+  const rec = recordingTimeFor(record);
+  record.recTime = rec ? rec.ts : null;
+  record.recDay = rec ? rec.date : null;
+  record.recSource = rec ? rec.source : null;
+  record.channel = channelFor(record);
+  record.prefix = prefixFor(record);
+});
 
 const state = {
   activeId: records[0]?.id || null,
@@ -195,7 +287,12 @@ const state = {
   query: "",
   kind: "",
   status: "",
-  chip: ""
+  chip: "",
+  sortBy: "id",
+  groupBy: "none",
+  dateFrom: "",
+  dateTo: "",
+  collapsedGroups: new Set()
 };
 
 const els = {
@@ -224,7 +321,13 @@ const els = {
   selectionCount: document.getElementById("selectionCount"),
   videoMode: document.getElementById("videoMode"),
   videoZoom: document.getElementById("videoZoom"),
-  shell: document.getElementById("shell")
+  shell: document.getElementById("shell"),
+  sortBy: document.getElementById("sortBy"),
+  groupBy: document.getElementById("groupBy"),
+  dateFrom: document.getElementById("dateFrom"),
+  dateTo: document.getElementById("dateTo"),
+  dayHistogram: document.getElementById("dayHistogram"),
+  periodLabel: document.getElementById("periodLabel")
 };
 
 const PRESET_CHIPS = [
@@ -238,9 +341,14 @@ const PRESET_CHIPS = [
 ];
 
 function filteredRecords() {
-  return records.filter(record => {
+  const list = records.filter(record => {
     if (state.kind && record.kind !== state.kind) return false;
     if (state.status && record.status !== state.status) return false;
+    if (state.dateFrom || state.dateTo) {
+      if (!record.recDay) return false;
+      if (state.dateFrom && record.recDay < state.dateFrom) return false;
+      if (state.dateTo && record.recDay > state.dateTo) return false;
+    }
     if (state.chip.startsWith("mark:")) {
       const wanted = state.chip.slice(5);
       const mark = state.marks[record.id];
@@ -248,9 +356,39 @@ function filteredRecords() {
       else if (!mark || mark.status !== wanted) return false;
     }
     if (!state.query) return true;
-    const haystack = [record.id, record.name, record.path, record.parser, record.vendor, record.sha256, record.note, record.status];
+    const haystack = [record.id, record.name, record.path, record.originalPath, record.parser, record.vendor, record.sha256, record.note, record.status];
     return haystack.some(value => String(value ?? "").toLowerCase().includes(state.query));
   });
+  const sorted = [...list];
+  switch (state.sortBy) {
+    case "time-desc":
+      sorted.sort((a, b) => (b.recTime ?? -Infinity) - (a.recTime ?? -Infinity) || a.id.localeCompare(b.id));
+      break;
+    case "time-asc":
+      sorted.sort((a, b) => (a.recTime ?? Infinity) - (b.recTime ?? Infinity) || a.id.localeCompare(b.id));
+      break;
+    case "name":
+      sorted.sort((a, b) => a.name.localeCompare(b.name, "ko") || a.id.localeCompare(b.id));
+      break;
+    case "size-desc":
+      sorted.sort((a, b) => (b.size || 0) - (a.size || 0) || a.id.localeCompare(b.id));
+      break;
+    default:
+      sorted.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  return sorted;
+}
+
+function groupKeyFor(record) {
+  switch (state.groupBy) {
+    case "day": return record.recDay || "시각 미상";
+    case "kind": return { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" }[record.kind] || record.kind;
+    case "status": return statusLabel(record.status);
+    case "mark": return markOf(record) ? markLabel(markOf(record).status) : "마크 없음";
+    case "prefix": return record.prefix;
+    case "channel": return record.channel || "채널 미상";
+    default: return "";
+  }
 }
 
 function selectedRecord() { return records.find(record => record.id === state.activeId) || records[0]; }
@@ -318,18 +456,38 @@ function renderList() {
   els.prevPage.disabled = state.currentPage <= 1;
   els.nextPage.disabled = state.currentPage >= pageCount;
 
-  els.recordList.innerHTML = pageRows.map(record => {
-    const mark = markOf(record);
-    const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
-    const staleTag = record.indexStatus === "stale" ? ' <span class="muted">(stale)</span>' : "";
-    return `<div class="row ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
-      <input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">
-      <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
-      <span class="cell-main"><strong>${highlightEscape(record.name, state.query)}</strong><code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}</span>${markChip}${staleTag}</span>
-      <span class="muted kind-cell">${escapeHtml(record.kind)}</span>
-    </div>`;
-  }).join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
+  const groupCounts = new Map();
+  if (state.groupBy !== "none") {
+    filtered.forEach(record => {
+      const key = groupKeyFor(record);
+      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+    });
+  }
 
+  const rowsHtml = [];
+  let lastGroup = null;
+  pageRows.forEach(record => {
+    if (state.groupBy !== "none") {
+      const key = groupKeyFor(record);
+      if (key !== lastGroup) {
+        lastGroup = key;
+        const collapsed = state.collapsedGroups.has(key);
+        rowsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}건${collapsed ? " · 접힘" : ""}</span></div>`);
+        if (collapsed) return;
+      }
+    }
+    rowsHtml.push(renderRow(record));
+  });
+  els.recordList.innerHTML = rowsHtml.join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
+
+  els.recordList.querySelectorAll(".group-header").forEach(header => {
+    header.addEventListener("click", () => {
+      const key = header.dataset.group;
+      if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
+      else state.collapsedGroups.add(key);
+      renderList();
+    });
+  });
   els.recordList.querySelectorAll(".row").forEach(row => {
     row.addEventListener("click", event => {
       if (event.target.matches("input[type='checkbox']")) return;
@@ -352,6 +510,49 @@ function renderList() {
       render();
     });
   });
+}
+
+function renderRow(record) {
+  const mark = markOf(record);
+  const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
+  const staleTag = record.indexStatus === "stale" ? ' <span class="muted">(stale)</span>' : "";
+  const recWhen = record.recTime ? " · " + fmtUnix(record.recTime) : "";
+  const original = record.originalPath ? `<code title="복구 전 원본 경로">${highlightEscape(record.originalPath, state.query)}</code>` : "";
+  return `<div class="row ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
+      <input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">
+      <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
+      <span class="cell-main"><strong>${highlightEscape(record.name, state.query)}</strong>${original}<code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}${escapeHtml(recWhen)}</span>${markChip}${staleTag}</span>
+      <span class="muted kind-cell">${escapeHtml(record.kind)}</span>
+    </div>`;
+}
+
+function renderHistogram() {
+  const days = new Map();
+  filteredRecords().forEach(record => {
+    if (record.recDay) days.set(record.recDay, (days.get(record.recDay) || 0) + 1);
+  });
+  const top = [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-16);
+  const max = Math.max(1, ...top.map(entry => entry[1]));
+  els.dayHistogram.innerHTML = top.map(([day, count]) => `
+    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(day)}: ${count}건">
+      <span class="bar" style="height:${Math.round((count * 40) / max)}px"></span>
+      <span class="lbl">${escapeHtml(day.slice(5))}</span>
+    </button>`).join("")
+    || `<span class="muted">시각 정보가 있는 증거가 없습니다 — 파일명 패턴 또는 수정시각에서 추출합니다.</span>`;
+  els.dayHistogram.querySelectorAll("button[data-day]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.dateFrom = button.dataset.day;
+      state.dateTo = button.dataset.day;
+      els.dateFrom.value = state.dateFrom;
+      els.dateTo.value = state.dateTo;
+      state.currentPage = 1;
+      render();
+    });
+  });
+  const known = records.filter(record => record.recDay).map(record => record.recDay).sort();
+  els.periodLabel.textContent = known.length
+    ? "녹화 기간: " + known[0] + " ~ " + known[known.length - 1] + " · 시각 확인 " + known.length + "/" + records.length + "건 (파일명·수정시각 추출)"
+    : "녹화 시각을 추출한 증거가 없습니다 (파일명 패턴 또는 수정시각 필요)";
 }
 
 function markLabel(status) {
@@ -406,6 +607,8 @@ function applyMark(status) {
   toast(`${ids.length}개 증거에 '${status === null ? "마크 해제" : markLabel(status)}'를 적용했습니다.`);
 }
 
+let mediaRenderedFor = null;
+
 function renderDetails() {
   const record = selectedRecord();
   if (!record) {
@@ -415,15 +618,22 @@ function renderDetails() {
     els.summaryList.innerHTML = "";
     els.metaList.innerHTML = "";
     els.validationList.innerHTML = "";
+    mediaRenderedFor = null;
     return;
   }
   els.mediaTitle.textContent = record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
-  els.mediaStage.innerHTML = record.fileUrl
-    ? `<video controls preload="metadata" src="${escapeHtml(record.fileUrl)}"></video>`
-    : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
-  els.mediaStage.querySelector("video")?.addEventListener("loadedmetadata", applyVideoScale);
+  // Re-creating the <video> forces a metadata refetch on every render; only
+  // swap it when the selected evidence actually changed.
+  const mediaKey = `${record.id}:${record.fileUrl}`;
+  if (mediaRenderedFor !== mediaKey) {
+    els.mediaStage.innerHTML = record.fileUrl
+      ? `<video controls preload="metadata" src="${escapeHtml(record.fileUrl)}"></video>`
+      : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
+    els.mediaStage.querySelector("video")?.addEventListener("loadedmetadata", applyVideoScale);
+    mediaRenderedFor = mediaKey;
+  }
   applyVideoScale();
   const mark = markOf(record);
   els.summaryList.innerHTML = [
@@ -435,6 +645,8 @@ function renderDetails() {
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
     ["경로", `<code>${escapeHtml(record.path)}</code>`],
+    ["원본 경로", record.originalPath ? `<code>${escapeHtml(record.originalPath)}</code>` : "-"],
+    ["촬영 시각", record.recTime ? `${escapeHtml(fmtUnix(record.recTime))} (${record.recSource === "name" ? "파일명" : "수정시각 추정"})` : "미상"],
     ["제조사", escapeHtml(record.vendor)],
     ["파서", `<code>${escapeHtml(record.parser)}</code>`],
     ["코덱", escapeHtml(record.codec)],
@@ -484,6 +696,7 @@ function renderChips() {
 function render() {
   renderMetrics();
   renderChips();
+  renderHistogram();
   renderList();
   renderDetails();
 }
@@ -622,6 +835,18 @@ els.pageSize.addEventListener("change", () => {
 });
 els.prevPage.addEventListener("click", () => { state.currentPage -= 1; render(); });
 els.nextPage.addEventListener("click", () => { state.currentPage += 1; render(); });
+els.sortBy.addEventListener("change", () => { state.sortBy = els.sortBy.value; state.currentPage = 1; render(); });
+els.groupBy.addEventListener("change", () => { state.groupBy = els.groupBy.value; state.currentPage = 1; render(); });
+els.dateFrom.addEventListener("change", () => { state.dateFrom = els.dateFrom.value; state.currentPage = 1; render(); });
+els.dateTo.addEventListener("change", () => { state.dateTo = els.dateTo.value; state.currentPage = 1; render(); });
+document.getElementById("btnClearDates").addEventListener("click", () => {
+  state.dateFrom = "";
+  state.dateTo = "";
+  els.dateFrom.value = "";
+  els.dateTo.value = "";
+  state.currentPage = 1;
+  render();
+});
 els.videoMode.addEventListener("change", () => { state.layout.videoMode = els.videoMode.value; saveLayout(); applyVideoScale(); });
 els.videoZoom.addEventListener("input", () => {
   state.layout.videoMode = els.videoMode.value === "fit" ? "fit" : els.videoMode.value;

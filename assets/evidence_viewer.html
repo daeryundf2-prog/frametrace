@@ -51,7 +51,31 @@ __CSS__
           <option value="500">500개씩</option>
           <option value="1000">1000개씩</option>
         </select>
+        <select id="sortBy" title="정렬">
+          <option value="id">기본 (ID순)</option>
+          <option value="time-desc">시간 최신순</option>
+          <option value="time-asc">시간 오래된순</option>
+          <option value="name">이름순</option>
+          <option value="size-desc">크기순</option>
+        </select>
+        <select id="groupBy" title="분류/그룹화">
+          <option value="none">그룹화 없음</option>
+          <option value="day">녹화 일자별</option>
+          <option value="kind">출처별 (원본/카빙/복구)</option>
+          <option value="status">검증 상태별</option>
+          <option value="mark">판독 마크별</option>
+          <option value="prefix">이름 접두사별</option>
+          <option value="channel">채널별 (전/후방)</option>
+        </select>
+        <div class="date-row">
+          <input id="dateFrom" type="date" title="기간 시작">
+          <span class="muted">~</span>
+          <input id="dateTo" type="date" title="기간 끝">
+          <button id="btnClearDates" class="mini" type="button">기간 해제</button>
+        </div>
       </div>
+      <div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터"></div>
+      <div class="muted period" id="periodLabel"></div>
       <div class="chip-row" id="presetChips"></div>
       <div class="list" id="recordList"></div>
       <div class="pager">
