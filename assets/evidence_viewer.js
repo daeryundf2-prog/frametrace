@@ -58,6 +58,18 @@ function recordingTimeFor(record) {
   return null;
 }
 
+function recTypeFor(record) {
+  const text = `${record.originalPath || ""} ${record.originalPath ? "" : record.name || ""}`.toLowerCase();
+  if (/(event|충격|사고|impact)/.test(text)) return "event";
+  if (/(parking|주차)/.test(text)) return "parking";
+  if (/(driving|주행|상시|continuous|normal)/.test(text)) return "driving";
+  return "";
+}
+
+function recTypeLabel(recType) {
+  return { driving: "일반 (주행)", event: "충격 (이벤트)", parking: "주차", unclassified: "미분류" }[recType] || "미분류";
+}
+
 function channelFor(record) {
   const name = `${record.originalPath || ""} ${record.name || ""}`;
   let match = name.match(/[_\-. ]([FRIB])(?:[_.\- ]|[a-z0-9]*$)/i);
@@ -274,6 +286,14 @@ records.forEach(record => {
   record.recSource = rec ? rec.source : null;
   record.channel = channelFor(record);
   record.prefix = prefixFor(record);
+  record.recType = recTypeFor(record);
+  record.thumb = DATA.thumbs?.[record.id] || null;
+});
+// Carve-log and inode records duplicate indexed files under different ids;
+// reuse the indexed video's thumbnail through the shared file name.
+const thumbByName = new Map(records.filter(record => record.thumb).map(record => [record.name, record.thumb]));
+records.forEach(record => {
+  if (!record.thumb && record.name) record.thumb = thumbByName.get(record.name) || null;
 });
 
 const state = {
@@ -281,7 +301,7 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
-  layout: Object.assign({ col1: 50, col1Unit: "%", col3: 300, inspectorOpen: false, videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -292,6 +312,7 @@ const state = {
   groupBy: "none",
   dateFrom: "",
   dateTo: "",
+  recType: "",
   collapsedGroups: new Set()
 };
 
@@ -307,7 +328,7 @@ const els = {
   status: document.getElementById("status"),
   pageSize: document.getElementById("pageSize"),
   presetChips: document.getElementById("presetChips"),
-  recordList: document.getElementById("recordList"),
+  recordGrid: document.getElementById("recordGrid"),
   prevPage: document.getElementById("prevPage"),
   nextPage: document.getElementById("nextPage"),
   pageStatus: document.getElementById("pageStatus"),
@@ -321,7 +342,8 @@ const els = {
   selectionCount: document.getElementById("selectionCount"),
   videoMode: document.getElementById("videoMode"),
   videoZoom: document.getElementById("videoZoom"),
-  shell: document.getElementById("shell"),
+  facetTree: document.getElementById("facetTree"),
+  recordGrid: document.getElementById("recordGrid"),
   sortBy: document.getElementById("sortBy"),
   groupBy: document.getElementById("groupBy"),
   dateFrom: document.getElementById("dateFrom"),
@@ -343,6 +365,7 @@ const PRESET_CHIPS = [
 function filteredRecords() {
   const list = records.filter(record => {
     if (state.kind && record.kind !== state.kind) return false;
+    if (state.recType && (record.recType || "unclassified") !== state.recType) return false;
     if (state.status && record.status !== state.status) return false;
     if (state.dateFrom || state.dateTo) {
       if (!record.recDay) return false;
@@ -383,6 +406,7 @@ function groupKeyFor(record) {
   switch (state.groupBy) {
     case "day": return record.recDay || "시각 미상";
     case "kind": return { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" }[record.kind] || record.kind;
+    case "recType": return recTypeLabel(record.recType);
     case "status": return statusLabel(record.status);
     case "mark": return markOf(record) ? markLabel(markOf(record).status) : "마크 없음";
     case "prefix": return record.prefix;
@@ -395,8 +419,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { col1, col1Unit, col3, inspectorOpen, videoMode, videoZoom, theater } = state.layout;
-  storageSet(LAYOUT_KEY, { col1, col1Unit, col3, inspectorOpen, videoMode, videoZoom, theater });
+  const { videoMode, videoZoom, theater } = state.layout;
+  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater });
 }
 
 let layoutSaveTimer = null;
@@ -406,25 +430,10 @@ function saveLayoutSoon() {
 }
 
 function applyLayout() {
-  const layout = state.layout;
-  const col1 = layout.col1Unit === "%"
-    ? `${Math.max(15, Math.min(80, layout.col1))}%`
-    : `${Math.max(280, layout.col1)}px`;
-  els.shell.style.setProperty("--col1", col1);
-  els.shell.style.setProperty("--col3", Math.max(220, layout.col3) + "px");
-  document.body.classList.toggle("theater", !!layout.theater);
-  applyResponsive();
+  document.body.classList.toggle("theater", !!state.layout.theater);
   applyVideoScale();
-  els.videoMode.value = layout.videoMode;
-  els.videoZoom.value = String(layout.videoZoom);
-}
-
-function applyResponsive() {
-  const width = window.innerWidth;
-  document.body.classList.toggle("narrow", width <= 1280 && width > 960);
-  document.body.classList.toggle("stack", width <= 960);
-  const narrow = document.body.classList.contains("narrow");
-  document.getElementById("panelInspector").classList.toggle("open-drawer", narrow && !!state.layout.inspectorOpen);
+  els.videoMode.value = state.layout.videoMode;
+  els.videoZoom.value = String(state.layout.videoZoom);
 }
 
 function applyVideoScale() {
@@ -444,7 +453,7 @@ function applyVideoScale() {
   }
 }
 
-function renderList() {
+function renderGrid() {
   const filtered = filteredRecords();
   if (!filtered.some(record => record.id === state.activeId)) {
     state.activeId = filtered[0]?.id || records[0]?.id || null;
@@ -467,7 +476,7 @@ function renderList() {
     });
   }
 
-  const rowsHtml = [];
+  const cardsHtml = [];
   let lastGroup = null;
   pageRows.forEach(record => {
     if (state.groupBy !== "none") {
@@ -475,33 +484,30 @@ function renderList() {
       if (key !== lastGroup) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
-        rowsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}건${collapsed ? " · 접힘" : ""}</span></div>`);
+        cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}건${collapsed ? " · 접힘" : ""}</span></div>`);
         if (collapsed) return;
       }
     }
-    rowsHtml.push(renderRow(record));
+    cardsHtml.push(renderCard(record));
   });
-  els.recordList.innerHTML = rowsHtml.join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
+  els.recordGrid.innerHTML = cardsHtml.join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
 
-  els.recordList.querySelectorAll(".group-header").forEach(header => {
+  els.recordGrid.querySelectorAll(".group-header").forEach(header => {
     header.addEventListener("click", () => {
       const key = header.dataset.group;
       if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
       else state.collapsedGroups.add(key);
-      renderList();
+      renderGrid();
     });
   });
-  els.recordList.querySelectorAll(".row").forEach(row => {
-    row.addEventListener("click", event => {
-      if (event.target.closest(".check-cell")) return;
-      state.activeId = row.dataset.id;
+  els.recordGrid.querySelectorAll(".card").forEach(cardElement => {
+    cardElement.addEventListener("click", event => {
+      if (event.target.closest("input[type='checkbox']")) return;
+      state.activeId = cardElement.dataset.id;
       render();
     });
   });
-  els.recordList.querySelectorAll("input[type='checkbox']").forEach(box => {
-    // change (not click): label-wrapped boxes can deliver a forwarded click
-    // on top of the direct one, which would toggle selection twice. change
-    // carries no modifier state, so click captures shift first.
+  els.recordGrid.querySelectorAll("input[type='checkbox']").forEach(box => {
     let shiftRange = false;
     box.addEventListener("click", event => {
       event.stopPropagation();
@@ -522,18 +528,86 @@ function renderList() {
   });
 }
 
-function renderRow(record) {
+function renderCard(record) {
   const mark = markOf(record);
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
-  const staleTag = record.indexStatus === "stale" ? ' <span class="muted">(stale)</span>' : "";
-  const recWhen = record.recTime ? " · " + fmtUnix(record.recTime) : "";
-  const original = record.originalPath ? `<code title="복구 전 원본 경로">${highlightEscape(record.originalPath, state.query)}</code>` : "";
-  return `<div class="row ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
-      <label class="check-cell" title="선택"><input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}"></label>
+  const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
+  const thumb = record.thumb
+    ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
+    : `<div class="ph">${record.status === "validation-failed" ? "손상 · 썸네일 없음" : "썸네일 없음"}</div>`;
+  const recTypeTag = record.recType ? `<span class="rec-type">${escapeHtml(recTypeLabel(record.recType))}</span>` : "";
+  const recWhen = record.recTime ? ` · ${escapeHtml(fmtUnix(record.recTime))}` : "";
+  return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
+    <div class="thumb">${thumb}<input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
+    <div class="meta">
+      <div class="name" title="${escapeHtml(record.name)}">${highlightEscape(record.name, state.query)}${markChip}${staleTag}</div>
+      <div class="sub" title="${escapeHtml(record.originalPath || record.path)}">${highlightEscape(record.originalPath || record.path, state.query)}</div>
       <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
-      <span class="cell-main"><strong>${highlightEscape(record.name, state.query)}</strong>${original}<code>${highlightEscape(record.path, state.query)}</code><span class="muted">${highlightEscape(record.vendor, state.query)} · ${highlightEscape(record.parser, state.query)}${escapeHtml(recWhen)}</span>${markChip}${staleTag}</span>
-      <span class="muted kind-cell">${escapeHtml(record.kind)}</span>
-    </div>`;
+      <span class="sub">${fmtBytes(record.size)}${recWhen}</span>
+    </div>
+  </div>`;
+}
+
+function renderTree() {
+  const typeCounts = new Map();
+  const kindCounts = new Map();
+  const dayCounts = new Map();
+  records.forEach(record => {
+    const typeKey = record.recType || "unclassified";
+    typeCounts.set(typeKey, (typeCounts.get(typeKey) || 0) + 1);
+    kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
+    if (record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
+  });
+  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" };
+  const items = [];
+
+  const addItems = (title, entries, activeKey, onPick, allActive) => {
+    items.push({ header: title });
+    items.push({ label: "전체", count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
+    [...entries.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([key, count]) => {
+      items.push({ label: key, count, key, pick: () => onPick(key), active: key === activeKey && !allActive });
+    });
+  };
+
+  addItems("녹화 유형", new Map([...typeCounts.entries()].map(([key, count]) => [recTypeLabel(key), count])),
+    state.recType ? recTypeLabel(state.recType) : "", label => {
+      const match = [...typeCounts.entries()].find(([typeLabel]) => recTypeLabel(typeLabel) === label);
+      state.recType = match ? match[0] : "";
+      state.currentPage = 1;
+      render();
+    }, false);
+
+  addItems("출처", new Map([...kindCounts.entries()].map(([key, count]) => [kindLabels[key] || key, count])),
+    kindLabels[state.kind] || "", label => {
+      state.kind = Object.entries(kindLabels).find(([, kindLabel]) => kindLabel === label)?.[0] || "";
+      els.kind.value = state.kind;
+      state.currentPage = 1;
+      render();
+    }, false);
+
+  addItems("날짜", dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
+    state.dateFrom = day;
+    state.dateTo = day;
+    els.dateFrom.value = day;
+    els.dateTo.value = day;
+    state.currentPage = 1;
+    render();
+  }, false);
+
+  els.facetTree.innerHTML = items.map(item => item.header !== undefined
+    ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+  ).join("");
+
+  const pickers = items.filter(item => item.pick);
+  const nodes = els.facetTree.querySelectorAll(".tree-item");
+  let pickIndex = 0;
+  nodes.forEach(node => {
+    const entry = items.filter(item => item.pick)[pickIndex];
+    if (!entry) return;
+    pickIndex += 1;
+    node.addEventListener("click", () => entry.pick(node.dataset.pick));
+  });
 }
 
 function renderHistogram() {
@@ -634,6 +708,12 @@ function renderDetails() {
   els.mediaTitle.textContent = record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
+  const detailMark = markOf(record);
+  document.getElementById("detailBadges").innerHTML = [
+    `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
+    detailMark ? `<span class="mark-chip ${escapeHtml(detailMark.status)}">${escapeHtml(markLabel(detailMark.status))}</span>` : "",
+    record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
+  ].join(" ");
   // Re-creating the <video> forces a metadata refetch on every render; only
   // swap it when the selected evidence actually changed.
   const mediaKey = `${record.id}:${record.fileUrl}`;
@@ -674,7 +754,7 @@ function renderDetails() {
 
 function renderMetrics() {
   els.caseLine.textContent = `${manifest.case_id || "case"} · ${manifest.title || "Untitled"} · ${scan.source_path || "-"}`;
-  els.metricVideos.textContent = videos.length;
+  els.metricVideos.textContent = `${videos.length}편 색인`;
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
@@ -707,7 +787,8 @@ function render() {
   renderMetrics();
   renderChips();
   renderHistogram();
-  renderList();
+  renderTree();
+  renderGrid();
   renderDetails();
 }
 
@@ -790,8 +871,8 @@ function moveActive(step) {
   const index = filtered.findIndex(record => record.id === state.activeId);
   const next = Math.max(0, Math.min(filtered.length - 1, (index < 0 ? 0 : index + step)));
   state.activeId = filtered[next].id;
-  const row = els.recordList.querySelector(`.row[data-id="${CSS.escape(state.activeId)}"]`);
-  row?.scrollIntoView({ block: "nearest" });
+  const card = els.recordGrid.querySelector(`.card[data-id="${CSS.escape(state.activeId)}"]`);
+  card?.scrollIntoView({ block: "nearest" });
   render();
 }
 
@@ -871,11 +952,6 @@ document.getElementById("btnFullscreen").addEventListener("click", toggleFullscr
 document.getElementById("btnPip").addEventListener("click", togglePip);
 document.getElementById("btnShortcuts").addEventListener("click", () => toggleShortcuts(true));
 document.getElementById("btnShortcutsClose").addEventListener("click", () => toggleShortcuts(false));
-document.getElementById("btnInspectorClose").addEventListener("click", () => {
-  state.layout.inspectorOpen = false;
-  saveLayout();
-  applyResponsive();
-});
 document.getElementById("btnSelectFiltered").addEventListener("click", selectAllFiltered);
 document.getElementById("btnClearSelection").addEventListener("click", clearSelection);
 document.getElementById("btnMarkReviewed").addEventListener("click", () => applyMark("reviewed"));
@@ -917,52 +993,6 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
   });
 });
 
-function setupSplitters() {
-  const left = document.getElementById("splitterLeft");
-  const right = document.getElementById("splitterRight");
-  let drag = null;
-  const begin = (event, side) => {
-    drag = {
-      side,
-      startX: event.clientX,
-      start1: state.layout.col1,
-      start3: state.layout.col3,
-      shellWidth: Math.max(1, els.shell.clientWidth)
-    };
-    event.target.classList.add("dragging");
-    event.preventDefault();
-  };
-  const move = event => {
-    if (!drag) return;
-    if (drag.side === "left") {
-      if (state.layout.col1Unit === "%") {
-        state.layout.col1 = Math.max(15, Math.min(80,
-          drag.start1 + ((event.clientX - drag.startX) / drag.shellWidth) * 100));
-      } else {
-        state.layout.col1 = Math.max(280, Math.min(760, drag.start1 + event.clientX - drag.startX));
-      }
-    } else {
-      state.layout.col3 = Math.max(220, Math.min(560, drag.start3 - (event.clientX - drag.startX)));
-    }
-    applyLayout();
-  };
-  const end = () => {
-    if (!drag) return;
-    document.querySelectorAll(".splitter").forEach(item => item.classList.remove("dragging"));
-    drag = null;
-    saveLayout();
-  };
-  left.addEventListener("pointerdown", event => begin(event, "left"));
-  right.addEventListener("pointerdown", event => begin(event, "right"));
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", end);
-  left.addEventListener("dblclick", () => { state.layout.col1 = 50; state.layout.col1Unit = "%"; saveLayout(); applyLayout(); });
-  right.addEventListener("dblclick", () => { state.layout.col3 = 300; saveLayout(); applyLayout(); });
-}
-
-window.addEventListener("resize", applyResponsive);
-
 state.pageSize = Number(els.pageSize.value) || 100;
-setupSplitters();
 applyLayout();
 render();

@@ -35,6 +35,20 @@ pub struct MarksFile {
     pub marks: Vec<MarkEntry>,
 }
 
+/// Minimal JSON field/array accessors reused by other modules that avoid a
+/// serde dependency (e.g. reading the video index for thumbnail generation).
+pub(crate) fn json_array_field(text: &str, key: &str) -> Option<String> {
+    extract_json_value(text, key)
+}
+
+pub(crate) fn json_objects_in_array(array_text: &str) -> Vec<String> {
+    json_object_lines(array_text)
+}
+
+pub(crate) fn json_string_field(line: &str, key: &str) -> Option<String> {
+    extract_json_string(line, key)
+}
+
 pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read selection file {}: {err}", path.display()))?;

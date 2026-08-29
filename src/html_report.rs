@@ -350,17 +350,19 @@ pub fn render_evidence_viewer_html(
     filesystem_log_jsonl: &str,
     validation_log_jsonl: &str,
     fls_entries_jsonl: &str,
+    thumbs_json: &str,
 ) -> String {
     // The layout/markup lives in assets/evidence_viewer.* and is embedded at
     // compile time, keeping the generated page a single serverless file.
     let data = format!(
-        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},flsEntries:{fls_lines}}};",
+        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines}}};",
         manifest = json_for_script(manifest_json),
         index = json_for_script(index_json),
         carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl)),
         filesystem_lines = json_for_script(&jsonl_to_array(filesystem_log_jsonl)),
         validation_lines = json_for_script(&jsonl_to_array(validation_log_jsonl)),
         fls_lines = json_for_script(&jsonl_to_array(fls_entries_jsonl)),
+        thumbs_lines = thumbs_json,
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)
@@ -388,7 +390,7 @@ mod tests {
         let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
         let index = r#"{"videos":[]}"#;
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
-        let html = render_evidence_viewer_html(manifest, index, "", filesystem, "", "");
+        let html = render_evidence_viewer_html(manifest, index, "", filesystem, "", "", "{}");
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
         assert!(html.contains("inode_1304.bin"));
@@ -451,7 +453,7 @@ mod tests {
         );
         assert_script_blocks_parse_with_node(
             "viewer",
-            &render_evidence_viewer_html(manifest, index, carve, filesystem, validation, ""),
+            &render_evidence_viewer_html(manifest, index, carve, filesystem, validation, "", "{}"),
         );
         assert_script_blocks_parse_with_node(
             "report",

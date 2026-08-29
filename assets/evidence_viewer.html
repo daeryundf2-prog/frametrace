@@ -14,42 +14,62 @@ __CSS__
     <h1>FrameTrace Evidence Viewer</h1>
     <div class="case-line" id="caseLine"></div>
     <div class="header-actions">
+      <span class="badge ok" title="ffprobe 검증됨">검증됨 <span id="metricVerified">0</span></span>
+      <span class="badge candidate" title="미검증 후보">후보 <span id="metricCarved">0</span></span>
+      <span class="badge failed" title="검증 실패">실패 <span id="metricFailed">0</span></span>
       <button id="btnTheater" type="button" title="시어터 모드 (t)">시어터</button>
       <button id="btnFullscreen" type="button" title="전체화면 (f)">전체화면</button>
       <button id="btnPip" type="button" title="화면 속 화면 (p)">PiP</button>
       <button id="btnShortcuts" type="button" title="단축키 (?)">?</button>
-      <div class="muted">실제 케이스 데이터</div>
     </div>
   </header>
-  <main class="shell" id="shell">
-    <aside class="panel" id="panelList">
-      <div class="panel-title">증거 목록 <span id="resultCount"></span></div>
-      <div class="metrics">
-        <div class="metric">영상<strong id="metricVideos">0</strong></div>
-        <div class="metric">복구 후보<strong id="metricCarved">0</strong></div>
-        <div class="metric">검증됨<strong id="metricVerified">0</strong></div>
-        <div class="metric">검증 실패<strong id="metricFailed">0</strong></div>
+  <div class="playerbar">
+    <div class="player">
+      <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
+      <div class="media-stage" id="mediaStage"></div>
+      <div class="media-toolbar">
+        <span class="muted">크기</span>
+        <select id="videoMode">
+          <option value="fit">맞춤</option>
+          <option value="50">50%</option>
+          <option value="100">100%</option>
+          <option value="200">200%</option>
+        </select>
+        <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
+        <span class="muted" id="metricVideos"></span>
       </div>
+    </div>
+    <aside class="mini-info">
+      <div class="panel-title">선택 증거</div>
+      <div id="detailBadges"></div>
+      <dl id="summaryList"></dl>
+      <div class="panel-title">포렌식 인스펙터</div>
+      <dl id="metaList"></dl>
+      <div class="panel-title">검증 로그</div>
+      <div class="validation-list" id="validationList"></div>
+      <dl>
+        <dt>원본</dt><dd>수정하지 않음</dd>
+        <dt>복구물</dt><dd>검증 전까지 후보</dd>
+      </dl>
+    </aside>
+  </div>
+  <div class="body2">
+    <aside class="tree" id="facetTree"></aside>
+    <div class="maincol">
       <div class="filters">
         <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
-        <select id="kind">
-          <option value="">전체 유형</option>
-          <option value="video">색인 영상</option>
-          <option value="carved">carving 후보</option>
+        <select id="kind" title="출처">
+          <option value="">전체 출처</option>
+          <option value="video">원본 (논리 파일)</option>
+          <option value="carved">카빙 후보</option>
           <option value="filesystem">파일시스템 복구</option>
         </select>
-        <select id="status">
+        <select id="status" title="검증 상태">
           <option value="">전체 검증 상태</option>
           <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
           <option value="validation-failed">validation-failed</option>
           <option value="candidate-unvalidated">candidate-unvalidated</option>
           <option value="duplicate-candidate">duplicate-candidate</option>
-        </select>
-        <select id="pageSize">
-          <option value="100">100개씩</option>
-          <option value="250">250개씩</option>
-          <option value="500">500개씩</option>
-          <option value="1000">1000개씩</option>
         </select>
         <select id="sortBy" title="정렬">
           <option value="id">기본 (ID순)</option>
@@ -61,11 +81,18 @@ __CSS__
         <select id="groupBy" title="분류/그룹화">
           <option value="none">그룹화 없음</option>
           <option value="day">녹화 일자별</option>
-          <option value="kind">출처별 (원본/카빙/복구)</option>
+          <option value="kind">출처별</option>
+          <option value="recType">녹화 유형별 (주행/충격/주차)</option>
           <option value="status">검증 상태별</option>
           <option value="mark">판독 마크별</option>
           <option value="prefix">이름 접두사별</option>
           <option value="channel">채널별 (전/후방)</option>
+        </select>
+        <select id="pageSize">
+          <option value="100">100개씩</option>
+          <option value="250">250개씩</option>
+          <option value="500">500개씩</option>
+          <option value="1000">1000개씩</option>
         </select>
         <div class="date-row">
           <input id="dateFrom" type="date" title="기간 시작">
@@ -74,57 +101,18 @@ __CSS__
           <button id="btnClearDates" class="mini" type="button">기간 해제</button>
         </div>
       </div>
+      <div class="chip-row" id="presetChips"></div>
       <div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터"></div>
       <div class="muted period" id="periodLabel"></div>
-      <div class="chip-row" id="presetChips"></div>
-      <div class="list" id="recordList"></div>
+      <div class="grid" id="recordGrid"></div>
       <div class="pager">
+        <span class="muted" id="resultCount"></span>
         <button id="prevPage">이전</button>
         <span class="muted" id="pageStatus"></span>
         <button id="nextPage">다음</button>
       </div>
-    </aside>
-    <div class="splitter" id="splitterLeft" title="드래그: 폭 조절 / 더블클릭: 기본값"></div>
-    <section class="viewer">
-      <div class="media">
-        <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
-        <div class="media-stage" id="mediaStage"></div>
-        <div class="media-toolbar">
-          <span class="muted">크기</span>
-          <select id="videoMode">
-            <option value="fit">맞춤</option>
-            <option value="50">50%</option>
-            <option value="100">100%</option>
-            <option value="200">200%</option>
-          </select>
-          <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-title">선택 증거 메모</div>
-        <dl id="summaryList"></dl>
-      </div>
-    </section>
-    <div class="splitter" id="splitterRight" title="드래그: 폭 조절 / 더블클릭: 기본값"></div>
-    <aside class="inspector" id="panelInspector">
-      <section class="panel">
-        <div class="panel-title">포렌식 인스펙터 <button id="btnInspectorClose" class="mini" type="button">닫기</button></div>
-        <dl id="metaList"></dl>
-      </section>
-      <section class="panel">
-        <div class="panel-title">검증 로그</div>
-        <div class="validation-list" id="validationList"></div>
-      </section>
-      <section class="panel">
-        <div class="panel-title">운영 원칙</div>
-        <dl>
-          <dt>원본</dt><dd>원본 경로는 수정하지 않음</dd>
-          <dt>복구물</dt><dd>검증 전까지 후보 상태 유지</dd>
-          <dt>보고서</dt><dd>검증 로그와 SHA-256 기준으로 판단</dd>
-        </dl>
-      </section>
-    </aside>
-  </main>
+    </div>
+  </div>
   <div class="selection-bar" id="selectionBar">
     <strong id="selectionCount">0개 선택</strong>
     <button id="btnSelectFiltered" type="button" title="Ctrl+A">필터 전체 선택</button>

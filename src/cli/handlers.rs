@@ -14,6 +14,7 @@ use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, Default)]
 pub struct InitCaseOptions {
@@ -267,6 +268,8 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
     let fls_entries = latest_fls_entries_jsonl(case_dir);
+    let videos = collect_index_videos(&index_json);
+    let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
@@ -274,6 +277,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         &filesystem_log,
         &validation_log,
         &fls_entries,
+        &thumbs_json,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(&evidence_viewer_path, &evidence_viewer)
@@ -282,6 +286,17 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     println!(
         "evidence viewer written: {}",
         evidence_viewer_path.display()
+    );
+    println!(
+        "thumbnails: {} created, {} cached, {} unavailable{}",
+        thumb_stats.created,
+        thumb_stats.cached,
+        thumb_stats.skipped,
+        if thumb_stats.ffmpeg_missing {
+            " (ffmpeg not found; rerun with ffmpeg in PATH)"
+        } else {
+            ""
+        }
     );
     Ok(())
 }
@@ -984,6 +999,186 @@ pub fn inspect(case_dir: &Path) -> Result<(), String> {
         None => println!("sqlite: not created yet"),
     }
     Ok(())
+}
+
+/// (id, source path) pairs for every video in the case index.
+fn collect_index_videos(index_json: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    if let Some(items) = crate::selection::json_array_field(index_json, "videos") {
+        for object in crate::selection::json_objects_in_array(&items) {
+            if let (Some(id), Some(source)) = (
+                crate::selection::json_string_field(&object, "id"),
+                crate::selection::json_string_field(&object, "source_path"),
+            ) {
+                out.push((id, source));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod thumbnail_tests {
+    use super::base64_encode;
+
+    #[test]
+    fn encodes_standard_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+}
+
+#[derive(Debug, Default)]
+struct ThumbnailStats {
+    created: usize,
+    cached: usize,
+    skipped: usize,
+    ffmpeg_missing: bool,
+}
+
+/// Generates a representative frame per video into review/thumbs/<id>.jpg for
+/// the viewer's thumbnail grid. ffmpeg is optional: without it the viewer
+/// shows placeholders. Existing thumbs newer than their source are reused.
+fn generate_review_thumbnails(
+    case_dir: &Path,
+    videos: &[(String, String)],
+) -> Result<(String, ThumbnailStats), String> {
+    let mut stats = ThumbnailStats::default();
+    let thumbs_dir = case_dir.join("review/thumbs");
+    std::fs::create_dir_all(&thumbs_dir)
+        .map_err(|err| format!("failed to create thumbnail directory: {err}"))?;
+
+    let ffmpeg = match crate::tool_policy::resolve_tool_binary("ffmpeg", &["ffmpeg"]) {
+        Ok(binary) => binary,
+        Err(_) => {
+            stats.ffmpeg_missing = true;
+            stats.skipped = videos.len();
+            return Ok(("{}".to_string(), stats));
+        }
+    };
+
+    let mut map = std::collections::BTreeMap::new();
+    for (id, source) in videos {
+        let output = thumbs_dir.join(format!("{id}.jpg"));
+        if thumbnail_is_fresh(Path::new(source), &output) {
+            match std::fs::read(&output) {
+                Ok(bytes) => {
+                    map.insert(
+                        id.clone(),
+                        format!("data:image/jpeg;base64,{}", base64_encode(&bytes)),
+                    );
+                    stats.cached += 1;
+                }
+                Err(_) => stats.skipped += 1,
+            }
+            continue;
+        }
+        let mut created = false;
+        for seek in ["5", "0"] {
+            let result = Command::new(&ffmpeg)
+                .args([
+                    "-y",
+                    "-loglevel",
+                    "error",
+                    "-ss",
+                    seek,
+                    "-i",
+                    source,
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=288:-2",
+                    "-q:v",
+                    "5",
+                ])
+                .arg(&output)
+                .output();
+            match result {
+                Ok(output) if output.status.success() => {
+                    created = true;
+                    break;
+                }
+                _ => {
+                    let _ = std::fs::remove_file(&output);
+                }
+            }
+        }
+        if created {
+            // In-memory map uses data: URIs; the JPEG on disk doubles as the
+            // regeneration cache.
+            match std::fs::read(&output) {
+                Ok(bytes) => {
+                    map.insert(
+                        id.clone(),
+                        format!("data:image/jpeg;base64,{}", base64_encode(&bytes)),
+                    );
+                    stats.created += 1;
+                }
+                Err(err) => {
+                    stats.skipped += 1;
+                    let _ = err;
+                }
+            }
+        } else {
+            stats.skipped += 1;
+        }
+    }
+
+    let entries = map
+        .iter()
+        .map(|(id, path)| {
+            format!(
+                "\"{}\":\"{}\"",
+                crate::util::json_escape(id),
+                crate::util::json_escape(path)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Ok((format!("{{{entries}}}"), stats))
+}
+
+/// Chrome treats every file: URL as a unique security origin, so the viewer
+/// cannot load thumbnail <img> tags from disk. Embed the JPEGs as data: URIs
+/// instead — this keeps the page a single serverless file.
+fn base64_encode(data: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+fn thumbnail_is_fresh(source: &Path, thumb: &Path) -> bool {
+    let (Ok(source_meta), Ok(thumb_meta)) = (std::fs::metadata(source), std::fs::metadata(thumb))
+    else {
+        return false;
+    };
+    let (Ok(source_time), Ok(thumb_time)) = (source_meta.modified(), thumb_meta.modified()) else {
+        return false;
+    };
+    thumb_time >= source_time
 }
 
 /// Recovers-inode outputs are named inode_*.bin, but the Sleuth Kit listing
