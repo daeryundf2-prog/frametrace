@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>FrameTrace Evidence Viewer</title>
+  <style>
+__CSS__
+  </style>
+</head>
+<body>
+  <header>
+    <h1>FrameTrace Evidence Viewer</h1>
+    <div class="case-line" id="caseLine"></div>
+    <div class="header-actions">
+      <button id="btnTheater" type="button" title="시어터 모드 (t)">시어터</button>
+      <button id="btnFullscreen" type="button" title="전체화면 (f)">전체화면</button>
+      <button id="btnPip" type="button" title="화면 속 화면 (p)">PiP</button>
+      <button id="btnShortcuts" type="button" title="단축키 (?)">?</button>
+      <div class="muted">실제 케이스 데이터</div>
+    </div>
+  </header>
+  <main class="shell" id="shell">
+    <aside class="panel" id="panelList">
+      <div class="panel-title">증거 목록 <span id="resultCount"></span></div>
+      <div class="metrics">
+        <div class="metric">영상<strong id="metricVideos">0</strong></div>
+        <div class="metric">복구 후보<strong id="metricCarved">0</strong></div>
+        <div class="metric">검증됨<strong id="metricVerified">0</strong></div>
+        <div class="metric">검증 실패<strong id="metricFailed">0</strong></div>
+      </div>
+      <div class="filters">
+        <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
+        <select id="kind">
+          <option value="">전체 유형</option>
+          <option value="video">색인 영상</option>
+          <option value="carved">carving 후보</option>
+          <option value="filesystem">파일시스템 복구</option>
+        </select>
+        <select id="status">
+          <option value="">전체 검증 상태</option>
+          <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
+          <option value="validation-failed">validation-failed</option>
+          <option value="candidate-unvalidated">candidate-unvalidated</option>
+          <option value="duplicate-candidate">duplicate-candidate</option>
+        </select>
+        <select id="pageSize">
+          <option value="100">100개씩</option>
+          <option value="250">250개씩</option>
+          <option value="500">500개씩</option>
+          <option value="1000">1000개씩</option>
+        </select>
+      </div>
+      <div class="chip-row" id="presetChips"></div>
+      <div class="list" id="recordList"></div>
+      <div class="pager">
+        <button id="prevPage">이전</button>
+        <span class="muted" id="pageStatus"></span>
+        <button id="nextPage">다음</button>
+      </div>
+    </aside>
+    <div class="splitter" id="splitterLeft" title="드래그: 폭 조절 / 더블클릭: 기본값"></div>
+    <section class="viewer">
+      <div class="media">
+        <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
+        <div class="media-stage" id="mediaStage"></div>
+        <div class="media-toolbar">
+          <span class="muted">크기</span>
+          <select id="videoMode">
+            <option value="fit">맞춤</option>
+            <option value="50">50%</option>
+            <option value="100">100%</option>
+            <option value="200">200%</option>
+          </select>
+          <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">선택 증거 메모</div>
+        <dl id="summaryList"></dl>
+      </div>
+    </section>
+    <div class="splitter" id="splitterRight" title="드래그: 폭 조절 / 더블클릭: 기본값"></div>
+    <aside class="inspector" id="panelInspector">
+      <section class="panel">
+        <div class="panel-title">포렌식 인스펙터 <button id="btnInspectorClose" class="mini" type="button">닫기</button></div>
+        <dl id="metaList"></dl>
+      </section>
+      <section class="panel">
+        <div class="panel-title">검증 로그</div>
+        <div class="validation-list" id="validationList"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-title">운영 원칙</div>
+        <dl>
+          <dt>원본</dt><dd>원본 경로는 수정하지 않음</dd>
+          <dt>복구물</dt><dd>검증 전까지 후보 상태 유지</dd>
+          <dt>보고서</dt><dd>검증 로그와 SHA-256 기준으로 판단</dd>
+        </dl>
+      </section>
+    </aside>
+  </main>
+  <div class="selection-bar" id="selectionBar">
+    <strong id="selectionCount">0개 선택</strong>
+    <button id="btnSelectFiltered" type="button" title="Ctrl+A">필터 전체 선택</button>
+    <button id="btnClearSelection" type="button" title="Ctrl+D">선택 해제</button>
+    <span class="sep"></span>
+    <button id="btnMarkReviewed" type="button">판독 완료</button>
+    <button id="btnMarkImportant" type="button">중요</button>
+    <button id="btnMarkVerify" type="button">검증 대기</button>
+    <button id="btnMarkClear" type="button">마크 해제</button>
+    <span class="sep"></span>
+    <button id="btnCopyIds" type="button">ID 복사</button>
+    <button id="btnCopyPaths" type="button">경로 복사</button>
+    <button id="btnDownloadSelection" type="button">선택 목록 다운로드</button>
+    <button id="btnDownloadMarks" type="button">마크 내려받기</button>
+  </div>
+  <div id="toastHost"></div>
+  <div id="shortcutsModal" class="modal-backdrop" hidden>
+    <div class="modal">
+      <div class="panel-title">단축키 <button id="btnShortcutsClose" class="mini" type="button">닫기</button></div>
+      <table>
+        <tbody>
+          <tr><td><code>j</code> / <code>k</code></td><td>다음 / 이전 증거</td></tr>
+          <tr><td><code>space</code></td><td>현재 증거 선택 토글</td></tr>
+          <tr><td><code>enter</code></td><td>현재 증거 미리보기</td></tr>
+          <tr><td><code>ctrl+a</code></td><td>필터 결과 전체 선택</td></tr>
+          <tr><td><code>ctrl+d</code></td><td>선택 해제</td></tr>
+          <tr><td><code>f</code></td><td>영상 전체화면</td></tr>
+          <tr><td><code>t</code></td><td>시어터 모드</td></tr>
+          <tr><td><code>p</code></td><td>화면 속 화면</td></tr>
+          <tr><td><code>esc</code></td><td>모드 종료</td></tr>
+          <tr><td><code>shift+클릭</code></td><td>범위 선택</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+<script>
+__DATA__
+</script>
+<script>
+__JS__
+</script>
+</body>
+</html>
