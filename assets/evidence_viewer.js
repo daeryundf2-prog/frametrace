@@ -15,6 +15,8 @@ const EXT_UNC = EXT_PREFIX + "unc" + BS;
 const LAYOUT_KEY = "ft.viewer." + (manifest.case_id || "case") + ".layout.v2";
 const MARKS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".marks";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
+const TAG_PRESETS = ["사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
+const TAGS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".tags";
 
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 
@@ -87,6 +89,15 @@ function prefixFor(record) {
   const name = String(record.originalPath || record.name || "");
   const match = name.match(/[A-Za-z가-힣_\-]+/);
   return match ? match[0].replace(/[_\-]+$/, "") || "기타" : "기타";
+}
+
+function originalNameFor(record) {
+  const path = originalPathFor(record);
+  if (path) {
+    const base = path.replace(/\\/g, "/").split("/").pop();
+    if (base && base.includes(".")) return base;
+  }
+  return record.name || "";
 }
 
 function originalPathFor(record) {
@@ -287,6 +298,8 @@ records.forEach(record => {
   record.channel = channelFor(record);
   record.prefix = prefixFor(record);
   record.recType = recTypeFor(record);
+    record.originalName = originalNameFor(record);
+  record.tagList = state.tags[record.id] || [];
   record.thumb = DATA.thumbs?.[record.id] || null;
 });
 // Carve-log and inode records duplicate indexed files under different ids;
@@ -301,6 +314,7 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
+  tags: storageGet(TAGS_KEY, {}),
   layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
@@ -359,7 +373,8 @@ const PRESET_CHIPS = [
   ["status:duplicate-candidate", "중복 후보"],
   ["mark:important", "중요 마크"],
   ["mark:reviewed", "판독 완료"],
-  ["mark:none", "판독 대기"]
+  ["mark:none", "판독 대기"],
+  ...TAG_PRESETS.map(tag => [`tag:${tag}`, tag])
 ];
 
 function filteredRecords() {
@@ -371,6 +386,11 @@ function filteredRecords() {
       if (!record.recDay) return false;
       if (state.dateFrom && record.recDay < state.dateFrom) return false;
       if (state.dateTo && record.recDay > state.dateTo) return false;
+    }
+    if (state.chip.startsWith("tag:")) {
+      const wanted = state.chip.slice(4);
+      const tags = state.tags[record.id] || [];
+      if (!tags.includes(wanted)) return false;
     }
     if (state.chip.startsWith("mark:")) {
       const wanted = state.chip.slice(5);
@@ -567,83 +587,31 @@ function renderGrid() {
 function renderCard(record) {
   const mark = markOf(record);
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
+  const tags = (record.tagList || []).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
   const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
   const thumb = record.thumb
     ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
-    : `<div class="ph">${record.status === "validation-failed" ? "손상 · 썸네일 없음" : "썸네일 없음"}</div>`;
+    : `<div class="ph">${record.status === "validation-failed" ? "손상" : "썸네일 없음"}</div>`;
   const recTypeTag = record.recType ? `<span class="rec-type">${escapeHtml(recTypeLabel(record.recType))}</span>` : "";
-  const recWhen = record.recTime ? ` · ${escapeHtml(fmtUnix(record.recTime))}` : "";
+  const channel = record.channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : "";
+  const displayName = record.originalName && record.originalName !== record.name
+    ? record.originalName
+    : record.name;
+  const recTime = record.recTime
+    ? new Date(record.recTime * 1000).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : "";
+  const tagsHtml = (record.tagList || []).length
+    ? `<div class="tag-row">${(record.tagList || []).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`
+    : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
-      <div class="name" title="${escapeHtml(record.name)}">${highlightEscape(record.name, state.query)}${markChip}${staleTag}</div>
-      <div class="sub" title="${escapeHtml(record.originalPath || record.path)}">${highlightEscape(record.originalPath || record.path, state.query)}</div>
-      <span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>
-      <span class="sub">${fmtBytes(record.size)}${recWhen}</span>
+      <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : "시각 미상"}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span></div>
+      ${tagsHtml}
+      <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
   </div>`;
-}
-
-function renderTree() {
-  const typeCounts = new Map();
-  const kindCounts = new Map();
-  const dayCounts = new Map();
-  records.forEach(record => {
-    const typeKey = record.recType || "unclassified";
-    typeCounts.set(typeKey, (typeCounts.get(typeKey) || 0) + 1);
-    kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
-    if (record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
-  });
-  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" };
-  const items = [];
-
-  const addItems = (title, entries, activeKey, onPick, allActive) => {
-    items.push({ header: title });
-    items.push({ label: "전체", count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
-    [...entries.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([key, count]) => {
-      items.push({ label: key, count, key, pick: () => onPick(key), active: key === activeKey && !allActive });
-    });
-  };
-
-  addItems("녹화 유형", new Map([...typeCounts.entries()].map(([key, count]) => [recTypeLabel(key), count])),
-    state.recType ? recTypeLabel(state.recType) : "", label => {
-      const match = [...typeCounts.entries()].find(([typeLabel]) => recTypeLabel(typeLabel) === label);
-      state.recType = match ? match[0] : "";
-      state.currentPage = 1;
-      render();
-    }, false);
-
-  addItems("출처", new Map([...kindCounts.entries()].map(([key, count]) => [kindLabels[key] || key, count])),
-    kindLabels[state.kind] || "", label => {
-      state.kind = Object.entries(kindLabels).find(([, kindLabel]) => kindLabel === label)?.[0] || "";
-      els.kind.value = state.kind;
-      state.currentPage = 1;
-      render();
-    }, false);
-
-  addItems("날짜", dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
-    state.dateFrom = day;
-    state.dateTo = day;
-    els.dateFrom.value = day;
-    els.dateTo.value = day;
-    state.currentPage = 1;
-    render();
-  }, false);
-
-  els.facetTree.innerHTML = items.map(item => item.header !== undefined
-    ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
-    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
-  ).join("");
-
-  const pickers = items.filter(item => item.pick);
-  const nodes = els.facetTree.querySelectorAll(".tree-item");
-  let pickIndex = 0;
-  nodes.forEach(node => {
-    const entry = items.filter(item => item.pick)[pickIndex];
-    if (!entry) return;
-    pickIndex += 1;
-    node.addEventListener("click", () => entry.pick(node.dataset.pick));
-  });
 }
 
 function renderHistogram() {
@@ -673,6 +641,29 @@ function renderHistogram() {
   els.periodLabel.textContent = known.length
     ? "녹화 기간: " + known[0] + " ~ " + known[known.length - 1] + " · 시각 확인 " + known.length + "/" + records.length + "건 (파일명·수정시각 추출)"
     : "녹화 시각을 추출한 증거가 없습니다 (파일명 패턴 또는 수정시각 필요)";
+}
+
+function tagListFor(record) { return state.tags[record.id] || []; }
+
+function addTag(id, tag) {
+  const list = state.tags[id] || [];
+  if (!list.includes(tag)) list.push(tag);
+  state.tags[id] = list;
+  storageSet(TAGS_KEY, state.tags);
+}
+
+function removeTag(id, tag) {
+  const list = state.tags[id] || [];
+  const idx = list.indexOf(tag);
+  if (idx >= 0) list.splice(idx, 1);
+  state.tags[id] = list;
+  storageSet(TAGS_KEY, state.tags);
+}
+
+function toggleTag(id, tag) {
+  const list = state.tags[id] || [];
+  if (list.includes(tag)) removeTag(id, tag);
+  else addTag(id, tag);
 }
 
 function markLabel(status) {
@@ -738,20 +729,13 @@ function renderDetails() {
     els.summaryList.innerHTML = "";
     els.metaList.innerHTML = "";
     els.validationList.innerHTML = "";
+    els.detailBadges.innerHTML = "";
     mediaRenderedFor = null;
     return;
   }
-  els.mediaTitle.textContent = record.name || record.id;
+  els.mediaTitle.textContent = record.originalName || record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
-  const detailMark = markOf(record);
-  document.getElementById("detailBadges").innerHTML = [
-    `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
-    detailMark ? `<span class="mark-chip ${escapeHtml(detailMark.status)}">${escapeHtml(markLabel(detailMark.status))}</span>` : "",
-    record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
-  ].join(" ");
-  // Re-creating the <video> forces a metadata refetch on every render; only
-  // swap it when the selected evidence actually changed.
   const mediaKey = `${record.id}:${record.fileUrl}`;
   if (mediaRenderedFor !== mediaKey) {
     els.mediaStage.innerHTML = record.fileUrl
@@ -762,24 +746,59 @@ function renderDetails() {
   }
   applyVideoScale();
   const mark = markOf(record);
+  const recordTags = record.tagList || [];
+  document.getElementById("detailBadges").innerHTML = [
+    `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
+    mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
+    ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
+    record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
+  ].join(" ");
   els.summaryList.innerHTML = [
-    ["ID", record.id],
-    ["상태", record.status],
+    ["촬영 시각", record.recTime ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : " (추정)") : "미상"],
+    ["채널", record.channel || "-"],
     ["판독", mark ? markLabel(mark.status) : "미판독"],
-    ["메모", record.note],
-    ["길이", fmtDuration(record.duration)]
+    ["길이", fmtDuration(record.duration)],
+    ["크기", fmtBytes(record.size)]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
-    ["경로", `<code>${escapeHtml(record.path)}</code>`],
+    ["원본", `<code>${escapeHtml(record.originalName || record.name)}</code>`],
     ["원본 경로", record.originalPath ? `<code>${escapeHtml(record.originalPath)}</code>` : "-"],
-    ["촬영 시각", record.recTime ? `${escapeHtml(fmtUnix(record.recTime))} (${record.recSource === "name" ? "파일명" : "수정시각 추정"})` : "미상"],
-    ["제조사", escapeHtml(record.vendor)],
-    ["파서", `<code>${escapeHtml(record.parser)}</code>`],
+    ["저장 경로", `<code>${escapeHtml(record.path)}</code>`],
     ["코덱", escapeHtml(record.codec)],
-    ["크기", fmtBytes(record.size)],
     ["SHA-256", `<code>${escapeHtml(record.sha256)}</code>`],
-    ["오프셋", record.offset ?? "-"]
+    ["오프셋", record.offset != null ? String(record.offset) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
+  // tag editor for the selected evidence
+  const tagEditorHtml = `<div class="tag-editor">
+    ${TAG_PRESETS.map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
+    <input type="text" class="tag-input" id="customTagInput" placeholder="직접 입력" style="width:80px;height:24px;font-size:11px;">
+    <button type="button" class="mini" id="btnAddCustomTag">추가</button>
+  </div>`;
+  els.metaList.insertAdjacentHTML("afterend", "");
+  // replace existing tag editor if any
+  const oldEditor = document.querySelector(".tag-editor-wrap");
+  if (oldEditor) oldEditor.remove();
+  const metaEl = els.metaList;
+  metaEl.insertAdjacentHTML("afterend", `<div class="tag-editor-wrap">${tagEditorHtml}</div>`);
+  document.querySelectorAll(".tag-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      toggleTag(record.id, btn.dataset.presetTag);
+      render();
+    });
+  });
+  const customInput = document.getElementById("customTagInput");
+  const customBtn = document.getElementById("btnAddCustomTag");
+  if (customInput && customBtn) {
+    const addCustom = () => {
+      const tag = customInput.value.trim();
+      if (!tag) return;
+      addTag(record.id, tag);
+      customInput.value = "";
+      render();
+    };
+    customBtn.addEventListener("click", addCustom);
+    customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
+  }
   const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
   els.validationList.innerHTML = related.length ? related.map(item => `<div class="validation-item">
     <strong>${escapeHtml(item.validation_status || "-")}</strong>
@@ -826,6 +845,28 @@ function render() {
   renderTree();
   renderGrid();
   renderDetails();
+}
+
+function applyTag(tag) {
+  const ids = targetIds();
+  if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
+  ids.forEach(id => {
+    const list = state.tags[id] || [];
+    if (!list.includes(tag)) list.push(tag);
+    state.tags[id] = list;
+  });
+  storageSet(TAGS_KEY, state.tags);
+  render();
+  toast(`${ids.length}개 증거에 '${tag}' 태그를 적용했습니다.`);
+}
+
+function clearTags() {
+  const ids = targetIds();
+  if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
+  ids.forEach(id => delete state.tags[id]);
+  storageSet(TAGS_KEY, state.tags);
+  render();
+  toast(`${ids.length}개 증거의 태그를 해제했습니다.`);
 }
 
 function downloadJSON(filename, payload) {
@@ -1002,6 +1043,10 @@ document.getElementById("btnCopyPaths").addEventListener("click", () => {
   const paths = selectedRecords().map(record => record.path);
   if (paths.length) copyText(paths.join("\n"), "증거 경로");
 });
+document.getElementById("btnTagAccident").addEventListener("click", () => applyTag("사고"));
+document.getElementById("btnTagSpeed").addEventListener("click", () => applyTag("과속"));
+document.getElementById("btnTagSignal").addEventListener("click", () => applyTag("신호위반"));
+document.getElementById("btnTagClear").addEventListener("click", () => clearTags());
 document.getElementById("btnDownloadSelection").addEventListener("click", () => {
   const selected = selectedRecords();
   if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
@@ -1021,11 +1066,13 @@ document.getElementById("btnDownloadSelection").addEventListener("click", () => 
 document.getElementById("btnDownloadMarks").addEventListener("click", () => {
   const marks = Object.entries(state.marks).map(([id, mark]) => ({ id, status: mark.status, marked_unix: mark.marked_unix }));
   if (!marks.length) { toast("저장된 판독 마크가 없습니다."); return; }
+  const tagEntries = Object.entries(state.tags).map(([id, tags]) => ({ id, tags }));
   downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, {
-    schema_version: 1,
+    schema_version: 2,
     case_id: manifest.case_id || null,
     exported_unix: Math.floor(Date.now() / 1000),
-    marks
+    marks,
+    tags: tagEntries
   });
 });
 

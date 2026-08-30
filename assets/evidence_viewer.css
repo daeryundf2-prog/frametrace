@@ -143,3 +143,17 @@ body.stack .player { height: 40vh; }
 body.theater .player { grid-template-rows: 34px minmax(0, 1fr) 34px; }
 :fullscreen .media, ::backdrop { background: #0b0f0d; }
 body.stack .tree { display: none; }
+
+.tag-chip { display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 800; background: #155eef; color: #fff; margin-right: 3px; }
+.tag-row { margin: 3px 0; }
+.tag-editor-wrap { padding: 6px 12px; border-top: 1px solid var(--line); }
+.tag-editor { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.tag-btn { height: 24px; border-radius: 4px; padding: 0 8px; font-size: 11px; background: #eef3f1; border: 1px solid #cdd8d4; }
+.tag-btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.channel-badge { display: inline-block; border-radius: 3px; padding: 0 5px; font-size: 10px; font-weight: 800; background: #e9eff6; color: #344054; }
+.time-text { font-size: 11px; }
+.name-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
+.name-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.time-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin: 2px 0; }
+.time-text { font-size: 11px; color: var(--muted); }
+.sub-row { display: flex; align-items: center; gap: 4px; }
