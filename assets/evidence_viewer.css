@@ -54,8 +54,11 @@ mark { background: #ffe9a8; padding: 0 1px; }
 .tree-item .muted { font-size: 11px; }
 .pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 
-.media { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.player { background: var(--dark); border-radius: 8px; display: grid; grid-template-rows: 32px minmax(0, 1fr) 32px; overflow: hidden; flex: 0 0 auto; height: 42vh; }
+.media { display: flex; flex-direction: column; gap: 0; min-height: 0; }
+.hsplitter { flex: 0 0 auto; height: 10px; cursor: row-resize; display: grid; place-items: center; }
+.hsplitter::before { content: ""; width: 44px; height: 3px; border-radius: 2px; background: #b9c4c0; }
+.hsplitter:hover::before, .hsplitter.dragging::before { background: var(--accent); }
+.player { background: var(--dark); border-radius: 8px; display: grid; grid-template-rows: 32px minmax(0, 1fr) 32px; overflow: hidden; flex: 0 0 auto; }
 .media-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; color: #eaf3ef; background: #16231f; font-size: 13px; }
 .media-stage { overflow: auto; display: grid; place-items: center; min-height: 0; }
 .media-stage video { background: #0b0f0d; max-width: 100%; }
@@ -64,7 +67,7 @@ mark { background: #ffe9a8; padding: 0 1px; }
 .media-toolbar { display: flex; align-items: center; gap: 8px; padding: 0 12px; color: #c8d5d0; background: #16231f; }
 .media-toolbar select, .media-toolbar input { height: 24px; background: #16231f; color: #eaf3ef; border-color: #2c3a34; }
 .media-toolbar input[type="range"] { width: 130px; }
-.mini-info { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+.mini-info { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 120px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 800; text-transform: uppercase; color: #39433f; }
 dl { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 5px 10px; padding: 8px 12px; margin: 0; }
 dt { color: var(--muted); font-size: 12px; }

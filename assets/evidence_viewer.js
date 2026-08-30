@@ -301,7 +301,7 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
-  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -419,8 +419,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { videoMode, videoZoom, theater } = state.layout;
-  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater });
+  const { videoMode, videoZoom, theater, playerH } = state.layout;
+  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH });
 }
 
 let layoutSaveTimer = null;
@@ -431,9 +431,45 @@ function saveLayoutSoon() {
 
 function applyLayout() {
   document.body.classList.toggle("theater", !!state.layout.theater);
+  const player = document.querySelector(".player");
+  const h = Number(state.layout.playerH) || 0;
+  player.style.height = h >= 160 ? h + "px" : "";
   applyVideoScale();
   els.videoMode.value = state.layout.videoMode;
   els.videoZoom.value = String(state.layout.videoZoom);
+}
+
+function setupHeightSplitter() {
+  const splitter = document.getElementById("hsplitter");
+  const player = document.querySelector(".player");
+  let startY = 0;
+  let startH = 0;
+  let dragging = false;
+  splitter.addEventListener("pointerdown", event => {
+    dragging = true;
+    startY = event.clientY;
+    startH = player.offsetHeight;
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  splitter.addEventListener("pointermove", event => {
+    if (!dragging) return;
+    state.layout.playerH = Math.max(160, Math.min(window.innerHeight - 260, startH + event.clientY - startY));
+    applyLayout();
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    splitter.classList.remove("dragging");
+    saveLayout();
+  };
+  splitter.addEventListener("pointerup", end);
+  splitter.addEventListener("dblclick", () => {
+    state.layout.playerH = 0;
+    saveLayout();
+    applyLayout();
+  });
 }
 
 function applyVideoScale() {
@@ -994,5 +1030,6 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 });
 
 state.pageSize = Number(els.pageSize.value) || 100;
+setupHeightSplitter();
 applyLayout();
 render();
