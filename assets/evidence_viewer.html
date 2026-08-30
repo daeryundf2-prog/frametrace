@@ -23,39 +23,8 @@ __CSS__
       <button id="btnShortcuts" type="button" title="단축키 (?)">?</button>
     </div>
   </header>
-  <div class="playerbar">
-    <div class="player">
-      <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
-      <div class="media-stage" id="mediaStage"></div>
-      <div class="media-toolbar">
-        <span class="muted">크기</span>
-        <select id="videoMode">
-          <option value="fit">맞춤</option>
-          <option value="50">50%</option>
-          <option value="100">100%</option>
-          <option value="200">200%</option>
-        </select>
-        <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
-        <span class="muted" id="metricVideos"></span>
-      </div>
-    </div>
-    <aside class="mini-info">
-      <div class="panel-title">선택 증거</div>
-      <div id="detailBadges"></div>
-      <dl id="summaryList"></dl>
-      <div class="panel-title">포렌식 인스펙터</div>
-      <dl id="metaList"></dl>
-      <div class="panel-title">검증 로그</div>
-      <div class="validation-list" id="validationList"></div>
-      <dl>
-        <dt>원본</dt><dd>수정하지 않음</dd>
-        <dt>복구물</dt><dd>검증 전까지 후보</dd>
-      </dl>
-    </aside>
-  </div>
-  <div class="body2">
-    <aside class="tree" id="facetTree"></aside>
-    <div class="maincol">
+  <div class="main">
+    <section class="browse">
       <div class="filters">
         <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
         <select id="kind" title="출처">
@@ -104,14 +73,47 @@ __CSS__
       <div class="chip-row" id="presetChips"></div>
       <div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터"></div>
       <div class="muted period" id="periodLabel"></div>
-      <div class="grid" id="recordGrid"></div>
+      <div class="midrow">
+        <aside class="tree" id="facetTree"></aside>
+        <div class="grid" id="recordGrid"></div>
+      </div>
       <div class="pager">
         <span class="muted" id="resultCount"></span>
         <button id="prevPage">이전</button>
         <span class="muted" id="pageStatus"></span>
         <button id="nextPage">다음</button>
       </div>
-    </div>
+    </section>
+    <section class="media">
+      <div class="player">
+        <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
+        <div class="media-stage" id="mediaStage"></div>
+        <div class="media-toolbar">
+          <span class="muted">크기</span>
+          <select id="videoMode">
+            <option value="fit">맞춤</option>
+            <option value="50">50%</option>
+            <option value="100">100%</option>
+            <option value="200">200%</option>
+          </select>
+          <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
+          <span class="muted" id="metricVideos"></span>
+        </div>
+      </div>
+      <aside class="mini-info">
+        <div class="panel-title">선택 증거</div>
+        <div id="detailBadges"></div>
+        <dl id="summaryList"></dl>
+        <div class="panel-title">포렌식 인스펙터</div>
+        <dl id="metaList"></dl>
+        <div class="panel-title">검증 로그</div>
+        <div class="validation-list" id="validationList"></div>
+        <dl>
+          <dt>원본</dt><dd>수정하지 않음</dd>
+          <dt>복구물</dt><dd>검증 전까지 후보</dd>
+        </dl>
+      </aside>
+    </section>
   </div>
   <div class="selection-bar" id="selectionBar">
     <strong id="selectionCount">0개 선택</strong>
