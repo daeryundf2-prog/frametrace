@@ -299,7 +299,6 @@ records.forEach(record => {
   record.prefix = prefixFor(record);
   record.recType = recTypeFor(record);
     record.originalName = originalNameFor(record);
-  record.tagList = state.tags[record.id] || [];
   record.thumb = DATA.thumbs?.[record.id] || null;
 });
 // Carve-log and inode records duplicate indexed files under different ids;
@@ -587,7 +586,7 @@ function renderGrid() {
 function renderCard(record) {
   const mark = markOf(record);
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
-  const tags = (record.tagList || []).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
+  const tags = (tagListFor(record)).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
   const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
   const thumb = record.thumb
     ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
@@ -600,8 +599,8 @@ function renderCard(record) {
   const recTime = record.recTime
     ? new Date(record.recTime * 1000).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "";
-  const tagsHtml = (record.tagList || []).length
-    ? `<div class="tag-row">${(record.tagList || []).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`
+  const tagsHtml = tagListFor(record).length
+    ? `<div class="tag-row">${tagListFor(record).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`
     : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
@@ -746,7 +745,7 @@ function renderDetails() {
   }
   applyVideoScale();
   const mark = markOf(record);
-  const recordTags = record.tagList || [];
+  const recordTags = tagListFor(record);
   document.getElementById("detailBadges").innerHTML = [
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
@@ -805,6 +804,62 @@ function renderDetails() {
     <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>
     <code>${escapeHtml(item.target_sha256 || "-")}</code>
   </div>`).join("") : `<div class="validation-item">검증 로그 없음</div>`;
+}
+
+function renderTree() {
+  const typeCounts = new Map();
+  const kindCounts = new Map();
+  const dayCounts = new Map();
+  records.forEach(record => {
+    const typeKey = record.recType || "unclassified";
+    typeCounts.set(typeKey, (typeCounts.get(typeKey) || 0) + 1);
+    kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
+    if (record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
+  });
+  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" };
+  const items = [];
+  const addItems = (title, entries, activeKey, onPick) => {
+    items.push({ header: title });
+    items.push({ label: "전체", count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
+    [...entries.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([key, count]) => {
+      items.push({ label: key, count, key, pick: () => onPick(key), active: key === activeKey });
+    });
+  };
+  addItems("녹화 유형", new Map([...typeCounts.entries()].map(([k, c]) => [recTypeLabel(k), c])),
+    state.recType ? recTypeLabel(state.recType) : "", label => {
+      const match = [...typeCounts.entries()].find(([k]) => recTypeLabel(k) === label);
+      state.recType = match ? match[0] : "";
+      state.currentPage = 1;
+      render();
+    });
+  addItems("출처", new Map([...kindCounts.entries()].map(([k, c]) => [kindLabels[k] || k, c])),
+    kindLabels[state.kind] || "", label => {
+      state.kind = Object.entries(kindLabels).find(([, kindLabel]) => kindLabel === label)?.[0] || "";
+      els.kind.value = state.kind;
+      state.currentPage = 1;
+      render();
+    });
+  addItems("날짜", dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
+    state.dateFrom = day;
+    state.dateTo = day;
+    els.dateFrom.value = day;
+    els.dateTo.value = day;
+    state.currentPage = 1;
+    render();
+  });
+  els.facetTree.innerHTML = items.map(item => item.header !== undefined
+    ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+  ).join("");
+  const pickers = items.filter(item => item.pick);
+  const nodes = els.facetTree.querySelectorAll(".tree-item");
+  let idx = 0;
+  nodes.forEach(node => {
+    const entry = pickers[idx];
+    if (!entry) return;
+    idx += 1;
+    node.addEventListener("click", () => entry.pick(node.dataset.pick));
+  });
 }
 
 function renderMetrics() {
