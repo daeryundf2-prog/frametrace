@@ -396,18 +396,13 @@ fn api_env() -> String {
 }
 
 fn tool_available(name: &str, version_arg: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    let mut command = {
-        let mut command = Command::new("cmd");
-        command.args(["/C", name, version_arg]);
-        command
+    // resolve_tool_binary covers PATH plus the portable tools/bin layout, so
+    // a bare binary dropped next to frametrace-app.exe is detected.
+    let Ok(resolved) = crate::tool_policy::resolve_tool_binary(name, &[name]) else {
+        return false;
     };
-    #[cfg(not(target_os = "windows"))]
-    let mut command = {
-        let mut command = Command::new(name);
-        command.arg(version_arg);
-        command
-    };
+    let mut command = Command::new(&resolved);
+    command.arg(version_arg);
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

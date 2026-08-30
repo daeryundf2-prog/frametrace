@@ -15,7 +15,22 @@ fn integration_enabled() -> bool {
 }
 
 fn ffmpeg_binary() -> Option<PathBuf> {
-    let output = Command::new("where").arg("ffmpeg").output().ok()?;
+    find_tool("ffmpeg")
+}
+
+fn find_tool(name: &str) -> Option<PathBuf> {
+    // tools/bin next to the test binary first, then PATH.
+    if let Ok(exe) = std::env::current_exe() {
+        let candidate = exe
+            .parent()
+            .unwrap()
+            .join("tools/bin")
+            .join(format!("{name}.exe"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let output = Command::new("where").arg(name).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -309,20 +324,7 @@ fn dav_export_remuxes_real_h264_and_validates() {
 }
 
 fn ewf_tool(name: &str) -> Option<PathBuf> {
-    let output = Command::new("where").arg(name).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let first = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()?
-        .trim()
-        .to_string();
-    if first.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(first))
-    }
+    find_tool(name)
 }
 
 /// Real libewf round trip: acquire a raw image to E01 with ewfacquire, then

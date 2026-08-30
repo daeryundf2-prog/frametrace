@@ -101,7 +101,10 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ### M2-1 Dahua DAV 파서 1종 (4~5일) — 복원 5.0 → 6.5
 
-> **상태: 구현 완료 (2026-08-30), 실장비 검증 대기.** src/dav.rs(DHAV 워커·ES 추출·
+> **상태: 구현 완료 (2026-08-30), 실장비 검증 대기.** 실샘플 확보 조사 결과
+> 공개 저장소에 커밋된 DAV 픽스처 없음(감시영상 민감성). 인테이크 준비 완료:
+> `scripts/validate-dav-samples.ps1 -Samples <폴더>` — 의뢰 실녹화 3종을 폴더에
+> 넣는 즉시 전수 검증(워크→리먹스→ffprobe). src/dav.rs(DHAV 워커·ES 추출·
 > h264/hevc 리먹스) + `export-dav` 명령(export-log 체인 기록). 실장비 DAV 샘플이
 > 아닌 **문서화된 컨테이너 스켈레톤의 합성 픽스처 + 실 H.264 ES**로 E2E 검증
 > (합성 DAV → export-dav → ffprobe 검증됨 확인). 단위 4건 + IT 1건.
@@ -118,10 +121,11 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ### M2-2 실 E01 엔드투엔드 검증 (1.5일)
 
-> **상태: 차단 (2026-08-30).** winget/choco/GitHub 릴리스 어디에도 libewf Windows
-> 바이너리 없음(소스 배포만). 대응: libewf 설치 시 자동 활성화되는 IT 테스트를
-> 미리 준비(e01_import_roundtrip_with_real_libewf — ewfacquire → import-e01 →
-> verified/해시 단정). libewf 확보 후 즉시 실행.
+> **상태: 차단 확정 + 수용 경로 구현 (2026-08-30).** 전수 확인 결과 libyal GitHub
+> 릴리스(2건)와 SourceForge 프로젝트 모두 Windows 바이너리 없음(소스 배포만 —
+> 자체 빌드 또는 신뢰 가능한 커뮤니티 빌드 필요). 수용 경로: `tools/bin` 자동
+> 탐색을 구현해 바이너리를 포터블 폴더에 넣는 것만으로 ewf 전 경로 동작
+> (프로브/IT 헬퍼 포함). libewf 확보 시 IT 자동 실행.
 - libewf Windows 바이너리 확보·설치 문서화(핸드오프 §5 이슈 소멸).
   ewfacquire로 테스트 이미지를 E01로 생성 → 런처 E01 체인(INPUT→검증→추출→조사→리뷰) 실측.
   inspect-image fls 1만 엔트리 성능 측정, recover-inode 샘플 복원 → validate → 리뷰 반영 확인.

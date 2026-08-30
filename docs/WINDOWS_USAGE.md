@@ -23,6 +23,10 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
    - `mmls.exe`
    - `fls.exe`
    - `icat.exe`
+   Portable alternative: drop any of the above binaries into `tools/bin/`
+   next to `frametrace-app.exe` — they are discovered automatically, no PATH
+   editing required. Note: libewf has no official Windows build upstream;
+   build from source or use a trusted community build.
 6. Use PowerShell or Windows Terminal.
 
 Check the tools:

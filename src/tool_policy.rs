@@ -120,10 +120,53 @@ fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
 /// failure message stays identical.
 fn resolve_bare_tool_name(name: &str, allowed_names: &[&str]) -> String {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    match find_in_path_dirs(name, allowed_names, &path_var) {
-        Some(path) => path.to_string_lossy().to_string(),
-        None => name.to_string(),
+    if let Some(path) = find_in_path_dirs(name, allowed_names, &path_var) {
+        return path.to_string_lossy().to_string();
     }
+    // Portable layout: `<exe dir>/tools/bin` ships optional forensic tools
+    // next to the binary so examiners never need admin rights to extend PATH.
+    // The directory is part of the trusted install tree, unlike the CWD.
+    if let Some(found) = find_in_tools_bin(name, allowed_names) {
+        return found;
+    }
+    name.to_string()
+}
+
+/// Whether an optional forensic tool has been dropped into the portable
+/// `tools/bin` directory next to the executable.
+pub fn tools_bin_tool_exists(name: &str) -> bool {
+    let Some(dir) = tools_bin_dir() else {
+        return false;
+    };
+    [name.to_string(), format!("{name}.exe")]
+        .iter()
+        .any(|candidate| dir.join(candidate).is_file())
+}
+
+fn tools_bin_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join("tools").join("bin"))
+}
+
+fn find_in_tools_bin(name: &str, allowed_names: &[&str]) -> Option<String> {
+    let dir = tools_bin_dir()?;
+    for candidate_name in [name.to_string(), format!("{name}.exe")] {
+        let candidate = dir.join(&candidate_name);
+        let Ok(metadata) = std::fs::metadata(&candidate) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(canonical) = candidate.canonicalize() else {
+            continue;
+        };
+        let file_name = canonical.file_name().and_then(|n| n.to_str());
+        if file_name.map(|n| is_allowed_tool_name(n, allowed_names)) == Some(true) {
+            return Some(canonical.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 fn find_in_path_dirs(name: &str, allowed_names: &[&str], path_var: &str) -> Option<PathBuf> {
@@ -202,6 +245,22 @@ fn nearest_existing_parent(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn resolves_bare_tools_from_exe_relative_tools_bin() {
+        let exe = std::env::current_exe().unwrap();
+        let tools_bin = exe.parent().unwrap().join("tools").join("bin");
+        std::fs::create_dir_all(&tools_bin).unwrap();
+        let probe = tools_bin.join("frametrace-probe-icat.exe");
+        std::fs::write(&probe, b"stub").unwrap();
+        let resolved =
+            super::resolve_bare_tool_name("frametrace-probe-icat", &["frametrace-probe-icat"]);
+        assert!(
+            resolved.ends_with("frametrace-probe-icat.exe"),
+            "unexpected resolution: {resolved}"
+        );
+        let _ = std::fs::remove_file(&probe);
+    }
+
     use super::{find_in_path_dirs, require_case_output_path, resolve_tool_binary};
     use std::fs;
     use std::path::Path;
