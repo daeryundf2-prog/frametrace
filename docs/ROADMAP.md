@@ -121,11 +121,14 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ### M2-2 실 E01 엔드투엔드 검증 (1.5일)
 
-> **상태: 차단 확정 + 수용 경로 구현 (2026-08-30).** 전수 확인 결과 libyal GitHub
-> 릴리스(2건)와 SourceForge 프로젝트 모두 Windows 바이너리 없음(소스 배포만 —
-> 자체 빌드 또는 신뢰 가능한 커뮤니티 빌드 필요). 수용 경로: `tools/bin` 자동
-> 탐색을 구현해 바이너리를 포터블 폴더에 넣는 것만으로 ewf 전 경로 동작
-> (프로브/IT 헬퍼 포함). libewf 확보 시 IT 자동 실행.
+> **상태: 해결 (2026-08-30).** 공식 Windows 빌드는 상류에 없음이 확정되어
+> **소스 빌드 체인을 스크립트화**(`scripts/build-libewf-tools.ps1` — 사용자 폴더
+> MSYS2 부트스트랩(관리자 불필요) → mingw64 gcc → libewf 20240506 빌드 →
+> tools/bin 배치, 정적 링크라 DLL 불필요)하고, 실제로 빌드·배치 후
+> **E01 라운드트립 IT 통과**(ewfacquire로 E01 생성 → import-e01: ewfverify MD5
+> 일치 → raw 익스포트 → SHA-256). 추가로 발견·수정한 실버그: 케이스 경로에 혼합
+> 구분자(`case\evidence/images`)가 있으면 ewfexport가 exit 0으로 조용히 실패 →
+> 인자 경로를 플랫폼 구분자로 정규화.
 - libewf Windows 바이너리 확보·설치 문서화(핸드오프 §5 이슈 소멸).
   ewfacquire로 테스트 이미지를 E01로 생성 → 런처 E01 체인(INPUT→검증→추출→조사→리뷰) 실측.
   inspect-image fls 1만 엔트리 성능 측정, recover-inode 샘플 복원 → validate → 리뷰 반영 확인.

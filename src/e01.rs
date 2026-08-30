@@ -278,7 +278,10 @@ fn ewfexport_args(
     }
     args.extend([
         "-t".to_string(),
-        audit::path_string(export_target),
+        // ewfexport's glob fails silently (exit 0, no output) on paths with
+        // mixed separators like "case\evidence/images"; normalize to the
+        // platform separator before handing the target over.
+        audit::path_string(export_target).replace('/', std::path::MAIN_SEPARATOR_STR),
         audit::path_string(e01_path),
     ]);
     args

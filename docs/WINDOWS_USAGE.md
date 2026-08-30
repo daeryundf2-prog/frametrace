@@ -13,11 +13,12 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
    `choco install ffmpeg`) and make sure both tools are in `PATH`:
    - `ffmpeg.exe`
    - `ffprobe.exe`
-4. Install libewf tools if E01/Ex01 evidence containers will be processed
-   (Windows builds: `https://github.com/libyal/libewf/releases`):
-   - `ewfinfo.exe`
-   - `ewfverify.exe`
-   - `ewfexport.exe`
+4. Install libewf tools if E01/Ex01 evidence containers will be processed.
+   Upstream ships source only for Windows, so use the automated source build:
+   - `powershell -File scripts/build-libewf-tools.ps1` (installs a per-user
+     MSYS2, builds libewf, drops `ewf*.exe` + `libewf-3.dll` into
+     `target/release/tools/bin`; no admin required)
+   - or place a trusted community build into `tools/bin/`.
 5. Install The Sleuth Kit tools if raw-image file-system inspection or deleted inode recovery will be processed
    (`https://winget install Sleuthkit.Sleuthkit` or `https://sleuthkit.org`):
    - `mmls.exe`
