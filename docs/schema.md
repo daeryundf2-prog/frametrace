@@ -4,9 +4,11 @@ Phase 3 audit records the current schema and migration risks before destructive 
 
 ## Current Schema Version
 
-- `SCHEMA_VERSION = "2"`
-- New databases are initialized at schema version 2.
-- Existing version 1 databases migrate forward to version 2 with a pre-migration backup.
+- `SCHEMA_VERSION = "3"`
+- New databases are initialized at schema version 3.
+- Existing version 1 and 2 databases migrate forward with a pre-migration backup
+  (`case.db.backup-v<N>-to-v3`).
+- Version 3 adds the `review_marks` table (examiner marks imported via `import-marks`).
 - Unsupported versions still fail closed.
 
 ## Tables

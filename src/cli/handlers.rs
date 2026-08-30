@@ -8,8 +8,11 @@ use crate::model::{CaseManifest, ScanOptions};
 use crate::package;
 use crate::report;
 use crate::scan;
+use crate::tool_policy::require_case_output_path;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
-use crate::util::{create_case_layout, json_escape, now_unix, read_to_string, write_text};
+use crate::util::{
+    create_case_layout, json_escape, now_unix, read_to_string, write_text, write_text_atomic,
+};
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
@@ -73,7 +76,7 @@ pub fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), Strin
         notes: options.notes.clone(),
     };
 
-    write_text(&case_dir.join("case.json"), &manifest.to_json())
+    write_text_atomic(&case_dir.join("case.json"), &manifest.to_json())
         .map_err(|err| format!("failed to write case manifest: {err}"))?;
 
     println!("case created: {}", case_dir.display());
@@ -250,11 +253,85 @@ pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Resu
     Ok(())
 }
 
+/// Remuxes a Dahua DAV container to MP4 (no re-encode), recording the
+/// derived artifact in artifacts/clips/export-log.jsonl so validate-batch and
+/// the viewer can consume the output by path. DAV parsing is pending
+/// real-sample validation; outputs stay candidate until examiner review.
+pub fn export_dav(
+    case_dir: &Path,
+    dav_file: &Path,
+    output: Option<PathBuf>,
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(case_dir, "export-dav", dav_file, None, "{}")?;
+
+    let stem = dav_file
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("dav");
+    let requested_raw = output.unwrap_or_else(|| {
+        crate::util::unique_path(&case_dir.join("artifacts/clips").join(format!("{stem}.mp4")))
+    });
+    require_case_output_path(case_dir, &requested_raw, "DAV export")?;
+    if requested_raw.exists() {
+        return Err(format!(
+            "output already exists: {} (choose a new --output path)",
+            requested_raw.display()
+        ));
+    }
+
+    let es_path =
+        crate::util::unique_path(&case_dir.join("artifacts/carved").join(format!("{stem}.es")));
+    let (written, frames, channel) = crate::dav::extract_video_es(dav_file, &es_path)?;
+    if let Err(error) = crate::dav::remux_es_to_mp4(&es_path, &requested_raw, timeout_secs) {
+        let _ = std::fs::remove_file(&requested_raw);
+        return Err(error);
+    }
+    let output_sha256 = audit::digest_file(&requested_raw)?;
+
+    let line = format!(
+        "{{\"schema_version\":1,\"event\":\"export-dav\",\"selector\":\"{}\",\"source_path\":\"{}\",\"format\":\"mp4\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"es_path\":\"{}\",\"es_bytes\":{},\"video_frames\":{},\"channel\":{},\"container_validation\":\"pending-real-sample-validation\"}}",
+        json_escape(stem),
+        json_escape(&dav_file.to_string_lossy()),
+        json_escape(&requested_raw.to_string_lossy()),
+        json_escape(&output_sha256),
+        json_escape(&es_path.to_string_lossy()),
+        written,
+        frames,
+        channel
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string()),
+    );
+    audit::append_chained_jsonl(&case_dir.join("artifacts/clips/export-log.jsonl"), &line)?;
+    case_db::complete_job(case_dir, &job.job_id, 1, "export-dav completed")?;
+
+    println!("dav remux complete");
+    println!(
+        "video frames: {frames} · channel: {} · ES bytes: {written}",
+        channel
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    );
+    println!("output: {}", requested_raw.display());
+    println!("output sha256: {output_sha256}");
+    println!("note: DAV parsing is pending real-sample validation; keep the original DAV.");
+    Ok(())
+}
+
 pub fn make_review(case_dir: &Path) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
-    let index_json = read_to_string(&index_path)
-        .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
+    let index_json = read_to_string(&index_path).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "no case index yet at {} — run scan-folder (or import-e01) before make-review",
+                index_path.display()
+            )
+        } else {
+            format!("failed to read {}: {err}", index_path.display())
+        }
+    })?;
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
@@ -304,8 +381,16 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
 pub fn make_report(case_dir: &Path) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
-    let index_json = read_to_string(&index_path)
-        .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
+    let index_json = read_to_string(&index_path).map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "no case index yet at {} — run scan-folder (or import-e01) before make-review",
+                index_path.display()
+            )
+        } else {
+            format!("failed to read {}: {err}", index_path.display())
+        }
+    })?;
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
@@ -321,6 +406,27 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let batch_log =
+        read_to_string(&case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap_or_default();
+    let scan_runs_json = read_scan_runs_json(case_dir);
+    let marks_json = match crate::case_db::load_review_marks(case_dir) {
+        Ok(rows) => {
+            let entries = rows
+                .iter()
+                .map(|mark| {
+                    format!(
+                        "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}}}",
+                        crate::util::json_escape(&mark.record_id),
+                        crate::util::json_escape(&mark.status),
+                        mark.marked_unix
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("[{entries}]")
+        }
+        Err(_) => "[]".to_string(),
+    };
     let html = report::render_case_report(&report::ReportInputs {
         manifest_json: &manifest_json,
         index_json: &index_json,
@@ -330,11 +436,42 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         carve_log_jsonl: &carve_log,
         filesystem_log_jsonl: &filesystem_log,
         validation_log_jsonl: &validation_log,
+        batch_log_jsonl: &batch_log,
+        scan_runs_json: &scan_runs_json,
+        marks_json: &marks_json,
     });
     let report_path = case_dir.join("reports/case-report.html");
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;
     println!("report written: {}", report_path.display());
     Ok(())
+}
+
+/// Reads every db/scan_runs/*.json snapshot and returns them joined into a
+/// JSON array literal for the report script.
+fn read_scan_runs_json(case_dir: &Path) -> String {
+    let runs_dir = case_dir.join("db/scan_runs");
+    let Ok(entries) = std::fs::read_dir(&runs_dir) else {
+        return "[]".to_string();
+    };
+    let mut runs: Vec<(String, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(content) = read_to_string(&path) else {
+            continue;
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+        runs.push((name, content));
+    }
+    runs.sort_by_key(|(name, _)| name.clone());
+    let joined = runs
+        .iter()
+        .map(|(_, content)| content.trim())
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{joined}]")
 }
 
 pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {
@@ -685,6 +822,7 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                                 &item.selector,
                                 format,
                             )?),
+                            timeout_secs: None,
                         };
                         let selector = resolved.display().to_string();
                         let result = video_export::export_video(case_dir, &selector, &options)?;
@@ -841,20 +979,57 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
         &format!("{{\"items\":{}}}", selection.items.len()),
     )?;
 
+    // Compute phase runs in parallel (per-file SHA-256 + ffprobe dominate the
+    // runtime); validation log appends then happen sequentially so the hash
+    // chain stays ordered and verifiable.
+    let options = ValidationOptions::default();
+    let items = &selection.items;
+    let slots: std::sync::Mutex<Vec<Option<Result<crate::validation::ValidationResult, String>>>> =
+        std::sync::Mutex::new((0..items.len()).map(|_| None).collect());
+    let next_index = std::sync::atomic::AtomicUsize::new(0);
+    let items = &items;
+    let slots = &slots;
+    let next_index = &next_index;
+    let workers = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(4)
+        .clamp(1, 8);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(item) = items.get(index) else { break };
+                    let outcome =
+                        crate::validation::compute_validation(case_dir, &item.selector, &options);
+                    slots.lock().unwrap()[index] = Some(outcome);
+                }
+            });
+        }
+    });
+
     let mut outcomes = Vec::new();
-    for item in &selection.items {
-        let options = ValidationOptions::default();
-        let outcome = validation::validate_artifact(case_dir, &item.selector, &options);
-        outcomes.push(match outcome {
-            Ok(result) => BatchOutcome {
-                selector: item.selector.clone(),
-                action: "validate",
-                status: if result.validation_status == "validation-failed" {
-                    "failed"
-                } else {
-                    "ok"
+    let results = slots.lock().unwrap().drain(..).collect::<Vec<_>>();
+    for (item, slot) in selection.items.iter().zip(results) {
+        let computed = slot.unwrap_or_else(|| Err("validation worker lost its result".to_string()));
+        outcomes.push(match computed {
+            Ok(result) => match validation::append_validation_log(case_dir, &result, &options) {
+                Ok(()) => BatchOutcome {
+                    selector: item.selector.clone(),
+                    action: "validate",
+                    status: if result.validation_status == "validation-failed" {
+                        "failed"
+                    } else {
+                        "ok"
+                    },
+                    detail: format!("{} ({})", result.validation_status, result.target_sha256),
                 },
-                detail: format!("{} ({})", result.validation_status, result.target_sha256),
+                Err(error) => BatchOutcome {
+                    selector: item.selector.clone(),
+                    action: "validate",
+                    status: "failed",
+                    detail: error,
+                },
             },
             Err(error) => BatchOutcome {
                 selector: item.selector.clone(),
@@ -884,6 +1059,92 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     )?;
 
     println!("validate batch complete");
+    println!("requested: {}", outcomes.len());
+    println!("ok: {ok}");
+    println!("failed: {failed}");
+    for outcome in &outcomes {
+        println!(
+            "  [{}] {}: {}",
+            outcome.status, outcome.selector, outcome.detail
+        );
+    }
+    Ok(())
+}
+
+/// Batch-recovers viewer-selected deleted inodes (kind "candidate") from a
+/// raw image. Each recovery appends its own tsk-audit entry; the batch outcome
+/// is chained into artifacts/logs/batch-log.jsonl.
+pub fn recover_batch(
+    case_dir: &Path,
+    image_file: &Path,
+    selection_path: &Path,
+    partition_offset: u64,
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let selection = crate::selection::parse_selection_file(selection_path)?;
+    let job = case_db::start_job(
+        case_dir,
+        "recover-batch",
+        selection_path,
+        Some(selection.items.len() as u64),
+        &format!("{{\"items\":{}}}", selection.items.len()),
+    )?;
+
+    let mut outcomes = Vec::new();
+    for item in &selection.items {
+        let inode = item
+            .selector
+            .trim()
+            .strip_prefix("fls:")
+            .unwrap_or(item.selector.trim())
+            .to_string();
+        let options = TskRecoverOptions {
+            partition_offset,
+            inode,
+            output_path: None,
+            recover_deleted: true,
+            include_slack: false,
+            skip_sparse_holes: true,
+            icat_bin: "icat".to_string(),
+            timeout_secs,
+        };
+        let outcome = recover_inode(case_dir, image_file, options);
+        outcomes.push(match outcome {
+            Ok(()) => BatchOutcome {
+                selector: item.selector.clone(),
+                action: "recover",
+                status: "ok",
+                detail: "recovered into artifacts/recovered/filesystem".to_string(),
+            },
+            Err(error) => BatchOutcome {
+                selector: item.selector.clone(),
+                action: "recover",
+                status: "failed",
+                detail: error,
+            },
+        });
+    }
+
+    let ok = outcomes.iter().filter(|o| o.status == "ok").count();
+    let failed = outcomes.iter().filter(|o| o.status == "failed").count();
+    let line = format!(
+        "{{\"schema_version\":1,\"event\":\"recover-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"results\":{}}}",
+        json_escape(&selection_path.display().to_string()),
+        outcomes.len(),
+        ok,
+        failed,
+        outcomes_json(&outcomes),
+    );
+    audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        outcomes.len() as u64,
+        "recover-batch completed",
+    )?;
+
+    println!("recover batch complete");
     println!("requested: {}", outcomes.len());
     println!("ok: {ok}");
     println!("failed: {failed}");
@@ -1017,22 +1278,6 @@ fn collect_index_videos(index_json: &str) -> Vec<(String, String)> {
     out
 }
 
-#[cfg(test)]
-mod thumbnail_tests {
-    use super::base64_encode;
-
-    #[test]
-    fn encodes_standard_vectors() {
-        assert_eq!(base64_encode(b""), "");
-        assert_eq!(base64_encode(b"f"), "Zg==");
-        assert_eq!(base64_encode(b"fo"), "Zm8=");
-        assert_eq!(base64_encode(b"foo"), "Zm9v");
-        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
-        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
-        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
-    }
-}
-
 #[derive(Debug, Default)]
 struct ThumbnailStats {
     created: usize,
@@ -1063,71 +1308,96 @@ fn generate_review_thumbnails(
     };
 
     let mut map = std::collections::BTreeMap::new();
+    // Fresh thumbnails are resolved up front; the ffmpeg extraction runs are
+    // then fanned out across a small worker pool (extraction dominates the
+    // runtime on multi-thousand-record cases, and each invocation is an
+    // independent subprocess so parallelism is safe here — audit log appends
+    // are not part of this loop).
+    let mut cached_ids = Vec::new();
+    let mut pending: Vec<(&String, &String)> = Vec::new();
     for (id, source) in videos {
         let output = thumbs_dir.join(format!("{id}.jpg"));
         if thumbnail_is_fresh(Path::new(source), &output) {
-            match std::fs::read(&output) {
-                Ok(bytes) => {
-                    map.insert(
-                        id.clone(),
-                        format!("data:image/jpeg;base64,{}", base64_encode(&bytes)),
-                    );
-                    stats.cached += 1;
-                }
-                Err(_) => stats.skipped += 1,
-            }
-            continue;
-        }
-        let mut created = false;
-        for seek in ["5", "0"] {
-            let result = Command::new(&ffmpeg)
-                .args([
-                    "-y",
-                    "-loglevel",
-                    "error",
-                    "-ss",
-                    seek,
-                    "-i",
-                    source,
-                    "-frames:v",
-                    "1",
-                    "-vf",
-                    "scale=288:-2",
-                    "-q:v",
-                    "5",
-                ])
-                .arg(&output)
-                .output();
-            match result {
-                Ok(output) if output.status.success() => {
-                    created = true;
-                    break;
-                }
-                _ => {
-                    let _ = std::fs::remove_file(&output);
-                }
-            }
-        }
-        if created {
-            // In-memory map uses data: URIs; the JPEG on disk doubles as the
-            // regeneration cache.
-            match std::fs::read(&output) {
-                Ok(bytes) => {
-                    map.insert(
-                        id.clone(),
-                        format!("data:image/jpeg;base64,{}", base64_encode(&bytes)),
-                    );
-                    stats.created += 1;
-                }
-                Err(err) => {
-                    stats.skipped += 1;
-                    let _ = err;
-                }
-            }
+            cached_ids.push(id.clone());
         } else {
-            stats.skipped += 1;
+            pending.push((id, source));
         }
     }
+    stats.cached = cached_ids.len();
+
+    let created_ids: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let skipped = std::sync::atomic::AtomicUsize::new(0);
+    let next_index = std::sync::atomic::AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(4)
+        .clamp(1, 8);
+    let pending = &pending;
+    let created_ids = &created_ids;
+    let skipped = &skipped;
+    let next_index = &next_index;
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some((id, source)) = pending.get(index) else {
+                        break;
+                    };
+                    let output = thumbs_dir.join(format!("{id}.jpg"));
+                    let mut created = false;
+                    for seek in ["5", "0"] {
+                        let result = Command::new(&ffmpeg)
+                            .args([
+                                "-y",
+                                "-loglevel",
+                                "error",
+                                "-ss",
+                                seek,
+                                "-i",
+                                source,
+                                "-frames:v",
+                                "1",
+                                "-vf",
+                                "scale=288:-2",
+                                "-q:v",
+                                "5",
+                            ])
+                            .arg(&output)
+                            .output();
+                        match result {
+                            Ok(result) if result.status.success() => {
+                                created = true;
+                                break;
+                            }
+                            _ => {
+                                let _ = std::fs::remove_file(&output);
+                            }
+                        }
+                    }
+                    if created {
+                        created_ids.lock().unwrap().push((*id).clone());
+                    } else {
+                        skipped.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    stats.created = created_ids.lock().unwrap().len();
+    stats.skipped = skipped.load(std::sync::atomic::Ordering::SeqCst);
+    map.extend(
+        cached_ids
+            .into_iter()
+            .map(|id| (id.clone(), format!("thumbs/{id}.jpg"))),
+    );
+    map.extend(
+        created_ids
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|id| (id.clone(), format!("thumbs/{id}.jpg"))),
+    );
 
     let entries = map
         .iter()
@@ -1141,33 +1411,6 @@ fn generate_review_thumbnails(
         .collect::<Vec<_>>()
         .join(",");
     Ok((format!("{{{entries}}}"), stats))
-}
-
-/// Chrome treats every file: URL as a unique security origin, so the viewer
-/// cannot load thumbnail <img> tags from disk. Embed the JPEGs as data: URIs
-/// instead — this keeps the page a single serverless file.
-fn base64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
-        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(TABLE[(n >> 18) as usize & 63] as char);
-        out.push(TABLE[(n >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(n >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[n as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 fn thumbnail_is_fresh(source: &Path, thumb: &Path) -> bool {

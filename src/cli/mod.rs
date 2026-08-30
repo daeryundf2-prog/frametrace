@@ -77,6 +77,8 @@ pub enum Commands {
         hash_e01: bool,
         #[arg(long)]
         ewfinfo: Option<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Verify an E01 with libewf, export it to raw image form, hash the raw output
     ImportE01 {
@@ -96,6 +98,8 @@ pub enum Commands {
         ewfverify: Option<String>,
         #[arg(long)]
         ewfexport: Option<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Generate a serverless HTML review dashboard at review/index.html
     MakeReview { case_dir: PathBuf },
@@ -121,6 +125,17 @@ pub enum Commands {
         duration: Option<f64>,
         #[arg(long)]
         output: Option<PathBuf>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Remux a Dahua DAV export to MP4 without re-encoding (real-sample validation pending)
+    ExportDav {
+        case_dir: PathBuf,
+        dav_file: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Generate a lower-bitrate review proxy MP4
     MakeProxy {
@@ -179,6 +194,18 @@ pub enum Commands {
         skip_sparse_holes: bool,
         #[arg(long)]
         icat: Option<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Batch-recover viewer-selected deleted inodes from a raw image with Sleuth Kit icat
+    RecoverBatch {
+        case_dir: PathBuf,
+        image_file: PathBuf,
+        selection: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        partition_offset: u64,
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Validate an indexed video, carved candidate, recovered inode, or artifact path with ffprobe
     ValidateArtifact {
@@ -346,6 +373,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             e01_file,
             hash_e01,
             ewfinfo,
+            timeout,
         } => {
             let options = E01Options {
                 output_path: None,
@@ -355,6 +383,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 ewfinfo_bin: ewfinfo.unwrap_or_else(|| "ewfinfo".to_string()),
                 ewfverify_bin: "ewfverify".to_string(),
                 ewfexport_bin: "ewfexport".to_string(),
+                timeout_secs: timeout,
             };
             inspect_e01(&case_dir, &e01_file, options)
         }
@@ -368,6 +397,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             ewfinfo,
             ewfverify,
             ewfexport,
+            timeout,
         } => {
             let options = E01Options {
                 output_path: output,
@@ -377,9 +407,16 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 ewfinfo_bin: ewfinfo.unwrap_or_else(|| "ewfinfo".to_string()),
                 ewfverify_bin: ewfverify.unwrap_or_else(|| "ewfverify".to_string()),
                 ewfexport_bin: ewfexport.unwrap_or_else(|| "ewfexport".to_string()),
+                timeout_secs: timeout,
             };
             import_e01(&case_dir, &e01_file, options)
         }
+        Commands::ExportDav {
+            case_dir,
+            dav_file,
+            output,
+            timeout,
+        } => export_dav(&case_dir, &dav_file, output, timeout),
         Commands::MakeReview { case_dir } => make_review(&case_dir),
         Commands::ListParsers => {
             println!("{}", crate::detector::parser_catalog_json());
@@ -397,6 +434,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             start,
             duration,
             output,
+            timeout,
         } => {
             let fmt = ExportFormat::parse(&format)?;
             let options = ExportOptions {
@@ -404,6 +442,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 start_seconds: start,
                 duration_seconds: duration,
                 output_path: output,
+                timeout_secs: timeout,
             };
             export_video(&case_dir, &selector, options)
         }
@@ -472,6 +511,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             include_slack,
             skip_sparse_holes,
             icat,
+            timeout,
         } => {
             let options = TskRecoverOptions {
                 partition_offset,
@@ -481,9 +521,23 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 include_slack,
                 skip_sparse_holes,
                 icat_bin: icat.unwrap_or_else(|| "icat".to_string()),
+                timeout_secs: timeout,
             };
             recover_inode(&case_dir, &image_file, options)
         }
+        Commands::RecoverBatch {
+            case_dir,
+            image_file,
+            selection,
+            partition_offset,
+            timeout,
+        } => recover_batch(
+            &case_dir,
+            &image_file,
+            &selection,
+            partition_offset,
+            timeout,
+        ),
         Commands::ValidateArtifact {
             case_dir,
             selector,

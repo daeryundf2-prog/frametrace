@@ -19,11 +19,9 @@ git log -1 --oneline
 
 최소 기준 커밋:
 
-```text
-f5c95f5 Close the pre-Windows validation loop for case review
-```
-
-`main`이 더 앞서 있으면 최신 `main`을 기준으로 진행하되, 먼저 이 문서를 끝까지 읽고 작업 순서를 맞춘다.
+이 문서가 작성된 이후 저장소 이력이 재구성되어 당시 기준 커밋(f5c95f5)은 현재
+히스토리에 존재하지 않는다. **현재 `main` HEAD를 기준으로 진행**하되, 먼저 이 문서를
+끝까지 읽고 작업 순서를 맞춘다. 진행 전 `docs/ROADMAP.md`도 함께 확인한다.
 
 ## 1. Windows 필수 도구 설치
 

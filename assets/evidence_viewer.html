@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <link rel="icon" href="data:,">
   <title>FrameTrace Evidence Viewer</title>
   <style>
@@ -32,6 +33,7 @@ __CSS__
           <option value="video">원본 (논리 파일)</option>
           <option value="carved">카빙 후보</option>
           <option value="filesystem">파일시스템 복구</option>
+          <option value="candidate">삭제 영상 후보 (복구 전)</option>
         </select>
         <select id="status" title="검증 상태">
           <option value="">전체 검증 상태</option>
@@ -84,6 +86,7 @@ __CSS__
         <button id="nextPage">다음</button>
       </div>
     </section>
+    <div class="vsplitter" id="vsplitter" title="드래그: 목록/뷰어 폭 조절 / 더블클릭: 기본값"></div>
     <section class="media">
       <div class="player">
         <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>

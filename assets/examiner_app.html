@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>FrameTrace 검수 워크스테이션</title>
+  <style>
+    :root {
+      --bg: #eef1f0; --panel: #fbfcfb; --ink: #1f2724; --muted: #68736f;
+      --line: #d8dedb; --line-strong: #bdc9c4; --accent: #0f7c71;
+      --danger: #b14d42; --warn: #b4802a; --ok: #2f7a48; --candidate: #6c5d99;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+    header { background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 20px; height: 56px; }
+    .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #174e48; border-radius: 7px; background: #123f3a; color: #d7fff7; font-family: var(--mono); font-size: 12px; font-weight: 800; }
+    header h1 { font-size: 16px; margin: 0; }
+    header .sub { color: var(--muted); font-size: 12px; flex: 1; }
+    .env { display: flex; gap: 6px; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line-strong); background: #f6f9f8; color: var(--muted); }
+    .badge.ok { background: #e8f4ee; border-color: #bcd9c9; color: var(--ok); }
+    .badge.bad { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
+    main { max-width: 980px; margin: 0 auto; padding: 22px 20px 60px; }
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 18px; }
+    .step { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px; font-size: 13px; color: var(--muted); }
+    .step b { display: block; font-size: 11px; color: var(--line-strong); letter-spacing: .04em; }
+    .step.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); color: var(--ink); background: #f2faf8; }
+    .step.active b { color: var(--accent); }
+    .step.done b::after { content: " ✓"; color: var(--ok); }
+    section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 14px; }
+    section.card h2 { font-size: 15px; margin: 0 0 4px; }
+    section.card p.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+    label.field { display: block; margin-bottom: 12px; }
+    label.field span { display: block; font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+    label.field .opt { color: var(--muted); font-weight: 400; }
+    input[type="text"] { width: 100%; height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; font: inherit; background: #fff; }
+    input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    .checks { display: flex; gap: 18px; margin: 4px 0 14px; font-size: 13px; }
+    .checks label { display: flex; align-items: center; gap: 6px; }
+    button { font: inherit; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; cursor: pointer; padding: 0 14px; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+    button.primary:disabled, button:disabled { background: #f2f4f7; border-color: var(--line-strong); color: #98a2b3; cursor: default; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .prog { display: none; }
+    .prog.show { display: block; }
+    ol.steptrack { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+    ol.steptrack li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; color: var(--muted); }
+    ol.steptrack li .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); flex: 0 0 auto; }
+    ol.steptrack li.running { color: var(--ink); border-color: var(--accent); }
+    ol.steptrack li.running .dot { background: var(--accent); animation: pulse 1s infinite; }
+    ol.steptrack li.done { color: var(--ink); }
+    ol.steptrack li.done .dot { background: var(--ok); }
+    ol.steptrack li.failed { color: var(--danger); border-color: var(--danger); }
+    ol.steptrack li.failed .dot { background: var(--danger); }
+    @keyframes pulse { 50% { opacity: .35; } }
+    pre.log { background: #101815; color: #cfe3dc; border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; height: 180px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; }
+    .results { display: none; }
+    .results.show { display: block; }
+    .linklist { display: grid; gap: 8px; margin-top: 10px; }
+    .linklist a { display: block; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; padding: 10px 14px; text-decoration: none; color: var(--ink); font-size: 13px; }
+    .linklist a:hover { border-color: var(--accent); }
+    .linklist a b { color: var(--accent); }
+    .linklist a span { color: var(--muted); font-size: 12px; display: block; margin-top: 2px; }
+    .pkg { font-family: var(--mono); font-size: 11.5px; word-break: break-all; background: #f4f7f6; border: 1px dashed var(--line-strong); border-radius: 6px; padding: 8px 10px; margin-top: 8px; display: none; }
+    .pkg.show { display: block; }
+    .err { display: none; border: 1px solid var(--danger); background: #fdf1ef; color: var(--danger); border-radius: 6px; padding: 10px 12px; font-size: 13px; margin-top: 10px; }
+    .err.show { display: block; }
+    .muted { color: var(--muted); }
+    footer { max-width: 980px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand-mark">FT</div>
+  <h1>FrameTrace 검수 워크스테이션</h1>
+  <div class="sub">로컬 전용 · 원본 증거는 읽기 전용으로만 접근합니다</div>
+  <div class="env" id="env"></div>
+</header>
+<main>
+  <div class="steps">
+    <div class="step active" id="s1"><b>STEP 1</b>실행</div>
+    <div class="step" id="s2"><b>STEP 2</b>INPUT 입력</div>
+    <div class="step" id="s3"><b>STEP 3</b>분석 데이터 검증</div>
+    <div class="step" id="s4"><b>STEP 4</b>결과물 정리</div>
+  </div>
+
+  <section class="card" id="inputCard">
+    <h2>증거 INPUT 입력</h2>
+    <p class="hint">분석할 증거를 입력하십시오 — 증거 폴더/드라이브 또는 E01 디스크 이미지. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
+    <div class="checks" style="margin-bottom:10px;">
+      <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
+      <label><input type="radio" name="inputKind" value="e01"> E01 디스크 이미지</label>
+    </div>
+    <label class="field">
+      <span id="sourceLabel">증거 소스 경로 (필수)</span>
+      <input type="text" id="sourcePath" placeholder="예: E:\ 또는 D:\BLACKBOX 또는 C:\Users\me\Desktop\입수자료" autofocus>
+    </label>
+    <label class="field">
+      <span>케이스 폴더 <span class="opt">(비우면 오늘 날짜로 자동 생성)</span></span>
+      <input type="text" id="caseDir" placeholder="예: C:\Cases\case-001">
+    </label>
+    <div class="checks">
+      <label><input type="checkbox" id="withHash" checked> 파일별 SHA-256 해시 계산 (증거 대조용)</label>
+      <label><input type="checkbox" id="withFfprobe" checked> ffprobe 재생성 검증 (코덱/길이 메타데이터)</label>
+    </div>
+    <div class="checks" id="verifyRow" style="display:none;">
+      <label><input type="checkbox" id="skipE01Verify"> E01 해시 검증 생략 (ewfverify는 이미지 크기에 비례해 오래 걸립니다 — 최종 증거용은 생략 비권장)</label>
+    </div>
+    <div class="row">
+      <button class="primary" id="btnStart">분석 시작</button>
+      <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
+    </div>
+    <div class="err" id="startErr"></div>
+  </section>
+
+  <section class="card prog" id="progCard">
+    <h2>분석 진행</h2>
+    <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
+    <ol class="steptrack" id="track"></ol>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <section class="card results" id="resultCard">
+    <h2>STEP 3 — 분석된 데이터 검증</h2>
+    <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
+    <div class="linklist">
+      <a href="/review/evidence-viewer.html" target="_blank"><b>증거 뷰어 열기 (검토 화면)</b><span>썸네일 그리드 · 재생 · 검증 상태 · 판독 마크/태그</span></a>
+      <a href="/review/index.html" target="_blank"><b>색인 대시보드 열기</b><span>전체 색인 목록 · 해시 · 파서 평가</span></a>
+    </div>
+  </section>
+
+  <section class="card results" id="finalCard">
+    <h2>STEP 4 — 결과물 정리</h2>
+    <p class="hint">검토가 끝나면 결과 보고서를 생성합니다. 보고서에는 발견된 원본 영상, 메타데이터, SHA-256 해시, 발견/분석 기법, 처리 체인이 정리됩니다.</p>
+    <div class="row">
+      <button class="primary" id="btnFinalize">결과 보고서 생성 및 패키징</button>
+      <input type="file" id="marksFile" accept=".json" style="display:none">
+      <button id="btnImportMarks">마크 파일 반영 후 보고서 갱신</button>
+      <span class="muted" id="finalHint"></span>
+    </div>
+    <div class="linklist" id="finalLinks"></div>
+    <div class="pkg" id="pkgPath"></div>
+  </section>
+</main>
+<footer>FrameTrace는 로컬 전용 도구입니다. 원본 증거 매체는 쓰기 보호 상태로 두고, 본 도구는 케이스 폴더에만 산출물을 작성합니다.</footer>
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;");
+
+const STEP_NAMES = ["케이스 준비", "소스 등록", "스캔 · 색인", "재생성 검증", "리뷰 생성"];
+
+async function jget(url) { const r = await fetch(url, { cache: "no-store" }); return r.json(); }
+async function jpost(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+
+async function loadEnv() {
+  try {
+    const env = await jget("/api/env");
+    $("env").innerHTML =
+      `<span class="badge ${env.ffmpeg ? "ok" : "bad"}">ffmpeg ${env.ffmpeg ? "준비됨" : "없음"}</span>` +
+      `<span class="badge ${env.ffprobe ? "ok" : "bad"}">ffprobe ${env.ffprobe ? "준비됨" : "없음"}</span>` +
+      `<span class="badge ${env.ewf ? "ok" : "bad"}" id="ewfBadge">libewf(E01) ${env.ewf ? "준비됨" : "없음"}</span>` +
+      `<span class="badge ok">감사 로그 활성</span>`;
+    if (!env.ffprobe) $("withFfprobe").checked = false;
+  } catch (e) { /* ignore */ }
+}
+
+function inputKind() {
+  return document.querySelector("input[name='inputKind']:checked")?.value || "folder";
+}
+
+function syncInputKind() {
+  const e01 = inputKind() === "e01";
+  $("sourcePath").placeholder = e01
+    ? "예: D:\\Images\\blackbox.E01 (또는 Ex01/S01/L01)"
+    : "예: E:\\ 또는 D:\\BLACKBOX 또는 C:\\Users\\me\\Desktop\\입수자료";
+  $("verifyRow").style.display = e01 ? "flex" : "none";
+}
+
+function setStep(active, doneCount) {
+  for (let i = 1; i <= 4; i++) {
+    const el = $("s" + i);
+    el.classList.toggle("active", i === active);
+    el.classList.toggle("done", i <= (doneCount || 0));
+  }
+}
+
+function renderTrack(steps, names) {
+  const labels = (names && names.length === 5) ? names : STEP_NAMES;
+  $("track").innerHTML = labels.map((name, i) => {
+    const s = steps[i] || "pending";
+    const cls = s === "done" ? "done" : s === "running" ? "running" : s === "failed" ? "failed" : "";
+    return `<li class="${cls}"><span class="dot"></span>${esc(name)}${s === "running" ? " …" : ""}</li>`;
+  }).join("");
+}
+
+let finalizing = false;
+async function poll() {
+  try {
+    const st = await jget("/api/status");
+    if (!st.has_job) { setTimeout(poll, 1500); return; }
+    $("progCard").classList.add("show");
+    renderTrack(st.steps || [], st.step_names);
+    $("log").textContent = (st.logs || []).join("\n");
+    const running = st.phase === "running";
+    $("btnStart").disabled = running || finalizing;
+    if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
+      $("resultCard").classList.add("show");
+      $("finalCard").classList.add("show");
+      setStep(st.phase === "running" ? 4 : 4, 3);
+      $("finalHint").textContent = st.case_dir ? ("케이스: " + st.case_dir) : "";
+      if ((st.phase === "done" || st.phase === "finalized") && st.package_dir) {
+        $("btnFinalize").disabled = false;
+        $("btnFinalize").textContent = "보고서 재생성";
+        $("pkgPath").classList.add("show");
+        $("pkgPath").textContent = "패키지: " + st.package_dir;
+        if (!$("finalLinks").innerHTML) {
+          $("finalLinks").innerHTML =
+            `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>`;
+        }
+      }
+    } else if (running) {
+      setStep(3, 2);
+    }
+    if (st.error) {
+      $("startErr").classList.add("show");
+      $("startErr").textContent = "오류: " + st.error;
+    } else {
+      $("startErr").classList.remove("show");
+    }
+  } catch (e) { /* server restarting */ }
+  setTimeout(poll, 1200);
+}
+
+$("btnStart").addEventListener("click", async () => {
+  const source = $("sourcePath").value.trim();
+  if (!source) { $("startErr").classList.add("show"); $("startErr").textContent = "증거 소스 경로를 입력하십시오."; return; }
+  $("startErr").classList.remove("show");
+  $("btnStart").disabled = true;
+  const res = await jpost("/api/start", {
+    input_kind: inputKind(),
+    source_path: $("sourcePath").value.trim(),
+    case_dir: $("caseDir").value.trim(),
+    with_hash: $("withHash").checked,
+    with_ffprobe: $("withFfprobe").checked,
+    skip_e01_verify: $("skipE01Verify").checked
+  });
+  if (!res.ok) {
+    $("btnStart").disabled = false;
+    $("startErr").classList.add("show");
+    $("startErr").textContent = "오류: " + (res.error || "시작 실패");
+    return;
+  }
+  $("progCard").classList.add("show");
+  setStep(3, 2);
+  $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+$("btnFinalize").addEventListener("click", async () => {
+  finalizing = true;
+  $("btnFinalize").disabled = true;
+  $("finalHint").textContent = "보고서 생성 중…";
+  const res = await jpost("/api/finalize", {});
+  finalizing = false;
+  $("btnFinalize").disabled = false;
+  $("finalHint").textContent = "";
+  if (!res.ok) { $("finalHint").textContent = "실패: " + (res.error || ""); return; }
+  $("finalLinks").innerHTML =
+    `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>` +
+    `<a href="/case/${esc(res.package_url || "")}" target="_blank"><b>패키지 폴더 보기</b><span>체크섬 검증된 증거 패키지</span></a>`;
+  if (res.package_dir) {
+    $("pkgPath").classList.add("show");
+    $("pkgPath").textContent = "패키지: " + res.package_dir;
+  }
+  setStep(4, 4);
+  await jpost("/api/open-folder", { path: res.package_dir || "" });
+});
+
+$("btnImportMarks").addEventListener("click", () => $("marksFile").click());
+$("marksFile").addEventListener("change", async () => {
+  const file = $("marksFile").files[0];
+  if (!file) return;
+  const marksJson = await file.text();
+  $("finalHint").textContent = "마크 반영 및 보고서 갱신 중…";
+  const res = await jpost("/api/import-marks", { marks_json: marksJson });
+  $("finalHint").textContent = res.ok ? "보고서에 판독 마크가 반영되었습니다." : "실패: " + (res.error || "");
+  if (res.ok && !$("finalLinks").innerHTML) {
+    $("finalLinks").innerHTML =
+      `<a href="/case/${esc(res.report_url || "")}" target="_blank"><b>갱신된 최종 결과 보고서 열기</b><span>판독 마크 포함</span></a>`;
+  }
+});
+
+loadEnv();
+document.querySelectorAll("input[name='inputKind']").forEach(radio => radio.addEventListener("change", syncInputKind));
+syncInputKind();
+poll();
+</script>
+</body>
+</html>

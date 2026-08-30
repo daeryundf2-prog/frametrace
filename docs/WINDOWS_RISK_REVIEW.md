@@ -303,7 +303,7 @@ GUI 규칙:
 
 필요 기능:
 
-- `verify-audit` 명령
+- `verify-audit` 명령 — **구현 완료** (`frametrace verify-audit <log>`; 불완전 마지막 줄(중단된 쓰기)은 별도 오류로 보고)
 - package 생성 전 audit chain check
 - report에 chain status 표시
 - 깨진 JSONL line, 누락 hash, 순서 오류 표시

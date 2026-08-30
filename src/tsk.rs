@@ -4,6 +4,7 @@ use crate::util::{canonicalize_display, json_escape, now_unix, unique_path, writ
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use wait_timeout::ChildExt;
 
 const DEFAULT_MAX_ENTRIES: usize = 20_000;
 const VIDEO_EXTENSIONS: &[&str] = &[
@@ -40,6 +41,7 @@ pub struct TskRecoverOptions {
     pub include_slack: bool,
     pub skip_sparse_holes: bool,
     pub icat_bin: String,
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,19 +294,47 @@ pub fn recover_inode(
         .map_err(|err| format!("{err} (install Sleuth Kit and ensure icat is in PATH)"))?;
     let output = File::create(&output_path)
         .map_err(|err| format!("failed to create {}: {err}", output_path.display()))?;
-    let result = Command::new(&icat_bin)
+    let mut child = Command::new(&icat_bin)
         .args(&args)
         .stdout(Stdio::from(output))
         .stderr(Stdio::piped())
-        .output()
+        .spawn()
         .map_err(|err| format!("failed to run {}: {err}", options.icat_bin))?;
-    if !result.status.success() {
+    let mut stderr_pipe = child.stderr.take().expect("piped icat stderr");
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr_pipe, &mut buffer);
+        buffer
+    });
+    // icat writes the recovered bytes straight to disk; a timeout must never
+    // leave that partial file looking like a successful recovery.
+    let status = match options.timeout_secs {
+        Some(secs) => match child
+            .wait_timeout(std::time::Duration::from_secs(secs))
+            .map_err(|err| format!("failed to wait for icat: {err}"))?
+        {
+            Some(status) => status,
+            None => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = fs::remove_file(&output_path);
+                return Err(format!(
+                    "icat did not finish within {secs}s and was terminated (retry with a larger --timeout)"
+                ));
+            }
+        },
+        None => child
+            .wait()
+            .map_err(|err| format!("failed to wait for icat: {err}"))?,
+    };
+    let stderr_bytes = stderr_reader.join().unwrap_or_default();
+    if !status.success() {
         let _ = fs::remove_file(&output_path);
         return Err(format!(
             "icat failed for inode {} at offset {}: {}",
             options.inode,
             options.partition_offset,
-            String::from_utf8_lossy(&result.stderr).trim()
+            String::from_utf8_lossy(&stderr_bytes).trim()
         ));
     }
 
@@ -632,6 +662,7 @@ Units are in 512-byte sectors
             include_slack: false,
             skip_sparse_holes: true,
             icat_bin: "icat".to_string(),
+            timeout_secs: None,
         };
         assert_eq!(
             icat_args(image, &options),

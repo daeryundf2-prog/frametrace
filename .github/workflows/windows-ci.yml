@@ -20,15 +20,24 @@ jobs:
         run: cargo check --locked
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Test
-        run: cargo test --locked
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Frontend asset checks
+        run: node scripts/check-css.mjs
       - name: Viewer JavaScript syntax
         run: |
           node --check gui/evidence-viewer/app.js
           node --check assets/evidence_viewer.js
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+        shell: pwsh
+      - name: Test
+        run: cargo test --locked
+      - name: Integration tests with real ffmpeg
+        env:
+          FRAMETRACE_IT: "1"
+        run: cargo test --locked --test integration_tools -- --ignored
       - name: QA performance smoke
         run: cargo run --locked -- qa performance target/frametrace-ci-performance --rows 1000
       - name: Release build

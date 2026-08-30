@@ -13,6 +13,7 @@ pub struct E01Options {
     pub ewfinfo_bin: String,
     pub ewfverify_bin: String,
     pub ewfexport_bin: String,
+    pub timeout_secs: Option<u64>,
 }
 
 impl Default for E01Options {
@@ -25,6 +26,7 @@ impl Default for E01Options {
             ewfinfo_bin: "ewfinfo".to_string(),
             ewfverify_bin: "ewfverify".to_string(),
             ewfexport_bin: "ewfexport".to_string(),
+            timeout_secs: None,
         }
     }
 }
@@ -47,6 +49,7 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
         &options.ewfinfo_bin,
         &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
+        Some(crate::util::PROBE_TIMEOUT_SECS),
     )?;
     let info_log_path = unique_path(
         &case_dir
@@ -86,6 +89,7 @@ pub fn import_e01(
         &options.ewfinfo_bin,
         &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
+        Some(crate::util::PROBE_TIMEOUT_SECS),
     )?;
     let info_log_path = unique_path(
         &case_dir
@@ -111,7 +115,12 @@ pub fn import_e01(
             audit::path_string(&path),
             audit::path_string(&e01_path),
         ];
-        run_status(&options.ewfverify_bin, &["ewfverify"], &args)?;
+        run_status(
+            &options.ewfverify_bin,
+            &["ewfverify"],
+            &args,
+            options.timeout_secs,
+        )?;
         Some(path)
     };
 
@@ -146,7 +155,18 @@ pub fn import_e01(
             .join(format!("e01-export-{imported_unix}.txt")),
     );
     let export_args = ewfexport_args(&e01_path, &export_target, options, &export_log_path);
-    run_status(&options.ewfexport_bin, &["ewfexport"], &export_args)?;
+    if let Err(error) = run_status(
+        &options.ewfexport_bin,
+        &["ewfexport"],
+        &export_args,
+        options.timeout_secs,
+    ) {
+        // ewfexport can leave a partial raw behind when it is killed or fails;
+        // never let a torn image masquerade as a completed export.
+        let _ = std::fs::remove_file(&generated_raw_path);
+        let _ = std::fs::remove_file(&requested_raw_path);
+        return Err(error);
+    }
     let generated_raw_path = resolve_ewfexport_output(&generated_raw_path)?;
     if generated_raw_path != requested_raw_path {
         std::fs::rename(&generated_raw_path, &requested_raw_path).map_err(|err| {
@@ -289,13 +309,17 @@ fn resolve_ewfexport_output(expected: &Path) -> Result<PathBuf, String> {
     ))
 }
 
-fn run_capture(binary: &str, allowed: &[&str], args: &[&str]) -> Result<CommandOutput, String> {
+fn run_capture(
+    binary: &str,
+    allowed: &[&str],
+    args: &[&str],
+    timeout_secs: Option<u64>,
+) -> Result<CommandOutput, String> {
     let resolved_binary = resolve_tool_binary(binary, allowed)
         .map_err(|err| format!("{err} (install libewf tools and ensure {binary} is in PATH)"))?;
-    let output = Command::new(&resolved_binary)
-        .args(args)
-        .output()
-        .map_err(|err| {
+    let mut command = Command::new(&resolved_binary);
+    command.args(args);
+    let output = crate::util::run_with_timeout(&mut command, timeout_secs).map_err(|err| {
         format!(
             "failed to run {binary}: {err} (install libewf tools and ensure {binary} is in PATH)"
         )
@@ -311,13 +335,17 @@ fn run_capture(binary: &str, allowed: &[&str], args: &[&str]) -> Result<CommandO
     })
 }
 
-fn run_status(binary: &str, allowed: &[&str], args: &[String]) -> Result<(), String> {
+fn run_status(
+    binary: &str,
+    allowed: &[&str],
+    args: &[String],
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
     let resolved_binary = resolve_tool_binary(binary, allowed)
         .map_err(|err| format!("{err} (install libewf tools and ensure {binary} is in PATH)"))?;
-    let output = Command::new(&resolved_binary)
-        .args(args)
-        .output()
-        .map_err(|err| {
+    let mut command = Command::new(&resolved_binary);
+    command.args(args);
+    let output = crate::util::run_with_timeout(&mut command, timeout_secs).map_err(|err| {
         format!(
             "failed to run {binary}: {err} (install libewf tools and ensure {binary} is in PATH)"
         )

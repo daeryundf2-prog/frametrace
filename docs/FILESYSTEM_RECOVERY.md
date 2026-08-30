@@ -85,3 +85,18 @@ cargo run -- validate-artifact ./case-001 ./case-001/artifacts/recovered/filesys
 - Sleuth Kit `mmls`: https://sleuthkit.org/sleuthkit/man/mmls.html
 - Sleuth Kit `fls`: https://www.sleuthkit.org/sleuthkit/man/fls.html
 - Sleuth Kit `icat`: https://www.sleuthkit.org/sleuthkit/man/icat.html
+
+
+## Batch recovery from the viewer
+
+The viewer lists deleted video candidates (fls entries flagged deleted +
+video_candidate) as records of kind "candidate". Select them and download the
+selection list, then run:
+
+```text
+frametrace.exe recover-batch <CASE_DIR> <IMAGE.raw> selection.json --partition-offset <offset>
+```
+
+Each recovery is audited (recover-inode events) and the batch outcome is
+chained into artifacts/logs/batch-log.jsonl. Recovered outputs stay
+candidate-unvalidated until validate-batch / playback review.

@@ -35,6 +35,7 @@ pub struct ExportOptions {
     pub start_seconds: Option<f64>,
     pub duration_seconds: Option<f64>,
     pub output_path: Option<PathBuf>,
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,13 +93,16 @@ fn run_ffmpeg_export(
     let args = ffmpeg_export_args(source_path, output_path, options);
     let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
         .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
-    let output = Command::new(&ffmpeg).args(&args).output().map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            format!("failed to run ffmpeg: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
-        } else {
-            format!("failed to run ffmpeg: {err}")
-        }
-    })?;
+    let mut command = Command::new(&ffmpeg);
+    command.args(&args);
+    let output =
+        crate::util::run_with_timeout(&mut command, options.timeout_secs).map_err(|err| {
+            if err.contains("os error 2") {
+                format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)")
+            } else {
+                err
+            }
+        })?;
 
     if !output.status.success() {
         return Err(format!(
@@ -308,6 +312,7 @@ mod tests {
             start_seconds: Some(1.0),
             duration_seconds: Some(2.0),
             output_path: None,
+            timeout_secs: None,
         };
         let args = ffmpeg_export_args(Path::new("in.mp4"), Path::new("out.mp4"), &options);
         assert!(args.contains(&"-n".to_string()));

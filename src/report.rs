@@ -9,6 +9,9 @@ pub struct ReportInputs<'a> {
     pub carve_log_jsonl: &'a str,
     pub filesystem_log_jsonl: &'a str,
     pub validation_log_jsonl: &'a str,
+    pub batch_log_jsonl: &'a str,
+    pub scan_runs_json: &'a str,
+    pub marks_json: &'a str,
 }
 
 pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
@@ -20,6 +23,9 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
     let carve_lines = json_for_script(&jsonl_to_array(inputs.carve_log_jsonl));
     let filesystem_lines = json_for_script(&jsonl_to_array(inputs.filesystem_log_jsonl));
     let validation_lines = json_for_script(&jsonl_to_array(inputs.validation_log_jsonl));
+    let batch_lines = json_for_script(&jsonl_to_array(inputs.batch_log_jsonl));
+    let scan_runs = json_for_script(inputs.scan_runs_json);
+    let marks = json_for_script(inputs.marks_json);
     format!(
         r#"<!doctype html>
 <html lang="ko">
@@ -102,15 +108,39 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
       margin-top: 12px;
       font-size: 13px;
     }}
+    .print-bar {{
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      background: #ffffffee;
+      padding: 8px 0;
+    }}
+    .print-bar button {{
+      font: inherit;
+      border: 1px solid #b8c2d0;
+      background: #f4f7fb;
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+    }}
     @media print {{
       main {{ padding: 0; }}
+      .print-bar {{ display: none; }}
       .box {{ break-inside: avoid; }}
       table {{ break-inside: auto; }}
       tr {{ break-inside: avoid; }}
+      thead {{ display: table-header-group; }}
+      h2 {{ break-after: avoid; }}
     }}
   </style>
 </head>
 <body>
+<div class="print-bar">
+  <button onclick="window.print()" type="button">인쇄 / PDF로 저장</button>
+</div>
 <main>
   <h1 id="title">FrameTrace 영상 포렌식 보고서</h1>
   <div class="muted" id="case-line"></div>
@@ -134,6 +164,10 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
   <h2>소스 / 파서 평가</h2>
   <div id="source-assessment"></div>
 
+  <h2>발견 및 분석 기법 (증거별 명세)</h2>
+  <div id="techniques"></div>
+  <div class="note">각 증거가 어떤 기법으로 발견되었고 어떤 검증을 통과했는지 정리합니다. 조작 흔적의 자동 판별은 아직 수행하지 않으며, 재생성 검증을 통과한 증거도 최종 보고 전 판독자 재생 확인이 필요합니다. 판독 마크는 뷰어에서 내려받아 <code>import-marks</code>로 반영한 뒤 보고서를 재생성하면 함께 정리됩니다.</div>
+
   <h2>영상 색인</h2>
   <div id="videos"></div>
 
@@ -151,6 +185,10 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
 
   <h2>파일시스템 조사 / Inode 복구</h2>
   <div id="filesystem-recovery"></div>
+
+  <h2>처리 체인 (분석 타임라인)</h2>
+  <div id="chain"></div>
+  <div class="note">스캔·검증·내보내기·복구 이벤트를 시간순으로 정렬한 처리 이력입니다. 체인 해시는 감사 로그의 변조 방지 연결 값을 나타냅니다.</div>
 <script>
 const manifest = {manifest};
 const scan = {index};
@@ -160,6 +198,9 @@ const thumbnailLog = {thumbnail_lines};
 const carveLog = {carve_lines};
 const filesystemLog = {filesystem_lines};
 const validationLog = {validation_lines};
+const batchLog = {batch_lines};
+const scanRuns = {scan_runs};
+const marks = {marks};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
 const derivedLog = [...proxyLog, ...thumbnailLog];
@@ -354,6 +395,131 @@ document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length 
     </tr>`).join("")}}
   </tbody>
 </table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";
+
+const marksById = new Map((Array.isArray(marks) ? marks : []).map(mark => [mark.id, mark]));
+const validationByPath = new Map(validationLog.map(item => [String(item.target_path || "").toLowerCase(), item]));
+const markLabel = status => ({{
+  reviewed: "판독 완료",
+  important: "중요",
+  needs_verification: "검증 대기"
+}})[status] || status || "-";
+
+function techniqueRows() {{
+  const rows = [];
+  videos.forEach(video => rows.push({{
+    id: video.id,
+    kind: "원본 (논리 파일)",
+    how: "논리 파일 스캔 — 확장자·매직바이트 판별 후 색인",
+    parser: `${{video.source_profile?.vendor || "-"}} / ${{video.source_profile?.parser || "-"}} (${{video.source_profile?.confidence || "-"}})`,
+    where: video.source_path || video.relative_path || "-",
+    when: video.modified_unix,
+    meta: [video.video_codec || video.format_name || "-", video.width && video.height ? `${{video.width}}x${{video.height}}` : "", fmtDuration(video.duration_seconds), fmtBytes(video.size_bytes)].filter(Boolean).join(" · "),
+    hash: video.sha256 || video.hash_status || "-"
+  }}));
+  carveLog.forEach(item => rows.push({{
+    id: item.id || item.output_path,
+    kind: "카빙 후보",
+    how: `시그니처 카빙 — ${{item.signature || item.extension || "?"}} @ 오프셋 ${{item.offset ?? "-"}}`,
+    parser: "carve",
+    where: item.output_path || "-",
+    when: null,
+    meta: fmtBytes(item.size_bytes),
+    hash: item.sha256 || "-"
+  }}));
+  filesystemLog.forEach(item => {{
+    if (item.event !== "recover-inode") return;
+    rows.push({{
+      id: `inode:${{item.partition_offset ?? 0}}:${{item.inode || item.output_path || ""}}`,
+      kind: "파일시스템 복구",
+      how: `Sleuth Kit icat inode 복구 — inode ${{item.inode ?? "-"}} @ 파티션 오프셋 ${{item.partition_offset ?? "-"}}`,
+      parser: "tsk/icat",
+      where: item.output_path || "-",
+      when: null,
+      meta: fmtBytes(item.size_bytes),
+      hash: item.sha256 || "-"
+    }});
+  }});
+  return rows;
+}}
+
+document.getElementById("techniques").innerHTML = techniqueRows().length ? `<table>
+  <thead>
+    <tr><th>ID</th><th>구분</th><th>발견 기법</th><th>파서 평가</th><th>위치 / 근원</th><th>시각</th><th>메타데이터</th><th>SHA-256</th><th>검증 상태 / 근거</th><th>판독</th></tr>
+  </thead>
+  <tbody>
+    ${{techniqueRows().map(row => {{
+      const validation = validationByPath.get(String(row.where).toLowerCase()) || validationLog.find(item => item.selector === row.id);
+      const status = validation?.validation_status || (row.kind === "원본 (논리 파일)" ? "색인됨 (재생성 검증 전)" : "candidate-unvalidated");
+      const reason = validation ? (validation.validation_note || validation.ffprobe_error || "-") : "재생성 검증 대기 — 판독자 재생 확인 필요";
+      const mark = marksById.get(row.id);
+      return `<tr>
+        <td>${{escapeHtml(row.id)}}</td>
+        <td>${{escapeHtml(row.kind)}}</td>
+        <td>${{escapeHtml(row.how)}}</td>
+        <td><code>${{escapeHtml(row.parser)}}</code></td>
+        <td><code>${{escapeHtml(row.where)}}</code></td>
+        <td>${{row.when ? fmtUnix(row.when) : "-"}}</td>
+        <td>${{escapeHtml(row.meta)}}</td>
+        <td><code>${{escapeHtml(row.hash)}}</code></td>
+        <td>${{escapeHtml(status)}}<br><span class="muted">${{escapeHtml(reason)}}</span></td>
+        <td>${{mark ? escapeHtml(markLabel(mark.status)) : "-"}}</td>
+      </tr>`;
+    }}).join("")}}
+  </tbody>
+</table>` : "<p>정리할 증거가 없습니다.</p>";
+
+const chainEvents = [];
+(Array.isArray(scanRuns) ? scanRuns : []).forEach(run => chainEvents.push({{
+  ts: run.scanned_unix,
+  name: "scan-folder (스캔·색인)",
+  detail: `${{run.video_count ?? "-"}}건 색인 · ${{run.source_path || "-"}}${{(run.warnings || []).length ? ` · 경고 ${{run.warnings.length}}건` : ""}}`,
+  chain: "-"
+}}));
+validationLog.forEach(item => chainEvents.push({{
+  ts: item.validated_unix,
+  name: item.event || "validate",
+  detail: `${{item.selector || "-"}} → ${{item.validation_status || "-"}}`,
+  chain: item.entry_sha256 || "-"
+}}));
+batchLog.forEach(item => chainEvents.push({{
+  ts: null,
+  name: item.event || "batch",
+  detail: `요청 ${{item.requested ?? "-"}} · 성공 ${{item.ok ?? "-"}} · 실패 ${{item.failed ?? "-"}}`,
+  chain: item.entry_sha256 || "-"
+}}));
+exportsLog.forEach(item => chainEvents.push({{
+  ts: item.exported_unix ?? item.created_unix,
+  name: "export-video (클립 내보내기)",
+  detail: `${{item.selector || item.source_path || "-"}} → ${{item.output_path || "-"}} (${{item.format || "-"}})`,
+  chain: item.entry_sha256 || "-"
+}}));
+derivedLog.forEach(item => chainEvents.push({{
+  ts: item.created_unix,
+  name: item.kind === "proxy" ? "make-proxy (검토용 프록시)" : "make-thumbnail (썸네일)",
+  detail: `${{item.source_path || "-"}} → ${{item.output_path || "-"}}`,
+  chain: item.entry_sha256 || "-"
+}}));
+filesystemLog.forEach(item => chainEvents.push({{
+  ts: item.recovered_unix ?? item.inspected_unix,
+  name: item.event || "filesystem",
+  detail: `inode ${{item.inode ?? "-"}} @ ${{item.partition_offset ?? "-"}} → ${{item.output_path || item.summary_path || `${{item.entry_count ?? "-"}} entries`}}`,
+  chain: item.entry_sha256 || "-"
+}}));
+chainEvents.sort((a, b) => (a.ts ?? Infinity) - (b.ts ?? Infinity));
+
+document.getElementById("chain").innerHTML = chainEvents.length ? `<table>
+  <thead>
+    <tr><th>시각</th><th>처리</th><th>내용</th><th>체인 해시</th></tr>
+  </thead>
+  <tbody>
+    ${{chainEvents.map(event => `<tr>
+      <td>${{event.ts ? fmtUnix(event.ts) : "-"}}</td>
+      <td>${{escapeHtml(event.name)}}</td>
+      <td><code>${{escapeHtml(event.detail)}}</code></td>
+      <td><code>${{escapeHtml(event.chain)}}</code></td>
+    </tr>`).join("")}}
+  </tbody>
+</table>` : "<p>처리 이력이 없습니다.</p>";
 </script>
 </main>
 </body>
@@ -369,4 +535,80 @@ fn jsonl_to_array(jsonl: &str) -> String {
         .filter(|line| !line.is_empty())
         .collect();
     format!("[{}]", items.join(","))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_case_report;
+
+    fn render(inputs: &[(&str, &str)]) -> String {
+        let lookup = |key: &str| -> String {
+            inputs
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| (*value).to_string())
+                .unwrap_or_default()
+        };
+        let manifest = lookup("manifest");
+        let index = lookup("index");
+        let export = lookup("export");
+        let proxy = lookup("proxy");
+        let thumbnail = lookup("thumbnail");
+        let carve = lookup("carve");
+        let filesystem = lookup("filesystem");
+        let validation = lookup("validation");
+        let batch = lookup("batch");
+        let scan_runs = lookup("scan_runs");
+        let marks = lookup("marks");
+        render_case_report(&super::ReportInputs {
+            manifest_json: &manifest,
+            index_json: &index,
+            export_log_jsonl: &export,
+            proxy_log_jsonl: &proxy,
+            thumbnail_log_jsonl: &thumbnail,
+            carve_log_jsonl: &carve,
+            filesystem_log_jsonl: &filesystem,
+            validation_log_jsonl: &validation,
+            batch_log_jsonl: &batch,
+            scan_runs_json: &scan_runs,
+            marks_json: &marks,
+        })
+    }
+
+    #[test]
+    fn empty_report_renders_section_markers() {
+        let html = render(&[]);
+        assert!(html.contains("발견 및 분석 기법"));
+        assert!(html.contains("처리 체인"));
+        assert!(html.contains("정리할 증거가 없습니다."));
+        assert!(html.contains("처리 이력이 없습니다."));
+    }
+
+    #[test]
+    fn populated_report_lists_technique_and_chain_rows() {
+        let html = render(&[
+            ("manifest", r#"{"case_id":"FT-1","title":"T"}"#),
+            (
+                "index",
+                r#"{"videos":[{"id":"vid_000001","source_path":"C:/src/a.mp4","relative_path":"a.mp4","size_bytes":10,"sha256":"ab","hash_status":"hashed","source_profile":{"lane":"generic_media","vendor":"Generic media","parser":"generic_media","confidence":"medium","recommended_action":"r","evidence":[]},"video_codec":"h264","width":640,"height":360,"duration_seconds":5.0,"modified_unix":100}]}"#,
+            ),
+            (
+                "validation",
+                r#"{"event":"validate-artifact","validated_unix":2,"selector":"vid_000001","target_path":"C:/src/a.mp4","validation_status":"ffprobe-video-stream-confirmed","validation_note":"ok","entry_sha256":"e1"}"#,
+            ),
+            (
+                "scan_runs",
+                r#"[{"scanned_unix":1,"video_count":1,"source_path":"C:/src","warnings":[]}]"#,
+            ),
+            (
+                "marks",
+                r#"[{"id":"vid_000001","status":"important","marked_unix":9}]"#,
+            ),
+        ]);
+        assert!(html.contains("vid_000001"));
+        assert!(html.contains("ffprobe-video-stream-confirmed"));
+        assert!(html.contains("논리 파일 스캔"));
+        assert!(html.contains("중요"));
+        assert!(html.contains("scan-folder (스캔·색인)"));
+    }
 }

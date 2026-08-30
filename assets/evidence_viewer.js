@@ -131,14 +131,32 @@ function fileUrl(path) {
   if (value.slice(0, 8).toLowerCase() === EXT_UNC) value = BS + BS + value.slice(8);
   else if (value.slice(0, 4).toLowerCase() === EXT_PREFIX) value = value.slice(4);
   const normalized = value.split(BS).join("/");
-  if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encodeURI(normalized);
-  if (normalized.startsWith("//")) return "file:" + encodeURI(normalized);
-  if (normalized.startsWith("/")) return "file://" + encodeURI(normalized);
-  return encodeURI(normalized);
+  // encodeURI leaves #, ?, and & unescaped, which truncates file URLs whose
+  // evidence paths contain them; encode per segment instead, keeping the
+  // drive-letter colon literal.
+  const encodeSegment = segment => (/^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment));
+  const encoded = normalized.split("/").map(encodeSegment).join("/");
+  if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encoded;
+  if (normalized.startsWith("//")) return "file:" + encoded;
+  if (normalized.startsWith("/")) return "file://" + encoded;
+  return encoded;
 }
 
 function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+// When the viewer is served by the local examiner workstation (http://127.0.0.1),
+// file:// video sources are blocked by the browser; route playback through the
+// server's Range-enabled /media endpoint instead. Opening the page directly
+// from disk keeps the original file:// URL.
+function mediaSrcFor(record) {
+  if (!record.fileUrl) return "";
+  if (location.protocol === "http:" || location.protocol === "https:") {
+    if (record.path) return "/media?path=" + encodeURIComponent(record.path);
+    return "";
+  }
+  return record.fileUrl;
 }
 
 function escapeRegExp(value) {
@@ -263,6 +281,31 @@ const records = [
       validation
     };
   }),
+  ...(DATA.flsEntries || [])
+    .filter(entry => entry.deleted && entry.video_candidate)
+    .map(entry => {
+      const inode = entry.inode != null ? String(entry.inode) : "";
+      return {
+        id: `fls:${inode || entry.raw_line || "unknown"}`,
+        kind: "candidate",
+        name: entry.path || entry.raw_line || `inode ${inode}`,
+        path: "",
+        fileUrl: "",
+        parser: "fls listing",
+        vendor: "삭제 영상 후보",
+        status: "candidate-unvalidated",
+        sha256: "-",
+        duration: null,
+        codec: "-",
+        size: null,
+        note: "복구 전 삭제 영상 후보 — recover-batch로 복구한 뒤 검증하십시오.",
+        indexStatus: "recovery-pending",
+        modifiedUnix: null,
+        inode: entry.inode,
+        originalPath: entry.path || "",
+        validation: null
+      };
+    }),
   ...recoveredFilesystemLog.map(item => {
     const original = item.inode && flsEntryByInode.get(String(item.inode));
     const validation = validationsByPath.get(normalizePath(item.output_path));
@@ -314,7 +357,7 @@ const state = {
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
   tags: storageGet(TAGS_KEY, {}),
-  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0 }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -348,6 +391,7 @@ const els = {
   mediaTitle: document.getElementById("mediaTitle"),
   mediaStatus: document.getElementById("mediaStatus"),
   mediaStage: document.getElementById("mediaStage"),
+  detailBadges: document.getElementById("detailBadges"),
   summaryList: document.getElementById("summaryList"),
   metaList: document.getElementById("metaList"),
   validationList: document.getElementById("validationList"),
@@ -356,7 +400,6 @@ const els = {
   videoMode: document.getElementById("videoMode"),
   videoZoom: document.getElementById("videoZoom"),
   facetTree: document.getElementById("facetTree"),
-  recordGrid: document.getElementById("recordGrid"),
   sortBy: document.getElementById("sortBy"),
   groupBy: document.getElementById("groupBy"),
   dateFrom: document.getElementById("dateFrom"),
@@ -424,7 +467,7 @@ function filteredRecords() {
 function groupKeyFor(record) {
   switch (state.groupBy) {
     case "day": return record.recDay || "시각 미상";
-    case "kind": return { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" }[record.kind] || record.kind;
+    case "kind": return { video: "원본 (논리 파일)", carved: "카빍 후보", filesystem: "파일시스템 복구", candidate: "삭제 영상 후보 (복구 전)" }[record.kind] || record.kind;
     case "recType": return recTypeLabel(record.recType);
     case "status": return statusLabel(record.status);
     case "mark": return markOf(record) ? markLabel(markOf(record).status) : "마크 없음";
@@ -438,8 +481,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { videoMode, videoZoom, theater, playerH } = state.layout;
-  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH });
+  const { videoMode, videoZoom, theater, playerH, colSplit } = state.layout;
+  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH, colSplit });
 }
 
 let layoutSaveTimer = null;
@@ -453,9 +496,53 @@ function applyLayout() {
   const player = document.querySelector(".player");
   const h = Number(state.layout.playerH) || 0;
   player.style.height = h >= 160 ? h + "px" : "";
+  applyColumnSplit();
   applyVideoScale();
   els.videoMode.value = state.layout.videoMode;
   els.videoZoom.value = String(state.layout.videoZoom);
+}
+
+// Column split between the browse pane and the media pane. The default lives
+// in CSS (55%/45%); a dragged value is stored as the left pane percentage.
+function applyColumnSplit() {
+  const main = document.querySelector(".main");
+  const pct = Number(state.layout.colSplit) || 0;
+  if (pct >= 28 && pct <= 72) {
+    main.style.gridTemplateColumns = `minmax(0, ${pct}%) 10px minmax(0, 1fr)`;
+  } else {
+    main.style.gridTemplateColumns = "";
+  }
+}
+
+function setupColumnSplitter() {
+  const splitter = document.getElementById("vsplitter");
+  const main = document.querySelector(".main");
+  let dragging = false;
+  splitter.addEventListener("pointerdown", event => {
+    dragging = true;
+    splitter.classList.add("dragging");
+    splitter.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  splitter.addEventListener("pointermove", event => {
+    if (!dragging) return;
+    const rect = main.getBoundingClientRect();
+    const pct = ((event.clientX - rect.left) / rect.width) * 100;
+    state.layout.colSplit = Math.max(28, Math.min(72, pct));
+    applyColumnSplit();
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    splitter.classList.remove("dragging");
+    saveLayout();
+  };
+  splitter.addEventListener("pointerup", end);
+  splitter.addEventListener("dblclick", () => {
+    state.layout.colSplit = 0;
+    saveLayout();
+    applyLayout();
+  });
 }
 
 function setupHeightSplitter() {
@@ -556,10 +643,16 @@ function renderGrid() {
     });
   });
   els.recordGrid.querySelectorAll(".card").forEach(cardElement => {
-    cardElement.addEventListener("click", event => {
+    cardElement.setAttribute("tabindex", "0");
+    cardElement.setAttribute("role", "button");
+    const activate = event => {
       if (event.target.closest("input[type='checkbox']")) return;
       state.activeId = cardElement.dataset.id;
       render();
+    };
+    cardElement.addEventListener("click", activate);
+    cardElement.addEventListener("keydown", event => {
+      if (event.key === "Enter") activate(event);
     });
   });
   els.recordGrid.querySelectorAll("input[type='checkbox']").forEach(box => {
@@ -586,7 +679,6 @@ function renderGrid() {
 function renderCard(record) {
   const mark = markOf(record);
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
-  const tags = (tagListFor(record)).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("");
   const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
   const thumb = record.thumb
     ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
@@ -621,7 +713,7 @@ function renderHistogram() {
   const top = [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-16);
   const max = Math.max(1, ...top.map(entry => entry[1]));
   els.dayHistogram.innerHTML = top.map(([day, count]) => `
-    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(day)}: ${count}건">
+    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(day)}: ${count}건" aria-label="${escapeHtml(day)} ${count}건">
       <span class="bar" style="height:${Math.round((count * 40) / max)}px"></span>
       <span class="lbl">${escapeHtml(day.slice(5))}</span>
     </button>`).join("")
@@ -737,8 +829,9 @@ function renderDetails() {
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
   const mediaKey = `${record.id}:${record.fileUrl}`;
   if (mediaRenderedFor !== mediaKey) {
-    els.mediaStage.innerHTML = record.fileUrl
-      ? `<video controls preload="metadata" src="${escapeHtml(record.fileUrl)}"></video>`
+    const mediaSrc = mediaSrcFor(record);
+    els.mediaStage.innerHTML = mediaSrc
+      ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
       : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
     els.mediaStage.querySelector("video")?.addEventListener("loadedmetadata", applyVideoScale);
     mediaRenderedFor = mediaKey;
@@ -773,7 +866,6 @@ function renderDetails() {
     <input type="text" class="tag-input" id="customTagInput" placeholder="직접 입력" style="width:80px;height:24px;font-size:11px;">
     <button type="button" class="mini" id="btnAddCustomTag">추가</button>
   </div>`;
-  els.metaList.insertAdjacentHTML("afterend", "");
   // replace existing tag editor if any
   const oldEditor = document.querySelector(".tag-editor-wrap");
   if (oldEditor) oldEditor.remove();
@@ -794,6 +886,7 @@ function renderDetails() {
       addTag(record.id, tag);
       customInput.value = "";
       render();
+      document.getElementById("customTagInput")?.focus();
     };
     customBtn.addEventListener("click", addCustom);
     customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
@@ -816,7 +909,7 @@ function renderTree() {
     kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
     if (record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
   });
-  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구" };
+  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구", candidate: "삭제 영상 후보 (복구 전)" };
   const items = [];
   const addItems = (title, entries, activeKey, onPick) => {
     items.push({ header: title });
@@ -1016,7 +1109,9 @@ function toggleActiveSelection() {
 }
 
 function toggleShortcuts(open) {
-  document.getElementById("shortcutsModal").hidden = !open;
+  const modal = document.getElementById("shortcutsModal");
+  modal.hidden = !open;
+  if (open) document.getElementById("btnShortcutsClose")?.focus();
 }
 
 document.addEventListener("keydown", event => {
@@ -1025,13 +1120,18 @@ document.addEventListener("keydown", event => {
     if (event.key === "Escape") document.activeElement.blur();
     return;
   }
+  if (tag === "BUTTON" && (event.key === " " || event.key === "Enter")) {
+    return; // let the focused button receive its normal activation keys
+  }
   if (event.ctrlKey && (event.key === "a" || event.key === "A")) { event.preventDefault(); selectAllFiltered(); return; }
   if (event.ctrlKey && (event.key === "d" || event.key === "D")) { event.preventDefault(); clearSelection(); return; }
   switch (event.key) {
     case "j": moveActive(1); break;
     case "k": moveActive(-1); break;
     case " ": event.preventDefault(); toggleActiveSelection(); break;
-    case "Enter": render(); break;
+    case "Enter":
+      els.mediaStage.querySelector("video")?.play().catch(() => {});
+      break;
     case "f": toggleFullscreen(); break;
     case "t": toggleTheater(); break;
     case "p": togglePip(); break;
@@ -1112,7 +1212,7 @@ document.getElementById("btnDownloadSelection").addEventListener("click", () => 
     items: selected.map(record => ({
       selector: record.id,
       kind: record.kind,
-      action: record.kind === "video" ? "export" : "validate",
+      action: record.kind === "video" ? "export" : record.kind === "candidate" ? "recover" : "validate",
       format: "mp4",
       notes: record.name
     }))
@@ -1133,5 +1233,6 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 
 state.pageSize = Number(els.pageSize.value) || 100;
 setupHeightSplitter();
+setupColumnSplitter();
 applyLayout();
 render();

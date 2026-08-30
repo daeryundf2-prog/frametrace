@@ -35,12 +35,25 @@ pub fn validate_artifact(
     selector: &str,
     options: &ValidationOptions,
 ) -> Result<ValidationResult, String> {
+    let result = compute_validation(case_dir, selector, options)?;
+    append_validation_log(case_dir, &result, options)?;
+    Ok(result)
+}
+
+/// Compute phase of a validation (resolve target, hash, ffprobe) with no side
+/// effects on the case. Batch commands run this in parallel and then append
+/// the validation log entries sequentially so the hash chain stays intact.
+pub fn compute_validation(
+    case_dir: &Path,
+    selector: &str,
+    options: &ValidationOptions,
+) -> Result<ValidationResult, String> {
     let target_path = resolve_artifact_path(case_dir, selector)?;
     let validated_unix = now_unix()?;
     let target_sha256 = audit::digest_file(&target_path)?;
     let probe = ffprobe::probe_with_binary(&options.ffprobe_bin, &target_path);
     let (validation_status, validation_note) = validation_status(&probe);
-    let result = ValidationResult {
+    Ok(ValidationResult {
         selector: selector.to_string(),
         target_path,
         target_sha256,
@@ -48,9 +61,7 @@ pub fn validate_artifact(
         validation_note: validation_note.to_string(),
         probe,
         validated_unix,
-    };
-    append_validation_log(case_dir, &result, options)?;
-    Ok(result)
+    })
 }
 
 /// Resolves an indexed video id, artifact id, inode recovery id, or direct
@@ -125,7 +136,7 @@ fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
     )
 }
 
-fn append_validation_log(
+pub fn append_validation_log(
     case_dir: &Path,
     result: &ValidationResult,
     options: &ValidationOptions,

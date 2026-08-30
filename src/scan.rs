@@ -4,7 +4,7 @@ use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
 use crate::sha256;
 use crate::util::{
-    canonicalize_display, json_escape, now_unix, read_to_string, unique_path, write_text,
+    canonicalize_display, json_escape, now_unix, read_to_string, unique_path, write_text_atomic,
 };
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
@@ -246,12 +246,12 @@ fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String
         .join("db/scan_runs")
         .join(format!("scan_{}.json", result.scanned_unix));
     let run_path = unique_path(&run_path);
-    write_text(&run_path, &result.to_json())
+    write_text_atomic(&run_path, &result.to_json())
         .map_err(|err| format!("failed to write scan run snapshot: {err}"))?;
 
     let merged_records = merge_existing_with_scan(case_dir, result)?;
     let index_json = scan_index_json(result, &merged_records);
-    write_text(&case_dir.join("db/video_index.json"), &index_json)
+    write_text_atomic(&case_dir.join("db/video_index.json"), &index_json)
         .map_err(|err| format!("failed to write video index: {err}"))?;
 
     let mut jsonl = String::new();
@@ -263,9 +263,9 @@ fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String
         jsonl.push('\n');
         paths_tsv.push_str(&record.to_tsv_row());
     }
-    write_text(&case_dir.join("db/videos.jsonl"), &jsonl)
+    write_text_atomic(&case_dir.join("db/videos.jsonl"), &jsonl)
         .map_err(|err| format!("failed to write video jsonl: {err}"))?;
-    write_text(&case_dir.join("db/video_paths.tsv"), &paths_tsv)
+    write_text_atomic(&case_dir.join("db/video_paths.tsv"), &paths_tsv)
         .map_err(|err| format!("failed to write video path index: {err}"))?;
 
     let db_records = merged_records

@@ -1,13 +1,70 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, Output};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use wait_timeout::ChildExt;
+
+/// Metadata-only probes (ffprobe, ewfinfo) are expected to finish in seconds;
+/// anything still running after two minutes is almost certainly wedged on
+/// hostile media, which a forensics tool must survive.
+pub const PROBE_TIMEOUT_SECS: u64 = 120;
 
 pub fn now_unix() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|err| format!("system time before UNIX epoch: {err}"))
+}
+
+/// Runs an external command, killing it after `timeout_secs` when set.
+/// `None` keeps the historical unlimited behaviour for long conversions.
+pub fn run_with_timeout(
+    command: &mut Command,
+    timeout_secs: Option<u64>,
+) -> Result<Output, String> {
+    let program = command.get_program().to_string_lossy().to_string();
+    let Some(secs) = timeout_secs else {
+        return command
+            .output()
+            .map_err(|err| format!("failed to run {program}: {err}"));
+    };
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("failed to run {program}: {err}"))?;
+    let mut stdout_pipe = child.stdout.take().expect("piped stdout");
+    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    let stdout_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stdout_pipe, &mut buffer);
+        buffer
+    });
+    let stderr_reader = std::thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut stderr_pipe, &mut buffer);
+        buffer
+    });
+    let status = child
+        .wait_timeout(Duration::from_secs(secs))
+        .map_err(|err| format!("failed to wait for {program}: {err}"))?;
+    match status {
+        Some(status) => Ok(Output {
+            status,
+            stdout: stdout_reader.join().unwrap_or_default(),
+            stderr: stderr_reader.join().unwrap_or_default(),
+        }),
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(format!(
+                "{program} did not finish within {secs}s and was terminated (retry with a larger --timeout)"
+            ))
+        }
+    }
 }
 
 pub fn create_case_layout(case_dir: &Path) -> io::Result<()> {
@@ -66,7 +123,39 @@ pub fn unique_path(path: &Path) -> PathBuf {
         }
     }
 
-    path.to_path_buf()
+    // Exhausted the numeric range: fall back to a nanosecond-stamped name.
+    // Returning the ORIGINAL path here would hand callers an existing file to
+    // overwrite, which is unacceptable for forensic artifacts.
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let filename = match extension {
+        Some(extension) if !extension.is_empty() => format!("{stem}_{stamp}.{extension}"),
+        _ => format!("{stem}_{stamp}"),
+    };
+    parent.join(filename)
+}
+
+/// Writes state files (case manifest, indexes) so a crash can never leave a
+/// truncated half-file: the payload lands in a sibling temp file first, is
+/// fsynced, and only then atomically renamed over the target.
+pub fn write_text_atomic(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("state");
+    let temp = path.with_file_name(format!(".{file_name}.tmp-{}", std::process::id()));
+    {
+        let mut file = fs::File::create(&temp)?;
+        io::Write::write_all(&mut file, text.as_bytes())?;
+        io::Write::flush(&mut file)?;
+        file.sync_all()?;
+    }
+    fs::rename(&temp, path)
 }
 
 pub fn read_to_string(path: &Path) -> io::Result<String> {
@@ -207,6 +296,49 @@ fn percent_encode_path(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::{run_with_timeout, write_text_atomic};
+    #[test]
+    fn run_with_timeout_kills_stuck_children() {
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = std::process::Command::new("ping");
+            command.args(["-n", "30", "127.0.0.1"]);
+            command
+        };
+        #[cfg(not(target_os = "windows"))]
+        let mut command = {
+            let mut command = std::process::Command::new("sleep");
+            command.arg("30");
+            command
+        };
+        let error = run_with_timeout(&mut command, Some(1)).unwrap_err();
+        assert!(error.contains("did not finish within 1s"), "{error}");
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_content_without_temp_leftovers() {
+        let dir = std::env::temp_dir().join(format!("ft-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+        write_text_atomic(&path, "first").unwrap();
+        write_text_atomic(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter(|entry| {
+                entry
+                    .as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".tmp-")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::{
         canonicalize_display, compact_json_value_if_well_formed, json_escape, path_to_file_url,
         strip_windows_extended_prefix, unique_path,

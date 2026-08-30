@@ -4,21 +4,26 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
 
 ## Install Prerequisites
 
-1. Install Rust for Windows with the MSVC toolchain:
-   - https://rustup.rs/
+1. Install Node.js 20+ (`https://nodejs.org/`) — required by tests/CI for
+   generated-page syntax checks and the CSS gate (`node scripts/check-css.mjs`).
+2. Install Rust for Windows with the MSVC toolchain (`https://rustup.rs/`;
+   `rust-toolchain.toml` pins the exact toolchain via rustup):
    - Visual Studio Build Tools may be required for the MSVC linker.
-2. Install FFmpeg for Windows and make sure both tools are in `PATH`:
+3. Install FFmpeg for Windows (`https://winget install Gyan.FFmpeg` or
+   `choco install ffmpeg`) and make sure both tools are in `PATH`:
    - `ffmpeg.exe`
    - `ffprobe.exe`
-3. Install libewf tools if E01/Ex01 evidence containers will be processed:
+4. Install libewf tools if E01/Ex01 evidence containers will be processed
+   (Windows builds: `https://github.com/libyal/libewf/releases`):
    - `ewfinfo.exe`
    - `ewfverify.exe`
    - `ewfexport.exe`
-4. Install The Sleuth Kit tools if raw-image file-system inspection or deleted inode recovery will be processed:
+5. Install The Sleuth Kit tools if raw-image file-system inspection or deleted inode recovery will be processed
+   (`https://winget install Sleuthkit.Sleuthkit` or `https://sleuthkit.org`):
    - `mmls.exe`
    - `fls.exe`
    - `icat.exe`
-5. Use PowerShell or Windows Terminal.
+6. Use PowerShell or Windows Terminal.
 
 Check the tools:
 

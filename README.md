@@ -28,7 +28,7 @@ This first implementation is the local core prototype:
 - Core engine: Rust.
 - Video metadata and transcode boundary: FFmpeg / ffprobe.
 - Case DB: SQLite for the primary local index, with JSON/JSONL/TSV compatibility artifacts kept for review/export flows.
-- Recovery path: libewf CLI tools for E01 evidence import now, Sleuth Kit / libtsk later for file-system analysis, custom carving plugins for DVR/CCTV formats.
+- Recovery path: libewf CLI tools for E01 evidence import and Sleuth Kit `mmls`/`fls`/`icat` for file-system analysis today; custom carving parsers for DVR/CCTV formats (Dahua DAV next) per `docs/ROADMAP.md`.
 - Review UI: local web UI now, desktop webview later.
 
 The product should stay local-first. It should not require a server for evidence processing.
@@ -47,12 +47,36 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/validation-corpus.md` - corpus manifest structure and pass criteria.
 - `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.
 - `docs/PERFORMANCE_VALIDATION.md` - SQLite scale benchmark and large-media rules.
+- `docs/ROADMAP.md` - current roadmap: milestones, score targets, acceptance criteria, and open decisions.
 - `docs/FORENSIC_HARDENING_PLAN.md` - gated cleanup, DB, provenance, reproducibility, report defensibility, and scale-validation roadmap.
 - `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.
 - `docs/MANUFACTURER_PARSER_RESEARCH.md` - manufacturer-specific parser targets, priority, detection rules, and source links.
 - `docs/EVIDENCE_VIEWER_GUI.md` - viewer-first GUI plan, screen model, and production boundary.
 - `docs/OPENDESIGN_ADAPTATION.md` - OpenDesign-compatible FrameTrace design-system handoff notes.
+- `docs/VIEWER_UX_PLAN.md` - viewer UX plan phases and implementation status.
+- `docs/schema.md` - SQLite schema audit and migration contract.
+- `docs/security-review.md` - security review findings and remediation tracking.
+- `docs/static-analysis.md` - static-analysis baseline snapshot.
+- `docs/cleanup-review.md` - cleanup decisions and symbol handling rules.
+
+## Two viewers, one engine
+
+`gui/evidence-viewer/` is the static design prototype (mock data, four-pane
+workstation). The case-facing viewer is generated per case at
+`review/evidence-viewer.html` by `make-review` — a serverless single page with a
+left/right split, thumbnail grid, tagging, and marks. Docs describing a
+"four-pane" layout refer to the prototype; the generated viewer is the product.
+
+## Examiner Workstation (single executable)
+
+Running `frametrace.exe` with no arguments launches the local examiner workstation instead of printing CLI usage:
+
+```powershell
+.\target\release\frametrace.exe
+```
+
+It binds `http://127.0.0.1:8477/` (next free port if taken), opens the default browser, and walks the examiner flow: INPUT the evidence source path, it then runs the same audited CLI pipeline (init-case → register-source → scan-folder → validate-batch → make-review), serves the evidence viewer and dashboard (with Range-enabled `/media` streaming so videos play in the browser), and finally produces the report + checksummed package (`make-report` + `package-case`). Reads are confined to the case directory and the registered source root; every pipeline step stays in the audit logs.
 
 ## Windows Quick Start
 
@@ -66,6 +90,7 @@ cargo build --release
 .\target\release\frametrace.exe import-e01 C:\Cases\case-001 D:\Images\blackbox.E01 --output C:\Cases\case-001\evidence\images\blackbox.raw
 .\target\release\frametrace.exe inspect-image C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw --partition-offset 2048
 .\target\release\frametrace.exe recover-inode C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw 1304-128-1 --partition-offset 2048 --recover-deleted
+.\target\release\frametrace.exe recover-batch C:\Cases\case-001 C:\Cases\case-001\evidence\images\blackbox.raw selection.json --partition-offset 2048
 .\target\release\frametrace.exe register-source C:\Cases\case-001 E:\ --kind mounted-volume --write-protect "hardware write blocker"
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\ --no-ffprobe
 .\target\release\frametrace.exe scan-folder C:\Cases\case-001 E:\BLACKBOX --hash --max-depth 2

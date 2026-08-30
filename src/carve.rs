@@ -1,5 +1,5 @@
 use crate::audit;
-use crate::util::{json_escape, now_unix, unique_path, write_text};
+use crate::util::{json_escape, now_unix, unique_path, write_text_atomic};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
@@ -327,7 +327,7 @@ fn copy_range(source: &Path, offset: u64, size_bytes: u64, output: &Path) -> io:
 }
 
 fn write_carve_outputs(case_dir: &Path, result: &CarveResult) -> Result<(), String> {
-    write_text(&case_dir.join("db/carve_results.json"), &result.to_json())
+    write_text_atomic(&case_dir.join("db/carve_results.json"), &result.to_json())
         .map_err(|err| format!("failed to write carve results: {err}"))?;
 
     let log_path = case_dir.join("artifacts/carved/carve-log.jsonl");

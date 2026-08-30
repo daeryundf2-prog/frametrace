@@ -89,6 +89,10 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       border-radius: 8px;
       overflow: hidden;
     }}
+    #table-wrap {{
+      max-height: calc(100vh - 170px);
+      overflow: auto;
+    }}
     th, td {{
       padding: 10px 12px;
       border-bottom: 1px solid #ecf0f4;
@@ -101,7 +105,7 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       font-weight: 600;
       color: #344054;
       position: sticky;
-      top: 76px;
+      top: 0;
     }}
     tr:hover td {{
       background: #fafcff;
@@ -466,6 +470,9 @@ mod tests {
                 carve_log_jsonl: carve,
                 filesystem_log_jsonl: filesystem,
                 validation_log_jsonl: validation,
+                batch_log_jsonl: "",
+                scan_runs_json: "[]",
+                marks_json: "[]",
             }),
         );
     }
