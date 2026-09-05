@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "FrameTrace.Shell (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "FrameTrace.Shell (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

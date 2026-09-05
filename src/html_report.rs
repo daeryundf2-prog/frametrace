@@ -470,6 +470,7 @@ mod tests {
                 carve_log_jsonl: carve,
                 filesystem_log_jsonl: filesystem,
                 validation_log_jsonl: validation,
+                anomaly_log_jsonl: "",
                 batch_log_jsonl: "",
                 scan_runs_json: "[]",
                 marks_json: "[]",

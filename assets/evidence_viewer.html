@@ -15,65 +15,66 @@ __CSS__
     <h1>FrameTrace Evidence Viewer</h1>
     <div class="case-line" id="caseLine"></div>
     <div class="header-actions">
-      <span class="badge ok" title="ffprobe 검증됨">검증됨 <span id="metricVerified">0</span></span>
-      <span class="badge candidate" title="미검증 후보">후보 <span id="metricCarved">0</span></span>
-      <span class="badge failed" title="검증 실패">실패 <span id="metricFailed">0</span></span>
-      <button id="btnTheater" type="button" title="시어터 모드 (t)">시어터</button>
-      <button id="btnFullscreen" type="button" title="전체화면 (f)">전체화면</button>
-      <button id="btnPip" type="button" title="화면 속 화면 (p)">PiP</button>
-      <button id="btnShortcuts" type="button" title="단축키 (?)">?</button>
+      <span class="badge ok" title="ffprobe verified"><span data-i18n="header.verified">검증됨</span> <span id="metricVerified">0</span></span>
+      <span class="badge candidate" title="unvalidated candidate"><span data-i18n="header.candidate">후보</span> <span id="metricCarved">0</span></span>
+      <span class="badge failed" title="validation failed"><span data-i18n="header.failed">실패</span> <span id="metricFailed">0</span></span>
+      <button id="btnLang" type="button" title="Switch language" data-i18n-title="lang.switch">EN</button>
+      <button id="btnTheater" type="button" title="Theater (t)" data-i18n="btn.theater">시어터</button>
+      <button id="btnFullscreen" type="button" title="Fullscreen (f)" data-i18n="btn.fullscreen">전체화면</button>
+      <button id="btnPip" type="button" title="Picture-in-picture (p)" data-i18n="btn.pip">PiP</button>
+      <button id="btnShortcuts" type="button" title="Shortcuts (?)">?</button>
     </div>
   </header>
   <div class="main">
     <section class="browse">
       <div class="filters">
-        <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색">
-        <select id="kind" title="출처">
-          <option value="">전체 출처</option>
-          <option value="video">원본 (논리 파일)</option>
-          <option value="carved">카빙 후보</option>
-          <option value="filesystem">파일시스템 복구</option>
-          <option value="candidate">삭제 영상 후보 (복구 전)</option>
+        <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색" data-i18n-placeholder="search.placeholder">
+        <select id="kind" title="출처" data-i18n-title="filter.kind">
+          <option value="" data-i18n="filter.kind.all">전체 출처</option>
+          <option value="video" data-i18n="filter.kind.video">원본 (논리 파일)</option>
+          <option value="carved" data-i18n="filter.kind.carved">카빙 후보</option>
+          <option value="filesystem" data-i18n="filter.kind.filesystem">파일시스템 복구</option>
+          <option value="candidate" data-i18n="filter.kind.candidate">삭제 영상 후보 (복구 전)</option>
         </select>
-        <select id="status" title="검증 상태">
-          <option value="">전체 검증 상태</option>
+        <select id="status" title="검증 상태" data-i18n-title="filter.status">
+          <option value="" data-i18n="filter.status.all">전체 검증 상태</option>
           <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
           <option value="validation-failed">validation-failed</option>
           <option value="candidate-unvalidated">candidate-unvalidated</option>
           <option value="duplicate-candidate">duplicate-candidate</option>
         </select>
-        <select id="sortBy" title="정렬">
-          <option value="id">기본 (ID순)</option>
-          <option value="time-desc">시간 최신순</option>
-          <option value="time-asc">시간 오래된순</option>
-          <option value="name">이름순</option>
-          <option value="size-desc">크기순</option>
+        <select id="sortBy" title="정렬" data-i18n-title="filter.sort">
+          <option value="id" data-i18n="filter.sort.id">기본 (ID순)</option>
+          <option value="time-desc" data-i18n="filter.sort.timeDesc">시간 최신순</option>
+          <option value="time-asc" data-i18n="filter.sort.timeAsc">시간 오래된순</option>
+          <option value="name" data-i18n="filter.sort.name">이름순</option>
+          <option value="size-desc" data-i18n="filter.sort.sizeDesc">크기순</option>
         </select>
-        <select id="groupBy" title="분류/그룹화">
-          <option value="none">그룹화 없음</option>
-          <option value="day">녹화 일자별</option>
-          <option value="kind">출처별</option>
-          <option value="recType">녹화 유형별 (주행/충격/주차)</option>
-          <option value="status">검증 상태별</option>
-          <option value="mark">판독 마크별</option>
-          <option value="prefix">이름 접두사별</option>
-          <option value="channel">채널별 (전/후방)</option>
+        <select id="groupBy" title="분류/그룹화" data-i18n-title="filter.group">
+          <option value="none" data-i18n="filter.group.none">그룹화 없음</option>
+          <option value="day" data-i18n="filter.group.day">녹화 일자별</option>
+          <option value="kind" data-i18n="filter.group.kind">출처별</option>
+          <option value="recType" data-i18n="filter.group.recType">녹화 유형별 (주행/충격/주차)</option>
+          <option value="status" data-i18n="filter.group.status">검증 상태별</option>
+          <option value="mark" data-i18n="filter.group.mark">판독 마크별</option>
+          <option value="prefix" data-i18n="filter.group.prefix">이름 접두사별</option>
+          <option value="channel" data-i18n="filter.group.channel">채널별 (전/후방)</option>
         </select>
         <select id="pageSize">
-          <option value="100">100개씩</option>
-          <option value="250">250개씩</option>
-          <option value="500">500개씩</option>
-          <option value="1000">1000개씩</option>
+          <option value="100" data-i18n="filter.page.100">100개씩</option>
+          <option value="250" data-i18n="filter.page.250">250개씩</option>
+          <option value="500" data-i18n="filter.page.500">500개씩</option>
+          <option value="1000" data-i18n="filter.page.1000">1000개씩</option>
         </select>
         <div class="date-row">
-          <input id="dateFrom" type="date" title="기간 시작">
+          <input id="dateFrom" type="date" title="기간 시작" data-i18n-title="filter.dateFrom">
           <span class="muted">~</span>
-          <input id="dateTo" type="date" title="기간 끝">
-          <button id="btnClearDates" class="mini" type="button">기간 해제</button>
+          <input id="dateTo" type="date" title="기간 끝" data-i18n-title="filter.dateTo">
+          <button id="btnClearDates" class="mini" type="button" data-i18n="btn.clearDates">기간 해제</button>
         </div>
       </div>
       <div class="chip-row" id="presetChips"></div>
-      <div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터"></div>
+      <div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터" data-i18n-title="hist.title"></div>
       <div class="muted period" id="periodLabel"></div>
       <div class="midrow">
         <aside class="tree" id="facetTree"></aside>
@@ -81,9 +82,9 @@ __CSS__
       </div>
       <div class="pager">
         <span class="muted" id="resultCount"></span>
-        <button id="prevPage">이전</button>
+        <button id="prevPage" data-i18n="page.prev">이전</button>
         <span class="muted" id="pageStatus"></span>
-        <button id="nextPage">다음</button>
+        <button id="nextPage" data-i18n="page.next">다음</button>
       </div>
     </section>
     <div class="vsplitter" id="vsplitter" title="드래그: 목록/뷰어 폭 조절 / 더블클릭: 기본값"></div>

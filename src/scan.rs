@@ -221,6 +221,8 @@ fn has_video_magic(path: &Path) -> bool {
         || buffer.starts_with(&[0x00, 0x00, 0x00, 0x01])
         || buffer.starts_with(&[0x00, 0x00, 0x01])
         || buffer.starts_with(b"RIFF")
+        || buffer.starts_with(b"IMKH")
+        || buffer.starts_with(b"DHAV")
 }
 
 fn modified_unix(metadata: &fs::Metadata) -> Option<u64> {

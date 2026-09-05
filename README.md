@@ -39,6 +39,12 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/TECH_STACK.md` - architecture and implementation direction.
 - `docs/WINDOWS_USAGE.md` - Windows setup, build, and field usage notes.
 - `docs/WINDOWS_IMPLEMENTATION_HANDOFF.md` - Windows-side continuation checklist for build, real evidence validation, GUI shell, and release packaging.
+- `docs/WINDOWS_SMOKE_RECEIPT.md` - latest Windows synthetic + Korean-path smoke receipt.
+- `docs/DAV_VALIDATION.md` - DAV format alignment and real-sample intake gate.
+- `docs/COMMERCIAL_HANDOFF.md` - Amped FIVE / Magnet DME package handoff procedure.
+- `docs/HIKVISION_VALIDATION.md` - Hikvision IMKH remux lane and field intake gate.
+- `docs/WINUI_BLOCKER.md` - WinUI shell bootstrap receipt (user-local .NET).
+- `gui/winui/README.md` - thin WinUI engine-host shell.
 - `docs/WINDOWS_RISK_REVIEW.md` - Windows/GUI operational risks to resolve before production use.
 - `docs/ACQUISITION_WORKFLOW.md` - source registration, write-protection, E01, and job tracking workflow.
 - `docs/RECOVERY_BOUNDARIES.md` - implemented recovery scope and validation limits.

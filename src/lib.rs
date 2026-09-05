@@ -1,3 +1,4 @@
+pub mod anomaly;
 pub mod artifacts;
 pub mod audit;
 pub mod carve;
@@ -7,6 +8,7 @@ pub mod dav;
 pub mod detector;
 pub mod e01;
 pub mod ffprobe;
+pub mod hikvision;
 pub mod html_report;
 pub mod model;
 pub mod package;

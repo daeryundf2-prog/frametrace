@@ -48,6 +48,15 @@ Keep media, raw images, and E01 files outside git. Commit only manifests, hashes
 - Expected outputs: accuracy, reproducibility, report-defense, and package artifacts.
 - Pass criteria: precision >= 0.98, recall >= 0.98, hash mismatch = 0, report-defense pass.
 
+## Corpus G: Dahua DAV Remux
+
+- Purpose: validate proprietary DAV → MP4 remux and walker against recorder exports.
+- Ground truth: examiner-provided `.dav` files outside git (≥3: continuous / event / parking).
+- Expected outputs: `export-dav` MP4 under `artifacts/clips/`, chained export-log, `ffprobe-video-stream-confirmed`.
+- Harness: `scripts/validate-dav-samples.ps1 -Samples <folder>`.
+- Pass criteria: all samples pass remux+validate; harness exit 0. Synthetic H.264-in-DHAV IT is not a substitute for field closure.
+- Status (2026-09-05): format aligned to FFmpeg DHAV; harness restored; **field samples absent → BLOCKED**.
+
 ## Manifest Template
 
 ```text

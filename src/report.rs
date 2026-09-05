@@ -9,6 +9,7 @@ pub struct ReportInputs<'a> {
     pub carve_log_jsonl: &'a str,
     pub filesystem_log_jsonl: &'a str,
     pub validation_log_jsonl: &'a str,
+    pub anomaly_log_jsonl: &'a str,
     pub batch_log_jsonl: &'a str,
     pub scan_runs_json: &'a str,
     pub marks_json: &'a str,
@@ -23,6 +24,7 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
     let carve_lines = json_for_script(&jsonl_to_array(inputs.carve_log_jsonl));
     let filesystem_lines = json_for_script(&jsonl_to_array(inputs.filesystem_log_jsonl));
     let validation_lines = json_for_script(&jsonl_to_array(inputs.validation_log_jsonl));
+    let anomaly_lines = json_for_script(&jsonl_to_array(inputs.anomaly_log_jsonl));
     let batch_lines = json_for_script(&jsonl_to_array(inputs.batch_log_jsonl));
     let scan_runs = json_for_script(inputs.scan_runs_json);
     let marks = json_for_script(inputs.marks_json);
@@ -166,7 +168,7 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
 
   <h2>발견 및 분석 기법 (증거별 명세)</h2>
   <div id="techniques"></div>
-  <div class="note">각 증거가 어떤 기법으로 발견되었고 어떤 검증을 통과했는지 정리합니다. 조작 흔적의 자동 판별은 아직 수행하지 않으며, 재생성 검증을 통과한 증거도 최종 보고 전 판독자 재생 확인이 필요합니다. 판독 마크는 뷰어에서 내려받아 <code>import-marks</code>로 반영한 뒤 보고서를 재생성하면 함께 정리됩니다.</div>
+  <div class="note">각 증거가 어떤 기법으로 발견되었고 어떤 검증을 통과했는지 정리합니다. 이상 징후 후보는 아래 전용 섹션과 <code>qa anomalies</code> 로그를 참고하십시오. 재생성 검증을 통과한 증거도 최종 보고 전 판독자 재생 확인이 필요합니다. 판독 마크는 뷰어에서 내려받아 <code>import-marks</code>로 반영한 뒤 보고서를 재생성하면 함께 정리됩니다.</div>
 
   <h2>영상 색인</h2>
   <div id="videos"></div>
@@ -183,6 +185,10 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
   <h2>재생 / 컨테이너 검증</h2>
   <div id="validation-results"></div>
 
+  <h2>이상 징후 후보 (candidate-finding)</h2>
+  <div id="anomaly-findings"></div>
+  <div class="note">자동 플래그는 수동 확인이 필요한 후보 소견입니다. 조작·위변조·법적 증명으로 해석하지 마십시오. <code>qa anomalies</code>로 재생성합니다.</div>
+
   <h2>파일시스템 조사 / Inode 복구</h2>
   <div id="filesystem-recovery"></div>
 
@@ -198,6 +204,7 @@ const thumbnailLog = {thumbnail_lines};
 const carveLog = {carve_lines};
 const filesystemLog = {filesystem_lines};
 const validationLog = {validation_lines};
+const anomalyLog = {anomaly_lines};
 const batchLog = {batch_lines};
 const scanRuns = {scan_runs};
 const marks = {marks};
@@ -379,6 +386,21 @@ document.getElementById("validation-results").innerHTML = validationLog.length ?
   </tbody>
 </table>` : "<p>검증 기록이 없습니다.</p>";
 
+const anomalyRows = anomalyLog.filter(item => item.kind && item.kind !== "none");
+document.getElementById("anomaly-findings").innerHTML = anomalyRows.length ? `<table>
+  <thead>
+    <tr><th>라벨</th><th>종류</th><th>대상</th><th>상세</th></tr>
+  </thead>
+  <tbody>
+    ${{anomalyRows.map(item => `<tr>
+      <td>${{escapeHtml(item.label || "candidate-finding")}}</td>
+      <td>${{escapeHtml(item.kind || "-")}}</td>
+      <td><code>${{escapeHtml(item.selector || item.source_path || "-")}}</code></td>
+      <td>${{escapeHtml(item.detail || "-")}}</td>
+    </tr>`).join("")}}
+  </tbody>
+</table>` : "<p>이상 징후 후보가 없습니다.</p>";
+
 document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
   <thead>
     <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
@@ -557,6 +579,7 @@ mod tests {
         let carve = lookup("carve");
         let filesystem = lookup("filesystem");
         let validation = lookup("validation");
+        let anomaly = lookup("anomaly");
         let batch = lookup("batch");
         let scan_runs = lookup("scan_runs");
         let marks = lookup("marks");
@@ -569,6 +592,7 @@ mod tests {
             carve_log_jsonl: &carve,
             filesystem_log_jsonl: &filesystem,
             validation_log_jsonl: &validation,
+            anomaly_log_jsonl: &anomaly,
             batch_log_jsonl: &batch,
             scan_runs_json: &scan_runs,
             marks_json: &marks,
@@ -580,6 +604,7 @@ mod tests {
         let html = render(&[]);
         assert!(html.contains("발견 및 분석 기법"));
         assert!(html.contains("처리 체인"));
+        assert!(html.contains("이상 징후 후보"));
         assert!(html.contains("정리할 증거가 없습니다."));
         assert!(html.contains("처리 이력이 없습니다."));
     }

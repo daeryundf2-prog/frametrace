@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="FrameTrace_Shell.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="12" MaxWidth="720">
+            <TextBlock FontSize="28" FontWeight="SemiBold" Text="FrameTrace 검수 셸" />
+            <TextBlock TextWrapping="Wrap" Opacity="0.8"
+                       Text="이 셸은 증거 로직을 재구현하지 않습니다. 모든 처리는 옆의 frametrace.exe / frametrace-app.exe에 위임합니다." />
+            <TextBlock x:Name="EngineStatus" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="검수 워크스테이션 실행" Click="LaunchWorkstation_Click" />
+                <Button Content="엔진 경로 다시 검색" Click="RefreshEngine_Click" />
+            </StackPanel>
+            <TextBox x:Name="CasePathBox" Header="케이스 폴더" PlaceholderText="C:\Cases\case-001" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="make-review" Click="MakeReview_Click" />
+                <Button Content="make-report" Click="MakeReport_Click" />
+                <Button Content="qa anomalies" Click="Anomalies_Click" />
+            </StackPanel>
+            <TextBlock Text="최근 출력" FontWeight="SemiBold" />
+            <TextBox x:Name="OutputBox" AcceptsReturn="True" TextWrapping="Wrap" Height="220"
+                     IsReadOnly="True" FontFamily="Consolas" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

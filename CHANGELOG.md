@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — M4 continuation (2026-09-05)
+
+- Anomaly findings: `qa anomalies`, `candidate-finding` report section, hash revalidation flags.
+- DAV lane aligned to FFmpeg DHAV; restored `scripts/validate-dav-samples.ps1`.
+- Amped FIVE / Magnet DME handoff doc (`docs/COMMERCIAL_HANDOFF.md`).
+- Evidence viewer: j/k same-page partial update, grid event delegation, KO/EN chrome i18n.
+- Hikvision IMKH lane: `export-hik`, carve/scan magic, `scripts/validate-hik-samples.ps1`.
+- Viewer filter option i18n completed; synthetic DAV/Hik intake harness E2E
+  (`scripts/seed-and-validate-synth-samples.ps1`).
+- WinUI thin shell under `gui/winui` (user-local .NET 8, Release x64 build).
+
 ## 0.4.0 — M3 "제품화" + M2 완료 (2026-08-30)
 
 - 이중 바이너리: `frametrace-app.exe`(콘솔 없는 검수 런처, 시작 실패 시 메시지 박스) + `frametrace.exe`(CLI).

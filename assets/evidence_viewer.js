@@ -17,6 +17,136 @@ const MARKS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".marks";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
 const TAG_PRESETS = ["사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
 const TAGS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".tags";
+const LOCALE_KEY = "ft.viewer." + (manifest.case_id || "case") + ".locale";
+
+const I18N = {
+  ko: {
+    "unit.count": "건",
+    "group.collapsed": "접힘",
+    "grid.empty": "일치하는 증거가 없습니다.",
+    "aria.select": "선택",
+    "time.unknown": "시각 미상",
+    "thumb.missing": "썸네일 없음",
+    "thumb.damaged": "손상",
+    "lang.switch": "언어 전환",
+    "header.verified": "검증됨",
+    "header.candidate": "후보",
+    "header.failed": "실패",
+    "btn.theater": "시어터",
+    "btn.fullscreen": "전체화면",
+    "btn.pip": "PiP",
+    "btn.clearDates": "기간 해제",
+    "search.placeholder": "경로, ID, 파서, 해시 검색",
+    "page.prev": "이전",
+    "page.next": "다음",
+    "filter.kind": "출처",
+    "filter.kind.all": "전체 출처",
+    "filter.kind.video": "원본 (논리 파일)",
+    "filter.kind.carved": "카빙 후보",
+    "filter.kind.filesystem": "파일시스템 복구",
+    "filter.kind.candidate": "삭제 영상 후보 (복구 전)",
+    "filter.status": "검증 상태",
+    "filter.status.all": "전체 검증 상태",
+    "filter.sort": "정렬",
+    "filter.sort.id": "기본 (ID순)",
+    "filter.sort.timeDesc": "시간 최신순",
+    "filter.sort.timeAsc": "시간 오래된순",
+    "filter.sort.name": "이름순",
+    "filter.sort.sizeDesc": "크기순",
+    "filter.group": "분류/그룹화",
+    "filter.group.none": "그룹화 없음",
+    "filter.group.day": "녹화 일자별",
+    "filter.group.kind": "출처별",
+    "filter.group.recType": "녹화 유형별 (주행/충격/주차)",
+    "filter.group.status": "검증 상태별",
+    "filter.group.mark": "판독 마크별",
+    "filter.group.prefix": "이름 접두사별",
+    "filter.group.channel": "채널별 (전/후방)",
+    "filter.page.100": "100개씩",
+    "filter.page.250": "250개씩",
+    "filter.page.500": "500개씩",
+    "filter.page.1000": "1000개씩",
+    "filter.dateFrom": "기간 시작",
+    "filter.dateTo": "기간 끝",
+    "hist.title": "일자별 건수 — 클릭하면 그날로 필터",
+    "media.size": "크기",
+    "media.fit": "맞춤",
+    "panel.selected": "선택 증거"
+  },
+  en: {
+    "unit.count": "",
+    "group.collapsed": "collapsed",
+    "grid.empty": "No matching evidence.",
+    "aria.select": "Select",
+    "time.unknown": "Unknown time",
+    "thumb.missing": "No thumbnail",
+    "thumb.damaged": "Damaged",
+    "lang.switch": "Switch language",
+    "header.verified": "Verified",
+    "header.candidate": "Candidate",
+    "header.failed": "Failed",
+    "btn.theater": "Theater",
+    "btn.fullscreen": "Fullscreen",
+    "btn.pip": "PiP",
+    "btn.clearDates": "Clear dates",
+    "search.placeholder": "Search path, ID, parser, hash",
+    "page.prev": "Prev",
+    "page.next": "Next",
+    "filter.kind": "Source",
+    "filter.kind.all": "All sources",
+    "filter.kind.video": "Original (logical file)",
+    "filter.kind.carved": "Carved candidate",
+    "filter.kind.filesystem": "Filesystem recovery",
+    "filter.kind.candidate": "Deleted video candidate (pre-recover)",
+    "filter.status": "Validation status",
+    "filter.status.all": "All validation statuses",
+    "filter.sort": "Sort",
+    "filter.sort.id": "Default (by ID)",
+    "filter.sort.timeDesc": "Newest first",
+    "filter.sort.timeAsc": "Oldest first",
+    "filter.sort.name": "Name",
+    "filter.sort.sizeDesc": "Largest first",
+    "filter.group": "Group by",
+    "filter.group.none": "No grouping",
+    "filter.group.day": "By recording day",
+    "filter.group.kind": "By source",
+    "filter.group.recType": "By recording type",
+    "filter.group.status": "By validation status",
+    "filter.group.mark": "By review mark",
+    "filter.group.prefix": "By name prefix",
+    "filter.group.channel": "By channel",
+    "filter.page.100": "100 / page",
+    "filter.page.250": "250 / page",
+    "filter.page.500": "500 / page",
+    "filter.page.1000": "1000 / page",
+    "filter.dateFrom": "Date from",
+    "filter.dateTo": "Date to",
+    "hist.title": "Counts by day — click to filter",
+    "media.size": "Size",
+    "media.fit": "Fit",
+    "panel.selected": "Selected evidence"
+  }
+};
+
+function t(key) {
+  const locale = state?.locale || storageGet(LOCALE_KEY, "ko") || "ko";
+  return (I18N[locale] && I18N[locale][key]) || (I18N.ko[key]) || key;
+}
+
+function applyChromeI18n() {
+  document.documentElement.lang = state.locale;
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+    el.setAttribute("placeholder", t(el.dataset.i18nPlaceholder));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach(el => {
+    el.setAttribute("title", t(el.dataset.i18nTitle));
+  });
+  const langBtn = document.getElementById("btnLang");
+  if (langBtn) langBtn.textContent = state.locale === "ko" ? "EN" : "KO";
+}
 
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 
@@ -357,6 +487,7 @@ const state = {
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
   tags: storageGet(TAGS_KEY, {}),
+  locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
   layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
@@ -606,7 +737,9 @@ function renderGrid() {
   const pageRows = filtered.slice(start, start + state.pageSize);
 
   els.resultCount.textContent = `${filtered.length}`;
-  els.pageStatus.textContent = `${state.currentPage} / ${pageCount}`;
+  const rangeEnd = Math.min(filtered.length, start + pageRows.length);
+  const rangeStart = filtered.length ? start + 1 : 0;
+  els.pageStatus.textContent = `${rangeStart}–${rangeEnd} / ${filtered.length} · ${state.currentPage}/${pageCount}`;
   els.prevPage.disabled = state.currentPage <= 1;
   els.nextPage.disabled = state.currentPage >= pageCount;
 
@@ -626,54 +759,13 @@ function renderGrid() {
       if (key !== lastGroup) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
-        cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}건${collapsed ? " · 접힘" : ""}</span></div>`);
+        cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
         if (collapsed) return;
       }
     }
     cardsHtml.push(renderCard(record));
   });
-  els.recordGrid.innerHTML = cardsHtml.join("") || `<div class="fallback">일치하는 증거가 없습니다.</div>`;
-
-  els.recordGrid.querySelectorAll(".group-header").forEach(header => {
-    header.addEventListener("click", () => {
-      const key = header.dataset.group;
-      if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
-      else state.collapsedGroups.add(key);
-      renderGrid();
-    });
-  });
-  els.recordGrid.querySelectorAll(".card").forEach(cardElement => {
-    cardElement.setAttribute("tabindex", "0");
-    cardElement.setAttribute("role", "button");
-    const activate = event => {
-      if (event.target.closest("input[type='checkbox']")) return;
-      state.activeId = cardElement.dataset.id;
-      render();
-    };
-    cardElement.addEventListener("click", activate);
-    cardElement.addEventListener("keydown", event => {
-      if (event.key === "Enter") activate(event);
-    });
-  });
-  els.recordGrid.querySelectorAll("input[type='checkbox']").forEach(box => {
-    let shiftRange = false;
-    box.addEventListener("click", event => {
-      event.stopPropagation();
-      shiftRange = event.shiftKey && !!state.lastCheckedKey;
-    });
-    box.addEventListener("change", () => {
-      const id = box.dataset.check;
-      if (shiftRange) {
-        selectRange(state.lastCheckedKey, id, box.checked);
-      } else if (box.checked) {
-        state.selectedIds.add(id);
-      } else {
-        state.selectedIds.delete(id);
-      }
-      state.lastCheckedKey = id;
-      render();
-    });
-  });
+  els.recordGrid.innerHTML = cardsHtml.join("") || `<div class="fallback">${t("grid.empty")}</div>`;
 }
 
 function renderCard(record) {
@@ -682,7 +774,7 @@ function renderCard(record) {
   const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
   const thumb = record.thumb
     ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
-    : `<div class="ph">${record.status === "validation-failed" ? "손상" : "썸네일 없음"}</div>`;
+    : `<div class="ph">${record.status === "validation-failed" ? t("thumb.damaged") : t("thumb.missing")}</div>`;
   const recTypeTag = record.recType ? `<span class="rec-type">${escapeHtml(recTypeLabel(record.recType))}</span>` : "";
   const channel = record.channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : "";
   const displayName = record.originalName && record.originalName !== record.name
@@ -694,11 +786,11 @@ function renderCard(record) {
   const tagsHtml = tagListFor(record).length
     ? `<div class="tag-row">${tagListFor(record).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`
     : "";
-  return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}">
-    <div class="thumb">${thumb}<input type="checkbox" aria-label="선택" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
+  return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
+    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : "시각 미상"}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span></div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span></div>
       ${tagsHtml}
       <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
@@ -987,12 +1079,62 @@ function renderChips() {
 }
 
 function render() {
+  applyChromeI18n();
   renderMetrics();
   renderChips();
   renderHistogram();
   renderTree();
   renderGrid();
   renderDetails();
+}
+
+function setupGridDelegation() {
+  if (els.recordGrid._delegated) return;
+  els.recordGrid._delegated = true;
+  let shiftRange = false;
+  els.recordGrid.addEventListener("click", event => {
+    const header = event.target.closest(".group-header");
+    if (header) {
+      const key = header.dataset.group;
+      if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
+      else state.collapsedGroups.add(key);
+      renderGrid();
+      return;
+    }
+    if (event.target.closest("input[type='checkbox']")) return;
+    const card = event.target.closest(".card");
+    if (!card) return;
+    state.activeId = card.dataset.id;
+    render();
+  });
+  els.recordGrid.addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    const card = event.target.closest(".card");
+    if (!card || event.target.closest("input")) return;
+    state.activeId = card.dataset.id;
+    render();
+  });
+  els.recordGrid.addEventListener("click", event => {
+    const box = event.target.closest("input[type='checkbox']");
+    if (!box) return;
+    event.stopPropagation();
+    shiftRange = event.shiftKey && !!state.lastCheckedKey;
+  }, true);
+  els.recordGrid.addEventListener("change", event => {
+    const box = event.target.closest("input[type='checkbox']");
+    if (!box) return;
+    const id = box.dataset.check;
+    if (shiftRange) {
+      selectRange(state.lastCheckedKey, id, box.checked);
+    } else if (box.checked) {
+      state.selectedIds.add(id);
+    } else {
+      state.selectedIds.delete(id);
+    }
+    state.lastCheckedKey = id;
+    shiftRange = false;
+    render();
+  });
 }
 
 function applyTag(tag) {
@@ -1095,10 +1237,23 @@ function moveActive(step) {
   if (!filtered.length) return;
   const index = filtered.findIndex(record => record.id === state.activeId);
   const next = Math.max(0, Math.min(filtered.length - 1, (index < 0 ? 0 : index + step)));
-  state.activeId = filtered[next].id;
+  const nextId = filtered[next].id;
+  const nextPage = Math.floor(next / state.pageSize) + 1;
+  const pageChanged = nextPage !== state.currentPage;
+  state.activeId = nextId;
+  if (pageChanged) {
+    state.currentPage = nextPage;
+    render();
+    const card = els.recordGrid.querySelector(`.card[data-id="${CSS.escape(state.activeId)}"]`);
+    card?.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  // Same page: avoid rebuilding up to 1000 cards on every j/k.
+  els.recordGrid.querySelectorAll(".card.active").forEach(el => el.classList.remove("active"));
   const card = els.recordGrid.querySelector(`.card[data-id="${CSS.escape(state.activeId)}"]`);
+  card?.classList.add("active");
   card?.scrollIntoView({ block: "nearest" });
-  render();
+  renderDetails();
 }
 
 function toggleActiveSelection() {
@@ -1234,5 +1389,11 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 state.pageSize = Number(els.pageSize.value) || 100;
 setupHeightSplitter();
 setupColumnSplitter();
+setupGridDelegation();
+document.getElementById("btnLang")?.addEventListener("click", () => {
+  state.locale = state.locale === "ko" ? "en" : "ko";
+  storageSet(LOCALE_KEY, state.locale);
+  render();
+});
 applyLayout();
 render();

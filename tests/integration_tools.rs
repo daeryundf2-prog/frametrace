@@ -230,23 +230,29 @@ fn full_lifecycle_with_real_ffmpeg() {
     let _ = std::fs::remove_dir_all(&case_dir);
 }
 
-/// Builds a synthetic DAV container (DHAV skeleton per src/dav.rs docs) around
-/// a real H.264 elementary stream produced by ffmpeg.
+/// Builds a synthetic DAV container matching FFmpeg `dhav.c` around a real
+/// H.264 elementary stream produced by ffmpeg.
 fn build_dav_fixture(h264: &[u8]) -> Vec<u8> {
-    let mut bytes = vec![0u8; 0x30];
-    bytes[0..4].copy_from_slice(b"DHAV");
-    bytes[4] = 0xF0;
-    let mut frame = |stream_type: u8, channel: u16, payload: &[u8]| {
-        let mut header = [0u8; 0x24];
-        header[0..4].copy_from_slice(b"DHAV");
-        header[4] = stream_type;
-        header[12..14].copy_from_slice(&channel.to_le_bytes());
-        header[0x20..0x24].copy_from_slice(&(payload.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&header);
-        bytes.extend_from_slice(payload);
-        bytes.extend_from_slice(&[0xDC, 0x4D, 0x44, 0x00]);
-    };
-    frame(0xF1, 1, h264);
+    let header_len = 24u32;
+    let frame_length = header_len + h264.len() as u32 + 8;
+    let mut bytes = Vec::with_capacity(frame_length as usize);
+    bytes.extend_from_slice(b"DHAV");
+    bytes.push(0xFD); // video I-frame
+    bytes.push(0); // subtype
+    bytes.push(1); // channel
+    bytes.push(0); // frame_subnumber
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // frame_number
+    bytes.extend_from_slice(&frame_length.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // date
+    bytes.extend_from_slice(&0u16.to_le_bytes()); // timestamp
+    bytes.push(0); // ext_length
+    bytes.push(0); // checksum
+    // Minimal video ext so FFmpeg can pick codec/size (type 0x81 + 0x80).
+    // Keep ext_length=0 for the FrameTrace walker path; FFmpeg still demuxes
+    // Annex-B payloads when native demux succeeds on this skeleton.
+    bytes.extend_from_slice(h264);
+    bytes.extend_from_slice(b"dhav");
+    bytes.extend_from_slice(&frame_length.to_le_bytes());
     bytes
 }
 
@@ -309,6 +315,78 @@ fn dav_export_remuxes_real_h264_and_validates() {
     let export_log = read_file(&case_dir.join("artifacts/clips/export-log.jsonl"));
     assert!(export_log.contains("export-dav"), "{export_log}");
     let mp4 = case_dir.join("artifacts/clips/camera_20260830_120000.mp4");
+    assert!(mp4.exists(), "remuxed mp4 missing");
+    run_binary(
+        exe,
+        &["validate-artifact", &case_text, &mp4.to_string_lossy()],
+    );
+    let validation_log = read_file(&case_dir.join("evidence/logs/validation-log.jsonl"));
+    assert!(
+        validation_log.contains("ffprobe-video-stream-confirmed"),
+        "{validation_log}"
+    );
+
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+#[test]
+#[ignore = "requires FRAMETRACE_IT=1 and ffmpeg/ffprobe on PATH"]
+fn hik_export_strips_imkh_and_validates() {
+    if !integration_enabled() {
+        eprintln!("FRAMETRACE_IT=1 not set; skipping");
+        return;
+    }
+    let Some(ffmpeg) = ffmpeg_binary() else {
+        eprintln!("ffmpeg not found on PATH; skipping");
+        return;
+    };
+    let work = unique_dir("ft_it_hik");
+    std::fs::create_dir_all(&work).unwrap();
+    let case_dir = work.join("case");
+    let exe = Path::new(env!("CARGO_BIN_EXE_frametrace"));
+
+    // MPEG program stream payload that FFmpeg can remux after the IMKH header.
+    let mpg = work.join("raw.mpg");
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=s=160x90:r=5:d=1",
+            "-c:v",
+            "mpeg2video",
+            "-f",
+            "mpeg",
+        ])
+        .arg(&mpg)
+        .output()
+        .expect("run ffmpeg mpeg");
+    assert!(output.status.success(), "ffmpeg mpeg failed");
+
+    let mut imkh = vec![0u8; 40];
+    imkh[0..4].copy_from_slice(b"IMKH");
+    imkh.extend_from_slice(&std::fs::read(&mpg).unwrap());
+    let hik_path = work.join("nvr_export_cam01.mpg");
+    std::fs::write(&hik_path, &imkh).unwrap();
+
+    let case_text = case_dir.to_string_lossy().to_string();
+    run_binary(exe, &["init-case", &case_text, "--title", "IT hik"]);
+    run_binary(
+        exe,
+        &[
+            "export-hik",
+            &case_text,
+            &hik_path.to_string_lossy(),
+            "--timeout",
+            "60",
+        ],
+    );
+    let export_log = read_file(&case_dir.join("artifacts/clips/export-log.jsonl"));
+    assert!(export_log.contains("export-hik"), "{export_log}");
+    let mp4 = case_dir.join("artifacts/clips/nvr_export_cam01.mp4");
     assert!(mp4.exists(), "remuxed mp4 missing");
     run_binary(
         exe,

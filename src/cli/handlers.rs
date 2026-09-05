@@ -255,8 +255,9 @@ pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Resu
 
 /// Remuxes a Dahua DAV container to MP4 (no re-encode), recording the
 /// derived artifact in artifacts/clips/export-log.jsonl so validate-batch and
-/// the viewer can consume the output by path. DAV parsing is pending
-/// real-sample validation; outputs stay candidate until examiner review.
+/// the viewer can consume the output by path. Prefers FFmpeg's native DHAV
+/// demuxer; falls back to ES extract. Field validation still needs real
+/// recorder samples via `scripts/validate-dav-samples.ps1`.
 pub fn export_dav(
     case_dir: &Path,
     dav_file: &Path,
@@ -281,41 +282,110 @@ pub fn export_dav(
         ));
     }
 
-    let es_path =
-        crate::util::unique_path(&case_dir.join("artifacts/carved").join(format!("{stem}.es")));
-    let (written, frames, channel) = crate::dav::extract_video_es(dav_file, &es_path)?;
-    if let Err(error) = crate::dav::remux_es_to_mp4(&es_path, &requested_raw, timeout_secs) {
-        let _ = std::fs::remove_file(&requested_raw);
-        return Err(error);
-    }
+    let walk = crate::dav::walk_frames(dav_file);
+    let (frames, channel) = match &walk {
+        Ok(list) => {
+            let video: Vec<_> = list
+                .iter()
+                .filter(|frame| matches!(frame.stream_type, 0xFC | 0xFD))
+                .collect();
+            (video.len(), video.first().map(|frame| frame.channel))
+        }
+        Err(_) => (0, None),
+    };
+    let method =
+        crate::dav::remux_dav_to_mp4(dav_file, &requested_raw, timeout_secs).inspect_err(|_| {
+            let _ = std::fs::remove_file(&requested_raw);
+        })?;
     let output_sha256 = audit::digest_file(&requested_raw)?;
+    let validation = if method == "ffmpeg-dhav-demux" {
+        "ffmpeg-native-demux"
+    } else {
+        "es-extract-remux-candidate"
+    };
 
     let line = format!(
-        "{{\"schema_version\":1,\"event\":\"export-dav\",\"selector\":\"{}\",\"source_path\":\"{}\",\"format\":\"mp4\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"es_path\":\"{}\",\"es_bytes\":{},\"video_frames\":{},\"channel\":{},\"container_validation\":\"pending-real-sample-validation\"}}",
+        "{{\"schema_version\":1,\"event\":\"export-dav\",\"selector\":\"{}\",\"source_path\":\"{}\",\"format\":\"mp4\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"remux_method\":\"{}\",\"video_frames\":{},\"channel\":{},\"container_validation\":\"{}\"}}",
         json_escape(stem),
         json_escape(&dav_file.to_string_lossy()),
         json_escape(&requested_raw.to_string_lossy()),
         json_escape(&output_sha256),
-        json_escape(&es_path.to_string_lossy()),
-        written,
+        json_escape(method),
         frames,
         channel
             .map(|value| value.to_string())
             .unwrap_or_else(|| "null".to_string()),
+        json_escape(validation),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/clips/export-log.jsonl"), &line)?;
     case_db::complete_job(case_dir, &job.job_id, 1, "export-dav completed")?;
 
     println!("dav remux complete");
     println!(
-        "video frames: {frames} · channel: {} · ES bytes: {written}",
+        "method: {method} · video frames: {frames} · channel: {}",
         channel
             .map(|value| value.to_string())
             .unwrap_or_else(|| "-".to_string())
     );
     println!("output: {}", requested_raw.display());
     println!("output sha256: {output_sha256}");
-    println!("note: DAV parsing is pending real-sample validation; keep the original DAV.");
+    println!("note: keep the original DAV; field validation still requires real recorder samples.");
+    Ok(())
+}
+
+/// Remuxes a Hikvision IMKH-prefixed export to MP4 (strip 40-byte header).
+pub fn export_hik(
+    case_dir: &Path,
+    hik_file: &Path,
+    output: Option<PathBuf>,
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(case_dir, "export-hik", hik_file, None, "{}")?;
+
+    let stem = hik_file
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("hik");
+    let requested_raw = output.unwrap_or_else(|| {
+        crate::util::unique_path(&case_dir.join("artifacts/clips").join(format!("{stem}.mp4")))
+    });
+    require_case_output_path(case_dir, &requested_raw, "Hikvision export")?;
+    if requested_raw.exists() {
+        return Err(format!(
+            "output already exists: {} (choose a new --output path)",
+            requested_raw.display()
+        ));
+    }
+
+    let stripped = crate::util::unique_path(
+        &case_dir
+            .join("artifacts/carved")
+            .join(format!("{stem}.imkh-stripped.bin")),
+    );
+    let method =
+        crate::hikvision::remux_imkh_to_mp4(hik_file, &requested_raw, &stripped, timeout_secs)
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&requested_raw);
+            })?;
+    let output_sha256 = audit::digest_file(&requested_raw)?;
+    let line = format!(
+        "{{\"schema_version\":1,\"event\":\"export-hik\",\"selector\":\"{}\",\"source_path\":\"{}\",\"format\":\"mp4\",\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"remux_method\":\"{}\",\"stripped_path\":\"{}\",\"container_validation\":\"imkh-header-stripped-candidate\"}}",
+        json_escape(stem),
+        json_escape(&hik_file.to_string_lossy()),
+        json_escape(&requested_raw.to_string_lossy()),
+        json_escape(&output_sha256),
+        json_escape(method),
+        json_escape(&stripped.to_string_lossy()),
+    );
+    audit::append_chained_jsonl(&case_dir.join("artifacts/clips/export-log.jsonl"), &line)?;
+    case_db::complete_job(case_dir, &job.job_id, 1, "export-hik completed")?;
+
+    println!("hikvision remux complete");
+    println!("method: {method}");
+    println!("output: {}", requested_raw.display());
+    println!("output sha256: {output_sha256}");
+    println!("note: keep the original export; HDD FS recovery is out of scope without a corpus.");
     Ok(())
 }
 
@@ -406,6 +476,8 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    let anomaly_log =
+        read_to_string(&case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap_or_default();
     let batch_log =
         read_to_string(&case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap_or_default();
     let scan_runs_json = read_scan_runs_json(case_dir);
@@ -436,6 +508,7 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
         carve_log_jsonl: &carve_log,
         filesystem_log_jsonl: &filesystem_log,
         validation_log_jsonl: &validation_log,
+        anomaly_log_jsonl: &anomaly_log,
         batch_log_jsonl: &batch_log,
         scan_runs_json: &scan_runs_json,
         marks_json: &marks_json,

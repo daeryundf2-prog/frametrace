@@ -137,6 +137,15 @@ pub enum Commands {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Remux a Hikvision IMKH export to MP4 (strip 40-byte header; real-sample validation pending)
+    ExportHik {
+        case_dir: PathBuf,
+        hik_file: PathBuf,
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
     /// Generate a lower-bitrate review proxy MP4
     MakeProxy {
         case_dir: PathBuf,
@@ -293,6 +302,8 @@ pub enum QaCommands {
         #[arg(long, default_value_t = 100000)]
         performance_rows: usize,
     },
+    /// Scan indexed videos for candidate anomaly findings (not legal proof)
+    Anomalies { case_dir: PathBuf },
 }
 
 pub fn run(args: Vec<String>) -> Result<(), String> {
@@ -417,6 +428,12 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             output,
             timeout,
         } => export_dav(&case_dir, &dav_file, output, timeout),
+        Commands::ExportHik {
+            case_dir,
+            hik_file,
+            output,
+            timeout,
+        } => export_hik(&case_dir, &hik_file, output, timeout),
         Commands::MakeReview { case_dir } => make_review(&case_dir),
         Commands::ListParsers => {
             println!("{}", crate::detector::parser_catalog_json());
@@ -629,6 +646,21 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
                 "release readiness QA passed: {}",
                 report.report_path.display()
             );
+            Ok(())
+        }
+        QaCommands::Anomalies { case_dir } => {
+            let result = crate::anomaly::scan_case(&case_dir)?;
+            println!(
+                "anomaly scan complete: {} candidate finding(s)",
+                result.findings.len()
+            );
+            println!("log: {}", result.log_path.display());
+            for finding in &result.findings {
+                println!(
+                    "- [{}] {} · {}",
+                    finding.kind, finding.selector, finding.detail
+                );
+            }
             Ok(())
         }
     }

@@ -1,15 +1,16 @@
-//! Dahua DAV container support (first proprietary lane, per
-//! docs/MANUFACTURER_PARSER_RESEARCH.md).
+//! Dahua DAV / DHAV container support (first proprietary lane).
 //!
-//! The walker implements the container skeleton shared by the public OSS DAV
-//! parsers: a 0x30-byte `DHAV` file header, per-frame `DHAV` records with a
-//! stream-type byte (0xF1 video / 0xF3 audio), a little-endian payload length
-//! at offset 0x20 of the frame header, and the `DC MD` end marker after each
-//! payload. It has NOT yet been validated against real recorder exports —
-//! treat outputs as candidate until examiner review (see ROADMAP M2-1).
+//! Layout follows FFmpeg `libavformat/dhav.c` (the only public demuxer reference):
+//! - optional `DAHUA` 0x400-byte file preamble, otherwise frames begin at offset 0
+//! - per-frame `DHAV` header: type/subtype/channel/subnumber/frame#/length/date
+//!   then (except type 0xF1) timestamp + ext_length + checksum + extension TLVs
+//! - video types `0xFD` (key) / `0xFC` (non-key); audio `0xF0`; skip `0xF1`
+//! - each frame ends with footer `dhav` + 4-byte back-pointer
 //!
-//! Extraction concatenates video frame payloads into an Annex-B elementary
-//! stream, which ffmpeg can remux to MP4 without re-encoding.
+//! Remux prefers FFmpeg's native DHAV demuxer (`ffmpeg -i file.dav -c copy`).
+//! Elementary-stream extraction remains for carved fragments and unit fixtures.
+//! Real recorder exports still need examiner intake via
+//! `scripts/validate-dav-samples.ps1` before claiming field validation.
 
 use crate::audit;
 use crate::util::run_with_timeout;
@@ -18,105 +19,155 @@ use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::Command;
 
-const FILE_HEADER_SIZE: u64 = 0x30;
-const FRAME_HEADER_SIZE: usize = 0x24;
-const PAYLOAD_LENGTH_OFFSET: usize = 0x20;
-const END_MARKER: [u8; 4] = [0xDC, 0x4D, 0x44, 0x00];
-const STREAM_VIDEO: u8 = 0xF1;
-const STREAM_AUDIO: u8 = 0xF3;
+const DAHUA_PREAMBLE: u64 = 0x400;
+const MIN_FRAME_LEN: u32 = 24;
+const FOOTER_MAGIC: [u8; 4] = *b"dhav";
+const STREAM_AUDIO: u8 = 0xF0;
+const STREAM_SKIP: u8 = 0xF1;
+const STREAM_VIDEO_P: u8 = 0xFC;
+const STREAM_VIDEO_I: u8 = 0xFD;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DavFrame {
     pub offset: u64,
     pub stream_type: u8,
     pub channel: u16,
+    pub payload_offset: u64,
     pub payload_size: u64,
 }
 
 pub fn is_dav_header(bytes: &[u8]) -> bool {
-    bytes.len() >= 4 && &bytes[0..4] == b"DHAV"
+    if bytes.len() >= 5 && &bytes[0..5] == b"DAHUA" {
+        return true;
+    }
+    if bytes.len() >= 5 && &bytes[0..4] == b"DHAV" {
+        return matches!(
+            bytes[4],
+            STREAM_AUDIO | STREAM_SKIP | STREAM_VIDEO_P | STREAM_VIDEO_I
+        );
+    }
+    false
 }
 
-/// Walks every frame record in the file (header + streaming walk, no full
-/// buffering) and returns video/audio frames in file order. Errors on the
-/// first structurally impossible record instead of guessing.
+fn read_u32_le(buf: &[u8]) -> u32 {
+    u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]])
+}
+
+/// Locates the first DHAV frame (skipping an optional DAHUA preamble).
+fn locate_stream_start(file: &mut File) -> Result<u64, String> {
+    let mut head = [0u8; 5];
+    file.seek(SeekFrom::Start(0))
+        .map_err(|err| format!("failed to seek DAV start: {err}"))?;
+    file.read_exact(&mut head)
+        .map_err(|err| format!("failed to read DAV header: {err}"))?;
+    if &head[0..5] == b"DAHUA" {
+        file.seek(SeekFrom::Start(DAHUA_PREAMBLE))
+            .map_err(|err| format!("failed to seek past DAHUA preamble: {err}"))?;
+        return Ok(DAHUA_PREAMBLE);
+    }
+    if &head[0..4] == b"DHAV" {
+        file.seek(SeekFrom::Start(0))
+            .map_err(|err| format!("failed to rewind DAV: {err}"))?;
+        return Ok(0);
+    }
+    Err("not a DAV container (missing DHAV/DAHUA magic)".to_string())
+}
+
+/// Walks every frame record (streaming, no full buffer) in FFmpeg order.
 pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
     let mut file =
         File::open(path).map_err(|err| format!("failed to open DAV {}: {err}", path.display()))?;
-    let mut header = [0u8; 4];
-    file.read_exact(&mut header)
-        .map_err(|err| format!("failed to read DAV header: {err}"))?;
-    if !is_dav_header(&header) {
-        return Err(format!(
-            "not a DAV container (missing DHAV magic): {}",
-            path.display()
-        ));
-    }
-    file.seek(SeekFrom::Start(FILE_HEADER_SIZE))
-        .map_err(|err| format!("failed to seek past DAV header: {err}"))?;
-
+    let file_len = file
+        .seek(SeekFrom::End(0))
+        .map_err(|err| format!("failed to stat DAV size: {err}"))?;
+    let mut pos = locate_stream_start(&mut file)?;
     let mut frames = Vec::new();
-    let mut frame_offset = FILE_HEADER_SIZE;
-    loop {
-        let mut frame_header = [0u8; FRAME_HEADER_SIZE];
-        match file.read_exact(&mut frame_header) {
+
+    while pos + 20 <= file_len {
+        file.seek(SeekFrom::Start(pos))
+            .map_err(|err| format!("failed to seek DAV frame at {pos}: {err}"))?;
+        let mut prefix = [0u8; 20];
+        match file.read_exact(&mut prefix) {
             Ok(()) => {}
             Err(ref err) if err.kind() == std::io::ErrorKind::UnexpectedEof => break,
             Err(err) => return Err(format!("failed to read DAV frame header: {err}")),
         }
-        if &frame_header[0..4] != b"DHAV" {
+        if &prefix[0..4] != b"DHAV" {
             return Err(format!(
-                "DAV frame at offset {frame_offset} is missing the DHAV frame magic (unsupported variant; real-sample validation pending)"
+                "DAV frame at offset {pos} is missing the DHAV frame magic (unsupported variant; real-sample validation pending)"
             ));
         }
-        let stream_type = frame_header[4];
-        let channel = u16::from_le_bytes([frame_header[12], frame_header[13]]);
-        let payload_size = u32::from_le_bytes([
-            frame_header[PAYLOAD_LENGTH_OFFSET],
-            frame_header[PAYLOAD_LENGTH_OFFSET + 1],
-            frame_header[PAYLOAD_LENGTH_OFFSET + 2],
-            frame_header[PAYLOAD_LENGTH_OFFSET + 3],
-        ]) as u64;
-
-        let mut end_marker = [0u8; 4];
-        let skip = payload_size;
-        file.seek(SeekFrom::Current(skip as i64))
-            .map_err(|err| format!("failed to skip DAV payload: {err}"))?;
-        file.read_exact(&mut end_marker)
-            .map_err(|err| format!("failed to read DAV end marker: {err}"))?;
-        if end_marker != END_MARKER {
+        let stream_type = prefix[4];
+        let channel = prefix[6] as u16;
+        let frame_length = read_u32_le(&prefix[12..16]);
+        if frame_length < MIN_FRAME_LEN {
             return Err(format!(
-                "DAV frame at offset {frame_offset} has a corrupted end marker (found {:02x?})",
-                end_marker
+                "DAV frame at offset {pos} has invalid length {frame_length}"
+            ));
+        }
+        let frame_end = pos.saturating_add(frame_length as u64);
+        if frame_end > file_len {
+            return Err(format!(
+                "DAV frame at offset {pos} extends past EOF (length {frame_length})"
             ));
         }
 
-        if stream_type == STREAM_VIDEO || stream_type == STREAM_AUDIO {
+        if stream_type == STREAM_SKIP {
+            pos = frame_end;
+            continue;
+        }
+
+        let mut cursor = pos + 20;
+        if cursor + 4 > file_len {
+            break;
+        }
+        let mut meta = [0u8; 4];
+        file.seek(SeekFrom::Start(cursor))
+            .map_err(|err| format!("failed to seek DAV meta: {err}"))?;
+        file.read_exact(&mut meta)
+            .map_err(|err| format!("failed to read DAV meta: {err}"))?;
+        let ext_length = meta[2] as u64;
+        cursor += 4 + ext_length;
+
+        let footer_start = frame_end.saturating_sub(8);
+        if cursor > footer_start {
+            return Err(format!(
+                "DAV frame at offset {pos} has no room for payload/footer"
+            ));
+        }
+        let payload_size = footer_start - cursor;
+
+        file.seek(SeekFrom::Start(footer_start))
+            .map_err(|err| format!("failed to seek DAV footer: {err}"))?;
+        let mut footer = [0u8; 8];
+        file.read_exact(&mut footer)
+            .map_err(|err| format!("failed to read DAV footer: {err}"))?;
+        if footer[0..4] != FOOTER_MAGIC {
+            return Err(format!(
+                "DAV frame at offset {pos} has a corrupted end marker (found {:02x?})",
+                &footer[0..4]
+            ));
+        }
+
+        if matches!(stream_type, STREAM_AUDIO | STREAM_VIDEO_P | STREAM_VIDEO_I) {
             frames.push(DavFrame {
-                offset: frame_offset,
+                offset: pos,
                 stream_type,
                 channel,
+                payload_offset: cursor,
                 payload_size,
             });
         }
-        frame_offset = frame_offset + FRAME_HEADER_SIZE as u64 + payload_size + 4;
-        // The recorder writes an end-of-file frame with a zero length; treat
-        // the DHAV+0xFA trailer as EOF when nothing further parses.
-        let at_eof = file.stream_position().unwrap_or(u64::MAX);
-        let file_len = file
-            .seek(SeekFrom::End(0))
-            .map_err(|err| format!("failed to stat DAV size: {err}"))?;
-        if at_eof >= file_len {
-            break;
-        }
-        file.seek(SeekFrom::Start(at_eof))
-            .map_err(|err| format!("failed to restore DAV position: {err}"))?;
+        pos = frame_end;
     }
     Ok(frames)
 }
 
+fn is_video_frame(stream_type: u8) -> bool {
+    matches!(stream_type, STREAM_VIDEO_P | STREAM_VIDEO_I)
+}
+
 /// Copies every video-frame payload into an Annex-B elementary stream.
-/// Returns (es_path_bytes_written, video_frame_count, channel).
 pub fn extract_video_es(
     dav_path: &Path,
     es_output: &Path,
@@ -124,7 +175,7 @@ pub fn extract_video_es(
     let frames = walk_frames(dav_path)?;
     let video: Vec<&DavFrame> = frames
         .iter()
-        .filter(|frame| frame.stream_type == STREAM_VIDEO)
+        .filter(|frame| is_video_frame(frame.stream_type))
         .collect();
     if video.is_empty() {
         return Err("DAV contains no video frames".to_string());
@@ -142,7 +193,7 @@ pub fn extract_video_es(
     let mut written = 0u64;
     for frame in &video {
         input
-            .seek(SeekFrom::Start(frame.offset + FRAME_HEADER_SIZE as u64))
+            .seek(SeekFrom::Start(frame.payload_offset))
             .map_err(|err| format!("failed to seek DAV frame: {err}"))?;
         let mut remaining = frame.payload_size;
         let mut chunk = [0u8; 64 * 1024];
@@ -165,8 +216,42 @@ pub fn extract_video_es(
     Ok((written, video.len(), channel))
 }
 
-/// Remuxes an Annex-B elementary stream into MP4 without re-encoding. Tries
-/// h264 first, then hevc, mirroring the two codecs DAV recorders ship.
+/// Prefer FFmpeg's native DHAV demuxer; fall back to ES extract + remux.
+pub fn remux_dav_to_mp4(
+    dav_path: &Path,
+    mp4_output: &Path,
+    timeout_secs: Option<u64>,
+) -> Result<&'static str, String> {
+    let ffmpeg = crate::tool_policy::resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    if let Some(parent) = mp4_output.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create export directory: {err}"))?;
+    }
+
+    let mut command = Command::new(&ffmpeg);
+    command
+        .args(["-y", "-v", "error", "-i"])
+        .arg(dav_path)
+        .args(["-c", "copy", "-movflags", "+faststart"])
+        .arg(mp4_output);
+    let output = run_with_timeout(&mut command, timeout_secs)?;
+    if output.status.success() && mp4_output.exists() {
+        return Ok("ffmpeg-dhav-demux");
+    }
+    let native_err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let _ = std::fs::remove_file(mp4_output);
+
+    let es_path = mp4_output.with_extension("es.bin");
+    let _ = extract_video_es(dav_path, &es_path)?;
+    remux_es_to_mp4(&es_path, mp4_output, timeout_secs).map_err(|err| {
+        format!("ffmpeg native demux failed ({native_err}); ES remux also failed: {err}")
+    })?;
+    let _ = std::fs::remove_file(&es_path);
+    Ok("es-extract-remux")
+}
+
+/// Remuxes an Annex-B elementary stream into MP4 without re-encoding.
 pub fn remux_es_to_mp4(
     es_path: &Path,
     mp4_output: &Path,
@@ -198,7 +283,6 @@ pub fn remux_es_to_mp4(
     ))
 }
 
-/// SHA-256 of the exported MP4, for the audit log entry.
 pub fn digest(path: &Path) -> Result<String, String> {
     audit::digest_file(path)
 }
@@ -207,25 +291,32 @@ pub fn digest(path: &Path) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    fn build_frame(stream_type: u8, channel: u8, payload: &[u8]) -> Vec<u8> {
+        let header_len = 24u32;
+        let frame_length = header_len + payload.len() as u32 + 8;
+        let mut bytes = Vec::with_capacity(frame_length as usize);
+        bytes.extend_from_slice(b"DHAV");
+        bytes.push(stream_type);
+        bytes.push(0); // subtype
+        bytes.push(channel);
+        bytes.push(0); // frame_subnumber
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // frame_number
+        bytes.extend_from_slice(&frame_length.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // date
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // timestamp
+        bytes.push(0); // ext_length
+        bytes.push(0); // checksum
+        bytes.extend_from_slice(payload);
+        bytes.extend_from_slice(&FOOTER_MAGIC);
+        bytes.extend_from_slice(&frame_length.to_le_bytes());
+        bytes
+    }
+
     fn fixture_bytes() -> Vec<u8> {
-        // 0x30-byte file header
-        let mut bytes = vec![0u8; FILE_HEADER_SIZE as usize];
-        bytes[0..4].copy_from_slice(b"DHAV");
-        bytes[4] = 0xF0;
-        let mut frame = |stream_type: u8, channel: u16, payload: &[u8]| {
-            let mut header = [0u8; FRAME_HEADER_SIZE];
-            header[0..4].copy_from_slice(b"DHAV");
-            header[4] = stream_type;
-            header[12..14].copy_from_slice(&channel.to_le_bytes());
-            header[PAYLOAD_LENGTH_OFFSET..PAYLOAD_LENGTH_OFFSET + 4]
-                .copy_from_slice(&(payload.len() as u32).to_le_bytes());
-            bytes.extend_from_slice(&header);
-            bytes.extend_from_slice(payload);
-            bytes.extend_from_slice(&END_MARKER);
-        };
-        frame(STREAM_VIDEO, 1, b"VIDEO_PAYLOAD_ONE");
-        frame(STREAM_AUDIO, 1, b"AUDIO");
-        frame(STREAM_VIDEO, 1, b"VIDEO_PAYLOAD_TWO");
+        let mut bytes = Vec::new();
+        bytes.extend(build_frame(STREAM_VIDEO_I, 1, b"VIDEO_PAYLOAD_ONE"));
+        bytes.extend(build_frame(STREAM_AUDIO, 1, b"AUDIO"));
+        bytes.extend(build_frame(STREAM_VIDEO_P, 1, b"VIDEO_PAYLOAD_TWO"));
         bytes
     }
 
@@ -256,7 +347,7 @@ mod tests {
         let path = fixture_path("ft-dav-walk");
         let frames = walk_frames(&path).unwrap();
         assert_eq!(frames.len(), 3);
-        assert_eq!(frames[0].stream_type, STREAM_VIDEO);
+        assert_eq!(frames[0].stream_type, STREAM_VIDEO_I);
         assert_eq!(frames[0].payload_size, b"VIDEO_PAYLOAD_ONE".len() as u64);
         assert_eq!(frames[1].stream_type, STREAM_AUDIO);
         assert_eq!(frames[2].channel, 1);
@@ -284,12 +375,25 @@ mod tests {
     #[test]
     fn corrupt_end_marker_is_reported_not_guessed() {
         let mut bytes = fixture_bytes();
-        let last = bytes.len() - 4;
-        bytes[last] = 0xFF;
+        let last_magic = bytes.len() - 8;
+        bytes[last_magic] = 0xFF;
         let path = std::env::temp_dir().join(format!("ft-dav-corrupt-{}", std::process::id()));
         std::fs::write(&path, &bytes).unwrap();
         let error = walk_frames(&path).unwrap_err();
         assert!(error.contains("corrupted end marker"), "{error}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn accepts_dahua_preamble() {
+        let mut bytes = vec![0u8; DAHUA_PREAMBLE as usize];
+        bytes[0..5].copy_from_slice(b"DAHUA");
+        bytes.extend(build_frame(STREAM_VIDEO_I, 2, b"PREAMBLE_VIDEO"));
+        let path = std::env::temp_dir().join(format!("ft-dav-preamble-{}", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let frames = walk_frames(&path).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].channel, 2);
         let _ = std::fs::remove_file(&path);
     }
 }

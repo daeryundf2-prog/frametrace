@@ -81,7 +81,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
 
     write_text(
         &output_dir.join("README.txt"),
-        "FrameTrace case package\n\nOpen reports/case-report.html for the HTML report. Use the browser print dialog to create a PDF when required by the engagement. Verify package contents with manifest.sha256 before transfer.\n",
+        "FrameTrace case package\n\nOpen reports/case-report.html for the HTML report. Use the browser print dialog to create a PDF when required by the engagement. Verify package contents with manifest.sha256 before transfer.\n\nFor Amped FIVE or Magnet DVR Examiner handoff steps, see docs/COMMERCIAL_HANDOFF.md in the FrameTrace repository.\n",
     )
     .map_err(|err| format!("failed to write package README: {err}"))?;
 

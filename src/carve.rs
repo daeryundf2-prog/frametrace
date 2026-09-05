@@ -237,6 +237,9 @@ fn validation_note_for_signature(signature: &str) -> &'static str {
         "dahua-dhav" => {
             "Dahua DHAV signature found; treat as proprietary candidate and validate with FFmpeg or vendor player."
         }
+        "hikvision-imkh" => {
+            "Hikvision IMKH signature found; strip the 40-byte header with export-hik and validate playback before reporting."
+        }
         _ => {
             "Signature-based contiguous carve only; verify playback/container integrity before reporting as recovered video."
         }
@@ -310,6 +313,13 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                 extension: "dav".to_string(),
             });
         }
+        if scan.get(index..index + 4) == Some(b"IMKH") {
+            hits.push(CarveHit {
+                offset: absolute,
+                signature: "hikvision-imkh".to_string(),
+                extension: "mpg".to_string(),
+            });
+        }
     }
 }
 
@@ -361,6 +371,14 @@ mod tests {
         scan_buffer(b"RIFFxxxxAVI data DHAVmore", 0, 0, &mut hits);
         assert!(hits.iter().any(|hit| hit.signature == "riff-avi"));
         assert!(hits.iter().any(|hit| hit.signature == "dahua-dhav"));
+    }
+
+    #[test]
+    fn finds_imkh_signature() {
+        let mut hits = Vec::new();
+        scan_buffer(b"padIMKHpayloaddatahere", 0, 0, &mut hits);
+        assert!(hits.iter().any(|hit| hit.signature == "hikvision-imkh"));
+        assert!(validation_note_for_signature("hikvision-imkh").contains("export-hik"));
     }
 
     #[test]

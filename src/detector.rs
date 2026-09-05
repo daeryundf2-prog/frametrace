@@ -292,9 +292,9 @@ fn named_vendor_plugins() -> &'static [ParserPlugin] {
             lane: "cctv-nvr-export",
             vendor: "Hikvision",
             confidence: "medium",
-            path_needles: &["hikvision", "ivms", "vsplayer"],
-            extensions: &["mp4", "avi", "dav"],
-            recommended_action: "Path signal only: prefer exported media first and verify with file metadata or vendor player before making a vendor claim.",
+            path_needles: &["hikvision", "ivms", "vsplayer", "hikcentral"],
+            extensions: &["mp4", "avi", "mpg", "mpeg", "ps"],
+            recommended_action: "If the file starts with IMKH, run export-hik (strip 40-byte header + remux). Prefer vendor player for encrypted/SDK exports. HDD FS recovery needs a real image corpus.",
         },
         ParserPlugin {
             id: "dahua_dav",
@@ -581,6 +581,13 @@ mod tests {
         let profile = detect_source_profile("export/cam01/clip.dav", "dav", None);
         assert_eq!(profile.parser, "dahua_dav");
         assert_eq!(profile.confidence, "high");
+    }
+
+    #[test]
+    fn detects_hikvision_path_signals() {
+        let profile = detect_source_profile("ivms/export/cam01.mpg", "mpg", None);
+        assert_eq!(profile.parser, "hikvision");
+        assert_eq!(profile.lane, "cctv-nvr-export");
     }
 
     #[test]

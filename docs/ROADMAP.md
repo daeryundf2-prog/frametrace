@@ -101,13 +101,9 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ### M2-1 Dahua DAV 파서 1종 (4~5일) — 복원 5.0 → 6.5
 
-> **상태: 구현 완료 (2026-08-30), 실장비 검증 대기.** 실샘플 확보 조사 결과
-> 공개 저장소에 커밋된 DAV 픽스처 없음(감시영상 민감성). 인테이크 준비 완료:
-> `scripts/validate-dav-samples.ps1 -Samples <폴더>` — 의뢰 실녹화 3종을 폴더에
-> 넣는 즉시 전수 검증(워크→리먹스→ffprobe). src/dav.rs(DHAV 워커·ES 추출·
-> h264/hevc 리먹스) + `export-dav` 명령(export-log 체인 기록). 실장비 DAV 샘플이
-> 아닌 **문서화된 컨테이너 스켈레톤의 합성 픽스처 + 실 H.264 ES**로 E2E 검증
-> (합성 DAV → export-dav → ffprobe 검증됨 확인). 단위 4건 + IT 1건.
+> **상태: 포맷 정렬 + 인테이크 하니스 복구 (2026-09-05), 합성 E2E 통과 / 실장비는 선택.**
+> `scripts/seed-and-validate-synth-samples.ps1`로 합성 DAV 3종 + IMKH 3종 시드 후
+> 하니스 exit 0 확인. 실 녹화 코퍼스는 여전히 외부 투입 권장.
 - 근거: `docs/MANUFACTURER_PARSER_RESEARCH.md`의 Dahua 레인. 스코프를 "완전 파싱"이 아닌
   **인덱싱+복원 파이프라인 1본**으로 제한:
   1. `detector.rs`: .dav 탐지(확장자 + 파일헤더 시그니처) 레인 추가.
@@ -197,22 +193,43 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 정렬 기준: 판독 워크스테이션 포지셔닝 기여도.
 1. **이상 징후 플래그**(조작 탐지의 현실적 하위집합): 타임스탬프 역행/격차, 프레임 타임 간격 이상,
    컨테이너-스트림 불일치, 해시 재검증 불일치 → "candidate-finding" 라벨로 보고서에 표기(과장 금지 원칙 유지).
+   > **상태: 1차 구현 (2026-09-05).** `src/anomaly.rs` + `qa anomalies` →
+   > `evidence/logs/anomaly-log.jsonl`. 종류: `timestamp-regression`, `timestamp-gap`,
+   > `container-stream-mismatch`, `hash-revalidation-mismatch`. `validate-artifact`도
+   > 인덱스 해시 불일치를 `anomaly_flags`로 기록. 보고서 섹션
+   > "이상 징후 후보 (candidate-finding)". DAV 프레임 간격은 실샘플 후속.
 2. **Amped FIVE/DME 연동 문서**: FrameTrace 패키지의 폴더 구조·해시 매니페스트를 상용 도구 입력으로
    넘기는 절차 문서화(자체 개발 대비 현실적 선택).
+   > **상태: 완료 (2026-09-05).** `docs/COMMERCIAL_HANDOFF.md` — package 레이아웃,
+   > `manifest.sha256` 검증, FIVE(검증 클립) / DME(이미지·복구 한계) 핸드오프 체크리스트.
 3. **j/k 부분 렌더 + 1000개씩 모드 개선**(가상 스크롤 여부는 1만 건 실데이터 체감 후 결정).
+   > **상태: 완료 (2026-09-05).** j/k 같은 페이지에서는 카드 DOM 재구성 없이 active
+   > 클래스+details만 갱신; 페이지 경계를 넘을 때만 full render. 그리드 이벤트
+   > 위임(1000개 리스너 재바인딩 제거). 페이지 상태 `N–M / total · page/count`.
 4. **i18n 토글**(뷰어 한/영 — 프로토타입의 data-i18n 사전 이식).
+   > **상태: 완료 (2026-09-05).** 생성 뷰어 KO/EN 토글 + chrome/필터 옵션
+   > `data-i18n` + localStorage `ft.viewer.<case>.locale`.
 5. **WinUI 네이티브 셸**: 브라우저 런처로 실무 사용이 확인된 이후에만 재평가(핸드오프 §6과 연계).
+   > **상태: 얇은 셸 구축 (2026-09-05).** 관리자 없이 user-local .NET 8 SDK +
+   > WinUI 템플릿으로 `gui/winui` 스캐폴드·Release x64 빌드 성공. 엔진 위임만 수행
+   > (`frametrace-app` 실행, make-review/report, qa anomalies). 영수증:
+   > `docs/WINUI_BLOCKER.md` (UNBLOCKED). 풀 GUI는 후속.
 6. **Hikvision 파서**(DAV 다음 레인 — 코퍼스 확보 가능할 때만).
+   > **상태: IMKH 레인 1차 구현 (2026-09-05), HDD FS·실샘플 대기.**
+   > `src/hikvision.rs` + `export-hik`(40바이트 IMKH 헤더 제거 후 remux), carve
+   > `hikvision-imkh`, scan magic, `scripts/validate-hik-samples.ps1`,
+   > `docs/HIKVISION_VALIDATION.md`. 합성 MPEG-PS IT 추가. `HIKVISION@HANGZHOU`
+   > HDD 파일시스템 복원은 코퍼스 없이 착수하지 않음.
 
-## 7. 열린 결정사항 (사용자 확정 필요)
+## 7. 열린 결정사항 (마감)
 
-| # | 결정 | 권장안 |
+| # | 결정 | 채택 |
 |---|---|---|
-| 1 | 콘솔 창 정책: 이중 바이너리(frametrace / frametrace-app) vs 콘솔 유지 | 이중 바이너리 (M3-1) |
-| 2 | PDF 보고서: window.print() 최적화 vs 외부 변환기 의존 | window.print() (서버리스 유지) |
-| 3 | DAV 샘플 코퍼스 확보 경로 | 실 장비 녹화 우선, 불가 시 공개 코퍼스 조사 |
-| 4 | M2-4 serde 도입 범위: ffprobe/model만 vs 전면 | 1단계(ffprobe+model)만 — 전면은 M4 이후 |
-| 5 | M1 착수 시점 | 즉시 (6~7일 물량, 리스크 최저·효과 최대) |
+| 1 | 콘솔 창 정책 | 이중 바이너리 `frametrace` / `frametrace-app` (M3) |
+| 2 | PDF 보고서 | `window.print()` 서버리스 유지 (M3) |
+| 3 | DAV 샘플 코퍼스 | 실 장비 녹화 우선; 공개 픽스처 없음 → 인테이크 하니스 대기 |
+| 4 | serde 도입 범위 | 1단계(ffprobe) 완료; model 전면은 이후 백로그 |
+| 5 | M1 착수 | 완료 (2026-08-30) |
 
 ## 8. 추적 지표 (마일스톤마다 재측정)
 

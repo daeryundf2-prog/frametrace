@@ -28,6 +28,7 @@ pub struct ValidationResult {
     pub validation_note: String,
     pub probe: ProbeSummary,
     pub validated_unix: u64,
+    pub anomaly_flags: Vec<String>,
 }
 
 pub fn validate_artifact(
@@ -53,6 +54,12 @@ pub fn compute_validation(
     let target_sha256 = audit::digest_file(&target_path)?;
     let probe = ffprobe::probe_with_binary(&options.ffprobe_bin, &target_path);
     let (validation_status, validation_note) = validation_status(&probe);
+    let mut anomaly_flags = Vec::new();
+    if let Ok(Some(finding)) =
+        crate::anomaly::hash_mismatch_finding(case_dir, selector, &target_sha256)
+    {
+        anomaly_flags.push(finding.kind.to_string());
+    }
     Ok(ValidationResult {
         selector: selector.to_string(),
         target_path,
@@ -61,6 +68,7 @@ pub fn compute_validation(
         validation_note: validation_note.to_string(),
         probe,
         validated_unix,
+        anomaly_flags,
     })
 }
 
@@ -141,14 +149,33 @@ pub fn append_validation_log(
     result: &ValidationResult,
     options: &ValidationOptions,
 ) -> Result<(), String> {
+    let flags = if result.anomaly_flags.is_empty() {
+        "[]".to_string()
+    } else {
+        format!(
+            "[{}]",
+            result
+                .anomaly_flags
+                .iter()
+                .map(|flag| format!("\"{}\"", json_escape(flag)))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
     let line = format!(
-        "{{\"schema_version\":1,\"event\":\"validate-artifact\",\"validated_unix\":{},\"selector\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\",\"command\":\"{}\"}}",
+        "{{\"schema_version\":1,\"event\":\"validate-artifact\",\"validated_unix\":{},\"selector\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"anomaly_flags\":{},\"label\":{},\"duration_seconds\":{},\"format_name\":{},\"video_codec\":{},\"audio_codec\":{},\"width\":{},\"height\":{},\"ffprobe_ok\":{},\"ffprobe_error\":{},\"ffprobe_version\":\"{}\",\"command\":\"{}\"}}",
         result.validated_unix,
         json_escape(&result.selector),
         json_escape(&result.target_path.to_string_lossy()),
         json_escape(&result.target_sha256),
         json_escape(&result.validation_status),
         json_escape(&result.validation_note),
+        flags,
+        if result.anomaly_flags.is_empty() {
+            "null".to_string()
+        } else {
+            format!("\"{}\"", crate::anomaly::LABEL)
+        },
         optional_f64(result.probe.duration_seconds),
         audit::optional_string(result.probe.format_name.as_deref()),
         audit::optional_string(result.probe.video_codec.as_deref()),
