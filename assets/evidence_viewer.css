@@ -10,6 +10,7 @@
   --warn: #b4802a;
   --ok: #2f7a48;
   --candidate: #6c5d99;
+  --anomaly: #8a5d14;
   --mark: #1d5fae;
   --dark: #101815;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -21,6 +22,11 @@ header { background: #fff; border-bottom: 1px solid var(--line); display: flex; 
 h1 { font-size: 16px; margin: 0; }
 .case-line { color: var(--muted); font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 11px; border: 1px solid var(--line); background: #f6f9f8; color: var(--muted); }
+.badge.ok { background: #e8f4ee; border-color: #bcd9c9; color: var(--ok); }
+.badge.candidate { background: #f1eef8; border-color: #d5cde8; color: var(--candidate); }
+.badge.failed { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
+.badge.anomaly { background: #f7f0e4; border-color: #e2d0a8; color: var(--anomaly); font-weight: 700; }
 
 button { font: inherit; height: 30px; border: 1px solid #bdc9c4; border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; padding: 0 10px; }
 button:hover { border-color: var(--accent); }

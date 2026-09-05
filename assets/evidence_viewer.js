@@ -8,7 +8,16 @@ const scan = DATA.scan || {};
 const carveLog = Array.isArray(DATA.carveLog) ? DATA.carveLog : [];
 const filesystemLog = Array.isArray(DATA.filesystemLog) ? DATA.filesystemLog : [];
 const validationLog = Array.isArray(DATA.validationLog) ? DATA.validationLog : [];
-
+const anomalyLog = Array.isArray(DATA.anomalyLog) ? DATA.anomalyLog : [];
+const anomalyFindings = anomalyLog.filter(item => item && item.kind && item.kind !== "none");
+const anomaliesBySelector = new Map();
+for (const item of anomalyFindings) {
+  const key = String(item.selector || "");
+  if (!key) continue;
+  const list = anomaliesBySelector.get(key) || [];
+  list.push(item);
+  anomaliesBySelector.set(key, list);
+}
 const BS = String.fromCharCode(92);
 const EXT_PREFIX = BS + BS + "?" + BS;
 const EXT_UNC = EXT_PREFIX + "unc" + BS;
@@ -32,6 +41,7 @@ const I18N = {
     "header.verified": "검증됨",
     "header.candidate": "후보",
     "header.failed": "실패",
+    "header.anomaly": "이상 후보",
     "btn.theater": "시어터",
     "btn.fullscreen": "전체화면",
     "btn.pip": "PiP",
@@ -85,6 +95,7 @@ const I18N = {
     "header.verified": "Verified",
     "header.candidate": "Candidate",
     "header.failed": "Failed",
+    "header.anomaly": "Anomaly candidates",
     "btn.theater": "Theater",
     "btn.fullscreen": "Fullscreen",
     "btn.pip": "PiP",
@@ -473,6 +484,16 @@ records.forEach(record => {
   record.recType = recTypeFor(record);
     record.originalName = originalNameFor(record);
   record.thumb = DATA.thumbs?.[record.id] || null;
+  const fromId = anomaliesBySelector.get(record.id) || [];
+  const fromValidation = Array.isArray(record.validation?.anomaly_flags)
+    ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
+    : [];
+  const merged = [...fromId];
+  for (const item of fromValidation) {
+    if (!merged.some(existing => existing.kind === item.kind)) merged.push(item);
+  }
+  record.anomalies = merged;
+  record.hasAnomaly = record.anomalies.length > 0;
 });
 // Carve-log and inode records duplicate indexed files under different ids;
 // reuse the indexed video's thumbnail through the shared file name.
@@ -510,6 +531,7 @@ const els = {
   metricCarved: document.getElementById("metricCarved"),
   metricVerified: document.getElementById("metricVerified"),
   metricFailed: document.getElementById("metricFailed"),
+  metricAnomaly: document.getElementById("metricAnomaly"),
   query: document.getElementById("query"),
   kind: document.getElementById("kind"),
   status: document.getElementById("status"),
@@ -541,6 +563,7 @@ const els = {
 
 const PRESET_CHIPS = [
   ["", "전체"],
+  ["anomaly", "이상 징후 후보"],
   ["status:validation-failed", "검증 실패"],
   ["status:candidate-unvalidated", "미검증 후보"],
   ["status:duplicate-candidate", "중복 후보"],
@@ -555,6 +578,7 @@ function filteredRecords() {
     if (state.kind && record.kind !== state.kind) return false;
     if (state.recType && (record.recType || "unclassified") !== state.recType) return false;
     if (state.status && record.status !== state.status) return false;
+    if (state.chip === "anomaly" && !record.hasAnomaly) return false;
     if (state.dateFrom || state.dateTo) {
       if (!record.recDay) return false;
       if (state.dateFrom && record.recDay < state.dateFrom) return false;
@@ -786,11 +810,14 @@ function renderCard(record) {
   const tagsHtml = tagListFor(record).length
     ? `<div class="tag-row">${tagListFor(record).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`
     : "";
+  const anomalyChip = record.hasAnomaly
+    ? `<span class="badge anomaly" title="${escapeHtml(record.anomalies.map(item => item.kind).join(", "))}">${escapeHtml(t("header.anomaly"))}</span>`
+    : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span></div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}</div>
       ${tagsHtml}
       <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
@@ -933,6 +960,7 @@ function renderDetails() {
   const recordTags = tagListFor(record);
   document.getElementById("detailBadges").innerHTML = [
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
+    record.hasAnomaly ? `<span class="badge anomaly">${escapeHtml(t("header.anomaly"))}</span>` : "",
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
     ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
     record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
@@ -942,7 +970,8 @@ function renderDetails() {
     ["채널", record.channel || "-"],
     ["판독", mark ? markLabel(mark.status) : "미판독"],
     ["길이", fmtDuration(record.duration)],
-    ["크기", fmtBytes(record.size)]
+    ["크기", fmtBytes(record.size)],
+    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
     ["원본", `<code>${escapeHtml(record.originalName || record.name)}</code>`],
@@ -984,11 +1013,19 @@ function renderDetails() {
     customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
   }
   const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
-  els.validationList.innerHTML = related.length ? related.map(item => `<div class="validation-item">
+  const anomalyRelated = (record.anomalies || []).map(item => `<div class="validation-item">
+    <strong>${escapeHtml(item.kind || "anomaly")}</strong>
+    <div class="muted">${escapeHtml(item.detail || "")}</div>
+    <code>candidate-finding</code>
+  </div>`);
+  els.validationList.innerHTML = [
+    ...related.map(item => `<div class="validation-item">
     <strong>${escapeHtml(item.validation_status || "-")}</strong>
     <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>
     <code>${escapeHtml(item.target_sha256 || "-")}</code>
-  </div>`).join("") : `<div class="validation-item">검증 로그 없음</div>`;
+  </div>`),
+    ...anomalyRelated
+  ].join("") || `<div class="validation-item">검증 로그 없음</div>`;
 }
 
 function renderTree() {
@@ -1053,6 +1090,9 @@ function renderMetrics() {
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
+  if (els.metricAnomaly) {
+    els.metricAnomaly.textContent = String(records.filter(record => record.hasAnomaly).length);
+  }
   const markCount = Object.keys(state.marks).length;
   els.selectionCount.textContent = `${state.selectedIds.size}개 선택 · 마크 ${markCount}`;
 }

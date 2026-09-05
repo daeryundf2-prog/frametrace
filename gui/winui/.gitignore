@@ -52,3 +52,8 @@ _ReSharper*/
 # Generated files
 Generated\ Files/
 *_wpftmp.csproj
+
+# Ignore loose images except WinUI Assets package icons
+*.png
+!Assets/
+!Assets/**/*.png

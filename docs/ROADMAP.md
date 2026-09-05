@@ -30,7 +30,7 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 | **M1 v0.2 "신뢰성"** | 테스트화·파이프라인 속도·무결성 마무리 | 7.3 → **7.6** | 6~7일 | CI 녹색 + 신규 테스트 + 성능 예산 충족 |
 | **M2 v0.3 "복원력"** | DAV 파서 1종 + 실 E01 검증 + 복원 고도화 | 7.6 → **7.8** | 8~10일 | 검증 코퍼스 통과 |
 | **M3 v0.4 "제품화"** | 배포·설치·보고서 마감 | 7.8 → **8.0+** | 5~6일 | 제3자 클린 설치 → 첫 케이스 완주 |
-| **M4 v0.5+ "심화"** | 이상 징후 플래그·FIVE 연동·대량 조작감 | 8.0 → 8.3+ | 별도 확정 | — |
+| **M4 v0.5 "심화"** | 이상 징후 플래그·FIVE 연동·대량 조작감 | 8.0 → 8.3+ | 별도 확정 | 0.5.0 1차 출시 (실장비 코퍼스·풀 WinUI는 후속) |
 
 원칙: 각 마일스톤 끝에 릴리스 태그 + 회귀 게이트 전량 통과. 게이트는
 `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` / `cargo test` /
@@ -188,16 +188,17 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ---
 
-## 6. M4 v0.5+ "심화" — 후보 풀 (확정 미정)
+## 6. M4 v0.5 "심화" — 1차 출시 (2026-09-06)
+
+> **상태: 0.5.0 1차 완료.** 실장비 DAV/Hik 코퍼스·풀 WinUI GUI·Hik HDD FS는 후속.
 
 정렬 기준: 판독 워크스테이션 포지셔닝 기여도.
 1. **이상 징후 플래그**(조작 탐지의 현실적 하위집합): 타임스탬프 역행/격차, 프레임 타임 간격 이상,
    컨테이너-스트림 불일치, 해시 재검증 불일치 → "candidate-finding" 라벨로 보고서에 표기(과장 금지 원칙 유지).
-   > **상태: 1차 구현 (2026-09-05).** `src/anomaly.rs` + `qa anomalies` →
-   > `evidence/logs/anomaly-log.jsonl`. 종류: `timestamp-regression`, `timestamp-gap`,
-   > `container-stream-mismatch`, `hash-revalidation-mismatch`. `validate-artifact`도
-   > 인덱스 해시 불일치를 `anomaly_flags`로 기록. 보고서 섹션
-   > "이상 징후 후보 (candidate-finding)". DAV 프레임 간격은 실샘플 후속.
+   > **상태: 구현 (2026-09-06).** `src/anomaly.rs` + `qa anomalies` →
+   > `evidence/logs/anomaly-log.jsonl`. `make-report`와 검수 파이프라인이 자동 스캔.
+   > 뷰어 배지·칩 필터·상세 패널. 종류: `timestamp-regression`, `timestamp-gap`,
+   > `container-stream-mismatch`, `hash-revalidation-mismatch`. DAV 프레임 간격은 실샘플 후속.
 2. **Amped FIVE/DME 연동 문서**: FrameTrace 패키지의 폴더 구조·해시 매니페스트를 상용 도구 입력으로
    넘기는 절차 문서화(자체 개발 대비 현실적 선택).
    > **상태: 완료 (2026-09-05).** `docs/COMMERCIAL_HANDOFF.md` — package 레이아웃,

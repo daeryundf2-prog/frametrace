@@ -662,7 +662,14 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
         }
     }
 
-    // Step 5: review bundle.
+    // Step 5: candidate anomaly scan (non-fatal) then review bundle.
+    match run_step(
+        &exe,
+        &["qa".into(), "anomalies".into(), case_text.clone()],
+    ) {
+        Ok(output) => log(&state, output),
+        Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
+    }
     set_step(&state, 4, StepStatus::Running);
     match run_step(&exe, &["make-review".into(), case_text.clone()]) {
         Ok(output) => {
@@ -808,6 +815,14 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
     } else {
         log(&state, "ffprobe 검증이 꺼져 있어 건너뜁니다.".to_string());
         set_step(&state, 3, StepStatus::Done);
+    }
+
+    match run_step(
+        &exe,
+        &["qa".into(), "anomalies".into(), case_text.clone()],
+    ) {
+        Ok(output) => log(&state, output),
+        Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
     }
 
     set_step(&state, 4, StepStatus::Running);

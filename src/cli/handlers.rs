@@ -414,6 +414,10 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
     let validation_log =
         read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    // Prefer an existing anomaly log; scan on demand so make-review stays usable
+    // without forcing a full-case digest pass (make-report / qa anomalies refresh).
+    let anomaly_log =
+        read_to_string(&case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap_or_default();
     let fls_entries = latest_fls_entries_jsonl(case_dir);
     let videos = collect_index_videos(&index_json);
     let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
@@ -423,6 +427,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         &carve_log,
         &filesystem_log,
         &validation_log,
+        &anomaly_log,
         &fls_entries,
         &thumbs_json,
     );
@@ -461,6 +466,11 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
             format!("failed to read {}: {err}", index_path.display())
         }
     })?;
+    let anomaly_scan = crate::anomaly::scan_case(case_dir)?;
+    println!(
+        "anomaly scan: {} candidate finding(s)",
+        anomaly_scan.findings.len()
+    );
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;

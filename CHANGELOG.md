@@ -1,15 +1,19 @@
 # Changelog
 
-## Unreleased — M4 continuation (2026-09-05)
+## 0.5.0 — M4 "심화" 1차 (2026-09-06)
 
-- Anomaly findings: `qa anomalies`, `candidate-finding` report section, hash revalidation flags.
-- DAV lane aligned to FFmpeg DHAV; restored `scripts/validate-dav-samples.ps1`.
-- Amped FIVE / Magnet DME handoff doc (`docs/COMMERCIAL_HANDOFF.md`).
-- Evidence viewer: j/k same-page partial update, grid event delegation, KO/EN chrome i18n.
-- Hikvision IMKH lane: `export-hik`, carve/scan magic, `scripts/validate-hik-samples.ps1`.
-- Viewer filter option i18n completed; synthetic DAV/Hik intake harness E2E
-  (`scripts/seed-and-validate-synth-samples.ps1`).
-- WinUI thin shell under `gui/winui` (user-local .NET 8, Release x64 build).
+- Anomaly findings: `qa anomalies`, auto-scan in `make-report` and examiner pipeline,
+  `candidate-finding` report section, hash revalidation flags.
+- Evidence viewer: anomaly badge/metric/chip filter, KO/EN chrome i18n,
+  j/k same-page partial update, grid event delegation.
+- DAV lane aligned to FFmpeg DHAV; Hikvision IMKH lane (`export-hik`, carve/scan).
+- Amped FIVE / Magnet DME handoff (`docs/COMMERCIAL_HANDOFF.md`).
+- Synthetic DAV/Hik intake harness (`scripts/seed-and-validate-synth-samples.ps1`).
+- WinUI thin shell under `gui/winui` (user-local .NET 8, Release x64).
+
+## Unreleased
+
+- (empty)
 
 ## 0.4.0 — M3 "제품화" + M2 완료 (2026-08-30)
 
