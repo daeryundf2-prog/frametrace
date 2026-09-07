@@ -191,41 +191,13 @@ pub fn canonical_or_original(path: &Path) -> PathBuf {
 }
 
 fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'b' => out.push('\u{08}'),
-                'f' => out.push('\u{0C}'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                'u' => {
-                    let mut code = String::new();
-                    for _ in 0..4 {
-                        code.push(chars.next()?);
-                    }
-                    let code = u32::from_str_radix(&code, 16).ok()?;
-                    out.push(char::from_u32(code)?);
-                }
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
+    // Audit entries are hash-chained over the raw serialized bytes, so
+    // parsing must not rewrite the line — read-only field access only.
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(str::to_string)
 }
 
 fn entry_without_recorded_hash(line: &str) -> Option<String> {

@@ -20,17 +20,18 @@ fn ffmpeg_binary() -> Option<PathBuf> {
 
 fn find_tool(name: &str) -> Option<PathBuf> {
     // tools/bin next to the test binary first, then PATH.
-    if let Ok(exe) = std::env::current_exe() {
-        let candidate = exe
-            .parent()
-            .unwrap()
-            .join("tools/bin")
-            .join(format!("{name}.exe"));
-        if candidate.is_file() {
-            return Some(candidate);
+    for suffix in [name, &format!("{name}.exe")] {
+        if let Ok(exe) = std::env::current_exe() {
+            let candidate = exe.parent().unwrap().join("tools/bin").join(suffix);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
-    let output = Command::new("where").arg(name).output().ok()?;
+    // `where` is Windows-only; use `which` on unix so the IT layer runs
+    // outside Windows CI as well.
+    let lookup = if cfg!(windows) { "where" } else { "which" };
+    let output = Command::new(lookup).arg(name).output().ok()?;
     if !output.status.success() {
         return None;
     }

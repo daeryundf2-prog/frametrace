@@ -35,35 +35,61 @@ pub struct MarksFile {
     pub marks: Vec<MarkEntry>,
 }
 
-/// Minimal JSON field/array accessors reused by other modules that avoid a
-/// serde dependency (e.g. reading the video index for thumbnail generation).
+/// Minimal JSON field/array accessors reused by other modules (e.g. reading
+/// the video index for thumbnail generation).
 pub(crate) fn json_array_field(text: &str, key: &str) -> Option<String> {
-    extract_json_value(text, key)
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()?
+        .get(key)?
+        .as_array()
+        .map(|array| serde_json::Value::Array(array.clone()).to_string())
 }
 
 pub(crate) fn json_objects_in_array(array_text: &str) -> Vec<String> {
-    json_object_lines(array_text)
+    serde_json::from_str::<serde_json::Value>(array_text)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|item| item.is_object())
+        .map(|item| item.to_string())
+        .collect()
 }
 
 pub(crate) fn json_string_field(line: &str, key: &str) -> Option<String> {
-    extract_json_string(line, key)
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get(key)?
+        .as_str()
+        .map(str::to_string)
 }
 
 pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read selection file {}: {err}", path.display()))?;
-    let case_id = extract_json_string(&text, "case_id");
-    let items_text = extract_json_value(&text, "items")
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("failed to parse selection file {}: {err}", path.display()))?;
+    let case_id = value
+        .get("case_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let items_value = value
+        .get("items")
+        .and_then(serde_json::Value::as_array)
         .ok_or_else(|| format!("selection file {} is missing items", path.display()))?;
     let mut items = Vec::new();
-    for (index, line) in json_object_lines(&items_text).into_iter().enumerate() {
-        let selector = extract_json_string(&line, "selector").ok_or_else(|| {
-            format!(
-                "selection item {} in {} is missing selector",
-                index + 1,
-                path.display()
-            )
-        })?;
+    for (index, item) in items_value.iter().enumerate() {
+        let selector = item
+            .get("selector")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "selection item {} in {} is missing selector",
+                    index + 1,
+                    path.display()
+                )
+            })?
+            .to_string();
         if selector.trim().is_empty() {
             return Err(format!(
                 "selection item {} in {} has an empty selector",
@@ -71,13 +97,21 @@ pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
                 path.display()
             ));
         }
+        let field = |key: &str| {
+            item.get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
         items.push(SelectionItem {
             selector,
-            kind: extract_json_string(&line, "kind"),
-            action: extract_json_string(&line, "action"),
-            format: extract_json_string(&line, "format"),
-            time_seconds: extract_json_f64(&line, "time_seconds"),
-            notes: extract_json_string(&line, "notes"),
+            kind: field("kind"),
+            action: field("action"),
+            format: field("format"),
+            time_seconds: item
+                .get("time_seconds")
+                .and_then(serde_json::Value::as_f64)
+                .filter(|value| value.is_finite()),
+            notes: field("notes"),
         });
     }
     if items.is_empty() {
@@ -89,25 +123,40 @@ pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
 pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read marks file {}: {err}", path.display()))?;
-    let case_id = extract_json_string(&text, "case_id");
-    let marks_text = extract_json_value(&text, "marks")
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("failed to parse marks file {}: {err}", path.display()))?;
+    let case_id = value
+        .get("case_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let marks_value = value
+        .get("marks")
+        .and_then(serde_json::Value::as_array)
         .ok_or_else(|| format!("marks file {} is missing marks", path.display()))?;
     let mut marks = Vec::new();
-    for (index, line) in json_object_lines(&marks_text).into_iter().enumerate() {
-        let id = extract_json_string(&line, "id").ok_or_else(|| {
-            format!(
-                "marks entry {} in {} is missing id",
-                index + 1,
-                path.display()
-            )
-        })?;
-        let status = extract_json_string(&line, "status").ok_or_else(|| {
-            format!(
-                "marks entry {} in {} is missing status",
-                index + 1,
-                path.display()
-            )
-        })?;
+    for (index, item) in marks_value.iter().enumerate() {
+        let id = item
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "marks entry {} in {} is missing id",
+                    index + 1,
+                    path.display()
+                )
+            })?
+            .to_string();
+        let status = item
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "marks entry {} in {} is missing status",
+                    index + 1,
+                    path.display()
+                )
+            })?
+            .to_string();
         if !MARK_STATUSES.contains(&status.as_str()) {
             return Err(format!(
                 "marks entry {} in {} has unsupported status '{}' (expected one of {})",
@@ -120,7 +169,7 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
         marks.push(MarkEntry {
             id,
             status,
-            marked_unix: extract_json_u64(&line, "marked_unix"),
+            marked_unix: item.get("marked_unix").and_then(serde_json::Value::as_u64),
         });
     }
     if marks.is_empty() {
@@ -153,176 +202,6 @@ pub fn effective_format(item: &SelectionItem) -> Result<&'static str, String> {
                 "unsupported export format '{other}' (use mp4 or avi)"
             )),
         },
-    }
-}
-
-const BS_CHAR: char = char::from_u32(0x5C).expect("backslash");
-
-fn json_object_lines(array_text: &str) -> Vec<String> {
-    let mut records = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for ch in array_text.chars() {
-        if depth == 0 {
-            // Only a `{` starts the next object; separators like `,` and the
-            // closing `]` of the wrapping array are ignored.
-            if ch == '{' {
-                depth += 1;
-                current.push(ch);
-            }
-            continue;
-        }
-        if in_string {
-            current.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == BS_CHAR {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => {
-                in_string = true;
-                current.push(ch);
-            }
-            '{' => {
-                depth += 1;
-                current.push(ch);
-            }
-            '}' => {
-                depth = depth.saturating_sub(1);
-                current.push(ch);
-                if depth == 0 && !current.trim().is_empty() {
-                    records.push(current.trim().to_string());
-                    current.clear();
-                }
-            }
-            _ => current.push(ch),
-        }
-    }
-    records
-}
-
-fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'b' => out.push('\u{08}'),
-                'f' => out.push('\u{0C}'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                'u' => {
-                    let mut code = String::new();
-                    for _ in 0..4 {
-                        code.push(chars.next()?);
-                    }
-                    let code = u32::from_str_radix(&code, 16).ok()?;
-                    out.push(char::from_u32(code)?);
-                }
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
-}
-
-fn extract_json_value(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let first = value.chars().next()?;
-    if first == '"' {
-        let mut escaped = false;
-        for (offset, ch) in value.char_indices().skip(1) {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                return Some(value[..offset + ch.len_utf8()].to_string());
-            }
-        }
-        None
-    } else if first == '[' {
-        let mut depth = 0usize;
-        let mut in_string = false;
-        let mut escaped = false;
-        for (offset, ch) in value.char_indices() {
-            if in_string {
-                if escaped {
-                    escaped = false;
-                } else if ch == '\\' {
-                    escaped = true;
-                } else if ch == '"' {
-                    in_string = false;
-                }
-                continue;
-            }
-            match ch {
-                '"' => in_string = true,
-                '[' => depth += 1,
-                ']' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(value[..offset + 1].to_string());
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    } else {
-        None
-    }
-}
-
-fn extract_json_f64(line: &str, key: &str) -> Option<f64> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let raw = value
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+' | 'e' | 'E'))
-        .collect::<String>();
-    if raw.is_empty() {
-        None
-    } else {
-        raw.parse::<f64>().ok().filter(|value| value.is_finite())
-    }
-}
-
-fn extract_json_u64(line: &str, key: &str) -> Option<u64> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let digits = value
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit())
-        .collect::<String>();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse::<u64>().ok()
     }
 }
 

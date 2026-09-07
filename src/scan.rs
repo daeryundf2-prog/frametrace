@@ -4,7 +4,8 @@ use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
 use crate::sha256;
 use crate::util::{
-    canonicalize_display, json_escape, now_unix, read_to_string, unique_path, write_text_atomic,
+    canonicalize_display, json_escape, now_unix, path_to_file_url, read_to_string, unique_path,
+    write_text_atomic,
 };
 use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
@@ -311,7 +312,11 @@ fn normalize_source_key(source_path: &str) -> String {
 struct IndexedRecordLine {
     id: String,
     source_path: String,
+    /// Field order and spelling must stay identical to the published
+    /// JSONL contract, so the serialized form is kept verbatim and the
+    /// structured fields are derived through serde.
     json_line: String,
+    record: VideoRecord,
 }
 
 impl IndexedRecordLine {
@@ -320,62 +325,59 @@ impl IndexedRecordLine {
             id: record.id.clone(),
             source_path: record.source_path.to_string_lossy().to_string(),
             json_line: record.to_json(),
+            record: record.clone(),
         }
     }
 
     fn to_tsv_row(&self) -> String {
+        let profile = &self.record.source_profile;
         format!(
             "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             tsv_escape(&self.id),
             tsv_escape(&self.source_path),
-            tsv_escape(&extract_json_string(&self.json_line, "relative_path").unwrap_or_default()),
-            tsv_escape(&extract_json_string(&self.json_line, "extension").unwrap_or_default()),
-            extract_json_u64(&self.json_line, "size_bytes").unwrap_or(0),
-            tsv_escape(&extract_json_string(&self.json_line, "sha256").unwrap_or_default()),
-            tsv_escape(
-                &extract_nested_json_string(&self.json_line, "source_profile", "vendor")
-                    .unwrap_or_default()
-            ),
-            tsv_escape(
-                &extract_nested_json_string(&self.json_line, "source_profile", "parser")
-                    .unwrap_or_default()
-            ),
-            tsv_escape(
-                &extract_nested_json_string(&self.json_line, "source_profile", "confidence")
-                    .unwrap_or_default()
-            ),
+            tsv_escape(&self.record.relative_path),
+            tsv_escape(&self.record.extension),
+            self.record.size_bytes,
+            tsv_escape(self.record.sha256.as_deref().unwrap_or("")),
+            tsv_escape(&profile.vendor),
+            tsv_escape(&profile.parser),
+            tsv_escape(&profile.confidence)
         )
     }
 
     fn to_db_row(&self) -> IndexedVideoRow {
+        let probe = &self.record.probe;
         IndexedVideoRow {
             id: self.id.clone(),
             source_path: self.source_path.clone(),
-            file_url: extract_json_string(&self.json_line, "file_url").unwrap_or_default(),
-            relative_path: extract_json_string(&self.json_line, "relative_path")
-                .unwrap_or_default(),
-            extension: extract_json_string(&self.json_line, "extension").unwrap_or_default(),
-            size_bytes: extract_json_u64(&self.json_line, "size_bytes").unwrap_or(0),
-            modified_unix: extract_json_u64(&self.json_line, "modified_unix"),
-            sha256: extract_json_string(&self.json_line, "sha256"),
-            hash_status: extract_json_string(&self.json_line, "hash_status")
-                .unwrap_or_else(|| "unknown".to_string()),
-            confidence: extract_json_string(&self.json_line, "confidence")
-                .unwrap_or_else(|| "unknown".to_string()),
-            source_profile_json: extract_json_object(&self.json_line, "source_profile")
-                .unwrap_or_else(|| "{}".to_string()),
-            duration_seconds: extract_json_f64(&self.json_line, "duration_seconds"),
-            format_name: extract_json_string(&self.json_line, "format_name"),
-            video_codec: extract_json_string(&self.json_line, "video_codec"),
-            audio_codec: extract_json_string(&self.json_line, "audio_codec"),
-            width: extract_json_u64(&self.json_line, "width"),
-            height: extract_json_u64(&self.json_line, "height"),
-            ffprobe_ok: extract_json_bool(&self.json_line, "ffprobe_ok").unwrap_or(false),
-            ffprobe_error: extract_json_string(&self.json_line, "ffprobe_error"),
-            ffprobe_json: extract_json_value(&self.json_line, "ffprobe")
-                .filter(|value| value.trim() != "null"),
+            file_url: path_to_file_url(&self.record.source_path),
+            relative_path: self.record.relative_path.clone(),
+            extension: self.record.extension.clone(),
+            size_bytes: self.record.size_bytes,
+            modified_unix: self.record.modified_unix,
+            sha256: self.record.sha256.clone(),
+            hash_status: clone_or(&self.record.hash_status, "unknown"),
+            confidence: clone_or(&self.record.confidence, "unknown"),
+            source_profile_json: self.record.source_profile.to_json(),
+            duration_seconds: probe.duration_seconds,
+            format_name: probe.format_name.clone(),
+            video_codec: probe.video_codec.clone(),
+            audio_codec: probe.audio_codec.clone(),
+            width: probe.width.map(u64::from),
+            height: probe.height.map(u64::from),
+            ffprobe_ok: probe.ok,
+            ffprobe_error: probe.error.clone(),
+            ffprobe_json: probe.raw_json.clone(),
             record_json: self.json_line.clone(),
         }
+    }
+}
+
+fn clone_or(value: &str, fallback: &str) -> String {
+    if value.is_empty() {
+        fallback.to_string()
+    } else {
+        value.to_string()
     }
 }
 
@@ -455,24 +457,18 @@ fn load_existing_record_lines(case_dir: &Path) -> Result<Vec<IndexedRecordLine>,
     let mut records = Vec::new();
     for (line_index, line) in json_record_lines(&text).into_iter().enumerate() {
         let line = line.trim();
-        let id = extract_json_string(line, "id").ok_or_else(|| {
+        let record: VideoRecord = serde_json::from_str(line).map_err(|err| {
             format!(
-                "failed to parse id in {} record {}",
-                path.display(),
-                line_index + 1
-            )
-        })?;
-        let source_path = extract_json_string(line, "source_path").ok_or_else(|| {
-            format!(
-                "failed to parse source_path in {} record {}",
+                "failed to parse {} record {}: {err}",
                 path.display(),
                 line_index + 1
             )
         })?;
         records.push(IndexedRecordLine {
-            id,
-            source_path,
+            id: record.id.clone(),
+            source_path: record.source_path.to_string_lossy().to_string(),
             json_line: line.to_string(),
+            record,
         });
     }
     Ok(records)
@@ -480,6 +476,10 @@ fn load_existing_record_lines(case_dir: &Path) -> Result<Vec<IndexedRecordLine>,
 
 impl IndexedRecordLine {
     fn mark_stale(mut self, stale_since_unix: u64) -> Self {
+        // Stale markers are appended to the stored JSONL verbatim line so the
+        // published record contract (field order, spelling) stays byte-stable
+        // for already-indexed evidence. serde_json re-serialization would
+        // reorder fields, so the edit stays textual.
         self.json_line = set_json_field(
             &set_json_field(&self.json_line, "index_status", "\"stale\""),
             "stale_since_unix",
@@ -489,6 +489,9 @@ impl IndexedRecordLine {
     }
 }
 
+/// Appends or replaces one top-level scalar field on a serialized JSON object
+/// through raw text edits only, so existing byte-stable records keep their
+/// field order and spelling.
 fn set_json_field(line: &str, key: &str, value: &str) -> String {
     if extract_json_value(line, key).is_some() {
         replace_json_field(line, key, value)
@@ -597,7 +600,7 @@ fn scan_index_json(result: &ScanResult, records: &[IndexedRecordLine]) -> String
         "  \"total_bytes\": {},\n",
         records
             .iter()
-            .map(|record| extract_json_u64(&record.json_line, "size_bytes").unwrap_or(0))
+            .map(|record| record.record.size_bytes)
             .sum::<u64>()
     ));
     out.push_str("  \"warnings\": [\n");
@@ -647,82 +650,6 @@ fn tsv_escape(value: &str) -> String {
         .replace('\t', "\\t")
         .replace('\r', "\\r")
         .replace('\n', "\\n")
-}
-
-fn extract_nested_json_string(line: &str, object_key: &str, field_key: &str) -> Option<String> {
-    let key = format!("\"{}\":{{", object_key);
-    let start = line.find(&key)? + key.len() - 1;
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for (offset, ch) in line[start..].char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        match ch {
-            '"' => in_string = true,
-            '{' => depth += 1,
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return extract_json_string(&line[start..start + offset + 1], field_key);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'b' => out.push('\u{08}'),
-                'f' => out.push('\u{0C}'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                'u' => {
-                    let mut code = String::new();
-                    for _ in 0..4 {
-                        code.push(chars.next()?);
-                    }
-                    let code = u32::from_str_radix(&code, 16).ok()?;
-                    out.push(char::from_u32(code)?);
-                }
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
-}
-
-fn extract_json_object(line: &str, key: &str) -> Option<String> {
-    extract_json_value(line, key).filter(|value| value.trim_start().starts_with('{'))
 }
 
 fn extract_json_value(line: &str, key: &str) -> Option<String> {
@@ -791,54 +718,10 @@ fn extract_balanced_json_value(value: &str, opener: char) -> Option<String> {
     None
 }
 
-fn extract_json_u64(line: &str, key: &str) -> Option<u64> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let digits = value
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit())
-        .collect::<String>();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse::<u64>().ok()
-    }
-}
-
-fn extract_json_f64(line: &str, key: &str) -> Option<f64> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let raw = value
-        .chars()
-        .take_while(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+' | 'e' | 'E'))
-        .collect::<String>();
-    if raw.is_empty() {
-        None
-    } else {
-        raw.parse::<f64>().ok().filter(|value| value.is_finite())
-    }
-}
-
-fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("true") {
-        Some(true)
-    } else if value.starts_with("false") {
-        Some(false)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_video_candidates, excluded_case_dirs, extract_json_string, looks_like_video,
-        merge_existing_with_scan,
+        collect_video_candidates, excluded_case_dirs, looks_like_video, merge_existing_with_scan,
     };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
@@ -930,12 +813,19 @@ mod tests {
     }
 
     #[test]
-    fn extracts_escaped_json_string_values() {
-        let line = r#"{"id":"vid_000001","source_path":"C:\\Evidence\\a\tb.mp4"}"#;
-        assert_eq!(
-            extract_json_string(line, "source_path").unwrap(),
-            "C:\\Evidence\\a\tb.mp4"
-        );
+    fn deserializes_published_jsonl_records_through_serde() {
+        let line = r#"{"id":"vid_000001","source_path":"C:\\Evidence\\a\tb.mp4","relative_path":"a\tb.mp4","extension":"mp4","size_bytes":1,"modified_unix":null,"sha256":null,"hash_status":"skipped","confidence":"extension-candidate","source_profile":{"lane":"generic-video","vendor":"Generic media","parser":"generic_media","confidence":"medium","recommended_action":"Use ffprobe/FFmpeg first; preserve original and export derived clips only when requested.","evidence":["extension"]},"duration_seconds":12.5,"format_name":"mov,mp4,m4a","video_codec":"h264","audio_codec":null,"width":1920,"height":1080,"ffprobe_ok":true,"ffprobe_error":null,"ffprobe":null}"#;
+        let record: VideoRecord = serde_json::from_str(line).unwrap();
+        assert_eq!(record.id, "vid_000001");
+        assert_eq!(record.source_path, PathBuf::from("C:\\Evidence\\a\tb.mp4"));
+        assert!(record.probe.ok);
+        assert_eq!(record.probe.width, Some(1920));
+        assert_eq!(record.probe.duration_seconds, Some(12.5));
+
+        // Round-trip keeps the published contract parseable.
+        let reparsed: VideoRecord = serde_json::from_str(&record.to_json()).unwrap();
+        assert_eq!(reparsed.id, record.id);
+        assert_eq!(reparsed.probe.width, record.probe.width);
     }
 
     #[test]

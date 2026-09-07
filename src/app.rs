@@ -22,6 +22,8 @@ fn main() {
         ))
         .expect("message is valid UTF-8");
         #[cfg(target_os = "windows")]
+        let _ = &message;
+        #[cfg(target_os = "windows")]
         unsafe {
             MessageBoxA(
                 std::ptr::null_mut(),
@@ -31,7 +33,10 @@ fn main() {
             );
         }
         #[cfg(not(target_os = "windows"))]
-        eprintln!("{error}");
+        {
+            let _ = &message;
+            eprintln!("{error}");
+        }
     }
 }
 

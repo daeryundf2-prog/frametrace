@@ -1,4 +1,5 @@
 use crate::util::{compact_json_value_if_well_formed, json_escape, path_to_file_url};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ impl Default for ScanOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProbeSummary {
     pub ok: bool,
     pub raw_json: Option<String>,
@@ -89,7 +90,7 @@ impl ProbeSummary {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceProfile {
     pub lane: String,
     pub vendor: String,
@@ -130,9 +131,10 @@ impl SourceProfile {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoRecord {
     pub id: String,
+    #[serde(with = "lossy_path")]
     pub source_path: PathBuf,
     pub relative_path: String,
     pub extension: String,
@@ -140,6 +142,12 @@ pub struct VideoRecord {
     pub modified_unix: Option<u64>,
     pub sha256: Option<String>,
     pub hash_status: String,
+    /// The published JSONL contract flattens the probe summary
+    /// (`ffprobe_ok`, `ffprobe_error`, `ffprobe`, `duration_seconds`,
+    /// `format_name`, `video_codec`, `audio_codec`, `width`, `height`)
+    /// instead of nesting a `probe` object, so the in-memory field is
+    /// flattened through this proxy for compatibility.
+    #[serde(flatten, with = "probe_summary_flat")]
     pub probe: ProbeSummary,
     pub confidence: String,
     pub source_profile: SourceProfile,
@@ -286,4 +294,78 @@ fn optional_f64_json(value: Option<f64>) -> String {
         .filter(|value| value.is_finite())
         .map(|value| format!("{value:.3}"))
         .unwrap_or_else(|| "null".to_string())
+}
+
+/// PathBuf serializes as a structured string on some platforms, so the
+/// record JSON contract (a plain string field) needs a lossy flat string.
+mod lossy_path {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::path::{Path, PathBuf};
+
+    pub fn serialize<S: Serializer>(value: &Path, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&value.to_string_lossy())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<PathBuf, D::Error> {
+        let text = <String>::deserialize(deserializer)?;
+        Ok(PathBuf::from(text))
+    }
+}
+
+/// Flattens `ProbeSummary` under the published field names. The nested
+/// in-memory field `raw_json` maps to the contract's `ffprobe` key, and
+/// `ok`/`error` map to `ffprobe_ok`/`ffprobe_error`, so a plain
+/// `#[serde(flatten)]` would produce the wrong shape.
+mod probe_summary_flat {
+    use super::ProbeSummary;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    struct FlatProbe {
+        duration_seconds: Option<f64>,
+        format_name: Option<String>,
+        video_codec: Option<String>,
+        audio_codec: Option<String>,
+        width: Option<u32>,
+        height: Option<u32>,
+        ffprobe_ok: bool,
+        ffprobe_error: Option<String>,
+        #[serde(default)]
+        ffprobe: Option<String>,
+    }
+
+    pub fn serialize<S: Serializer>(
+        probe: &ProbeSummary,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        FlatProbe {
+            duration_seconds: probe.duration_seconds,
+            format_name: probe.format_name.clone(),
+            video_codec: probe.video_codec.clone(),
+            audio_codec: probe.audio_codec.clone(),
+            width: probe.width,
+            height: probe.height,
+            ffprobe_ok: probe.ok,
+            ffprobe_error: probe.error.clone(),
+            ffprobe: probe.raw_json.clone(),
+        }
+        .serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<ProbeSummary, D::Error> {
+        let flat = FlatProbe::deserialize(deserializer)?;
+        Ok(ProbeSummary {
+            ok: flat.ffprobe_ok,
+            raw_json: flat.ffprobe,
+            error: flat.ffprobe_error,
+            duration_seconds: flat.duration_seconds,
+            format_name: flat.format_name,
+            video_codec: flat.video_codec,
+            audio_codec: flat.audio_codec,
+            width: flat.width,
+            height: flat.height,
+        })
+    }
 }

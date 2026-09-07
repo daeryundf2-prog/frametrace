@@ -663,10 +663,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
     }
 
     // Step 5: candidate anomaly scan (non-fatal) then review bundle.
-    match run_step(
-        &exe,
-        &["qa".into(), "anomalies".into(), case_text.clone()],
-    ) {
+    match run_step(&exe, &["qa".into(), "anomalies".into(), case_text.clone()]) {
         Ok(output) => log(&state, output),
         Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
     }
@@ -817,10 +814,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
         set_step(&state, 3, StepStatus::Done);
     }
 
-    match run_step(
-        &exe,
-        &["qa".into(), "anomalies".into(), case_text.clone()],
-    ) {
+    match run_step(&exe, &["qa".into(), "anomalies".into(), case_text.clone()]) {
         Ok(output) => log(&state, output),
         Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
     }

@@ -24,16 +24,43 @@ const MIN_FRAME_LEN: u32 = 24;
 const FOOTER_MAGIC: [u8; 4] = *b"dhav";
 const STREAM_AUDIO: u8 = 0xF0;
 const STREAM_SKIP: u8 = 0xF1;
-const STREAM_VIDEO_P: u8 = 0xFC;
-const STREAM_VIDEO_I: u8 = 0xFD;
+/// Non-key video frame type (public for the anomaly scanner).
+pub const STREAM_VIDEO_P: u8 = 0xFC;
+/// Key video frame type (public for the anomaly scanner).
+pub const STREAM_VIDEO_I: u8 = 0xFD;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DavFrame {
     pub offset: u64,
     pub stream_type: u8,
     pub channel: u16,
+    /// Packed Dahua date field (FFmpeg `get_date`): year-2000 << 26 |
+    /// month << 22 | day << 17 | hour << 12 | minute << 6 | second.
+    pub date: u32,
+    /// Clock-time seconds within a minute, from the per-frame timestamp.
+    pub timestamp_secs: u16,
     pub payload_offset: u64,
     pub payload_size: u64,
+}
+
+impl DavFrame {
+    /// Absolute Unix-ish seconds derived from the packed date field. The
+    /// Dahua date has no timezone; the raw packed value is kept for chain
+    /// comparisons, and this converts it for human-readable details only.
+    pub fn date_packed(&self) -> u32 {
+        self.date
+    }
+
+    pub fn date_breakdown(&self) -> (u32, u32, u32, u32, u32, u32) {
+        // Same unpacking order FFmpeg uses for the DHAV date field.
+        let year = 2000 + (self.date >> 26);
+        let month = (self.date >> 22) & 0xF;
+        let day = (self.date >> 17) & 0x1F;
+        let hour = (self.date >> 12) & 0x1F;
+        let minute = (self.date >> 6) & 0x3F;
+        let second = self.date & 0x3F;
+        (year, month, day, hour, minute, second)
+    }
 }
 
 pub fn is_dav_header(bytes: &[u8]) -> bool {
@@ -99,6 +126,7 @@ pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
         }
         let stream_type = prefix[4];
         let channel = prefix[6] as u16;
+        let date = read_u32_le(&prefix[16..20]);
         let frame_length = read_u32_le(&prefix[12..16]);
         if frame_length < MIN_FRAME_LEN {
             return Err(format!(
@@ -126,6 +154,7 @@ pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
             .map_err(|err| format!("failed to seek DAV meta: {err}"))?;
         file.read_exact(&mut meta)
             .map_err(|err| format!("failed to read DAV meta: {err}"))?;
+        let timestamp_secs = u16::from_le_bytes([meta[0], meta[1]]);
         let ext_length = meta[2] as u64;
         cursor += 4 + ext_length;
 
@@ -154,6 +183,8 @@ pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
                 offset: pos,
                 stream_type,
                 channel,
+                date,
+                timestamp_secs,
                 payload_offset: cursor,
                 payload_size,
             });

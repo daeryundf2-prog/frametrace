@@ -144,9 +144,11 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
 
 ### M2-4 엔지니어링 부채 1차 (2일, M1~M2 사이 틈틈이)
 
-> **상태: 1단계 완료 (2026-08-30).** ffprobe JSON 파싱을 serde 구조체로 전환하고
-> 손작성 파서(format_section/stream_section/find_json_*) 제거. model 직렬화 전환과
-> extract_json_* 5중복 제거는 M4 후보로 이월.
+> **상태: serde 2단계 완료 (2026-09-08).** model(VideoRecord/ProbeSummary/
+> SourceProfile) serde 전환 + `scan.rs` DB/TSV 로우가 구조체 직접 참조로 변경,
+> `extract_json_string` 5중복(anomaly/audit/qa/selection/validation) 제거 및
+> serde_json 파싱 교체. 감사로그 체인은 원시 바이트 기반 유지(재직렬화 금지).
+> JSONL/TSV 필드 순서 계약은 `to_json()` 수동 직렬화로 보존.
 - F4-1 serde_json 도입 1단계: ffprobe 출력 파싱 + model 직렬화(호출부 5곳 중복 파서 제거).
   JSONL/TSV 호환 계약 유지 회귀 테스트 선행.
 - F4-2 1단계: `resolve_batch_selector` 오류 삽식 수정 등 즉시 가능한 에러 처리 개선.
@@ -197,8 +199,12 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
    컨테이너-스트림 불일치, 해시 재검증 불일치 → "candidate-finding" 라벨로 보고서에 표기(과장 금지 원칙 유지).
    > **상태: 구현 (2026-09-06).** `src/anomaly.rs` + `qa anomalies` →
    > `evidence/logs/anomaly-log.jsonl`. `make-report`와 검수 파이프라인이 자동 스캔.
-   > 뷰어 배지·칩 필터·상세 패널. 종류: `timestamp-regression`, `timestamp-gap`,
-   > `container-stream-mismatch`, `hash-revalidation-mismatch`. DAV 프레임 간격은 실샘플 후속.
+    > 뷰어 배지·칩 필터·상세 패널. 종류: `timestamp-regression`, `timestamp-gap`,
+    > `container-stream-mismatch`, `hash-revalidation-mismatch`. DAV 프레임 간격은 실샘플 후속.
+    >
+    > **상태: DAV 프레임 간격 구현 (2026-09-08).** `dav.rs` `DavFrame`에 packed date/
+    > clock timestamp 파싱 추가, `anomaly.rs` `dav-frame-gap`/`dav-frame-timestamp-regression`
+    > 종류 추가 (비디오 프레임 2초 이상 점프 → candidate-finding, 무시 가능 오차 아님).
 2. **Amped FIVE/DME 연동 문서**: FrameTrace 패키지의 폴더 구조·해시 매니페스트를 상용 도구 입력으로
    넘기는 절차 문서화(자체 개발 대비 현실적 선택).
    > **상태: 완료 (2026-09-05).** `docs/COMMERCIAL_HANDOFF.md` — package 레이아웃,

@@ -110,10 +110,19 @@ pub fn resolve_artifact_path(case_dir: &Path, selector: &str) -> Result<PathBuf,
 fn resolve_from_log(log_path: &Path, selector: &str) -> Option<PathBuf> {
     let text = read_to_string(log_path).ok()?;
     for line in text.lines().filter(|line| !line.trim().is_empty()) {
-        let id = extract_json_string(line, "id");
-        let inode = extract_json_string(line, "inode");
-        let output_path = extract_json_string(line, "output_path");
-        let selector_field = extract_json_string(line, "selector");
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let field = |key: &str| {
+            value
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        let id = field("id");
+        let inode = field("inode");
+        let output_path = field("output_path");
+        let selector_field = field("selector");
         let matches = id.as_deref() == Some(selector)
             || inode.as_deref() == Some(selector)
             || selector_field.as_deref() == Some(selector)
@@ -207,47 +216,9 @@ fn optional_u32(value: Option<u32>) -> String {
         .unwrap_or_else(|| "null".to_string())
 }
 
-fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'b' => out.push('\u{08}'),
-                'f' => out.push('\u{0C}'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                'u' => {
-                    let mut code = String::new();
-                    for _ in 0..4 {
-                        code.push(chars.next()?);
-                    }
-                    let code = u32::from_str_radix(&code, 16).ok()?;
-                    out.push(char::from_u32(code)?);
-                }
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{extract_json_string, resolve_from_log, validation_status};
+    use super::{resolve_from_log, validation_status};
     use crate::model::ProbeSummary;
     use std::fs;
 
@@ -307,13 +278,5 @@ mod tests {
             "/tmp/out.mp4"
         );
         let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn extracts_escaped_json_strings() {
-        assert_eq!(
-            extract_json_string(r#"{"output_path":"C:\\Cases\\a.mp4"}"#, "output_path").as_deref(),
-            Some("C:\\Cases\\a.mp4")
-        );
     }
 }

@@ -347,6 +347,7 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)] // log feeds arrive as one field per pipeline lane
 pub fn render_evidence_viewer_html(
     manifest_json: &str,
     index_json: &str,

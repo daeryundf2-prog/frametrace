@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 
 pub const LABEL: &str = "candidate-finding";
 const GAP_SECS: u64 = 7 * 24 * 60 * 60;
+/// DAV frames normally arrive at 25-30fps (0.03-0.04s apart). A gap an order
+/// of magnitude larger suggests dropped frames or recorder pauses.
+const DAV_FRAME_GAP_SECS: f64 = 2.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -45,6 +48,7 @@ pub fn scan_case(case_dir: &Path) -> Result<AnomalyScanResult, String> {
     findings.extend(hash_revalidation_findings(&rows));
     findings.extend(timestamp_findings(&rows));
     findings.extend(container_stream_findings(&rows));
+    findings.extend(dav_frame_gap_findings(case_dir, &rows));
 
     let scanned_unix = now_unix()?;
     let log_path = case_dir.join("evidence/logs/anomaly-log.jsonl");
@@ -216,6 +220,91 @@ fn container_stream_findings(rows: &[IndexedRow]) -> Vec<Finding> {
     out
 }
 
+/// DAV frame-interval findings: consecutive video frames on the same channel
+/// whose embedded recording times jump by more than `DAV_FRAME_GAP_SECS`,
+/// indicating dropped frames or a recorder pause. Runs only for indexed DAV
+/// sources whose files are still reachable; unreadable files are skipped.
+fn dav_frame_gap_findings(case_dir: &Path, rows: &[IndexedRow]) -> Vec<Finding> {
+    let _ = case_dir;
+    let mut out = Vec::new();
+    for row in rows {
+        let path = Path::new(&row.source_path);
+        if !path.is_file() {
+            continue;
+        }
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_none_or(|ext| !ext.eq_ignore_ascii_case("dav"))
+        {
+            continue;
+        }
+        let Ok(frames) = crate::dav::walk_frames(path) else {
+            continue; // unparseable DAV stays out of anomaly scope
+        };
+
+        // Video-only, per-channel sequence with packed-date ordering.
+        let video: Vec<&crate::dav::DavFrame> = frames
+            .iter()
+            .filter(|frame| {
+                matches!(
+                    frame.stream_type,
+                    crate::dav::STREAM_VIDEO_P | crate::dav::STREAM_VIDEO_I
+                )
+            })
+            .collect();
+        for window in video.windows(2) {
+            let (prev, next) = (window[0], window[1]);
+            if prev.channel != next.channel || prev.date_packed() == next.date_packed() {
+                continue;
+            }
+            if next.date_packed() < prev.date_packed() {
+                out.push(Finding {
+                    kind: "dav-frame-timestamp-regression",
+                    selector: row.id.clone(),
+                    source_path: row.source_path.clone(),
+                    detail: format!(
+                        "frame {} packed date {} moves backwards after {}",
+                        next.offset,
+                        next.date_packed(),
+                        prev.date_packed()
+                    ),
+                });
+            } else {
+                let (py, pmo, pd, ph, pmi, ps) = prev.date_breakdown();
+                let (ny, nmo, nd, nh, nmi, ns) = next.date_breakdown();
+                let prev_secs = (u64::from(py) * 31536000
+                    + u64::from(pmo) * 2592000
+                    + u64::from(pd) * 86400
+                    + u64::from(ph) * 3600
+                    + u64::from(pmi) * 60
+                    + u64::from(ps)) as f64
+                    + f64::from(prev.timestamp_secs);
+                let next_secs = (u64::from(ny) * 31536000
+                    + u64::from(nmo) * 2592000
+                    + u64::from(nd) * 86400
+                    + u64::from(nh) * 3600
+                    + u64::from(nmi) * 60
+                    + u64::from(ns)) as f64
+                    + f64::from(next.timestamp_secs);
+                let delta = next_secs - prev_secs;
+                if delta > DAV_FRAME_GAP_SECS {
+                    out.push(Finding {
+                        kind: "dav-frame-gap",
+                        selector: row.id.clone(),
+                        source_path: row.source_path.clone(),
+                        detail: format!(
+                            "video frames at byte offsets {} -> {} span {delta:.1}s (threshold {DAV_FRAME_GAP_SECS}s); possible dropped frames or recorder pause",
+                            prev.offset, next.offset
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
 fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
     let path = case_dir.join("db/videos.jsonl");
     let text = match read_to_string(&path) {
@@ -231,90 +320,121 @@ fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
     Ok(text
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| IndexedRow {
-            id: extract_json_string(line, "id").unwrap_or_default(),
-            source_path: extract_json_string(line, "source_path").unwrap_or_default(),
-            sha256: extract_json_string(line, "sha256"),
-            modified_unix: extract_json_u64(line, "modified_unix"),
-            duration_seconds: extract_json_f64(line, "duration_seconds"),
-            format_name: extract_json_string(line, "format_name"),
-            video_codec: extract_json_string(line, "video_codec"),
-            ffprobe_ok: extract_json_bool(line, "ffprobe_ok"),
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .map(|value| IndexedRow {
+            id: value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            source_path: value
+                .get("source_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            sha256: value
+                .get("sha256")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            modified_unix: value
+                .get("modified_unix")
+                .and_then(serde_json::Value::as_u64),
+            duration_seconds: value
+                .get("duration_seconds")
+                .and_then(serde_json::Value::as_f64),
+            format_name: value
+                .get("format_name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            video_codec: value
+                .get("video_codec")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            ffprobe_ok: value.get("ffprobe_ok").and_then(serde_json::Value::as_bool),
         })
         .filter(|row| !row.id.is_empty())
         .collect())
 }
 
-fn extract_json_string(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{key}\":");
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let value = value.strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = value.chars();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '"' => out.push('"'),
-                '\\' => out.push('\\'),
-                '/' => out.push('/'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                other => out.push(other),
-            },
-            other => out.push(other),
-        }
-    }
-    None
-}
-
-fn extract_json_u64(line: &str, key: &str) -> Option<u64> {
-    let key = format!("\"{key}\":");
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    value
-        .split(|ch: char| !ch.is_ascii_digit())
-        .next()
-        .and_then(|digits| digits.parse().ok())
-}
-
-fn extract_json_f64(line: &str, key: &str) -> Option<f64> {
-    let key = format!("\"{key}\":");
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("null") {
-        return None;
-    }
-    let end = value
-        .find(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == '-' || ch == 'e' || ch == 'E'))
-        .unwrap_or(value.len());
-    value[..end].parse().ok()
-}
-
-fn extract_json_bool(line: &str, key: &str) -> Option<bool> {
-    let key = format!("\"{key}\":");
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    if value.starts_with("true") {
-        Some(true)
-    } else if value.starts_with("false") {
-        Some(false)
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dav_frame_gap_finding_marks_large_jumps() {
+        // Two DAV video frames whose embedded recording clocks are 10s apart.
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-dav-gap-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dav_path = dir.join("cam.dav");
+        std::fs::write(&dav_path, dav_fixture_with_dates(0, 10)).unwrap();
+
+        let rows = vec![IndexedRow {
+            id: "vid_1".into(),
+            source_path: dav_path.to_string_lossy().to_string(),
+            sha256: None,
+            modified_unix: None,
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            ffprobe_ok: None,
+        }];
+        let findings = dav_frame_gap_findings(&dir, &rows);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind, "dav-frame-gap");
+        assert!(
+            findings[0].detail.contains("10.0s"),
+            "{detail}",
+            detail = findings[0].detail
+        );
+
+        // A normal 1s cadence stays clean.
+        let steady_path = dir.join("steady.dav");
+        std::fs::write(&steady_path, dav_fixture_with_dates(0, 1)).unwrap();
+        let steady_rows = vec![IndexedRow {
+            id: "vid_2".into(),
+            source_path: steady_path.to_string_lossy().to_string(),
+            sha256: None,
+            modified_unix: None,
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            ffprobe_ok: None,
+        }];
+        assert!(dav_frame_gap_findings(&dir, &steady_rows).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Builds a minimal two-video-frame DAV whose second frame's packed date
+    /// is `gap_secs` after the first (same minute, so only seconds differ).
+    fn dav_fixture_with_dates(first_sec: u32, second_sec: u32) -> Vec<u8> {
+        fn frame(channel: u8, second: u32, payload: &[u8]) -> Vec<u8> {
+            let header_len = 24u32;
+            let frame_length = header_len + payload.len() as u32 + 8;
+            let date = second & 0x3F; // packed: only the seconds field
+            let mut bytes = Vec::with_capacity(frame_length as usize);
+            bytes.extend_from_slice(b"DHAV");
+            bytes.push(0xFD); // key video frame
+            bytes.push(0);
+            bytes.push(channel);
+            bytes.push(0);
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&frame_length.to_le_bytes());
+            bytes.extend_from_slice(&date.to_le_bytes());
+            bytes.extend_from_slice(&0u16.to_le_bytes()); // timestamp (clock secs)
+            bytes.push(0); // ext_length
+            bytes.push(0); // checksum
+            bytes.extend_from_slice(payload);
+            bytes.extend_from_slice(b"dhav");
+            bytes.extend_from_slice(&frame_length.to_le_bytes());
+            bytes
+        }
+        let mut out = Vec::new();
+        out.extend(frame(1, first_sec, b"V1"));
+        out.extend(frame(1, second_sec, b"V2"));
+        out
+    }
 
     #[test]
     fn detects_timestamp_regression_within_folder() {

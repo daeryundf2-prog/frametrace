@@ -298,7 +298,10 @@ mod tests {
         fs::create_dir_all(&tool_dir).unwrap();
         fs::write(tool_dir.join("ffprobe.exe"), b"not really ffprobe").unwrap();
 
-        let custom_path = format!(";{};{}", dot_dir.display(), tool_dir.display());
+        let custom_path = std::env::join_paths([&tool_dir, &dot_dir])
+            .expect("joining test PATH entries")
+            .to_string_lossy()
+            .to_string();
         let found = find_in_path_dirs("ffprobe", &["ffprobe"], &custom_path).unwrap();
         assert_eq!(found.file_name().unwrap(), "ffprobe.exe");
 
