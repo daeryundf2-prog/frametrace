@@ -280,4 +280,19 @@ mod tests {
         assert!(error.contains("unsupported status"), "unexpected: {error}");
         let _ = fs::remove_file(path);
     }
+
+    #[test]
+    fn shared_json_accessors_handle_escaped_and_nested_values() {
+        let index = r#"{"videos":[{"id":"vid_1","source_path":"C:\\ev\\a.mp4"},{"id":"vid_2","source_path":"C:\\ev\\b.mp4"}]}"#;
+        let items = super::json_array_field(index, "videos").unwrap();
+        let objects = super::json_objects_in_array(&items);
+        assert_eq!(objects.len(), 2);
+        assert_eq!(
+            super::json_string_field(&objects[0], "source_path").unwrap(),
+            "C:\\ev\\a.mp4"
+        );
+        // A missing array key must be None, not an error.
+        assert!(super::json_array_field(index, "missing").is_none());
+        assert!(super::json_string_field(&objects[0], "missing").is_none());
+    }
 }

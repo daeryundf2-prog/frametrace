@@ -157,4 +157,25 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&out);
     }
+
+    #[test]
+    fn rejects_header_only_export_without_payload() {
+        let mut bytes = vec![0u8; 40];
+        bytes[0..4].copy_from_slice(b"IMKH");
+        let path = std::env::temp_dir().join(format!("ft-hik-empty-{}", std::process::id()));
+        let out = std::env::temp_dir().join(format!("ft-hik-empty-out-{}", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let err = strip_imkh_header(&path, &out).unwrap_err();
+        assert!(err.contains("no payload"), "{err}");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn imkh_header_detection_requires_exact_magic() {
+        assert!(is_imkh_header(b"IMKH_TRAILING"));
+        assert!(!is_imkh_header(b"IMKX_TRAILING"));
+        assert!(!is_imkh_header(b"IMK"));
+        assert!(!is_imkh_header(b""));
+    }
 }

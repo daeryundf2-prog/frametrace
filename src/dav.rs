@@ -427,4 +427,54 @@ mod tests {
         assert_eq!(frames[0].channel, 2);
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn parses_packed_date_and_clock_timestamp() {
+        // 2026-09-08 14:03:07 in the FFmpeg get_date() packing:
+        // (year-2000)<<26 | month<<22 | day<<17 | hour<<12 | minute<<6 | second.
+        let packed = (26u32 << 26) | (9 << 22) | (8 << 17) | (14 << 12) | (3 << 6) | 7;
+        let mut bytes = Vec::new();
+        bytes.extend(build_frame_with_date(
+            STREAM_VIDEO_I,
+            1,
+            packed,
+            42,
+            b"DATED",
+        ));
+        let path = std::env::temp_dir().join(format!("ft-dav-date-{}", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let frames = walk_frames(&path).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].date_packed(), packed);
+        assert_eq!(frames[0].timestamp_secs, 42);
+        assert_eq!(frames[0].date_breakdown(), (2026, 9, 8, 14, 3, 7));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn build_frame_with_date(
+        stream_type: u8,
+        channel: u8,
+        date: u32,
+        timestamp: u16,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let header_len = 24u32;
+        let frame_length = header_len + payload.len() as u32 + 8;
+        let mut bytes = Vec::with_capacity(frame_length as usize);
+        bytes.extend_from_slice(b"DHAV");
+        bytes.push(stream_type);
+        bytes.push(0);
+        bytes.push(channel);
+        bytes.push(0);
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&frame_length.to_le_bytes());
+        bytes.extend_from_slice(&date.to_le_bytes());
+        bytes.extend_from_slice(&timestamp.to_le_bytes());
+        bytes.push(0);
+        bytes.push(0);
+        bytes.extend_from_slice(payload);
+        bytes.extend_from_slice(&FOOTER_MAGIC);
+        bytes.extend_from_slice(&frame_length.to_le_bytes());
+        bytes
+    }
 }

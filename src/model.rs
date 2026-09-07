@@ -330,8 +330,22 @@ mod probe_summary_flat {
         height: Option<u32>,
         ffprobe_ok: bool,
         ffprobe_error: Option<String>,
-        #[serde(default)]
+        /// The published contract inlines the raw ffprobe JSON object here,
+        /// but legacy writers may also emit a pre-escaped string or null, so
+        /// both shapes are accepted on read.
+        #[serde(default, deserialize_with = "deserialize_raw_ffprobe")]
         ffprobe: Option<String>,
+    }
+
+    fn deserialize_raw_ffprobe<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<String>, D::Error> {
+        let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+        Ok(match value {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(text)) => Some(text),
+            Some(other) => Some(other.to_string()),
+        })
     }
 
     pub fn serialize<S: Serializer>(
@@ -367,5 +381,77 @@ mod probe_summary_flat {
             width: flat.width,
             height: flat.height,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProbeSummary, SourceProfile, VideoRecord};
+    use std::path::PathBuf;
+
+    fn sample_record() -> VideoRecord {
+        VideoRecord {
+            id: "vid_000001".to_string(),
+            source_path: PathBuf::from(r"\\?\C:\evidence\카메라.mp4"),
+            relative_path: "카메라.mp4".to_string(),
+            extension: "mp4".to_string(),
+            size_bytes: 12345,
+            modified_unix: Some(1700000000),
+            sha256: Some("abc".to_string()),
+            hash_status: "complete".to_string(),
+            probe: ProbeSummary {
+                ok: true,
+                raw_json: Some(r#"{"streams":[]}"#.to_string()),
+                error: None,
+                duration_seconds: Some(12.5),
+                format_name: Some("mov,mp4".to_string()),
+                video_codec: Some("h264".to_string()),
+                audio_codec: None,
+                width: Some(1920),
+                height: Some(1080),
+            },
+            confidence: "ffprobe-confirmed".to_string(),
+            source_profile: SourceProfile::generic_media("extension"),
+        }
+    }
+
+    /// The JSONL compatibility artifacts are the engine's published contract:
+    /// legacy records written by older binaries must still deserialize.
+    #[test]
+    fn legacy_jsonl_line_round_trips_through_serde() {
+        let legacy_line = r#"{"id":"vid_000001","source_path":"C:\\Evidence\\a.mp4","file_url":"file:///C:/Evidence/a.mp4","relative_path":"a.mp4","extension":"mp4","size_bytes":1,"modified_unix":null,"sha256":null,"hash_status":"skipped","confidence":"extension-candidate","source_profile":{"lane":"generic-video","vendor":"Generic media","parser":"generic_media","confidence":"medium","recommended_action":"Use ffprobe first","evidence":["extension"]},"duration_seconds":null,"format_name":null,"video_codec":null,"audio_codec":null,"width":null,"height":null,"ffprobe_ok":false,"ffprobe_error":"ffprobe skipped","ffprobe":null}"#;
+        let record: VideoRecord = serde_json::from_str(legacy_line).expect("legacy line parses");
+        assert_eq!(record.id, "vid_000001");
+        assert!(!record.probe.ok);
+        assert_eq!(record.probe.error.as_deref(), Some("ffprobe skipped"));
+
+        // to_json() output must itself stay parseable (round-trip contract).
+        let reparsed: VideoRecord =
+            serde_json::from_str(&record.to_json()).expect("to_json output parses");
+        assert_eq!(reparsed.id, record.id);
+        assert_eq!(reparsed.probe.ok, record.probe.ok);
+    }
+
+    /// ffprobe_ok must survive `#[serde(flatten)]` without duplicate keys in
+    /// serialized output, and Korean paths must round-trip losslessly.
+    #[test]
+    fn serde_flatten_emits_flat_keys_and_korean_paths_survive() {
+        let record = sample_record();
+        let json = record.to_json();
+        assert!(json.contains(r#""ffprobe_ok":true"#));
+        assert!(
+            !json.contains(r#""probe":"#),
+            "probe must stay flat: {json}"
+        );
+        assert!(
+            !json.contains(r#""probe":{"#),
+            "probe must stay flat: {json}"
+        );
+        assert!(json.contains("카메라.mp4"));
+
+        let parsed: VideoRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.source_path, record.source_path);
+        assert_eq!(parsed.relative_path, record.relative_path);
+        assert_eq!(parsed.probe.width, Some(1920));
     }
 }

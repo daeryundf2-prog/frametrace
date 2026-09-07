@@ -722,10 +722,31 @@ fn extract_balanced_json_value(value: &str, opener: char) -> Option<String> {
 mod tests {
     use super::{
         collect_video_candidates, excluded_case_dirs, looks_like_video, merge_existing_with_scan,
+        set_json_field,
     };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn set_json_field_appends_without_reordering_existing_keys() {
+        // The JSONL contract is byte-stable for already-indexed evidence:
+        // stale markers must not rewrite the whole object.
+        let line = r#"{"z_last":1,"a_first":"x"}"#;
+        let updated = set_json_field(line, "index_status", "\"stale\"");
+        let expected = r#"{"z_last":1,"a_first":"x","index_status":"stale"}"#;
+        assert_eq!(updated, expected);
+    }
+
+    #[test]
+    fn set_json_field_replaces_existing_scalar_in_place() {
+        let line = r#"{"id":"vid_1","stale_since_unix":5,"ext":"mp4"}"#;
+        let updated = set_json_field(line, "stale_since_unix", "9");
+        assert_eq!(
+            updated,
+            r#"{"id":"vid_1","stale_since_unix":9,"ext":"mp4"}"#
+        );
+    }
 
     #[test]
     fn recognizes_common_video_extensions() {

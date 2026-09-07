@@ -469,7 +469,7 @@ fn simple_html_report(title: &str, body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::accuracy_report;
+    use super::{accuracy_report, read_indexed_evidence};
     use std::fs;
 
     #[test]
@@ -495,6 +495,33 @@ mod tests {
         assert!(report.passed);
         assert!(report.report_path.is_file());
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_indexed_evidence_skips_malformed_lines_and_reads_escapes() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-qa-rows-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("db")).unwrap();
+        fs::write(
+            root.join("db/videos.jsonl"),
+            concat!(
+                // Well-formed record with an escaped backslash path.
+                "{\"source_path\":\"C:\\\\ev\\\\a.mp4\",\"sha256\":\"abc\"}\n",
+                // Malformed line (truncated JSON) must be skipped, not fatal.
+                "{\"source_path\":\"C:\\\\ev\\\",\n",
+                // Record without sha256 keeps None.
+                "{\"source_path\":\"/evidence/b.mp4\"}\n",
+            ),
+        )
+        .unwrap();
+        let rows = read_indexed_evidence(&root).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].source_path, "C:\\ev\\a.mp4");
+        assert_eq!(rows[0].sha256.as_deref(), Some("abc"));
+        assert_eq!(rows[1].source_path, "/evidence/b.mp4");
+        assert!(rows[1].sha256.is_none());
         let _ = fs::remove_dir_all(root);
     }
 }
