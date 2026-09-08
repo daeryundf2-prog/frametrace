@@ -250,6 +250,15 @@ MEDIUM 1건을 즉시 수정했다. 상세와 red-test 목록은
 타임아웃, `unique_path` TOCTOU, 비UTF-8 경로 lossless 표현,
 ffprobe 객체 재직렬화 키 정렬의 QA 재현성 영향.
 
+> **상태: 이월분 소진 (2026-09-08, 2차 하드닝).** 위 이월 6건 중 5건을
+> 즉시 수정했다 — mmls/fls 120s 타임아웃(`--timeout`), `unique_path`
+> O_EXCL 원자 예약(+`unique_dir`/`unique_available_path` 분리, 8-레이서
+> 동시성 red-test), rename/로그생성 후 디렉토리 fsync, `/media` 교정
+> 3종(0바이트·`+`경로·쿼리 파싱)+nosniff, `body_value` \uXXXX 디코딩,
+> stale 중복 스펠링 수렴, serde_json `preserve_order`, E01 glob
+> 메타문자 거부. 잔여 2건(무키 체인 문서화, walk_frames resync)만
+> 후속 — 상세는 `docs/REVIEW_FIXES_2026-09-08.md` §2차.
+
 ## 8. 열린 결정사항 (마감)
 
 | # | 결정 | 채택 |
@@ -265,5 +274,5 @@ ffprobe 객체 재직렬화 키 정렬의 QA 재현성 영향.
 
 - 스코어: M1 후 7.6 / M2 후 7.8 / M3 후 8.0+ (영역표는 리뷰 문서 기준 유지)
 - 성능 예산: 1만 건 뷰어 로드 ≤1.5s · 1천 건 썸네일 ≤3분 · 1천 건 검증 ≤4분 · inspect-image 1만 엔트리 ≤2분
-- 품질: 테스트 수 ≥ 120(현재 128 달성 — 2026-09-08 하드닝 후: lib 121 + smoke 3 + IT 4) · 외부 도구 실행 테스트 ≥ 6 (IT 4개는 ffmpeg/libewf 실행, hik/dav 리먹스 포함) · CI 적색 0 유지
+- 품질: 테스트 수 ≥ 120(현재 132 달성 — 2026-09-08 2차 하드닝 후: lib 125 + smoke 3 + IT 4) · 외부 도구 실행 테스트 ≥ 6 (IT 4개는 ffmpeg/libewf 실행, hik/dav 리먹스 포함) · CI 적색 0 유지
 - 무결성: 병렬 실행 후 `verify-audit` 100% 통과

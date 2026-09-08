@@ -247,6 +247,23 @@ fn canonical_e01_path(path: &Path) -> Result<PathBuf, String> {
             extension
         ));
     }
+    // libewf treats the final path argument as a segment GLOB, so evidence
+    // filenames (seized media is attacker-controlled) containing `[`, `]`,
+    // `?`, or `*` can select a different segment set or silently match
+    // nothing — the wrong bytes would then be hashed and recorded as
+    // verified. Refuse instead of guessing.
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if ['[', ']', '?', '*']
+        .iter()
+        .any(|meta| file_name.contains(*meta))
+    {
+        return Err(format!(
+            "E01 file name contains glob metacharacters libewf would expand ({file_name}); rename the segment files without '[', ']', '?', '*' before importing"
+        ));
+    }
     Ok(path)
 }
 
@@ -378,11 +395,30 @@ struct CommandOutput {
 #[cfg(test)]
 mod tests {
     use super::{
-        E01Options, default_raw_filename, ewf_command_version, ewfexport_args,
+        E01Options, canonical_e01_path, default_raw_filename, ewf_command_version, ewfexport_args,
         ewfexport_target_for_output, expected_ewfexport_output, resolve_ewfexport_output,
     };
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn rejects_e01_filenames_with_glob_metacharacters() {
+        // libewf expands the final argument as a segment glob; an evidence
+        // name like x[*].E01 would silently select the wrong segment set.
+        let dir = std::env::temp_dir().join(format!("ft-e01-glob-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let evil = dir.join("x[*].E01");
+        fs::write(&evil, b"segment").unwrap();
+        let err = canonical_e01_path(&evil).unwrap_err();
+        assert!(err.contains("glob metacharacters"), "{err}");
+
+        let plain = dir.join("blackbox.E01");
+        fs::write(&plain, b"segment").unwrap();
+        let resolved = canonical_e01_path(&plain).unwrap();
+        assert!(resolved.ends_with("blackbox.E01"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn builds_default_raw_filename() {

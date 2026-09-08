@@ -28,6 +28,7 @@ pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> 
     if !body.starts_with('{') || !body.ends_with('}') {
         return Err("audit log body must be a JSON object".to_string());
     }
+    let was_new = !path.exists();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create audit log directory: {err}"))?;
@@ -46,6 +47,11 @@ pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> 
     })?;
     let result = append_chained_locked(&mut file, body);
     let _ = file.unlock();
+    // First-time log creation must have its directory entry synced too, or a
+    // power loss can lose the whole audit trail despite per-line fsync.
+    if result.is_ok() && was_new {
+        crate::util::sync_parent_directory(path);
+    }
     result
 }
 

@@ -98,29 +98,46 @@ pub fn write_text(path: &Path, text: &str) -> io::Result<()> {
     fs::write(path, text)
 }
 
+/// Picks a not-yet-existing artifact path AND atomically reserves it by
+/// creating an empty placeholder with `O_EXCL` semantics. Two concurrent
+/// pipelines (workstation + examiner CLI) can therefore never be handed
+/// the same path and silently overwrite each other's recovered evidence —
+/// the loser of the reservation race simply gets the next candidate.
+/// Callers overwrite the placeholder through their normal create/open,
+/// which is safe because only the reserving process can hold this name.
 pub fn unique_path(path: &Path) -> PathBuf {
-    if !path.exists() {
+    unique_path_impl(path, true)
+}
+
+/// Same naming scheme without the placeholder reservation, for callers
+/// that enforce a strict "output path must not exist" contract themselves
+/// (export-dav/export-hik hard-reject any pre-existing target, so a
+/// reservation placeholder would look like a collision). These call
+/// sites create the real artifact immediately after the check and accept
+/// the tiny check-to-create window instead.
+pub fn unique_available_path(path: &Path) -> PathBuf {
+    unique_path_impl(path, false)
+}
+
+fn unique_path_impl(path: &Path, reserve: bool) -> PathBuf {
+    let claim = |candidate: &Path| -> bool {
+        if reserve {
+            reserve_file(candidate)
+        } else {
+            !candidate.exists()
+        }
+    };
+    if claim(path) {
         return path.to_path_buf();
     }
 
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    let stem = path
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("artifact");
-    let extension = path.extension().and_then(|extension| extension.to_str());
-
-    for index in 1..10_000 {
-        let filename = match extension {
-            Some(extension) if !extension.is_empty() => {
-                format!("{stem}_{index:03}.{extension}")
-            }
-            _ => format!("{stem}_{index:03}"),
-        };
-        let candidate = parent.join(filename);
-        if !candidate.exists() {
-            return candidate;
-        }
+    let candidate = unique_path_suffixes(
+        path,
+        &mut (1..10_000).map(|index| format!("_{index:03}")),
+        claim,
+    );
+    if let Some(candidate) = candidate {
+        return candidate;
     }
 
     // Exhausted the numeric range: fall back to a nanosecond-stamped name.
@@ -130,11 +147,110 @@ pub fn unique_path(path: &Path) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    let filename = match extension {
-        Some(extension) if !extension.is_empty() => format!("{stem}_{stamp}.{extension}"),
-        _ => format!("{stem}_{stamp}"),
-    };
-    parent.join(filename)
+    let candidate = unique_path_suffixes(path, &mut std::iter::once(format!("_{stamp}")), claim);
+    if let Some(candidate) = candidate {
+        return candidate;
+    }
+    // Pathological: even the nanosecond name is taken. Reserve a final
+    // suffixed attempt; on failure return the stamped name anyway — the
+    // caller's write will fail loudly rather than overwrite silently.
+    path.with_file_name(format!(
+        "{}_{stamp}.{}",
+        path.file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("artifact"),
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("bin")
+    ))
+}
+
+/// Directory-target variant: the claim is a real directory (created
+/// atomically), not a placeholder file, so callers like package-case can
+/// `create_dir_all` the result.
+pub fn unique_dir(path: &Path) -> PathBuf {
+    if reserve_dir(path) {
+        return path.to_path_buf();
+    }
+    if let Some(candidate) =
+        unique_dir_suffixes(path, &mut (1..10_000).map(|index| format!("_{index:03}")))
+    {
+        return candidate;
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    if let Some(candidate) = unique_dir_suffixes(path, &mut std::iter::once(format!("_{stamp}"))) {
+        return candidate;
+    }
+    path.to_path_buf()
+}
+
+fn unique_path_suffixes(
+    path: &Path,
+    suffixes: &mut dyn Iterator<Item = String>,
+    claim: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("artifact");
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    for suffix in suffixes {
+        let filename = match extension {
+            Some(extension) if !extension.is_empty() => {
+                format!("{stem}{suffix}.{extension}")
+            }
+            _ => format!("{stem}{suffix}"),
+        };
+        let candidate = parent.join(filename);
+        if claim(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn unique_dir_suffixes(path: &Path, suffixes: &mut dyn Iterator<Item = String>) -> Option<PathBuf> {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    for suffix in suffixes {
+        let candidate = parent.join(format!("{name}{suffix}"));
+        if reserve_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn reserve_dir(path: &Path) -> bool {
+    fs::create_dir(path).is_ok()
+}
+
+/// Atomically claims `path` by creating it exclusively. Returns true when
+/// this call won the claim. A pre-existing empty placeholder from a crashed
+/// earlier run is treated as claimed space and skipped (safe: artifacts are
+/// never appended after the fact).
+fn reserve_file(path: &Path) -> bool {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(_) => true,
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => false,
+        // Unresolvable name (permission, invalid syntax): report claimed so
+        // callers keep the original path and surface the real write error.
+        Err(_) => true,
+    }
 }
 
 /// Writes state files (case manifest, indexes) so a crash can never leave a
@@ -155,7 +271,31 @@ pub fn write_text_atomic(path: &Path, text: &str) -> io::Result<()> {
         io::Write::flush(&mut file)?;
         file.sync_all()?;
     }
-    fs::rename(&temp, path)
+    fs::rename(&temp, path)?;
+    // The rename itself is only durable once the directory entry is synced;
+    // without this a power loss can roll back the "atomic" swap.
+    sync_parent_directory(path);
+    Ok(())
+}
+
+/// Best-effort directory fsync so file creation/rename survive power loss.
+/// Not all platforms/filesystems support opening directories read-only for
+/// sync (Windows historically returns `ACCESS_DENIED`); failures are ignored
+/// because the crash-durability gain is incremental, not load-bearing.
+pub fn sync_parent_directory(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        if let Ok(dir) = fs::File::open(parent) {
+            let _ = dir.sync_all();
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = parent;
+    }
 }
 
 pub fn read_to_string(path: &Path) -> io::Result<String> {
@@ -296,7 +436,7 @@ fn percent_encode_path(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{run_with_timeout, write_text_atomic};
+    use super::{run_with_timeout, unique_dir, unique_path, write_text_atomic};
     #[test]
     fn run_with_timeout_kills_stuck_children() {
         #[cfg(target_os = "windows")]
@@ -341,7 +481,7 @@ mod tests {
 
     use super::{
         canonicalize_display, compact_json_value_if_well_formed, json_escape, path_to_file_url,
-        strip_windows_extended_prefix, unique_path,
+        strip_windows_extended_prefix,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -422,6 +562,63 @@ mod tests {
         assert_eq!(unique_path(&path), dir.join("clip_001.mp4"));
         fs::write(dir.join("clip_001.mp4"), b"two").unwrap();
         assert_eq!(unique_path(&path), dir.join("clip_002.mp4"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Two racers must never be handed the same artifact path: the loser of
+    /// the `O_EXCL` reservation gets the next candidate instead of a path
+    /// that would overwrite the winner's recovered evidence.
+    #[test]
+    fn concurrent_unique_path_reservations_never_collide() {
+        let dir = std::env::temp_dir().join(format!(
+            "frametrace-unique-race-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("recovered.bin");
+
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let path = path.clone();
+            handles.push(std::thread::spawn(move || unique_path(&path)));
+        }
+        let claimed: Vec<PathBuf> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        let mut unique_names: Vec<String> = claimed
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        unique_names.sort();
+        unique_names.dedup();
+        // All 8 racers received distinct names (no overwrite hazard).
+        assert_eq!(unique_names.len(), 8, "{claimed:?}");
+        // Every claimed path exists on disk (reservation held).
+        for p in &claimed {
+            assert!(p.is_file(), "{p:?}");
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Directory targets (package-case output) claim via create_dir, so a
+    /// caller's create_dir_all on the result never collides with a
+    /// placeholder-file reservation.
+    #[test]
+    fn unique_dir_yields_creatable_directory_paths() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-unique-dir-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let base = dir.join("package_123");
+
+        let first = unique_dir(&base);
+        assert!(first.is_dir(), "claim must create the directory: {first:?}");
+        // Caller-style population on the claimed path must succeed.
+        fs::write(first.join("manifest.json"), b"{}").unwrap();
+
+        let second = unique_dir(&base);
+        assert!(second.is_dir());
+        assert_ne!(first, second, "racing package runs must not share output");
+        fs::write(second.join("manifest.json"), b"{}").unwrap();
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -419,6 +419,7 @@ fn merge_existing_with_scan(
 
     let mut merged = Vec::new();
     let mut updated_keys = std::collections::HashSet::new();
+    let mut stale_keys = std::collections::HashSet::new();
     for existing in load_existing_record_lines(case_dir)? {
         let key = normalize_source_key(&existing.source_path);
         if let Some(updated) = current_by_source.get(&key) {
@@ -427,7 +428,10 @@ fn merge_existing_with_scan(
             if updated_keys.insert(key.clone()) {
                 merged.push(updated.clone());
             }
-        } else {
+        } else if stale_keys.insert(key.clone()) {
+            // Same dedupe for stale marking: a file that disappeared and is
+            // indexed under both \\?\ and clean spellings must become ONE
+            // stale record, not two (double-counted video_count forever).
             merged.push(existing.mark_stale(result.scanned_unix));
         }
     }
@@ -871,6 +875,61 @@ mod tests {
         let reparsed: VideoRecord = serde_json::from_str(&record.to_json()).unwrap();
         assert_eq!(reparsed.id, record.id);
         assert_eq!(reparsed.probe.width, record.probe.width);
+    }
+
+    /// A file that vanished while indexed under BOTH the legacy `\\?\` and
+    /// clean spellings must converge to one stale record, not two.
+    #[test]
+    fn stale_marking_dedupes_legacy_and_clean_spellings() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-stale-dedupe-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+
+        let legacy = VideoRecord {
+            id: "vid_000001".to_string(),
+            source_path: PathBuf::from(r"\\?\C:\gone\one.mp4"),
+            relative_path: "one.mp4".to_string(),
+            extension: "mp4".to_string(),
+            size_bytes: 1,
+            modified_unix: None,
+            sha256: None,
+            hash_status: "skipped".to_string(),
+            probe: ProbeSummary::skipped(),
+            confidence: "extension-candidate".to_string(),
+            source_profile: SourceProfile::generic_media("test"),
+        };
+        let clean = VideoRecord {
+            id: "vid_000002".to_string(),
+            source_path: PathBuf::from(r"C:\gone\one.mp4"),
+            ..legacy.clone()
+        };
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            format!("{}\n{}\n", legacy.to_json(), clean.to_json()),
+        )
+        .unwrap();
+
+        let result = ScanResult {
+            source_path: PathBuf::from(r"C:\elsewhere"),
+            scanned_unix: 5,
+            video_count: 0,
+            total_bytes: 0,
+            warnings: Vec::new(),
+            options: ScanOptions::default(),
+            records: Vec::new(),
+        };
+
+        let merged = merge_existing_with_scan(&case_dir, &result).unwrap();
+        assert_eq!(
+            merged.len(),
+            1,
+            "duplicate spellings must converge: {merged:?}"
+        );
+        assert!(merged[0].json_line.contains(r#""index_status":"stale""#));
+        let _ = fs::remove_dir_all(case_dir);
     }
 
     #[test]

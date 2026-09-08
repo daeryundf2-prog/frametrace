@@ -283,8 +283,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     }
     body.truncate(content_length);
     let (path, query) = match target.split_once('?') {
-        Some((path, query)) => (percent_decode(path), query.to_string()),
-        None => (percent_decode(&target), String::new()),
+        Some((path, query)) => (percent_decode_component(path, false), query.to_string()),
+        None => (percent_decode_component(&target, false), String::new()),
     };
     Ok(Request {
         method,
@@ -297,7 +297,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     })
 }
 
-fn percent_decode(input: &str) -> String {
+/// Percent-decodes a URL component. `plus_as_space` selects query-string
+/// semantics; path components must NOT translate `+` (Unix filenames can
+/// legitimately contain it), so callers pass false there.
+fn percent_decode_component(input: &str, plus_as_space: bool) -> String {
     let bytes = input.as_bytes();
     let mut output: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -319,7 +322,7 @@ fn percent_decode(input: &str) -> String {
                     index += 1;
                 }
             },
-            b'+' => {
+            b'+' if plus_as_space => {
                 output.push(b' ');
                 index += 1;
             }
@@ -334,9 +337,13 @@ fn percent_decode(input: &str) -> String {
 
 fn query_value(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {
-        let (name, value) = pair.split_once('=')?;
+        // A pair without '=' is a bare flag; skip it instead of aborting the
+        // whole scan, so `?flag&path=...` still serves `path`.
+        let Some((name, value)) = pair.split_once('=') else {
+            continue;
+        };
         if name == key {
-            return Some(percent_decode(value));
+            return Some(percent_decode_component(value, true));
         }
     }
     None
@@ -359,6 +366,33 @@ fn body_value(body: &str, key: &str) -> Option<String> {
                         Some('n') => decoded.push('\n'),
                         Some('t') => decoded.push('\t'),
                         Some('r') => decoded.push('\r'),
+                        // \uXXXX: decode the hex scalar so Korean marks and
+                        // other non-ASCII survive the substring parser. Only
+                        // hex digits are consumed, so a malformed escape
+                        // never eats the closing quote.
+                        Some('u') => {
+                            let mut code = String::new();
+                            while code.len() < 4 {
+                                let next = chars.clone().next();
+                                match next {
+                                    Some(hex) if hex.is_ascii_hexdigit() => {
+                                        chars.next();
+                                        code.push(hex);
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            match (code.len() == 4, u32::from_str_radix(&code, 16).ok()) {
+                                (true, Some(scalar)) => {
+                                    if let Some(decoded_char) = char::from_u32(scalar) {
+                                        decoded.push(decoded_char);
+                                    } else {
+                                        decoded.push_str(&code);
+                                    }
+                                }
+                                _ => decoded.push_str(&code),
+                            }
+                        }
                         Some(other) => decoded.push(other),
                         None => break,
                     },
@@ -1250,9 +1284,12 @@ fn serve_media(
             (start, end, 206u16)
         }
         Some(_) => return write_range_unsatisfiable(stream, total),
+        // A zero-byte file must report Content-Length: 0. The previous
+        // `total.saturating_sub(1)` produced `end = 0, length = 1` and
+        // stalled browsers waiting for a byte that never comes.
         None => (0u64, total.saturating_sub(1), 200u16),
     };
-    let length = end - start + 1;
+    let length = end.saturating_sub(start) + if total == 0 { 0 } else { 1 };
     let mut file = match std::fs::File::open(&canonical) {
         Ok(file) => file,
         Err(_) => return write_simple(stream, 404, b"media not found"),
@@ -1261,7 +1298,7 @@ fn serve_media(
         return write_simple(stream, 500, b"seek failed");
     }
     let mut head = format!(
-        "HTTP/1.1 {code} {}\r\nContent-Type: {}\r\nContent-Length: {length}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nConnection: close\r\n",
+        "HTTP/1.1 {code} {}\r\nContent-Type: {}\r\nContent-Length: {length}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
         if code == 206 { "Partial Content" } else { "OK" },
         mime_for(&canonical)
     );
@@ -1345,7 +1382,7 @@ fn respond(
         _ => "OK",
     };
     let mut head = format!(
-        "HTTP/1.1 {code} {status_text}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: {cache}\r\nConnection: close\r\n",
+        "HTTP/1.1 {code} {status_text}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: {cache}\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n",
         body.len()
     );
     if let Some(extra) = extra {
@@ -1388,13 +1425,21 @@ mod tests {
 
     #[test]
     fn decodes_percent_and_plus_in_paths() {
+        // Path components must keep `+` as-is (legal in filenames);
         assert_eq!(
-            percent_decode("C%3A%5CUsers%5C%ED%95%9C%EA%B8%80%5Ca+b.mp4"),
-            "C:\\Users\\한글\\a b.mp4"
+            percent_decode_component("C%3A%5CUsers%5C%ED%95%9C%EA%B8%80%5Ca+b.mp4", false),
+            "C:\\Users\\한글\\a+b.mp4"
         );
-        assert_eq!(percent_decode("plain"), "plain");
-        assert_eq!(percent_decode("bad%2"), "bad%2");
-        assert_eq!(percent_decode("tail%"), "tail%");
+        assert_eq!(percent_decode_component("plain", false), "plain");
+        assert_eq!(percent_decode_component("bad%2", false), "bad%2");
+        assert_eq!(percent_decode_component("tail%", false), "tail%");
+        // Query values do translate `+` to space.
+        assert_eq!(percent_decode_component("a+b%20c", true), "a b c");
+        // A bare flag pair no longer aborts later query parsing.
+        assert_eq!(
+            query_value("flag&path=%2Fev", "path").as_deref(),
+            Some("/ev")
+        );
     }
 
     #[test]
@@ -1418,6 +1463,17 @@ mod tests {
         assert_eq!(body_value(body, "empty").as_deref(), Some("false"));
         assert_eq!(body_value(body, "rows").as_deref(), Some("3"));
         assert_eq!(body_value(body, "missing"), None);
+        // Korean and other non-ASCII string escapes must decode.
+        assert_eq!(
+            body_value(r#"{"notes":"\ud655\uc778"}"#, "notes").as_deref(),
+            Some("확인")
+        );
+        // A malformed \u keeps its raw characters instead of eating the
+        // closing quote; the value then ends at the next real quote.
+        assert_eq!(
+            body_value(r#"{"notes":"a\u12"}"#, "notes").as_deref(),
+            Some("a12")
+        );
     }
 
     #[test]

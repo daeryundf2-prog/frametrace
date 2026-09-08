@@ -57,9 +57,45 @@
 
 ### MEDIUM (일부)
 
-8. **`verify-audit`가 락 없이 읽음** — `audit.rs`: 검증도 appender와 같은
+ 8. **`verify-audit`가 락 없이 읽음** — `audit.rs`: 검증도 appender와 같은
    fs2 배타락을 잡아 동시 append 중 반쓰기 줄을 보고 오탐(torn write)을
    내는 경쟁을 제거.
+
+## 2차 하드닝 (이월 MEDIUM/LOW 소진, 2026-09-08)
+
+9. **`mmls/fls` 타임아웃** — `tsk.rs`: `run_capture`가 `run_with_timeout`
+   경유. `TskInspectOptions.timeout_secs`(기본 120s, `--timeout` 플래그) —
+   손상 이미지가 검수 단계를 영구히 정지시키는 DoS 제거.
+10. **`unique_path` TOCTOU** — `util.rs`: `O_EXCL` 플레이스홀더로 경로를
+    **원자적으로 예약**. 동시 8-레이서 red-test로 전원 상이 경로 보장.
+    디렉토리 대상(package-case)은 `unique_dir`(create_dir 클레임),
+    "출력 부재" 하드 계약 경로(export-dav/hik)는 `unique_available_path`.
+11. **디렉토리 fsync** — `util.rs`/`audit.rs`: `write_text_atomic`의 rename
+    후, 감사로그 최초 생성 후 부모 디렉토리 fsync — "원자적" 쓰기의
+    크래시 퍼시스턴스가 실제로 성립.
+12. **`/media` 교정 3종** — `serve.rs`: 0바이트 파일 `Content-Length: 1`
+    프로토콜 위반 수정, 경로 컴포넌트의 `+`→공백 치환 제거(`+` 포함
+    파일명 접근 가능), `=` 없는 쿼리 쌍이 이후 파라미터 스캔을 중단하던
+    것 수정. `X-Content-Type-Options: nosniff` 전 응답 추가.
+13. **`body_value` `\uXXXX`** — `serve.rs`: hex 스칼라 디코딩(한글 마크
+    라운드트립), hex 아닌 자리는 소비하지 않아 종결 따옴표 보존.
+14. **stale 중복 스펠링 수렴** — `scan.rs`: 사라진 파일이 `\\?\`/클린 두
+    스펠링으로 색인돼 있으면 한 건의 stale로 수렴(영구 2중 계상 제거).
+15. **ffprobe 객체 키 순서 보존** — `serde_json` `preserve_order` 활성화:
+    재파싱된 `raw_json`의 키가 알파벳 정렬되어 JSONL 바이트와 sqlite
+    컬럼이 같은 증거를 다르게 표기하던 QA 재현성 문제 해소.
+16. **E01 glob 메타문자 거부** — `e01.rs`: libewf가 마지막 인자를 세그먼트
+    glob으로 해석하므로 `x[*].E01` 같은 증거명이 잘못된 세그먼트 조합을
+    무음 선택할 수 있음 — 메타문자 포함 시 명시적 에러.
+
+### 최종 검증 (2026-09-08, release 바이너리)
+
+- 게이트: fmt PASS / clippy `-D warnings` PASS / 단위+스모크 128 /
+  IT 4(실 ffmpeg+libewf+DAV+Hik) / CSS·JS 게이트 PASS.
+- E2E: init→scan(+한글·`+` 파일명)→validate→review→report→anomalies→
+  package(10 files)→감사로그 2/2 PASS.
+- 워크스테이션 실기기: 정상 200, 리바인딩 Host 403, CSRF Origin 403,
+  `nosniff` 헤더 확인.
 
 ## 미수정 (기록된 후속 후보)
 
@@ -67,6 +103,5 @@
   일관되게 재작성 가능 — 법정 공개 시 문서화 필요(`docs/` 권고).
 - `walk_frames` 손상 프레임에서 전체 파일 하드 실패(FFmpeg은 resync) —
   실샘플 코퍼스 확보 후 resync 정책 결정 권장.
-- `mmls/fls` 무타임아웃, `unique_path` TOCTOU, 비UTF-8 경로 lossy 처리,
-  ffprobe 객체 재직렬화 시 키 알파벳 정렬(QA 재현성 바이트 영향) 등
-  LOW/MEDIUM 잔여 — 로드맵 M5 후보로 이월.
+- 비UTF-8 경로 lossy 처리 — 포렌식 산출물 경로는 실무상 대부분 유니코드
+  호환이라 후속 관찰 항목으로 유지.

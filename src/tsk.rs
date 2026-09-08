@@ -19,7 +19,14 @@ pub struct TskInspectOptions {
     pub max_entries: usize,
     pub mmls_bin: String,
     pub fls_bin: String,
+    /// Bound for mmls/fls runs. Listing tools read a whole filesystem; a
+    /// hostile or corrupt image can otherwise hang the workstation step
+    /// forever. `None` means the probe default (120s), matching F2-2.
+    pub timeout_secs: Option<u64>,
 }
+
+/// Probe-class default for listing tools (seconds), shared with the e01 lane.
+pub const TSK_PROBE_TIMEOUT_SECS: u64 = 120;
 
 impl Default for TskInspectOptions {
     fn default() -> Self {
@@ -28,6 +35,7 @@ impl Default for TskInspectOptions {
             max_entries: DEFAULT_MAX_ENTRIES,
             mmls_bin: "mmls".to_string(),
             fls_bin: "fls".to_string(),
+            timeout_secs: Some(TSK_PROBE_TIMEOUT_SECS),
         }
     }
 }
@@ -136,7 +144,12 @@ pub fn inspect_image(
             .join(format!("tsk-mmls-{inspected_unix}.txt")),
     );
     let mmls_args = vec![tsk_path_string(&image_path)];
-    let mmls = run_capture(&options.mmls_bin, &["mmls"], &mmls_args);
+    let mmls = run_capture(
+        &options.mmls_bin,
+        &["mmls"],
+        &mmls_args,
+        options.timeout_secs,
+    );
     let partitions = match &mmls {
         Ok(output) if output.status_success => {
             write_text(&mmls_log_path, &output.combined_text())
@@ -169,7 +182,7 @@ pub fn inspect_image(
             .join(format!("tsk-fls-{inspected_unix}.txt")),
     );
     let fls_args = fls_args(&image_path, partition_offset);
-    let fls = run_capture(&options.fls_bin, &["fls"], &fls_args)?;
+    let fls = run_capture(&options.fls_bin, &["fls"], &fls_args, options.timeout_secs)?;
     write_text(&fls_log_path, &fls.combined_text())
         .map_err(|err| format!("failed to write fls log: {err}"))?;
     if !fls.status_success {
@@ -430,13 +443,28 @@ fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-fn run_capture(binary: &str, allowed: &[&str], args: &[String]) -> Result<CommandOutput, String> {
+fn run_capture(
+    binary: &str,
+    allowed: &[&str],
+    args: &[String],
+    timeout_secs: Option<u64>,
+) -> Result<CommandOutput, String> {
     let resolved_binary = resolve_tool_binary(binary, allowed)
         .map_err(|err| format!("{err} (install Sleuth Kit and ensure {binary} is in PATH)"))?;
-    let output = Command::new(&resolved_binary)
-        .args(args)
-        .output()
+    let mut command = Command::new(&resolved_binary);
+    command.args(args);
+    let output = crate::util::run_with_timeout(&mut command, timeout_secs)
         .map_err(|err| format!("failed to run {binary}: {err}"))?;
+    if let Some(secs) = timeout_secs
+        && !output.status.success()
+    {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("did not finish within") || stderr.contains("terminated") {
+            return Err(format!(
+                "{binary} did not finish within {secs}s and was terminated (retry with a larger --timeout)"
+            ));
+        }
+    }
     Ok(CommandOutput {
         status_success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),

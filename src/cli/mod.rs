@@ -185,6 +185,9 @@ pub enum Commands {
         mmls: Option<String>,
         #[arg(long)]
         fls: Option<String>,
+        /// Bound for the mmls/fls runs in seconds (default 120)
+        #[arg(long)]
+        timeout: Option<u64>,
     },
     /// Recover one filesystem inode from a raw forensic image with Sleuth Kit icat
     RecoverInode {
@@ -509,12 +512,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             max_entries,
             mmls,
             fls,
+            timeout,
         } => {
             let options = TskInspectOptions {
                 partition_offset,
                 max_entries,
                 mmls_bin: mmls.unwrap_or_else(|| "mmls".to_string()),
                 fls_bin: fls.unwrap_or_else(|| "fls".to_string()),
+                timeout_secs: Some(timeout.unwrap_or(crate::tsk::TSK_PROBE_TIMEOUT_SECS)),
             };
             inspect_image(&case_dir, &image_file, options)
         }

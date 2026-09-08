@@ -272,7 +272,9 @@ pub fn export_dav(
         .and_then(|stem| stem.to_str())
         .unwrap_or("dav");
     let requested_raw = output.unwrap_or_else(|| {
-        crate::util::unique_path(&case_dir.join("artifacts/clips").join(format!("{stem}.mp4")))
+        crate::util::unique_available_path(
+            &case_dir.join("artifacts/clips").join(format!("{stem}.mp4")),
+        )
     });
     require_case_output_path(case_dir, &requested_raw, "DAV export")?;
     if requested_raw.exists() {
@@ -348,7 +350,9 @@ pub fn export_hik(
         .and_then(|stem| stem.to_str())
         .unwrap_or("hik");
     let requested_raw = output.unwrap_or_else(|| {
-        crate::util::unique_path(&case_dir.join("artifacts/clips").join(format!("{stem}.mp4")))
+        crate::util::unique_available_path(
+            &case_dir.join("artifacts/clips").join(format!("{stem}.mp4")),
+        )
     });
     require_case_output_path(case_dir, &requested_raw, "Hikvision export")?;
     if requested_raw.exists() {

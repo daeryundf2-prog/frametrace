@@ -1,5 +1,5 @@
 use crate::audit;
-use crate::util::{json_escape, now_unix, unique_path, write_text};
+use crate::util::{json_escape, now_unix, write_text};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
             }
             path.to_path_buf()
         }
-        None => unique_path(
+        None => crate::util::unique_dir(
             &case_dir
                 .join("reports")
                 .join(format!("package_{created_unix}")),
