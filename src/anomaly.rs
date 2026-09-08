@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 pub const LABEL: &str = "candidate-finding";
 const GAP_SECS: u64 = 7 * 24 * 60 * 60;
 /// DAV frames normally arrive at 25-30fps (0.03-0.04s apart). A gap an order
-/// of magnitude larger suggests dropped frames or recorder pauses.
+/// of magnitude larger suggests dropped frames or recorder pauses. The
+/// threshold is compared against the packed-date second span; the
+/// free-running ms counter only refines the sub-second remainder.
 const DAV_FRAME_GAP_SECS: f64 = 2.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,7 +257,7 @@ fn dav_frame_gap_findings(case_dir: &Path, rows: &[IndexedRow]) -> Vec<Finding> 
             .collect();
         for window in video.windows(2) {
             let (prev, next) = (window[0], window[1]);
-            if prev.channel != next.channel || prev.date_packed() == next.date_packed() {
+            if prev.channel != next.channel {
                 continue;
             }
             if next.date_packed() < prev.date_packed() {
@@ -270,31 +272,24 @@ fn dav_frame_gap_findings(case_dir: &Path, rows: &[IndexedRow]) -> Vec<Finding> 
                         prev.date_packed()
                     ),
                 });
-            } else {
-                let (py, pmo, pd, ph, pmi, ps) = prev.date_breakdown();
-                let (ny, nmo, nd, nh, nmi, ns) = next.date_breakdown();
-                let prev_secs = (u64::from(py) * 31536000
-                    + u64::from(pmo) * 2592000
-                    + u64::from(pd) * 86400
-                    + u64::from(ph) * 3600
-                    + u64::from(pmi) * 60
-                    + u64::from(ps)) as f64
-                    + f64::from(prev.timestamp_secs);
-                let next_secs = (u64::from(ny) * 31536000
-                    + u64::from(nmo) * 2592000
-                    + u64::from(nd) * 86400
-                    + u64::from(nh) * 3600
-                    + u64::from(nmi) * 60
-                    + u64::from(ns)) as f64
-                    + f64::from(next.timestamp_secs);
-                let delta = next_secs - prev_secs;
+            } else if next.date_packed() > prev.date_packed() {
+                // Coarse span from the 1-second-resolution packed dates; the
+                // wrapped ms counter refines the boundary. FFmpeg get_pts
+                // treats `timestamp` as a free-running 65535-wrap ms counter,
+                // never as wall-clock seconds, so it must not be summed into
+                // the date seconds.
+                let prev_secs = packed_date_seconds(prev);
+                let next_secs = packed_date_seconds(next);
+                let delta = (next_secs - prev_secs) as f64
+                    + (next.subsecond_ms() as f64)
+                        .mul_add(0.001, -(prev.subsecond_ms() as f64) * 0.001);
                 if delta > DAV_FRAME_GAP_SECS {
                     out.push(Finding {
                         kind: "dav-frame-gap",
                         selector: row.id.clone(),
                         source_path: row.source_path.clone(),
                         detail: format!(
-                            "video frames at byte offsets {} -> {} span {delta:.1}s (threshold {DAV_FRAME_GAP_SECS}s); possible dropped frames or recorder pause",
+                            "video frames at byte offsets {} -> {} span {delta:.3}s (threshold {DAV_FRAME_GAP_SECS}s); possible dropped frames or recorder pause",
                             prev.offset, next.offset
                         ),
                     });
@@ -303,6 +298,18 @@ fn dav_frame_gap_findings(case_dir: &Path, rows: &[IndexedRow]) -> Vec<Finding> 
         }
     }
     out
+}
+
+/// Total seconds encoded in the packed Dahua date (monotonic-in-practice
+/// civil time; exact calendar math is unnecessary for gap spans).
+fn packed_date_seconds(frame: &crate::dav::DavFrame) -> u64 {
+    let (year, month, day, hour, minute, second) = frame.date_breakdown();
+    u64::from(year) * 31536000
+        + u64::from(month) * 2592000
+        + u64::from(day) * 86400
+        + u64::from(hour) * 3600
+        + u64::from(minute) * 60
+        + u64::from(second)
 }
 
 fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
@@ -383,13 +390,14 @@ mod tests {
         let findings = dav_frame_gap_findings(&dir, &rows);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].kind, "dav-frame-gap");
+        // 10s from packed dates; the ms remainder (500-0) only refines it.
         assert!(
-            findings[0].detail.contains("10.0s"),
+            findings[0].detail.contains("span 10.500s") || findings[0].detail.contains("10.5"),
             "{detail}",
             detail = findings[0].detail
         );
 
-        // A normal 1s cadence stays clean.
+        // A normal 1s cadence stays clean even across the 65535 ms wrap.
         let steady_path = dir.join("steady.dav");
         std::fs::write(&steady_path, dav_fixture_with_dates(0, 1)).unwrap();
         let steady_rows = vec![IndexedRow {
@@ -408,8 +416,10 @@ mod tests {
 
     /// Builds a minimal two-video-frame DAV whose second frame's packed date
     /// is `gap_secs` after the first (same minute, so only seconds differ).
+    /// The ms counter sits near its 65535 wrap so a naive seconds-style
+    /// reading of it would produce a wildly wrong span.
     fn dav_fixture_with_dates(first_sec: u32, second_sec: u32) -> Vec<u8> {
-        fn frame(channel: u8, second: u32, payload: &[u8]) -> Vec<u8> {
+        fn frame(channel: u8, second: u32, timestamp_ms: u16, payload: &[u8]) -> Vec<u8> {
             let header_len = 24u32;
             let frame_length = header_len + payload.len() as u32 + 8;
             let date = second & 0x3F; // packed: only the seconds field
@@ -422,7 +432,7 @@ mod tests {
             bytes.extend_from_slice(&1u32.to_le_bytes());
             bytes.extend_from_slice(&frame_length.to_le_bytes());
             bytes.extend_from_slice(&date.to_le_bytes());
-            bytes.extend_from_slice(&0u16.to_le_bytes()); // timestamp (clock secs)
+            bytes.extend_from_slice(&timestamp_ms.to_le_bytes());
             bytes.push(0); // ext_length
             bytes.push(0); // checksum
             bytes.extend_from_slice(payload);
@@ -431,8 +441,8 @@ mod tests {
             bytes
         }
         let mut out = Vec::new();
-        out.extend(frame(1, first_sec, b"V1"));
-        out.extend(frame(1, second_sec, b"V2"));
+        out.extend(frame(1, first_sec, 65000, b"V1"));
+        out.extend(frame(1, second_sec, 500, b"V2"));
         out
     }
 

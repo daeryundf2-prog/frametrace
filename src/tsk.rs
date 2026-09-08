@@ -497,11 +497,44 @@ fn parse_mmls_partitions(text: &str) -> Vec<MmlsPartition> {
         .collect()
 }
 
+/// Picks the partition to inspect. Auto-selection prefers partitions whose
+/// mmls description names a data filesystem (NTFS/exFAT/FAT/HFS+/APFS/ext)
+/// — on a GPT disk the first allocated partition is typically the tiny
+/// EFI System Partition and on DOS layouts the first is often an Extended
+/// Table container; both would yield an (almost) empty listing presented
+/// as a successful inspection, i.e. a wrong-negative forensic result.
 fn choose_partition_offset(partitions: &[MmlsPartition], explicit: Option<u64>) -> u64 {
     explicit.unwrap_or_else(|| {
-        partitions
+        let allocated: Vec<&MmlsPartition> = partitions
             .iter()
-            .find(|partition| partition.allocated)
+            .filter(|partition| partition.allocated)
+            .collect();
+        let looks_like_data_fs = |partition: &MmlsPartition| {
+            let description = partition.description.to_ascii_lowercase();
+            // EFI System Partitions are FAT but hold the boot loader, not
+            // evidence; excluding them before the data-filesystem match is
+            // what makes GPT auto-selection correct.
+            if description.contains("efi system") {
+                return false;
+            }
+            [
+                "ntfs",
+                "exfat",
+                "fat",
+                "hfs",
+                "apfs",
+                "ext2",
+                "ext3",
+                "ext4",
+                "linux filesystem",
+            ]
+            .iter()
+            .any(|fs| description.contains(fs))
+        };
+        allocated
+            .iter()
+            .find(|partition| looks_like_data_fs(partition))
+            .or_else(|| allocated.first())
             .map(|partition| partition.start)
             .unwrap_or(0)
     })
@@ -630,6 +663,44 @@ Units are in 512-byte sectors
         assert_eq!(partitions.len(), 3);
         assert_eq!(choose_partition_offset(&partitions, None), 2048);
         assert_eq!(choose_partition_offset(&partitions, Some(63)), 63);
+    }
+
+    /// GPT disks list the small EFI System Partition first; auto-selection
+    /// must skip it in favor of the data volume, or the examiner sees an
+    /// (almost) empty listing presented as a successful inspection.
+    #[test]
+    fn choose_partition_skips_efi_system_partition() {
+        let text = "\
+GUID Partition Table (EFI)
+Offset Sector: 0
+Units are in 512-byte sectors
+
+      Slot      Start        End          Length       Description
+000:  Meta      0000000000   0000000000   0000000001   Safety Table
+001:  -------   0000000000   0000002047   0000002048   Unallocated
+002:  000:000   0000002048   0000004111   0000002064   EFI System Partition (FAT)
+003:  000:001   0000004112   0209715199   0209711088   NTFS / exFAT (0x07)
+";
+        let partitions = parse_mmls_partitions(text);
+        assert_eq!(choose_partition_offset(&partitions, None), 4112);
+    }
+
+    /// A DOS extended layout lists the container ("Extended Table") before
+    /// the logical data volume; the container must not be chosen.
+    #[test]
+    fn choose_partition_skips_extended_table_container() {
+        let text = "\
+DOS Partition Table
+Offset Sector: 0
+Units are in 512-byte sectors
+
+      Slot      Start        End          Length       Description
+000:  Meta      0000000000   0000000000   0000000001   Primary Table (#0)
+001:  000:000   0000002048   0004116223   0004114176   DOS Extended (0x05)
+002:  001:000   0004116480   1000215215   0996098736   NTFS / exFAT (0x07)
+";
+        let partitions = parse_mmls_partitions(text);
+        assert_eq!(choose_partition_offset(&partitions, None), 4116480);
     }
 
     #[test]

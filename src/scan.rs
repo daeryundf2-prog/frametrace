@@ -493,35 +493,102 @@ impl IndexedRecordLine {
 /// through raw text edits only, so existing byte-stable records keep their
 /// field order and spelling.
 fn set_json_field(line: &str, key: &str, value: &str) -> String {
-    if extract_json_value(line, key).is_some() {
+    if find_top_level_key(line, key).is_some() {
         replace_json_field(line, key, value)
     } else {
         insert_json_field(line, key, value)
     }
 }
 
-fn replace_json_field(line: &str, key: &str, value: &str) -> String {
+/// Byte range of `"key":<value>` at JSON depth 1 (top-level object members
+/// only). Nested occurrences — e.g. a metadata tag named `index_status`
+/// inside the inlined ffprobe object — are deliberately not matched, so
+/// stale markers can never rewrite recorded probe evidence.
+fn find_top_level_key(line: &str, key: &str) -> Option<std::ops::Range<usize>> {
+    let bytes = line.as_bytes();
     let needle = format!("\"{key}\":");
-    let Some(key_start) = line.find(&needle) else {
+    let needle = needle.as_bytes();
+    let mut depth: usize = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        let ch = bytes[index];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == b'\\' {
+                escaped = true;
+            } else if ch == b'"' {
+                in_string = false;
+            }
+            index += 1;
+            continue;
+        }
+        match ch {
+            b'"' => in_string = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        // A member key starts at depth 1 right after a `{` or `,`.
+        if depth == 1
+            && (bytes[..=index].ends_with(b"{") || bytes[..=index].ends_with(b","))
+            && bytes[index + 1..].starts_with(needle)
+        {
+            let value_start = index + 1 + needle.len();
+            let value = extract_scalar_value(&line[value_start..])?;
+            let range = value_start..value_start + value.len();
+            return Some(range);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Consumes one scalar JSON value (string, number, bool, null) from the
+/// start of `text` and returns its raw serialized form.
+fn extract_scalar_value(text: &str) -> Option<String> {
+    let trimmed = text.trim_start();
+    let offset = text.len() - trimmed.len();
+    let mut chars = trimmed.chars();
+    match chars.next()? {
+        '"' => {
+            let mut out = String::from("\"");
+            let mut escaped = false;
+            for ch in trimmed[1..].chars() {
+                out.push(ch);
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    return Some(format!("{}{}", &text[..offset], &out));
+                }
+            }
+            None
+        }
+        first if first == '-' || first.is_ascii_digit() => {
+            let raw: String = std::iter::once(first)
+                .chain(chars.take_while(|ch| {
+                    ch.is_ascii_digit() || matches!(ch, '.' | 'e' | 'E' | '+' | '-')
+                }))
+                .collect();
+            (!raw.is_empty()).then(|| format!("{}{}", &text[..offset], raw))
+        }
+        't' if trimmed.starts_with("true") => Some(format!("{}true", &text[..offset])),
+        'f' if trimmed.starts_with("false") => Some(format!("{}false", &text[..offset])),
+        'n' if trimmed.starts_with("null") => Some(format!("{}null", &text[..offset])),
+        _ => None,
+    }
+}
+
+fn replace_json_field(line: &str, key: &str, value: &str) -> String {
+    let Some(range) = find_top_level_key(line, key) else {
         return insert_json_field(line, key, value);
     };
-    let value_start = key_start + needle.len();
-    let whitespace_len = line[value_start..]
-        .chars()
-        .take_while(|ch| ch.is_whitespace())
-        .map(char::len_utf8)
-        .sum::<usize>();
-    let actual_value_start = value_start + whitespace_len;
-    let Some(existing_value) = extract_json_value(line, key) else {
-        return insert_json_field(line, key, value);
-    };
-    let actual_value_end = actual_value_start + existing_value.len();
-    format!(
-        "{}{}{}",
-        &line[..actual_value_start],
-        value,
-        &line[actual_value_end..]
-    )
+    format!("{}{}{}", &line[..range.start], value, &line[range.end..])
 }
 
 fn insert_json_field(line: &str, key: &str, value: &str) -> String {
@@ -652,72 +719,6 @@ fn tsv_escape(value: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn extract_json_value(line: &str, key: &str) -> Option<String> {
-    let key = format!("\"{}\":", key);
-    let start = line.find(&key)? + key.len();
-    let value = line[start..].trim_start();
-    let first = value.chars().next()?;
-
-    match first {
-        '"' => extract_quoted_json_value(value),
-        '{' | '[' => extract_balanced_json_value(value, first),
-        _ => {
-            let end = value
-                .find(|ch| [',', '}', ']'].contains(&ch))
-                .unwrap_or(value.len());
-            let raw = value[..end].trim();
-            (!raw.is_empty()).then(|| raw.to_string())
-        }
-    }
-}
-
-fn extract_quoted_json_value(value: &str) -> Option<String> {
-    let mut escaped = false;
-    for (offset, ch) in value.char_indices().skip(1) {
-        if escaped {
-            escaped = false;
-        } else if ch == '\\' {
-            escaped = true;
-        } else if ch == '"' {
-            return Some(value[..offset + ch.len_utf8()].to_string());
-        }
-    }
-    None
-}
-
-fn extract_balanced_json_value(value: &str, opener: char) -> Option<String> {
-    let closer = if opener == '{' { '}' } else { ']' };
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-
-    for (offset, ch) in value.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-
-        match ch {
-            '"' => in_string = true,
-            ch if ch == opener => depth += 1,
-            ch if ch == closer => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(value[..offset + ch.len_utf8()].to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -746,6 +747,29 @@ mod tests {
             updated,
             r#"{"id":"vid_1","stale_since_unix":9,"ext":"mp4"}"#
         );
+    }
+
+    /// A nested key (e.g. an ffprobe metadata tag) sharing the stale
+    /// marker's name must never be touched: only depth-1 members match.
+    /// Evidence files can carry tags named `index_status` planted via
+    /// `ffmpeg -metadata`, so this is an adversarial-input guard.
+    #[test]
+    fn set_json_field_ignores_nested_keys_with_the_same_name() {
+        let line = r#"{"id":"vid_1","ffprobe":{"index_status":"attacker tag","streams":[]},"index_status":null,"ext":"mp4"}"#;
+        let updated = set_json_field(line, "index_status", "\"stale\"");
+        assert!(
+            updated.contains(r#""ffprobe":{"index_status":"attacker tag""#),
+            "nested tag must stay byte-identical: {updated}"
+        );
+        assert!(updated.contains(r#""index_status":"stale""#), "{updated}");
+    }
+
+    #[test]
+    fn set_json_field_appends_when_top_level_key_missing() {
+        let line = r#"{"id":"vid_1","ffprobe":{"index_status":"nested decoy"}}"#;
+        let updated = set_json_field(line, "stale_since_unix", "7");
+        assert!(updated.ends_with(r#","stale_since_unix":7}"#), "{updated}");
+        assert!(updated.contains(r#""ffprobe":{"index_status":"nested decoy"}"#));
     }
 
     #[test]

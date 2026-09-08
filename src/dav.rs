@@ -34,19 +34,20 @@ pub struct DavFrame {
     pub offset: u64,
     pub stream_type: u8,
     pub channel: u16,
-    /// Packed Dahua date field (FFmpeg `get_date`): year-2000 << 26 |
-    /// month << 22 | day << 17 | hour << 12 | minute << 6 | second.
+    /// Packed Dahua date field with 1-second resolution (FFmpeg
+    /// `get_timeinfo`): year-2000 << 26 | month << 22 | day << 17 |
+    /// hour << 12 | minute << 6 | second.
     pub date: u32,
-    /// Clock-time seconds within a minute, from the per-frame timestamp.
-    pub timestamp_secs: u16,
+    /// Free-running millisecond counter that wraps at 65535 (FFmpeg
+    /// `get_pts`: `av_rescale`/diff added into a millisecond-domain pts,
+    /// `+ 65535` wrap). NOT clock seconds — do not add to `date` as-is.
+    pub timestamp_ms: u16,
     pub payload_offset: u64,
     pub payload_size: u64,
 }
 
 impl DavFrame {
-    /// Absolute Unix-ish seconds derived from the packed date field. The
-    /// Dahua date has no timezone; the raw packed value is kept for chain
-    /// comparisons, and this converts it for human-readable details only.
+    /// Raw packed date value, kept for byte-stable comparisons.
     pub fn date_packed(&self) -> u32 {
         self.date
     }
@@ -60,6 +61,15 @@ impl DavFrame {
         let minute = (self.date >> 6) & 0x3F;
         let second = self.date & 0x3F;
         (year, month, day, hour, minute, second)
+    }
+
+    /// Milliseconds elapsed within the packed date's second, derived the
+    /// same way FFmpeg's `get_pts` interprets the timestamp counter. The
+    /// counter is free-running and wraps at 65535, so only the
+    /// sub-second remainder `[0, 1000)` is meaningful without adjacent
+    /// frames; gap math uses date seconds for the coarse span.
+    pub fn subsecond_ms(&self) -> u64 {
+        u64::from(self.timestamp_ms) % 1000
     }
 }
 
@@ -154,7 +164,7 @@ pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
             .map_err(|err| format!("failed to seek DAV meta: {err}"))?;
         file.read_exact(&mut meta)
             .map_err(|err| format!("failed to read DAV meta: {err}"))?;
-        let timestamp_secs = u16::from_le_bytes([meta[0], meta[1]]);
+        let timestamp_ms = u16::from_le_bytes([meta[0], meta[1]]);
         let ext_length = meta[2] as u64;
         cursor += 4 + ext_length;
 
@@ -184,7 +194,7 @@ pub fn walk_frames(path: &Path) -> Result<Vec<DavFrame>, String> {
                 stream_type,
                 channel,
                 date,
-                timestamp_secs,
+                timestamp_ms,
                 payload_offset: cursor,
                 payload_size,
             });
@@ -198,21 +208,26 @@ fn is_video_frame(stream_type: u8) -> bool {
     matches!(stream_type, STREAM_VIDEO_P | STREAM_VIDEO_I)
 }
 
-/// Copies every video-frame payload into an Annex-B elementary stream.
+/// Copies the video-frame payloads of a single channel into an Annex-B
+/// elementary stream. Multi-channel recorders interleave frames per
+/// channel; concatenating across channels produces an unplayable mix, so
+/// the first video frame's channel is pinned for the whole stream.
 pub fn extract_video_es(
     dav_path: &Path,
     es_output: &Path,
 ) -> Result<(u64, usize, Option<u16>), String> {
     let frames = walk_frames(dav_path)?;
+    let channel = frames
+        .iter()
+        .find(|frame| is_video_frame(frame.stream_type))
+        .map(|frame| frame.channel);
     let video: Vec<&DavFrame> = frames
         .iter()
-        .filter(|frame| is_video_frame(frame.stream_type))
+        .filter(|frame| is_video_frame(frame.stream_type) && Some(frame.channel) == channel)
         .collect();
     if video.is_empty() {
         return Err("DAV contains no video frames".to_string());
     }
-    let channel = video.first().map(|frame| frame.channel);
-
     if let Some(parent) = es_output.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create ES output directory: {err}"))?;
@@ -403,6 +418,28 @@ mod tests {
         let _ = std::fs::remove_file(&es);
     }
 
+    /// Multi-channel recorders interleave frames per channel; the ES must
+    /// contain only the pinned first channel's payloads, never a mix.
+    #[test]
+    fn extract_pins_one_channel_in_multichannel_dav() {
+        let mut bytes = Vec::new();
+        bytes.extend(build_frame(STREAM_VIDEO_I, 1, b"CH1_A"));
+        bytes.extend(build_frame(STREAM_VIDEO_I, 2, b"CH2_A"));
+        bytes.extend(build_frame(STREAM_VIDEO_P, 1, b"CH1_B"));
+        bytes.extend(build_frame(STREAM_VIDEO_P, 2, b"CH2_B"));
+        let path = std::env::temp_dir().join(format!("ft-dav-mc-{}", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let es = std::env::temp_dir().join(format!("ft-dav-mc-es-{}.bin", std::process::id()));
+        let (written, frames, channel) = extract_video_es(&path, &es).unwrap();
+        assert_eq!(channel, Some(1));
+        assert_eq!(frames, 2);
+        let content = std::fs::read(&es).unwrap();
+        assert_eq!(content, b"CH1_ACH1_B".to_vec());
+        assert_eq!(written, (b"CH1_A".len() + b"CH1_B".len()) as u64);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&es);
+    }
+
     #[test]
     fn corrupt_end_marker_is_reported_not_guessed() {
         let mut bytes = fixture_bytes();
@@ -446,7 +483,7 @@ mod tests {
         let frames = walk_frames(&path).unwrap();
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].date_packed(), packed);
-        assert_eq!(frames[0].timestamp_secs, 42);
+        assert_eq!(frames[0].timestamp_ms, 42);
         assert_eq!(frames[0].date_breakdown(), (2026, 9, 8, 14, 3, 7));
         let _ = std::fs::remove_file(&path);
     }

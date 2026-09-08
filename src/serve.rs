@@ -188,6 +188,10 @@ struct Request {
     query: String,
     body: String,
     range: Option<String>,
+    /// Raw Origin header, when present (CSRF gate for state-changing POSTs).
+    origin: Option<String>,
+    /// Raw Host header, when present (DNS-rebinding gate).
+    host: Option<String>,
 }
 
 fn handle_connection(mut stream: TcpStream, state: SharedState) -> Result<(), String> {
@@ -195,14 +199,26 @@ fn handle_connection(mut stream: TcpStream, state: SharedState) -> Result<(), St
         .set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|err| format!("read timeout: {err}"))?;
     let request = read_request(&mut stream)?;
+    if !request_is_localhost_trusted(&request) {
+        let response = plain(403, b"cross-origin request rejected".to_vec());
+        let _ = stream.write_all(&response);
+        let _ = stream.flush();
+        // Half-close so simple clients see EOF instead of waiting on the
+        // read timeout; we never reuse connections.
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        return Ok(());
+    }
     if request.method == "GET" && request.path == "/media" {
-        return serve_media(&mut stream, &request, &state);
+        let result = serve_media(&mut stream, &request, &state);
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        return result;
     }
     let response = route(&request, &state);
     stream
         .write_all(&response)
         .map_err(|err| format!("write failed: {err}"))?;
     let _ = stream.flush();
+    let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
 }
 
@@ -232,6 +248,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     let target = parts.next().unwrap_or("/").to_string();
     let mut content_length = 0usize;
     let mut range = None;
+    let mut origin = None;
+    let mut host = None;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -244,6 +262,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
                 .map_err(|_| "invalid content-length")?;
         } else if name.eq_ignore_ascii_case("range") {
             range = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("origin") {
+            origin = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("host") {
+            host = Some(value.to_string());
         }
     }
     if content_length > MAX_BODY {
@@ -270,6 +292,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
         query,
         body: String::from_utf8_lossy(&body).to_string(),
         range,
+        origin,
+        host,
     })
 }
 
@@ -362,7 +386,40 @@ fn json_string(value: &str) -> String {
     format!("\"{}\"", json_escape(value))
 }
 
+/// The workstation binds loopback only, but any website open in the
+/// examiner's browser can still issue `text/plain` form POSTs without a
+/// CORS preflight, and a rebinding domain can point at the same port. Gate
+/// every state-changing request on same-origin evidence: an Origin header
+/// must be absent (curl / the opened page itself) or match the loopback
+/// host, and a Host header must resolve to loopback.
+fn request_is_localhost_trusted(request: &Request) -> bool {
+    if let Some(origin) = request.origin.as_deref() {
+        let origin = origin.trim();
+        // `null` origins come from sandboxed frames, not our own pages.
+        let loopback_origin = origin.starts_with("http://127.0.0.1")
+            || origin.starts_with("http://localhost")
+            || origin.starts_with("http://[::1]");
+        if !loopback_origin {
+            return false;
+        }
+    }
+    if let Some(host) = request.host.as_deref() {
+        let host = host.trim().to_ascii_lowercase();
+        let host_only = host.split(':').next().unwrap_or_default();
+        if !matches!(host_only, "127.0.0.1" | "localhost" | "[::1]" | "::1") {
+            return false;
+        }
+    }
+    true
+}
+
 fn route(request: &Request, state: &SharedState) -> Vec<u8> {
+    // GET responses are safe to read from any origin only when the Host
+    // header is loopback; a rebinding domain pointing at this port is the
+    // documented DNS-rebinding attack against local tools.
+    if !request_is_localhost_trusted(request) {
+        return plain(403, b"cross-origin request rejected".to_vec());
+    }
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => page(EXAMINER_PAGE.as_bytes().to_vec()),
         ("GET", "/api/env") => json(api_env()),
@@ -593,8 +650,27 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
     }
 
     // Step 2: import the E01 (ewfverify runs unless explicitly skipped).
+    // A pre-existing raw image is reused ONLY when it was imported from
+    // the same E01 path; otherwise the wizard would silently analyze the
+    // previous evidence end-to-end (wrong-evidence results).
     set_step(&state, 1, StepStatus::Running);
-    if raw_path.exists() {
+    let raw_source_binding = raw_path.with_extension("raw.source");
+    let reuse_existing_raw = raw_path.exists() && {
+        let previous_source = std::fs::read_to_string(&raw_source_binding)
+            .map(|text| text.trim().to_string())
+            .unwrap_or_default();
+        let same_source = previous_source == source_text;
+        if !same_source && !previous_source.is_empty() {
+            log(
+                &state,
+                format!(
+                    "기존 raw 이미지는 다른 E01에서 임포트된 것입니다. 재임포트합니다: {raw_text}"
+                ),
+            );
+        }
+        same_source
+    };
+    if reuse_existing_raw {
         log(&state, format!("기존 raw 이미지 재사용: {raw_text}"));
         set_step(&state, 1, StepStatus::Done);
     } else {
@@ -611,6 +687,9 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
         match run_step(&exe, &args) {
             Ok(output) => {
                 log(&state, output);
+                // Bind the imported raw to this E01 so a later run with a
+                // different E01 re-imports instead of reusing stale bytes.
+                let _ = std::fs::write(&raw_source_binding, &source_text);
                 set_step(&state, 1, StepStatus::Done);
             }
             Err(err) => {
@@ -1431,19 +1510,29 @@ mod tests {
             }
             String::from_utf8_lossy(&buffer).to_string()
         };
-        let status = response("GET /api/status HTTP/1.1\r\nHost: x\r\n\r\n");
+        let status = response("GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
         assert!(status.contains("200 OK"));
         assert!(status.contains("\"has_job\":false"));
         assert!(status.contains("\"phase\":\"idle\""));
-        let env = response("GET /api/env HTTP/1.1\r\nHost: x\r\n\r\n");
+        let env = response("GET /api/env HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
         assert!(env.contains("\"ok\":true"));
         assert!(env.contains("\"ffmpeg\":"));
-        let review = response("GET /review/nope.html HTTP/1.1\r\nHost: x\r\n\r\n");
+        let review = response("GET /review/nope.html HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
         assert!(review.contains("404"));
-        let media = response("GET /media HTTP/1.1\r\nHost: x\r\n\r\n");
+        let media = response("GET /media HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
         assert!(media.contains("400"));
+        // DNS-rebinding gate: a non-loopback Host must be rejected on every
+        // route, including the evidence-streaming endpoint.
+        let rebinding = response("GET /api/status HTTP/1.1\r\nHost: attacker.example\r\n\r\n");
+        assert!(rebinding.contains("403"), "{rebinding}");
+        // Cross-site form POST: a foreign Origin on a state-changing route
+        // must be rejected without a preflight.
+        let csrf = response(
+            "POST /api/open-folder HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://evil.example\r\nContent-Type: text/plain\r\nContent-Length: 23\r\n\r\n{\"path\":\"C:\\\\evil.exe\"}",
+        );
+        assert!(csrf.contains("403"), "{csrf}");
         let traversal = response(
-            "POST /api/start HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"source_path\":\"C:\\nope\\missing\"}",
+            "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"source_path\":\"C:\\nope\\missing\"}",
         );
         assert!(traversal.contains("\"ok\":false"));
     }

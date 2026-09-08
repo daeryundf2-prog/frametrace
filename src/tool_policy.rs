@@ -11,7 +11,11 @@ pub fn resolve_tool_binary(input: &str, allowed_names: &[&str]) -> Result<String
     }
 
     if is_allowed_tool_name(trimmed, allowed_names) {
-        return Ok(resolve_bare_tool_name(trimmed, allowed_names));
+        return resolve_bare_tool_path(trimmed, allowed_names).ok_or_else(|| {
+            format!(
+                "tool '{trimmed}' not found in PATH or the tools/bin directory; install it and retry (a bare name is never executed directly to avoid planted-binary search paths)"
+            )
+        });
     }
 
     if !looks_like_path(trimmed) {
@@ -114,22 +118,21 @@ fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
 }
 
 /// Bare tool names are resolved against PATH here instead of being handed to
-/// `Command::new`, because the Windows loader also searches the current
-/// directory, which would let a planted binary ride along with evidence media.
-/// When the tool cannot be found, the bare name is returned so the downstream
-/// failure message stays identical.
-fn resolve_bare_tool_name(name: &str, allowed_names: &[&str]) -> String {
+/// `Command::new`, because the OS process search also covers the current
+/// directory (Windows `CreateProcess`) and empty/relative PATH entries
+/// (Unix `execvp`) — exactly where a planted binary would ride along with
+/// evidence media. When the tool cannot be found, `None` is returned: the
+/// caller must refuse to spawn rather than fall back to a bare name, which
+/// would reintroduce the planting vector this resolver exists to prevent.
+fn resolve_bare_tool_path(name: &str, allowed_names: &[&str]) -> Option<String> {
     let path_var = std::env::var("PATH").unwrap_or_default();
     if let Some(path) = find_in_path_dirs(name, allowed_names, &path_var) {
-        return path.to_string_lossy().to_string();
+        return Some(path.to_string_lossy().to_string());
     }
     // Portable layout: `<exe dir>/tools/bin` ships optional forensic tools
     // next to the binary so examiners never need admin rights to extend PATH.
     // The directory is part of the trusted install tree, unlike the CWD.
-    if let Some(found) = find_in_tools_bin(name, allowed_names) {
-        return found;
-    }
-    name.to_string()
+    find_in_tools_bin(name, allowed_names)
 }
 
 /// Whether an optional forensic tool has been dropped into the portable
@@ -252,13 +255,30 @@ mod tests {
         std::fs::create_dir_all(&tools_bin).unwrap();
         let probe = tools_bin.join("frametrace-probe-icat.exe");
         std::fs::write(&probe, b"stub").unwrap();
-        let resolved =
-            super::resolve_bare_tool_name("frametrace-probe-icat", &["frametrace-probe-icat"]);
+        let Some(resolved) =
+            super::resolve_bare_tool_path("frametrace-probe-icat", &["frametrace-probe-icat"])
+        else {
+            panic!("tool in tools/bin must resolve");
+        };
         assert!(
             resolved.ends_with("frametrace-probe-icat.exe"),
             "unexpected resolution: {resolved}"
         );
         let _ = std::fs::remove_file(&probe);
+    }
+
+    #[test]
+    fn missing_bare_tool_is_an_error_never_a_bare_name() {
+        // A tool absent from PATH and tools/bin must not fall back to a bare
+        // name: Command::new would then search the CWD (Windows) or empty
+        // PATH entries (Unix) — the planted-binary vector.
+        let err = super::resolve_tool_binary(
+            "frametrace-definitely-missing-tool",
+            &["frametrace-definitely-missing-tool"],
+        )
+        .unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        assert!(!err.starts_with("frametrace-definitely-missing-tool"));
     }
 
     use super::{find_in_path_dirs, require_case_output_path, resolve_tool_binary};
@@ -272,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_bare_tool_names_resolve_to_allowed_files_or_bare_name() {
+    fn accepted_bare_tool_names_resolve_to_allowed_files() {
         let resolved = resolve_tool_binary("ffprobe", &["ffprobe"]).unwrap();
         let file_name = Path::new(&resolved)
             .file_name()

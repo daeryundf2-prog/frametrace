@@ -87,6 +87,22 @@ fn append_chained_locked(file: &mut File, body: &str) -> Result<(), String> {
 }
 
 pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, String> {
+    // Take the same exclusive lock the appender holds (fs2 byte-range lock
+    // on the log file itself) so a verify running concurrently with an
+    // append never observes a half-written final line and reports a
+    // spurious torn write.
+    let _lock = match std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .append(true)
+        .open(path)
+    {
+        Ok(lock_file) => match lock_file.lock_exclusive() {
+            Ok(()) => Some(lock_file),
+            Err(_) => None, // fail open: verify still runs, just unserialized
+        },
+        Err(_) => None,
+    };
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read audit log {}: {err}", path.display()))?;
     let complete_tail = text.is_empty() || text.ends_with('\n');

@@ -221,26 +221,49 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
    > WinUI 템플릿으로 `gui/winui` 스캐폴드·Release x64 빌드 성공. 엔진 위임만 수행
    > (`frametrace-app` 실행, make-review/report, qa anomalies). 영수증:
    > `docs/WINUI_BLOCKER.md` (UNBLOCKED). 풀 GUI는 후속.
-6. **Hikvision 파서**(DAV 다음 레인 — 코퍼스 확보 가능할 때만).
-   > **상태: IMKH 레인 1차 구현 (2026-09-05), HDD FS·실샘플 대기.**
-   > `src/hikvision.rs` + `export-hik`(40바이트 IMKH 헤더 제거 후 remux), carve
-   > `hikvision-imkh`, scan magic, `scripts/validate-hik-samples.ps1`,
-   > `docs/HIKVISION_VALIDATION.md`. 합성 MPEG-PS IT 추가. `HIKVISION@HANGZHOU`
-   > HDD 파일시스템 복원은 코퍼스 없이 착수하지 않음.
+ 6. **Hikvision 파서**(DAV 다음 레인 — 코퍼스 확보 가능할 때만).
+    > **상태: IMKH 레인 1차 구현 (2026-09-05), HDD FS·실샘플 대기.**
+    > `src/hikvision.rs` + `export-hik`(40바이트 IMKH 헤더 제거 후 remux), carve
+    > `hikvision-imkh`, scan magic, `scripts/validate-hik-samples.ps1`,
+    > `docs/HIKVISION_VALIDATION.md`. 합성 MPEG-PS IT 추가. `HIKVISION@HANGZHOU`
+    > HDD 파일시스템 복원은 코퍼스 없이 착수하지 않음.
 
-## 7. 열린 결정사항 (마감)
+## 7. 전체 심층 리뷰 하드닝 (2026-09-08) — 완료
+
+병렬 심층 리뷰(serde 계약 / 보안·강건성)에서 나온 CRITICAL 2건·HIGH 5건·
+MEDIUM 1건을 즉시 수정했다. 상세와 red-test 목록은
+`docs/REVIEW_FIXES_2026-09-08.md`.
+
+- C-1 DAV 타임스탬프 단위(FFmpeg dhav.c `get_pts` 검증: ms 자유주행
+  카운터) — 갭 anomaly 계산 재작성, 랩 경계 fixture 통과.
+- C-2 워크스테이션 CSRF/리바인딩 방어(Origin+Host loopback 게이트,
+  `/api/open-folder` 실행 벡터 차단) — 실기기 스모크 200/403 확인.
+- H: `set_json_field` 중첩 키 오염 방지(depth-1 스캐너),
+  바이너리 심기 폴백 제거(bare name 실행 거부), DAV ES 채널 고정,
+  mmls 파티션 자동선택(EFI/확장 컨테이너 제외), E01 스테일 raw 재사용
+  방지(소스 바인딩), `verify-audit` 배타락.
+- 검증: 게이트 전량 녹색(테스트 121 lib + 3 smoke + 4 IT), release
+  바이너리 E2E(스캔→검증→리뷰→보고서→anomaly→verify-audit) 재실행.
+
+이월(후속 후보, 외부 전제 없이 진행 가능): audit 무키 체인의 법정 공개
+문서화, DAV `walk_frames` resync 정책(실샘플 코퍼스 후), mmls/fls
+타임아웃, `unique_path` TOCTOU, 비UTF-8 경로 lossless 표현,
+ffprobe 객체 재직렬화 키 정렬의 QA 재현성 영향.
+
+## 8. 열린 결정사항 (마감)
 
 | # | 결정 | 채택 |
 |---|---|---|
 | 1 | 콘솔 창 정책 | 이중 바이너리 `frametrace` / `frametrace-app` (M3) |
 | 2 | PDF 보고서 | `window.print()` 서버리스 유지 (M3) |
 | 3 | DAV 샘플 코퍼스 | 실 장비 녹화 우선; 공개 픽스처 없음 → 인테이크 하니스 대기 |
-| 4 | serde 도입 범위 | 1단계(ffprobe) 완료; model 전면은 이후 백로그 |
+| 4 | serde 도입 범위 | 1단계(ffprobe)+2단계(model) 완료 (2026-09-08) |
 | 5 | M1 착수 | 완료 (2026-08-30) |
+| 6 | 리뷰 하드닝 | 즉시 반영 (2026-09-08) — §7 참조 |
 
-## 8. 추적 지표 (마일스톤마다 재측정)
+## 9. 추적 지표 (마일스톤마다 재측정)
 
 - 스코어: M1 후 7.6 / M2 후 7.8 / M3 후 8.0+ (영역표는 리뷰 문서 기준 유지)
 - 성능 예산: 1만 건 뷰어 로드 ≤1.5s · 1천 건 썸네일 ≤3분 · 1천 건 검증 ≤4분 · inspect-image 1만 엔트리 ≤2분
-- 품질: 테스트 수 ≥ 120(현재 122 달성 — 2026-09-08: lib 115 + smoke 3 + IT 4) · 외부 도구 실행 테스트 ≥ 6 (IT 4개는 ffmpeg/libewf 실행, hik/dav 리먹스 포함) · CI 적색 0 유지
+- 품질: 테스트 수 ≥ 120(현재 128 달성 — 2026-09-08 하드닝 후: lib 121 + smoke 3 + IT 4) · 외부 도구 실행 테스트 ≥ 6 (IT 4개는 ffmpeg/libewf 실행, hik/dav 리먹스 포함) · CI 적색 0 유지
 - 무결성: 병렬 실행 후 `verify-audit` 100% 통과
