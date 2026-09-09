@@ -266,7 +266,24 @@ pub fn export_dav(
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
     let job = case_db::start_job(case_dir, "export-dav", dav_file, None, "{}")?;
+    let result = export_dav_inner(case_dir, dav_file, output, timeout_secs);
+    if let Err(err) = &result {
+        // Early failures (bad output path, unparseable DAV, remux, digest)
+        // must fail the job row too — otherwise `running` leaks forever.
+        let _ = case_db::fail_job(case_dir, &job.job_id, err);
+    }
+    result?;
+    case_db::complete_job(case_dir, &job.job_id, 1, "export-dav completed")?;
+    Ok(())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn export_dav_inner(
+    case_dir: &Path,
+    dav_file: &Path,
+    output: Option<PathBuf>,
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
     let stem = dav_file
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -320,7 +337,6 @@ pub fn export_dav(
         json_escape(validation),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/clips/export-log.jsonl"), &line)?;
-    case_db::complete_job(case_dir, &job.job_id, 1, "export-dav completed")?;
 
     println!("dav remux complete");
     println!(
@@ -344,7 +360,23 @@ pub fn export_hik(
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
     let job = case_db::start_job(case_dir, "export-hik", hik_file, None, "{}")?;
+    let result = export_hik_inner(case_dir, hik_file, output, timeout_secs);
+    if let Err(err) = &result {
+        // Early failures must fail the job row too — otherwise `running`
+        // leaks forever and the jobs table misstates what happened.
+        let _ = case_db::fail_job(case_dir, &job.job_id, err);
+    }
+    result?;
+    case_db::complete_job(case_dir, &job.job_id, 1, "export-hik completed")?;
+    Ok(())
+}
 
+fn export_hik_inner(
+    case_dir: &Path,
+    hik_file: &Path,
+    output: Option<PathBuf>,
+    timeout_secs: Option<u64>,
+) -> Result<(), String> {
     let stem = hik_file
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -383,7 +415,6 @@ pub fn export_hik(
         json_escape(&stripped.to_string_lossy()),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/clips/export-log.jsonl"), &line)?;
-    case_db::complete_job(case_dir, &job.job_id, 1, "export-hik completed")?;
 
     println!("hikvision remux complete");
     println!("method: {method}");
@@ -859,14 +890,18 @@ fn batch_output_path(
     extension: &str,
 ) -> Result<PathBuf, String> {
     let unix = now_unix()?;
-    Ok(crate::util::unique_path(&case_dir.join(relative_dir).join(
-        format!(
+    // Batch items pass this path as the EXPLICIT output to export_video,
+    // whose explicit branch hard-rejects any pre-existing target — so no
+    // placeholder reservation here; the artifact is created immediately
+    // after the check by the same call.
+    Ok(crate::util::unique_available_path(
+        &case_dir.join(relative_dir).join(format!(
             "{}_{}.{}",
             crate::video_export::sanitize_filename(selector),
             unix,
             extension
-        ),
-    )))
+        )),
+    ))
 }
 
 pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Result<(), String> {
@@ -1027,6 +1062,20 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
         audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
     }
 
+    // A batch whose every item failed is NOT a success: the job row must
+    // reflect that, or `inspect` summarizes a fully-failed batch as complete.
+    if ok == 0 && failed > 0 && failed == outcomes.len() {
+        let _ = case_db::fail_job(
+            case_dir,
+            &job.job_id,
+            &format!("all {failed} item(s) failed"),
+        );
+        return Err(format!(
+            "export batch failed: {failed} of {} item(s) failed",
+            outcomes.len()
+        ));
+    }
+
     case_db::complete_job(
         case_dir,
         &job.job_id,
@@ -1138,6 +1187,18 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
         outcomes_json(&outcomes),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
+    // All-items-failed batches must fail the job row, not record success.
+    if ok == 0 && failed > 0 && failed == outcomes.len() {
+        let _ = case_db::fail_job(
+            case_dir,
+            &job.job_id,
+            &format!("all {failed} item(s) failed"),
+        );
+        return Err(format!(
+            "validate batch failed: {failed} of {} item(s) failed",
+            outcomes.len()
+        ));
+    }
     case_db::complete_job(
         case_dir,
         &job.job_id,
@@ -1224,6 +1285,18 @@ pub fn recover_batch(
         outcomes_json(&outcomes),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
+    // All-items-failed batches must fail the job row, not record success.
+    if ok == 0 && failed > 0 && failed == outcomes.len() {
+        let _ = case_db::fail_job(
+            case_dir,
+            &job.job_id,
+            &format!("all {failed} item(s) failed"),
+        );
+        return Err(format!(
+            "recover batch failed: {failed} of {} item(s) failed",
+            outcomes.len()
+        ));
+    }
     case_db::complete_job(
         case_dir,
         &job.job_id,

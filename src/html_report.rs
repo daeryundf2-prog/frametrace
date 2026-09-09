@@ -378,10 +378,17 @@ pub fn render_evidence_viewer_html(
 }
 
 fn jsonl_to_array(jsonl: &str) -> String {
+    // A torn final line (the documented crash survivability mode) is not
+    // valid JSON; feeding it into the embedded array literal would be a
+    // syntax error that blanks the whole script block and the report
+    // would render as an empty-but-valid-looking page. Skip broken lines
+    // instead — the audit verify command is the authoritative integrity
+    // surface for detecting them.
     let items: Vec<&str> = jsonl
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
+        .filter(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
         .collect();
     format!("[{}]", items.join(","))
 }

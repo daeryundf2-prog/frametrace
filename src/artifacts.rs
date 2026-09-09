@@ -86,9 +86,22 @@ pub fn generate_proxy(
         })?;
 
     if !output.status.success() {
+        let _ = std::fs::remove_file(output_path);
         return Err(format!(
             "proxy generation failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    // A 0-byte proxy must never be logged as a generated artifact.
+    if std::fs::metadata(&output_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0)
+        == 0
+    {
+        let _ = std::fs::remove_file(&output_path);
+        return Err(format!(
+            "ffmpeg reported success but wrote no output bytes: {}",
+            output_path.display()
         ));
     }
 
@@ -150,9 +163,22 @@ pub fn generate_thumbnail(
         })?;
 
     if !output.status.success() {
+        let _ = std::fs::remove_file(output_path);
         return Err(format!(
             "thumbnail generation failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    // A 0-byte thumbnail must never be logged as a generated artifact.
+    if std::fs::metadata(&output_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0)
+        == 0
+    {
+        let _ = std::fs::remove_file(&output_path);
+        return Err(format!(
+            "ffmpeg reported success but wrote no output bytes: {}",
+            output_path.display()
         ));
     }
 
@@ -178,7 +204,9 @@ fn proxy_ffmpeg_args(
 ) -> Vec<String> {
     let scale = format!("scale='min({},{})':-2", options.max_width, "iw");
     vec![
-        "-n".to_string(),
+        // Output path was exclusively claimed by unique_path's O_EXCL
+        // reservation; -y overwrites our own placeholder by design.
+        "-y".to_string(),
         "-hide_banner".to_string(),
         "-i".to_string(),
         audit::path_string(source_path),
@@ -210,7 +238,9 @@ fn thumbnail_ffmpeg_args(
     options: &ThumbnailOptions,
 ) -> Vec<String> {
     vec![
-        "-n".to_string(),
+        // Output path was exclusively claimed by unique_path's O_EXCL
+        // reservation; -y overwrites our own placeholder by design.
+        "-y".to_string(),
         "-hide_banner".to_string(),
         "-ss".to_string(),
         format!("{:.3}", options.time_seconds),

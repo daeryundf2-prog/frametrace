@@ -50,6 +50,22 @@ pub fn export_video(
     selector: &str,
     options: &ExportOptions,
 ) -> Result<ExportResult, String> {
+    // Time-range args must be sane BEFORE ffmpeg runs: a negative start
+    // silently exports the full video while the audit log records the
+    // bogus value, and a start past EOF produces a "successful" 0-frame
+    // clip. Reject both instead of handing over mislabeled deliverables.
+    for (label, value) in [
+        ("start", options.start_seconds),
+        ("duration", options.duration_seconds),
+    ] {
+        if let Some(value) = value
+            && (value.is_sign_negative() || !value.is_finite())
+        {
+            return Err(format!(
+                "invalid {label} seconds {value}: must be a finite non-negative number"
+            ));
+        }
+    }
     let source_path = resolve_video_source(case_dir, selector)?;
     let export_unix = now_unix()?;
     let output_path = if let Some(output_path) = &options.output_path {
@@ -105,9 +121,23 @@ fn run_ffmpeg_export(
         })?;
 
     if !output.status.success() {
+        let _ = std::fs::remove_file(output_path);
         return Err(format!(
             "ffmpeg export failed: {}",
             String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    // ffmpeg can exit 0 while refusing to write (historically with -n);
+    // a "successful" export must always produce a non-empty file, and a
+    // 0-byte deliverable must never reach the audit log.
+    let size = std::fs::metadata(output_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    if size == 0 {
+        let _ = std::fs::remove_file(output_path);
+        return Err(format!(
+            "ffmpeg reported success but wrote no output bytes: {}",
+            output_path.display()
         ));
     }
     Ok(())
@@ -119,7 +149,11 @@ fn ffmpeg_export_args(
     options: &ExportOptions,
 ) -> Vec<String> {
     let mut args = vec![
-        "-n".to_string(),
+        // The output path was claimed exclusively by unique_path's O_EXCL
+        // reservation, so overwriting our own placeholder with -y is the
+        // intended flow. (-n refused the placeholder and ffmpeg still
+        // exited 0, which produced 0-byte deliverables logged as success.)
+        "-y".to_string(),
         "-hide_banner".to_string(),
         "-i".to_string(),
         audit::path_string(source_path),
@@ -315,7 +349,8 @@ mod tests {
             timeout_secs: None,
         };
         let args = ffmpeg_export_args(Path::new("in.mp4"), Path::new("out.mp4"), &options);
-        assert!(args.contains(&"-n".to_string()));
+        assert!(args.contains(&"-y".to_string()));
+        assert!(!args.contains(&"-n".to_string()));
         assert!(args.contains(&"libx264".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("out.mp4"));
     }

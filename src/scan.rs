@@ -428,10 +428,19 @@ fn merge_existing_with_scan(
             if updated_keys.insert(key.clone()) {
                 merged.push(updated.clone());
             }
+        } else if stale_keys.contains(&key) {
+            // Duplicate spelling of an already-decided record; skip.
+            continue;
+        } else if Path::new(&existing.source_path).is_file() {
+            // The file EXISTS on disk — it merely belongs to a different
+            // registered source that this scan did not cover. Sequential
+            // multi-source scans (README workflow: scan E:\ then
+            // E:\BLACKBOX) must not mark each other's live evidence stale.
+            merged.push(existing);
+            stale_keys.insert(key.clone());
         } else if stale_keys.insert(key.clone()) {
-            // Same dedupe for stale marking: a file that disappeared and is
-            // indexed under both \\?\ and clean spellings must become ONE
-            // stale record, not two (double-counted video_count forever).
+            // Genuinely missing from disk: mark stale once per file, even
+            // if indexed under both \\?\ and clean spellings.
             merged.push(existing.mark_stale(result.scanned_unix));
         }
     }

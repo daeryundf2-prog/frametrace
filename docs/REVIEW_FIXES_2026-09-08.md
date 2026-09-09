@@ -97,11 +97,52 @@
 - 워크스테이션 실기기: 정상 200, 리바인딩 Host 403, CSRF Origin 403,
   `nosniff` 헤더 확인.
 
-## 미수정 (기록된 후속 후보)
+## 3차 리뷰 (2026-09-08, 신규 미커버 모듈 + 회귀 검증)
 
-- audit 체인이 비대칭(무키)이라 파일 쓰기 권한 보유자가 전체 로그을
-  일관되게 재작성 가능 — 법정 공개 시 문서화 필요(`docs/` 권고).
-- `walk_frames` 손상 프레임에서 전체 파일 하드 실패(FFmpeg은 resync) —
-  실샘플 코퍼스 확보 후 resync 정책 결정 권장.
-- 비UTF-8 경로 lossy 처리 — 포렌식 산출물 경로는 실무상 대부분 유니코드
-  호환이라 후속 관찰 항목으로 유지.
+병렬 심층 리뷰가 재현으로 확인한 발견(구현자 아닌 검증자 관점)과 수정:
+
+17. **[C1] 기본 경로 export/proxy/thumbnail 0바이트 산출물 회귀** — 2차
+    하드닝의 `unique_path` O_EXCL 예약 플레이스홀더가 ffmpeg `-n`(never
+    overwrite)과 충돌: ffmpeg가 플레이스홀더를 거부하면서도 exit 0으로
+    빠져 **0바이트 파일이 성공+정상 체인 해시(e3b0c4...)로 기록**됐다.
+    export-batch는 전 항목 "already exists" 실패. 수정: `-y`(예약이 곧
+    배타권)+ 실행 후 크기>0 검증(0바이트는 산출물 삭제 후 에러).
+    재현: clip 50,986B / proxy 28,965B / thumb 10,627B / batch 2/2 ok.
+18. **[C2] 소스별 순차 스캔이 타 소스의 살아있는 증거를 stale 마킹** —
+    `merge_existing_with_scan`이 현재 스캔에 없으면 무조건 stale.
+    README의 다중 소스 워크플로(srcA 스캔→srcB 스캔)가 서로를 stale로
+    만들어 뷰어·리포트가 증거 상태를 그르쳤다. 수정: **디스크 존재
+    검사 후** 실제로 없는 파일만 stale. 재현: srcA→srcB 후 둘 다
+    active, srcA 파일 삭제 후 재스캔 시 srcA만 stale.
+19. **[H1] export-dav/hik 조기 실패가 job을 영구 `running`으로 누적**
+    — 나머지 6개 job 래핑 커맨드만 fail_job을 호출했다. 수정: inner
+    함수 분리 + 전 조기 반환에 fail_job. 재현: 존재 않는 DAV →
+    jobs 테이블 `failed` 행 확인.
+20. **[H2] export --start 음수/EOF 초과 무검증** — 음수 start는 전체
+    영상을 전달하며 로그에 보그값 기록, EOF 초과는 "성공한" 0프레임
+    클립. 수정: 유한·비음수 검증(씨네마 썸네일 레인과 동일). 재현:
+    `--start=-1.5` → 명시적 거부.
+21. **[H3] 전 항목 실패 배치도 `complete` 기록** — export/validate/
+    recover-batch가 ok/fail 집계와 무관하게 complete_job. 수정:
+    ok==0 && 전원 실패 시 fail_job + 에러.
+22. **[M1] torn 감사 로그 줄이 리포트/뷰어 스크립트를 통째로 무효화**
+    — `jsonl_to_array`가 줄별 JSON 검증 없이 join. 수정(리포트+뷰어):
+    유효하지 않은 줄 스킵 (체인 무결성의 판정 표면은 verify-audit).
+23. **[M5] release QA에 감사 체인 검증 부재** — 제품의 핵심 주장인
+    tamper-evident chain이 readiness 게이트에 없었다. 수정:
+    `audit_chain` 체크 추가 — 케이스 전체(evidence+artifacts)에서 체인
+    스키마(`previous_entry_sha256`) 로그를 수집·검증. 재현: 5/5 PASS.
+
+검증: 게이트 전량 녹색(128+4), release E2E로 C1·C2·H1·H2·H3·M5 재현
+시나리오 통과 확인. 리뷰가 확인한 정상 영역: SQL 전 파라미터화,
+write_scan_index 단일 트랜잭션, 마이그레이션 멱등, busy_timeout,
+병렬-감사-직렬화(M1-3) 주장, ffprobe serde 형태, escapeHtml 규율.
+
+## 남은 후속 (외부 전제 조건)
+
+- audit 체인 무키(비대칭) — 파일 쓰기 권한자의 전체 재작성은 감지 불가;
+  법정 공개 시 문서화 권고.
+- DAV `walk_frames` 손상 프레임 resync 정책 — 실장비 코퍼스 확보 전
+  착수 금지(로드맵 원칙).
+- SQLite↔JSONL 고스트 행 분기(M2): 재현 경로는 크래시 창/수동 수리로
+  좁고, 교차 저장 비교 명령은 후보로 기록.

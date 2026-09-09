@@ -287,6 +287,32 @@ pub fn release_readiness_report(
             .map(|report| report.report_path)
     }));
 
+    // The tamper-evident chain is the product's central claim; a release
+    // must not pass readiness with a torn or tampered audit log. Chained
+    // logs live under evidence/logs AND artifacts/*/ (export, batch,
+    // proxy, thumbnail logs all use append_chained_jsonl), so sweep the
+    // case tree and keep files whose first entry carries the chain schema.
+    checks.push(run_release_check("audit_chain", || {
+        let mut logs = Vec::new();
+        collect_chained_logs(case_dir, &mut logs);
+        if logs.is_empty() {
+            return Err("no chained audit logs found in the case".to_string());
+        }
+        let mut verified = 0usize;
+        for log in &logs {
+            crate::audit::verify_chained_jsonl(log)
+                .map_err(|err| format!("{}: {}", log.display(), err))?;
+            verified += 1;
+        }
+        let report_path = output_dir.join("audit-chain-report.txt");
+        write_text(
+            &report_path,
+            &format!("audit chain verification PASS: {verified} log(s) intact\n"),
+        )
+        .map_err(|err| format!("failed to write audit chain report: {err}"))?;
+        Ok(report_path)
+    }));
+
     let passed = checks.iter().all(|check| check.status == "PASS");
     let blocker_count = checks.iter().filter(|check| check.status != "PASS").count();
     let json_path = output_dir.join("release-readiness.json");
@@ -324,6 +350,31 @@ impl ReleaseCheck {
             evidence: reason.to_string(),
         }
     }
+}
+
+/// Collects every hash-chained audit log in the case: any *.jsonl whose
+/// first non-empty line contains the chain's `previous_entry_sha256`
+/// marker. Plain data files (db/videos.jsonl, fls entries) are skipped.
+fn collect_chained_logs(case_dir: &Path, out: &mut Vec<PathBuf>) {
+    let mut stack = vec![case_dir.join("evidence"), case_dir.join("artifacts")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                && let Ok(text) = read_to_string(&path)
+                && let Some(first) = text.lines().map(str::trim).find(|l| !l.is_empty())
+                && first.contains("previous_entry_sha256")
+            {
+                out.push(path);
+            }
+        }
+    }
+    out.sort();
 }
 
 fn run_release_check(name: &str, run: impl FnOnce() -> Result<PathBuf, String>) -> ReleaseCheck {
