@@ -285,6 +285,12 @@ pub enum QaCommands {
         #[arg(long)]
         output_dir: Option<PathBuf>,
     },
+    /// Cross-check the SQLite index against db/videos.jsonl for divergence
+    Consistency {
+        case_dir: PathBuf,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
     /// Run a SQLite-backed scale benchmark and emit a performance report
     Performance {
         output_dir: PathBuf,
@@ -475,6 +481,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = ProxyOptions {
                 max_width: max_width.unwrap_or_else(|| ProxyOptions::default().max_width),
                 output_path: output,
+                timeout_secs: None,
             };
             make_proxy(&case_dir, &selector, options)
         }
@@ -487,6 +494,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = ThumbnailOptions {
                 time_seconds: time.unwrap_or(0.0),
                 output_path: output,
+                timeout_secs: None,
             };
             make_thumbnail(&case_dir, &selector, options)
         }
@@ -624,6 +632,15 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
             let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
             let report = crate::qa::report_defense_check(&case_dir, &output_dir)?;
             println!("report-defense QA passed: {}", report.report_path.display());
+            Ok(())
+        }
+        QaCommands::Consistency {
+            case_dir,
+            output_dir,
+        } => {
+            let output_dir = output_dir.unwrap_or_else(|| case_dir.join("reports/qa"));
+            let report = crate::qa::consistency_report(&case_dir, &output_dir)?;
+            println!("consistency QA passed: {}", report.report_path.display());
             Ok(())
         }
         QaCommands::Performance { output_dir, rows } => {

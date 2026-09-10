@@ -369,7 +369,10 @@ pub fn render_evidence_viewer_html(
         validation_lines = json_for_script(&jsonl_to_array(validation_log_jsonl)),
         anomaly_lines = json_for_script(&jsonl_to_array(anomaly_log_jsonl)),
         fls_lines = json_for_script(&jsonl_to_array(fls_entries_jsonl)),
-        thumbs_lines = thumbs_json,
+        // Same script-injection guard as every other embedded JSON: a
+        // </script> sequence inside any thumb value must not break out of
+        // the data block.
+        thumbs_lines = json_for_script(thumbs_json),
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)

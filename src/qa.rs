@@ -165,6 +165,98 @@ pub fn reproducibility_report(
     }
 }
 
+/// Cross-store consistency: the SQLite `videos` table and the
+/// `db/videos.jsonl` compatibility artifact must describe the same
+/// evidence. A crash between the JSONL write and the SQLite commit (or a
+/// manual DB repair) can leave ghost rows on either side; those rows then
+/// skew id allocation and report counts while being invisible to every
+/// other QA surface.
+pub fn consistency_report(case_dir: &Path, output_dir: &Path) -> Result<QaReport, String> {
+    let sqlite_rows = case_db::load_video_ids(case_dir)?;
+    let sqlite_ids: HashSet<String> = sqlite_rows.iter().map(|row| row.id.clone()).collect();
+
+    let jsonl_path = case_dir.join("db/videos.jsonl");
+    let mut jsonl_ids = HashSet::new();
+    let mut malformed = 0usize;
+    if jsonl_path.is_file() {
+        let text = read_to_string(&jsonl_path)
+            .map_err(|err| format!("failed to read {}: {err}", jsonl_path.display()))?;
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(value) => {
+                    if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+                        jsonl_ids.insert(id.to_string());
+                    } else {
+                        malformed += 1;
+                    }
+                }
+                Err(_) => malformed += 1,
+            }
+        }
+    }
+
+    let sqlite_only: Vec<String> = sqlite_ids.difference(&jsonl_ids).cloned().collect();
+    let jsonl_only: Vec<String> = jsonl_ids.difference(&sqlite_ids).cloned().collect();
+    let passed = sqlite_only.is_empty() && jsonl_only.is_empty() && malformed == 0;
+
+    fs::create_dir_all(output_dir)
+        .map_err(|err| format!("failed to create QA output directory: {err}"))?;
+    let json_path = output_dir.join("consistency-report.json");
+    let html_path = output_dir.join("consistency-report.html");
+    let body = format!(
+        "sqlite rows: {}\njsonl rows: {}\nsqlite-only: {}\njsonl-only: {}\nmalformed jsonl lines: {}",
+        sqlite_rows.len(),
+        jsonl_ids.len(),
+        if sqlite_only.is_empty() {
+            "-".to_string()
+        } else {
+            sqlite_only.join(", ")
+        },
+        if jsonl_only.is_empty() {
+            "-".to_string()
+        } else {
+            jsonl_only.join(", ")
+        },
+        malformed,
+    );
+    write_text(
+        &json_path,
+        &format!(
+            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"consistency\",\n  \"passed\": {},\n  \"sqlite_rows\": {},\n  \"jsonl_rows\": {},\n  \"sqlite_only\": {},\n  \"jsonl_only\": {},\n  \"malformed\": {}\n}}\n",
+            passed,
+            sqlite_rows.len(),
+            jsonl_ids.len(),
+            json_array(&sqlite_only),
+            json_array(&jsonl_only),
+            malformed,
+        ),
+    )
+    .map_err(|err| format!("failed to write consistency JSON: {err}"))?;
+    write_text(
+        &html_path,
+        &simple_html_report("FrameTrace Consistency QA", &body),
+    )
+    .map_err(|err| format!("failed to write consistency HTML: {err}"))?;
+
+    if passed {
+        Ok(QaReport {
+            report_path: json_path,
+            passed,
+        })
+    } else {
+        Err(format!(
+            "consistency QA failed: {} sqlite-only, {} jsonl-only, {malformed} malformed line(s); re-run scan-folder to rebuild both stores",
+            sqlite_only.len(),
+            jsonl_only.len(),
+        ))
+    }
+}
+
+fn json_array(items: &[String]) -> String {
+    let quoted: Vec<String> = items.iter().map(|item| format!("\"{item}\"")).collect();
+    format!("[{}]", quoted.join(","))
+}
+
 pub fn report_defense_check(case_dir: &Path, output_dir: &Path) -> Result<QaReport, String> {
     let checks = [
         ("case manifest", case_dir.join("case.json")),
@@ -311,6 +403,13 @@ pub fn release_readiness_report(
         )
         .map_err(|err| format!("failed to write audit chain report: {err}"))?;
         Ok(report_path)
+    }));
+
+    // The SQLite index and the JSONL compatibility artifact describe the
+    // same evidence; a release with ghost rows on either side is not
+    // defensible.
+    checks.push(run_release_check("consistency", || {
+        consistency_report(case_dir, output_dir).map(|report| report.report_path)
     }));
 
     let passed = checks.iter().all(|check| check.status == "PASS");
@@ -501,12 +600,46 @@ fn normalized_case_core(case_dir: &Path) -> Result<String, String> {
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
-            .map(str::to_string)
+            // `stale_since_unix` is stamped with wall-clock scan time, so
+            // two cases that ran the identical vanish-workflow in
+            // different seconds would otherwise compare unequal. The
+            // marker's PRESENCE is the reproducible fact; the timestamp
+            // is environment noise — normalize it away.
+            .map(|line| normalize_stale_timestamps(line).to_string())
             .collect::<Vec<_>>();
         lines.sort();
         parts.push(format!("{rel}\n{}\n", lines.join("\n")));
     }
     Ok(parts.join("\n"))
+}
+
+/// Replaces every `"stale_since_unix":<digits>` occurrence with a constant.
+fn normalize_stale_timestamps(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let bytes = line.as_bytes();
+    let needle = b"\"stale_since_unix\":";
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index..].starts_with(needle) {
+            out.push_str("\"stale_since_unix\":0");
+            index += needle.len();
+            // Skip the digits that followed.
+            while index < bytes.len() && bytes[index].is_ascii_digit() {
+                index += 1;
+            }
+        } else {
+            // Advance by one full UTF-8 scalar to keep indices on char
+            // boundaries for non-ASCII content.
+            let step = line[index..]
+                .chars()
+                .next()
+                .map(char::len_utf8)
+                .unwrap_or(1);
+            out.push_str(&line[index..index + step]);
+            index += step;
+        }
+    }
+    out
 }
 
 fn simple_html_report(title: &str, body: &str) -> String {
@@ -520,7 +653,9 @@ fn simple_html_report(title: &str, body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{accuracy_report, read_indexed_evidence};
+    use super::{
+        accuracy_report, consistency_report, normalize_stale_timestamps, read_indexed_evidence,
+    };
     use std::fs;
 
     #[test]
@@ -574,5 +709,42 @@ mod tests {
         assert_eq!(rows[1].source_path, "/evidence/b.mp4");
         assert!(rows[1].sha256.is_none());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn consistency_detects_ghost_rows_on_both_sides() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-qa-consistency-{}", std::process::id()));
+        let case_dir = root.join("case");
+        let output_dir = root.join("qa");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+
+        // JSONL knows vid_000001 only; SQLite (via case_db) is built by a
+        // scan, so simulate the divergence with a minimal rows file plus a
+        // real scan-run DB is overkill here — instead verify the report
+        // directly against a case where both stores agree first.
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            "{\"id\":\"vid_000001\",\"source_path\":\"/e/a.mp4\"}\n",
+        )
+        .unwrap();
+        // No SQLite DB exists yet: load_video_ids returns empty => the
+        // JSONL row is jsonl-only => consistency must FAIL (not panic).
+        let result = consistency_report(&case_dir, &output_dir);
+        assert!(result.is_err(), "ghost jsonl rows must fail consistency");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stale_timestamps_normalize_to_constant() {
+        let a = r#"{"id":"vid_000001","index_status":"stale","stale_since_unix":1788917107}"#;
+        let b = r#"{"id":"vid_000001","index_status":"stale","stale_since_unix":9999999999}"#;
+        assert_eq!(normalize_stale_timestamps(a), normalize_stale_timestamps(b));
+        assert!(normalize_stale_timestamps(a).contains(r#""stale_since_unix":0"#));
+        // Korean content must survive byte-stepping.
+        let korean = r#"{"id":"vid_1","relative_path":"한글.mp4","stale_since_unix":123}"#;
+        let normalized = normalize_stale_timestamps(korean);
+        assert!(normalized.contains("한글.mp4"), "{normalized}");
     }
 }

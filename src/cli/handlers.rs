@@ -877,8 +877,14 @@ struct BatchOutcome {
 /// (carve_*), inode recoveries (inode:*), or direct paths. Indexed lookup
 /// comes first; artifact-log resolution covers the rest.
 fn resolve_batch_selector(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
-    crate::video_export::resolve_video_source(case_dir, selector)
-        .or_else(|_| crate::validation::resolve_artifact_path(case_dir, selector))
+    // Keep BOTH resolvers' context: swallowing the index error hides why
+    // an artifact selector also failed (e.g. typo'd vid id reported as a
+    // carve-log miss instead of "not indexed").
+    match crate::video_export::resolve_video_source(case_dir, selector) {
+        Ok(path) => Ok(path),
+        Err(index_err) => crate::validation::resolve_artifact_path(case_dir, selector)
+            .map_err(|artifact_err| format!("{index_err}; artifact lookup: {artifact_err}")),
+    }
 }
 
 /// Names batch outputs after the selection item (not the resolved source
@@ -1006,6 +1012,7 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                                 &item.selector,
                                 "jpg",
                             )?),
+                            timeout_secs: None,
                         };
                         let result = artifacts::generate_thumbnail(
                             case_dir,
@@ -1323,14 +1330,22 @@ pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
     let rows = marks_file
         .marks
         .iter()
-        .map(|entry| case_db::ReviewMarkRow {
-            record_id: entry.id.clone(),
-            status: entry.status.clone(),
-            marked_unix: entry.marked_unix.unwrap_or_else(|| now_unix().unwrap_or(0)),
-            record_path: None,
-            examiner: None,
+        .map(|entry| {
+            let marked_unix = match entry.marked_unix {
+                Some(stamp) => stamp,
+                // A clock failure must not silently stamp epoch-adjacent
+                // times into the case record — fail the import instead.
+                None => now_unix()?,
+            };
+            Ok(case_db::ReviewMarkRow {
+                record_id: entry.id.clone(),
+                status: entry.status.clone(),
+                marked_unix,
+                record_path: None,
+                examiner: None,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
     let stored = case_db::upsert_review_marks(case_dir, &rows)?;
     println!("marks imported");
     println!("source: {}", marks_path.display());

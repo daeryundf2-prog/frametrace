@@ -5,10 +5,18 @@ use crate::video_export::{resolve_video_source, sanitize_filename};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Transcode-class lanes default to no wall-clock cap (large legitimate
+/// media can encode for a long time), but a hung decode must never wedge
+/// the examiner's session forever: this hard ceiling only catches hangs,
+/// not slow work. Callers can pass a larger value via options later.
+const TRANSCODE_HARD_TIMEOUT_SECS: u64 = 600;
+
 #[derive(Debug, Clone)]
 pub struct ProxyOptions {
     pub output_path: Option<PathBuf>,
     pub max_width: u32,
+    /// Timeout in seconds for the ffmpeg run (None = hard default above).
+    pub timeout_secs: Option<u64>,
 }
 
 impl Default for ProxyOptions {
@@ -16,6 +24,7 @@ impl Default for ProxyOptions {
         Self {
             output_path: None,
             max_width: 1280,
+            timeout_secs: None,
         }
     }
 }
@@ -24,6 +33,8 @@ impl Default for ProxyOptions {
 pub struct ThumbnailOptions {
     pub output_path: Option<PathBuf>,
     pub time_seconds: f64,
+    /// Timeout in seconds for the ffmpeg run (None = hard default above).
+    pub timeout_secs: Option<u64>,
 }
 
 impl Default for ThumbnailOptions {
@@ -31,6 +42,7 @@ impl Default for ThumbnailOptions {
         Self {
             output_path: None,
             time_seconds: 0.0,
+            timeout_secs: None,
         }
     }
 }
@@ -74,16 +86,19 @@ pub fn generate_proxy(
     let args = proxy_ffmpeg_args(&source_path, &output_path, options);
     let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
         .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
-    let output = Command::new(&ffmpeg)
-        .args(&args)
-        .output()
-        .map_err(|err| {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                format!("failed to run ffmpeg for proxy: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
-            } else {
-                format!("failed to run ffmpeg for proxy: {err}")
-            }
-        })?;
+    let mut command = Command::new(&ffmpeg);
+    command.args(&args);
+    let output = crate::util::run_with_timeout(
+        &mut command,
+        Some(options.timeout_secs.unwrap_or(TRANSCODE_HARD_TIMEOUT_SECS)),
+    )
+    .map_err(|err| {
+        if err.contains("os error 2") {
+            format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)")
+        } else {
+            format!("failed to run ffmpeg for proxy: {err}")
+        }
+    })?;
 
     if !output.status.success() {
         let _ = std::fs::remove_file(output_path);
@@ -151,16 +166,19 @@ pub fn generate_thumbnail(
     let args = thumbnail_ffmpeg_args(&source_path, &output_path, options);
     let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
         .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
-    let output = Command::new(&ffmpeg)
-        .args(&args)
-        .output()
-        .map_err(|err| {
-            if err.kind() == std::io::ErrorKind::NotFound {
-                format!("failed to run ffmpeg for thumbnail: {err} (install FFmpeg and ensure ffmpeg is in PATH)")
-            } else {
-                format!("failed to run ffmpeg for thumbnail: {err}")
-            }
-        })?;
+    let mut command = Command::new(&ffmpeg);
+    command.args(&args);
+    let output = crate::util::run_with_timeout(
+        &mut command,
+        Some(options.timeout_secs.unwrap_or(TRANSCODE_HARD_TIMEOUT_SECS)),
+    )
+    .map_err(|err| {
+        if err.contains("os error 2") {
+            format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)")
+        } else {
+            format!("failed to run ffmpeg for thumbnail: {err}")
+        }
+    })?;
 
     if !output.status.success() {
         let _ = std::fs::remove_file(output_path);
