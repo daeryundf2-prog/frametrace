@@ -1,6 +1,6 @@
 use frametrace::{cli, serve};
 
-fn main() {
+fn cli_main() -> i32 {
     let args: Vec<String> = std::env::args().collect();
     if args.len() <= 1 {
         // Running the bare executable (e.g. double-click) launches the local
@@ -10,12 +10,17 @@ fn main() {
             port: None,
         }) {
             eprintln!("error: {error}");
-            std::process::exit(1);
+            return 1;
         }
-        return;
+        return 0;
     }
     if let Err(error) = cli::run(args) {
         eprintln!("error: {error}");
-        std::process::exit(1);
+        return 1;
     }
+    0
+}
+
+fn main() {
+    std::process::exit(frametrace::run_with_large_stack(cli_main));
 }

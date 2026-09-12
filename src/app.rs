@@ -2,7 +2,7 @@
 //! variant hides the console and starts the examiner workstation directly.
 #![windows_subsystem = "windows"]
 
-fn main() {
+fn app_main() -> i32 {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
         // A single numeric argument selects the workstation port (used by
@@ -17,15 +17,15 @@ fn main() {
                 port: Some(port),
             }) {
                 eprintln!("error: {error}");
-                std::process::exit(1);
+                return 1;
             }
-            return;
+            return 0;
         }
         if let Err(error) = frametrace::cli::run(args) {
             eprintln!("error: {error}");
-            std::process::exit(1);
+            return 1;
         }
-        return;
+        return 0;
     }
     if let Err(error) = frametrace::serve::run(frametrace::serve::ServeOptions {
         case_dir: None,
@@ -61,7 +61,13 @@ fn main() {
             let _ = &message;
             eprintln!("{error}");
         }
+        return 1;
     }
+    0
+}
+
+fn main() {
+    std::process::exit(frametrace::run_with_large_stack(app_main));
 }
 
 #[cfg(target_os = "windows")]

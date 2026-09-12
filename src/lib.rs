@@ -32,3 +32,20 @@ pub mod tsk;
 pub mod util;
 pub mod validation;
 pub mod video_export;
+
+/// Runs `f` on a dedicated worker thread with a large stack and returns its
+/// exit code.
+///
+/// Windows reserves only 1 MiB for the main thread's stack (POSIX systems
+/// typically allow 8 MiB). The clap command tree plus the top-level dispatch
+/// match overflow 1 MiB, so `frametrace --help` crashed with a stack
+/// overflow on Windows before any work started. Both binaries route their
+/// real entry point through this so behaviour is identical on every OS.
+pub fn run_with_large_stack(f: impl FnOnce() -> i32 + Send + 'static) -> i32 {
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(f)
+        .expect("failed to spawn frametrace worker thread")
+        .join()
+        .unwrap_or(1)
+}
