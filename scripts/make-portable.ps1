@@ -26,4 +26,12 @@ FrameTrace portable package
 4. 실 Dahua DAV 샘플 검증: scripts/validate-dav-samples.ps1 -Samples <폴더>
 '@ | Out-File -Encoding utf8 "$stage/tools/bin/README-tools.txt"
 Compress-Archive -Path $stage -DestinationPath "$stage.zip" -Force
+# SHA256SUMS covering every zip in dist/ — same manifest convention as
+# scripts/build-release.sh; consumers verify with `Get-FileHash` or
+# `sha256sum -c` (see docs/repro-build.md).
+$dist = Split-Path $stage
+Get-ChildItem $dist -Filter *.zip | ForEach-Object {
+    "{0}  {1}" -f ((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()), $_.Name
+} | Out-File -Encoding ascii "$dist/SHA256SUMS"
 Write-Host "package: $stage.zip"
+Write-Host "sums: $dist/SHA256SUMS"
