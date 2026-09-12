@@ -1304,6 +1304,56 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     Ok(())
 }
 
+/// Merges other cases' video indexes into this case's index with
+/// `merged_from`/`merged_from_id` provenance and `duplicate_of` marking for
+/// recorded-sha256 collisions. Rewrites db/videos.jsonl, db/video_index.json
+/// and db/video_paths.tsv, upserts into SQLite, and appends one chained
+/// audit entry per source under evidence/logs/case-merge-log.jsonl.
+pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    for source in source_case_dirs {
+        ensure_case(source)?;
+    }
+    let job = case_db::start_job(
+        case_dir,
+        "merge-cases",
+        case_dir,
+        Some(source_case_dirs.len() as u64),
+        "{}",
+    )?;
+    let result = match crate::case_merge::merge_cases(case_dir, source_case_dirs) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.merged_records as u64,
+        "merge-cases completed",
+    )?;
+    println!("cases merged");
+    println!("job: {} ({})", job.job_id, job.job_type);
+    for source in &result.sources {
+        println!(
+            "  {}: {} merged, {} duplicate(s)",
+            source.case_dir.display(),
+            source.merged_records,
+            source.duplicate_records,
+        );
+    }
+    println!("merged records: {}", result.merged_records);
+    println!("duplicates marked: {}", result.duplicate_records);
+    println!("total index records: {}", result.total_records);
+    println!(
+        "label: {} (merged rows are copied index claims, not re-verified evidence)",
+        crate::case_merge::LABEL
+    );
+    Ok(())
+}
+
 /// Diffs this case's video index against another case's and writes a
 /// candidate-grade JSON report inside THIS case (reports/case-compare.json by
 /// default). Audit-chained under evidence/logs/case-compare-log.jsonl.

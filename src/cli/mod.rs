@@ -260,6 +260,15 @@ pub enum Commands {
         case_dir: PathBuf,
         selection: PathBuf,
     },
+    /// Merge other cases' video indexes into this case's index with
+    /// merged_from provenance; sha256 duplicates are kept and marked
+    /// duplicate_of (candidate-grade; no re-verification)
+    MergeCases {
+        case_dir: PathBuf,
+        /// Source case directories to merge, in order
+        #[arg(required = true, num_args = 1..)]
+        source_case_dirs: Vec<PathBuf>,
+    },
     /// Diff this case's video index against another case's (candidate-grade report)
     CompareCases {
         case_dir: PathBuf,
@@ -656,6 +665,10 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         } => known_hash_filter(&case_dir, &hash_list, output),
         Commands::ExportDfxml { case_dir, output } => export_dfxml(&case_dir, output),
         Commands::Timeline { case_dir, output } => timeline(&case_dir, output),
+        Commands::MergeCases {
+            case_dir,
+            source_case_dirs,
+        } => merge_cases(&case_dir, &source_case_dirs),
         Commands::CompareCases {
             case_dir,
             other_case_dir,

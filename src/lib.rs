@@ -4,6 +4,7 @@ pub mod audit;
 pub mod carve;
 pub mod case_compare;
 pub mod case_db;
+pub mod case_merge;
 pub mod cli;
 pub mod dav;
 pub mod detector;

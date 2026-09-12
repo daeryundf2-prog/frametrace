@@ -792,7 +792,9 @@ fn parse_usize(value: &str) -> Option<usize> {
     value.parse::<usize>().ok()
 }
 
-fn tsv_escape(value: &str) -> String {
+/// Escapes a value for the tab-separated `db/video_paths.tsv` format.
+/// `pub(crate)` so case_merge can emit rows in the same shape.
+pub(crate) fn tsv_escape(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('\t', "\\t")

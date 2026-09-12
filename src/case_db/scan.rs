@@ -27,6 +27,26 @@ pub fn write_scan_index(
     Ok(())
 }
 
+/// Upserts serialized index rows without inserting a scan run — used by
+/// merge-cases, which rewrites the JSONL/index without a filesystem scan.
+pub fn upsert_indexed_rows(
+    case_dir: &Path,
+    merged_records: &[IndexedVideoRow],
+    indexed_unix: u64,
+) -> Result<(), String> {
+    let mut conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let tx = conn
+        .transaction()
+        .map_err(|err| format!("failed to start SQLite transaction: {err}"))?;
+    for record in merged_records {
+        upsert_indexed_record(&tx, record, indexed_unix)?;
+    }
+    tx.commit()
+        .map_err(|err| format!("failed to commit SQLite index merge: {err}"))?;
+    Ok(())
+}
+
 pub fn load_video_ids(case_dir: &Path) -> Result<Vec<VideoIdRow>, String> {
     let path = case_db_path(case_dir);
     if !path.is_file() {
