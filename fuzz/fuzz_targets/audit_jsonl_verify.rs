@@ -8,5 +8,5 @@ use libfuzzer_sys::fuzz_target;
 // adversarially edited log: verification must return Ok/Err, never panic.
 fuzz_target!(|data: &[u8]| {
     let text = String::from_utf8_lossy(data);
-    let _ = frametrace::audit::verify_chained_jsonl_text(&text, "fuzz-input");
+    let _ = frametrace::audit::verify_chained_jsonl_text(&text, "fuzz-input", &[]);
 });
