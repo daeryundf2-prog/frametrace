@@ -152,7 +152,10 @@ pub fn carve_file(
         .len();
     let hits = find_video_signatures(&source_path, options.max_candidates)?;
     let mut warnings = Vec::new();
-    if hits.len() >= options.max_candidates {
+    // `>` not `>=`: hits.len() == max means the scan stopped exactly at the
+    // limit WITHOUT dropping a further candidate (dedup may shrink the
+    // list below it), which is not a truncation warning.
+    if hits.len() > options.max_candidates {
         warnings.push(format!(
             "candidate limit reached at {}; rerun with --max-candidates if needed",
             options.max_candidates
@@ -161,18 +164,13 @@ pub fn carve_file(
 
     let mut artifacts = Vec::new();
     let mut first_by_hash = HashMap::<String, String>::new();
-    for (index, hit) in hits.iter().enumerate() {
+    for hit in &hits {
         let next_offset = hits
-            .get(index + 1)
-            .map(|next| next.offset)
+            .iter()
+            .map(|candidate| candidate.offset)
+            .filter(|offset| offset > &hit.offset)
+            .min()
             .unwrap_or(source_size);
-        if next_offset <= hit.offset {
-            warnings.push(format!(
-                "skipped overlapping candidate at offset {}",
-                hit.offset
-            ));
-            continue;
-        }
         let available = next_offset.saturating_sub(hit.offset);
         let size_bytes = available.min(options.max_bytes);
         if size_bytes < MIN_CARVE_BYTES {

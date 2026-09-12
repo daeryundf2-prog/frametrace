@@ -131,7 +131,11 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     println!("  {url}");
     println!("Close this window to stop the workstation.");
     let _ = std::io::stdout().flush();
-    open_in_browser(&url);
+    // Test harnesses set FRAMETRACE_NO_BROWSER=1 so spawning the server
+    // never steals focus with a real browser window.
+    if std::env::var("FRAMETRACE_NO_BROWSER").as_deref() != Ok("1") {
+        open_in_browser(&url);
+    }
     serve_on(listener, state);
     Ok(())
 }

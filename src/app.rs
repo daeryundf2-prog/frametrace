@@ -3,6 +3,30 @@
 #![windows_subsystem = "windows"]
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        // A single numeric argument selects the workstation port (used by
+        // the E2E harness); any other arguments are CLI subcommands — the
+        // workstation pipeline spawns `current_exe()` with subcommands
+        // like init-case/scan-folder, and without this delegation every
+        // pipeline step would launch ANOTHER workstation.
+        let first = args[1].as_str();
+        if let Ok(port) = first.parse::<u16>() {
+            if let Err(error) = frametrace::serve::run(frametrace::serve::ServeOptions {
+                case_dir: None,
+                port: Some(port),
+            }) {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        if let Err(error) = frametrace::cli::run(args) {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(error) = frametrace::serve::run(frametrace::serve::ServeOptions {
         case_dir: None,
         port: None,

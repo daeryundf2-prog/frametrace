@@ -38,14 +38,33 @@
 
 ### M6 "운영 안정화" (무전제, 즉시 착수 가능) — 종합 8.2 → 8.4
 
+> **상태: M6-2/3/4 완료 (2026-09-08).** M6-1은 Windows 머신 전제로 이월.
+
 1. **WinUI 풀 GUI** — 얇은 셸(`gui/winui`)이 이미 동작하므로 뷰어 워크플로
    (INPUT→스캔→마크→보고서)를 네이티브로. 5~8일.
+   > **상태: Windows 머신 전제 이월.** 단, 세션 중 워크스테이션 파이프라인이
+   > `frametrace-app`을 CLI로 spawn할 때 app이 인자를 무시하고 또다른
+   > 워크스테이션을 띄우던 **치명적 버그를 발견·수정**했다 (app.rs가 CLI
+   > 서브커맨드/포트 인자 위임). 이 버그가 WinUI 셸 위임 경로의 실질
+   > 장애물이었다. 나머지 풀 GUI 스캐폴드는 Windows SDK 필요.
 2. **워크스테이션 E2E IT** — 브라우저 없이 HTTP 클라이언트로 5단계
    파이프라인을 실도구로 통과시키는 통합 테스트(현재는 단위+수동 스모크).
+   > **상태: 완료.** `tests/workstation_e2e.rs` — 실 `frametrace-app` 기동
+   > (FRAMETRACE_NO_BROWSER 지원 추가), HTTP로 api/start → 5단계
+   > running → review-ready → finalize → done 완주 (0.8s), 뷰어·리포트·
+   > 감사로그 artifact 단정. IT 5번째 테스트로 편입.
 3. **CI에 macOS 레인 추가** — `which` 수정으로 IT가 유닉스에서 돌지만
    CI는 Windows뿐. dual-OS 게이트.
+   > **상태: 완료.** `.github/workflows/macos-ci.yml` (arm64): fmt/clippy/
+   > node 게이트 + brew ffmpeg·libewf·sleuthkit + IT + **워크스테이션
+   > E2E** + 성능 스모크 + release 빌드. Windows CI에도 E2E 스텝 추가.
 4. **carve 중복 후보 스트리밍 해시** — 전체 기록 후 sha256 비교 대신
    스트리밍으로 조기 스킵(대용량 디스크 볼륨 절감).
+   > **상태: 판단 변경 — 구현하지 않음.** 카빙 산출물은 포렌식 증거로
+   > **디스크에 기록 후 해시**하는 순서 자체가 보존 계약이다. 중복 후보를
+   > 디스크에 남기는 것도 의도된 동작(중복 역시 증거). 대신 죽은 분기
+   > (next_offset <= hit.offset, hits 정렬·dedup으로 도달 불가) 제거,
+   > candidate-limit 경고가 비절단에도 발생하던 `>=` → `>` 수정.
 
 ### 백로그 (우선순위 낮음)
 
@@ -55,11 +74,11 @@
 
 ## 3. 추적 지표
 
-- 스코어: 현재 8.2 · M6 후 8.4 · M5 후 8.6 (9.0은 실무 필드 투입 실적 필요)
+- 스코어: 현재 8.2 · M6-1(Windows 머신) 후 8.4 · M5 후 8.6 (9.0은 실무 필드 투입 실적 필요)
 - 성능 예산: 1만 건 뷰어 로드 ≤1.5s · 1천 썸네일 ≤180s · 1천 검증 ≤240s ·
   inspect-image 1만 엔트리 ≤120s (타임아웃 상한 신설)
-- 품질: 테스트 ≥130(현재 134) · 실도구 IT ≥4(현재 4) · release 6게이트
-  적색 0 · CI 적색 0
+- 품질: 테스트 ≥130(현재 135: 단위 130 + 실도구 IT 5) · 워크스테이션 E2E
+  1(신규) · release 6게이트 적색 0 · CI dual-OS(macOS 레인 신설) 적색 0
 - 무결성: 모든 감사로그 `verify-audit` 100% · `qa consistency` 100% ·
   0바이트 산출물 기록 0건(가드 상시)
 
