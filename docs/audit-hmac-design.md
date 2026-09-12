@@ -11,8 +11,10 @@ residual threat, and the keyed format as shipped.
 
 - `src/hmac.rs` — HMAC-SHA-256 hand-assembled over the existing `sha2`
   dependency (RFC 2104; tested against the RFC 4231 vectors). No new crates.
-- `src/audit_key.rs` — key resolution in the design's preference order:
-  first a `0600` key file (`$XDG_CONFIG_HOME/frametrace/audit-key` or
+- `src/audit_key.rs` — key resolution in the design's preference order: a
+  `--key-source` override, then the rotation keyring's active key
+  (`audit-keys.json`, `FRAMETRACE_AUDIT_KEYRING_FILE` overrides the path),
+  then a `0600` key file (`$XDG_CONFIG_HOME/frametrace/audit-key` or
   `~/.config/frametrace/audit-key` on Unix, `%APPDATA%\frametrace\audit-key`
   on Windows; `FRAMETRACE_AUDIT_KEY_FILE` overrides the path), then
   `FRAMETRACE_AUDIT_KEY` (hex- or base64-encoded 32-byte material). A present
@@ -23,11 +25,24 @@ residual threat, and the keyed format as shipped.
 - `verify-audit` prints the log-level mark (`integrity-keyed` /
   `integrity-structural-only`), keyed-entry counts, and per-log warnings
   (mixed chain, missing key).
-- **Not yet shipped:** OS-keystore integration (macOS Keychain / DPAPI) —
-  the `0600` file fallback from the design covers all platforms today — and a
-  `rotate-audit-key` command. Rotation remains a documented procedure
-  (marker entry keyed under the new key); verification already accepts the
-  ordered key-set fallback the rotation rules require.
+- `rotate-audit-key` generates a fresh 32-byte key from OS entropy
+  (`getrandom`), registers it as the **active** key in a keyring file
+  (`audit-keys.json` next to `audit-key`, `0600` on Unix,
+  `FRAMETRACE_AUDIT_KEYRING_FILE` overrides the path), and records the
+  previously configured key — whichever source supplied it — as a retired
+  keyring entry so its audit entries stay verifiable. `--key-id` names the
+  new key (default `key-<sha256 fingerprint prefix>`); `--log PATH`
+  (repeatable) appends the signed `audit-key-rotate` marker entry keyed
+  under the NEW key.
+- `--key-source env:VAR_NAME` / `--key-source file:PATH` (global flag)
+  overrides every ambient key source for one invocation. `env:` is the
+  documented hand-off from an external secret store — the key is injected
+  into the process environment and never touches disk.
+- **Still not wired:** OS-keystore integration (macOS Keychain / DPAPI). No
+  new heavyweight dependency was taken for it; the `0600` key file and
+  keyring remain the portable store, and `--key-source env:` covers
+  secret-manager injection. If a keyring crate ever lands in the tree,
+  `audit_key` is the single place it plugs in.
 
 ## Current chain structure
 
@@ -102,14 +117,33 @@ working.
 
 ## Key storage
 
-In order of preference; the first available source wins:
+In order of preference; the first available source wins for **appends**, and
+**verification** tries the union of all configured sources:
 
-1. **OS-protected store.** Windows DPAPI (`CryptProtectData`, per-user), macOS
-   Keychain (generic password item), Linux a `0600` file under the user's
-   config dir (`~/.config/frametrace/audit-key` or platform equivalent). The
-   key never lives inside the case directory — storing it next to the log
-   would defeat the control entirely.
-2. **Environment variable.** `FRAMETRACE_AUDIT_KEY` (hex- or base64-encoded
+1. **`--key-source` override** (per-invocation): `env:VAR_NAME` reads
+   hex/base64 key material from that environment variable — the documented
+   hand-off for an external secret store (Vault, sops, a CI secret), since
+   the key material never touches disk — and `file:PATH` reads a key file at
+   an explicit path. `FRAMETRACE_AUDIT_KEY_ID` still names the loaded key.
+2. **Rotation keyring.** `audit-keys.json` beside the single-key file
+   (`FRAMETRACE_AUDIT_KEYRING_FILE` overrides the path), `0600` on Unix:
+
+   ```json
+   {"version":1,"active":"2026-Q2","keys":{"2026-Q1":"<hex>","2026-Q2":"<hex>"}}
+   ```
+
+   `active` names the id that signs new appends; every other id is a retired
+   key kept so its entries stay verifiable. Written by `rotate-audit-key`;
+   hand-editable, but a present-but-broken keyring (bad JSON, unknown
+   `active`, malformed material, loose permissions) is a hard error, never a
+   silent downgrade.
+3. **OS-protected store → `0600` file fallback.** The design's preference
+   was DPAPI / macOS Keychain; that wiring is not shipped (no heavyweight
+   keystore dependency was taken). The portable store is the `0600` key file
+   under the user's config dir (`~/.config/frametrace/audit-key` or platform
+   equivalent) and the keyring above. The key never lives inside the case
+   directory — storing it next to the log would defeat the control entirely.
+4. **Environment variable.** `FRAMETRACE_AUDIT_KEY` (hex- or base64-encoded
    32-byte key) for CI, portable installs, and multi-machine cases where the
    examiner deliberately manages the key. Documented as the weakest option:
    any process running as the examiner can read it, matching the existing
@@ -134,19 +168,29 @@ any machine, and the HMAC layer adds rather than replaces a check.
 
 ## Key rotation
 
-- New appends always use the **current** key and stamp its
+`frametrace rotate-audit-key [--key-id <id>] [--log <path>]...` implements
+the rotation rules:
+
+- It generates a new 32-byte key from OS entropy (`getrandom`), writes it to
+  the keyring as `active`, and records the previously configured key —
+  keyring, file, env, or `--key-source`, whichever supplied it — as a retired
+  keyring entry. Rotating with nothing configured simply enables keying
+  (`from: null`).
+- New appends always use the **current** (active) key and stamp its
   `entry_hmac_key_id`.
-- Verification accepts any configured key: the verifier holds an ordered
-  key set `{key_id: key}` and tries the entry's declared `key_id` first,
-  falling back to trying all known keys so a renamed id cannot brick old
+- Verification accepts every known key: the verifier's key set is the union
+  of the keyring (active + retired), the single-key file, the env var, and
+  any `--key-source` override. Each entry's declared `key_id` is tried
+  first, then every known key as fallback, so a renamed id cannot brick old
   entries.
-- Rotation is itself audited: rotating appends a signed marker entry
+- Rotation is itself audited: each `--log PATH` gets a signed marker entry
   (`{"kind":"audit-key-rotate","from":"<old id>","to":"<new id>"}`) keyed
   under the **new** key, so a gap between last-old-key and first-new-key
-  entries is explainable in-log.
-- Old keys are retained (in the OS store or env config) for as long as the
-  case lives; deleting a retired key downgrades verification of its entries
-  to structural-only, never to failure.
+  entries is explainable in-log. Audit logs are per-case, so the flag is
+  repeatable — pass every log that grows across the boundary.
+- Old keys are retained in the keyring for as long as the case lives;
+  deleting a retired key downgrades verification of its entries to
+  structural-only, never to failure.
 
 ## Non-goals
 

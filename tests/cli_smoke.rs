@@ -205,6 +205,58 @@ fn external_tool_failure_reports_install_guidance() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// rotate-audit-key end-to-end: two generations of signed marker entries
+/// verify keyed because the retired key stays in the keyring.
+#[test]
+fn rotate_audit_key_round_trips_through_verify() {
+    let root = unique_temp_dir("cli-rotate");
+    fs::create_dir_all(&root).expect("root dir should be created");
+    let keyring = root.join("audit-keys.json");
+    let log = root.join("audit.jsonl");
+
+    let framed = |args: &[&str]| {
+        Command::new(frametrace())
+            .args(args)
+            .env("FRAMETRACE_AUDIT_KEYRING_FILE", &keyring)
+            .env_remove("FRAMETRACE_AUDIT_KEY")
+            .env_remove("FRAMETRACE_AUDIT_KEY_FILE")
+            .output()
+            .expect("frametrace binary should run")
+    };
+
+    assert_success(&framed(&[
+        "rotate-audit-key",
+        "--key-id",
+        "k1",
+        "--log",
+        path(&log),
+    ]));
+    assert!(keyring.is_file());
+    let first = fs::read_to_string(&log).expect("marker log should be readable");
+    assert!(first.contains("\"audit-key-rotate\""), "{first}");
+    assert!(first.contains("\"from\":null,\"to\":\"k1\""), "{first}");
+    assert!(first.contains("\"entry_hmac_key_id\":\"k1\""), "{first}");
+
+    assert_success(&framed(&[
+        "rotate-audit-key",
+        "--key-id",
+        "k2",
+        "--log",
+        path(&log),
+    ]));
+    let text = fs::read_to_string(&log).expect("marker log should be readable");
+    assert!(text.contains("\"from\":\"k1\",\"to\":\"k2\""), "{text}");
+    assert!(text.contains("\"entry_hmac_key_id\":\"k2\""), "{text}");
+
+    let verify = framed(&["verify-audit", path(&log)]);
+    assert_success(&verify);
+    let stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(stdout.contains("integrity-keyed"), "{stdout}");
+    assert!(stdout.contains("keyed entries: 2"), "{stdout}");
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn path(path: &Path) -> &str {
     path.to_str().expect("test paths should be UTF-8")
 }

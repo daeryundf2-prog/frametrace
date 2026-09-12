@@ -3,9 +3,18 @@
 //! Keyed mode is opt-in: with no configured key, `configured()` returns
 //! `Ok(None)` and audit appends write exactly the same unkeyed entries they
 //! always did. Sources, in the design's order of preference — the first
-//! available wins:
+//! available wins for appends; verification tries ALL of them:
 //!
-//! 1. A `0600` key file (the design's OS-store fallback for platforms
+//! 1. A `--key-source` override, installed once at CLI start:
+//!    `env:VAR_NAME` reads hex/base64 material straight from that variable
+//!    (the documented hand-off for an external secret store — the key never
+//!    touches disk) and `file:PATH` reads a key file at an explicit path.
+//! 2. The rotation keyring `audit-keys.json`, written by
+//!    `rotate-audit-key`, next to the single-key file;
+//!    `FRAMETRACE_AUDIT_KEYRING_FILE` overrides the path. Its `active` key
+//!    signs new appends; every other entry is a retired key kept so older
+//!    entries stay verifiable.
+//! 3. A `0600` key file (the design's OS-store fallback for platforms
 //!    without a wired keystore). Default location is
 //!    `$XDG_CONFIG_HOME/frametrace/audit-key` or `~/.config/frametrace/
 //!    audit-key` on Unix and `%APPDATA%\frametrace\audit-key` on Windows;
@@ -13,7 +22,7 @@
 //!    installs). The file must be hex- or base64-encoded 32-byte key
 //!    material and, on Unix, must have no group/other permission bits —
 //!    a world-readable key defeats the control, so it is refused.
-//! 2. `FRAMETRACE_AUDIT_KEY` — the same encodings, documented as the
+//! 4. `FRAMETRACE_AUDIT_KEY` — the same encodings, documented as the
 //!    weakest source: any process running as the examiner can read it.
 //!
 //! `FRAMETRACE_AUDIT_KEY_ID` names whichever key was loaded (default
@@ -21,7 +30,9 @@
 //! lives inside the case directory — that would defeat the control
 //! entirely.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// A configured audit-chain key: key material plus the non-secret
 /// identifier stamped into each keyed entry.
@@ -43,11 +54,24 @@ impl AuditKey {
 
 /// The key set verification uses: the entry's declared `key_id` is tried
 /// first and every known key is tried as a fallback (a renamed id must
-/// never brick old entries — see the design's rotation rules). Today the
-/// set holds at most the one configured key; rotation support grows this
-/// to configured + retired keys.
+/// never brick old entries — see the design's rotation rules). The set is
+/// the union of every configured source — keyring (active + retired),
+/// single-key file, env var, and any `--key-source` override — deduplicated
+/// on (id, material).
 pub fn verification_keys() -> Result<Vec<AuditKey>, String> {
-    Ok(configured()?.into_iter().collect())
+    let mut keys: Vec<AuditKey> = SOURCE_OVERRIDE.get().cloned().into_iter().collect();
+    let extras = keyring_keys()?
+        .into_iter()
+        .chain([from_key_file()?, from_env()?].into_iter().flatten());
+    for key in extras {
+        if !keys
+            .iter()
+            .any(|known| known.id == key.id && known.bytes == key.bytes)
+        {
+            keys.push(key);
+        }
+    }
+    Ok(keys)
 }
 
 /// Resolves the configured append key, if any. Absent sources are not an
@@ -55,23 +79,52 @@ pub fn verification_keys() -> Result<Vec<AuditKey>, String> {
 /// material, wrong length) is, so a misconfigured key never silently
 /// degrades an intended-keyed log to unkeyed.
 pub fn configured() -> Result<Option<AuditKey>, String> {
+    if let Some(key) = SOURCE_OVERRIDE.get() {
+        return Ok(Some(key.clone()));
+    }
+    if let Some(key) = keyring_active()? {
+        return Ok(Some(key));
+    }
     if let Some(key) = from_key_file()? {
         return Ok(Some(key));
     }
-    match std::env::var("FRAMETRACE_AUDIT_KEY") {
-        Ok(raw) if !raw.trim().is_empty() => {
-            let bytes = parse_key_material(raw.trim())
-                .map_err(|err| format!("FRAMETRACE_AUDIT_KEY: {err}"))?;
-            Ok(Some(AuditKey {
-                id: configured_key_id(),
-                bytes: bytes.to_vec(),
-            }))
+    from_env()
+}
+
+/// Process-wide `--key-source` override. The CLI installs it once before
+/// dispatch; it wins over every ambient source so a secret-manager hand-off
+/// is authoritative for that invocation.
+static SOURCE_OVERRIDE: OnceLock<AuditKey> = OnceLock::new();
+
+/// Installs the `--key-source` override for this process. Called once at
+/// CLI start; a second call is a bug, not a user error.
+pub fn install_source_override(spec: &str) -> Result<(), String> {
+    let key = resolve_key_source(spec)?;
+    SOURCE_OVERRIDE
+        .set(key)
+        .map_err(|_| "audit key source override was already installed".to_string())
+}
+
+/// Resolves a `--key-source` spec without installing it. `env:VAR` reads
+/// material from that variable (absent/empty is an error — the user named
+/// the source explicitly), `file:PATH` reads a `0600` key file at PATH.
+fn resolve_key_source(spec: &str) -> Result<AuditKey, String> {
+    match spec.split_once(':') {
+        Some(("env", var)) if !var.trim().is_empty() => {
+            let var = var.trim();
+            key_from_env(var)?.ok_or_else(|| format!("--key-source env:{var}: {var} is not set"))
         }
-        Ok(_) => Err("FRAMETRACE_AUDIT_KEY is set but empty".to_string()),
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Err(std::env::VarError::NotUnicode(_)) => {
-            Err("FRAMETRACE_AUDIT_KEY is not valid unicode".to_string())
+        Some(("file", path)) if !path.trim().is_empty() => {
+            let path = Path::new(path.trim());
+            if !path.is_file() {
+                return Err(format!(
+                    "--key-source file:{}: no such file",
+                    path.display()
+                ));
+            }
+            read_key_file(path)
         }
+        _ => Err("--key-source must be `env:VAR_NAME` or `file:PATH`".to_string()),
     }
 }
 
@@ -90,15 +143,43 @@ fn from_key_file() -> Result<Option<AuditKey>, String> {
     if !path.is_file() {
         return Ok(None);
     }
-    check_key_file_permissions(&path)?;
-    let text = std::fs::read_to_string(&path)
+    read_key_file(&path).map(Some)
+}
+
+/// Reads and validates a single-key file — `0600` on Unix, hex/base64
+/// 32-byte material.
+fn read_key_file(path: &Path) -> Result<AuditKey, String> {
+    check_key_file_permissions(path)?;
+    let text = std::fs::read_to_string(path)
         .map_err(|err| format!("failed to read audit key file {}: {err}", path.display()))?;
     let bytes = parse_key_material(text.trim())
         .map_err(|err| format!("audit key file {}: {err}", path.display()))?;
-    Ok(Some(AuditKey {
+    Ok(AuditKey {
         id: configured_key_id(),
-        bytes: bytes.to_vec(),
-    }))
+        bytes,
+    })
+}
+
+fn from_env() -> Result<Option<AuditKey>, String> {
+    key_from_env("FRAMETRACE_AUDIT_KEY")
+}
+
+/// Reads hex/base64 key material from an environment variable. Absent is
+/// `Ok(None)`; present-but-unusable (empty, non-unicode, malformed) is an
+/// error — a misconfigured source never silently degrades to unkeyed.
+fn key_from_env(var: &str) -> Result<Option<AuditKey>, String> {
+    match std::env::var(var) {
+        Ok(raw) if !raw.trim().is_empty() => {
+            let bytes = parse_key_material(raw.trim()).map_err(|err| format!("{var}: {err}"))?;
+            Ok(Some(AuditKey {
+                id: configured_key_id(),
+                bytes,
+            }))
+        }
+        Ok(_) => Err(format!("{var} is set but empty")),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(format!("{var} is not valid unicode")),
+    }
 }
 
 fn key_file_path() -> Option<PathBuf> {
@@ -108,22 +189,27 @@ fn key_file_path() -> Option<PathBuf> {
             return Some(PathBuf::from(path));
         }
     }
+    config_dir().map(|dir| dir.join("audit-key"))
+}
+
+/// `<config>/frametrace/` — XDG on Unix, `%APPDATA%` on Windows.
+fn config_dir() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         if let Ok(base) = std::env::var("XDG_CONFIG_HOME")
             && !base.trim().is_empty()
         {
-            return Some(PathBuf::from(base).join("frametrace/audit-key"));
+            return Some(PathBuf::from(base).join("frametrace"));
         }
         std::env::var("HOME")
             .ok()
-            .map(|home| PathBuf::from(home).join(".config/frametrace/audit-key"))
+            .map(|home| PathBuf::from(home).join(".config/frametrace"))
     }
     #[cfg(windows)]
     {
         std::env::var("APPDATA")
             .ok()
-            .map(|base| PathBuf::from(base).join("frametrace").join("audit-key"))
+            .map(|base| PathBuf::from(base).join("frametrace"))
     }
 }
 
@@ -151,6 +237,251 @@ fn check_key_file_permissions(path: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn check_key_file_permissions(_path: &Path) -> Result<(), String> {
     Ok(())
+}
+
+/// On-disk keyring format (version 1). `active` names the id new entries
+/// are stamped with; every other id is a retired key kept so its entries
+/// stay verifiable — the design's rotation rules.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct KeyringFile {
+    version: u32,
+    active: String,
+    keys: BTreeMap<String, String>,
+}
+
+/// A loaded keyring for callers that need the active id alongside the keys.
+#[derive(Debug)]
+pub struct Keyring {
+    pub active: String,
+    pub keys: Vec<AuditKey>,
+}
+
+/// Outcome of `rotate`/`rotate_at`.
+#[derive(Debug)]
+pub struct Rotation {
+    /// The freshly generated key — now the keyring's active key.
+    pub new_key: AuditKey,
+    /// The previously configured key's id (now retired), or `None` when
+    /// rotation enabled keying from scratch.
+    pub previous_id: Option<String>,
+    /// Where the keyring was written.
+    pub keyring_path: PathBuf,
+}
+
+fn keyring_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("FRAMETRACE_AUDIT_KEYRING_FILE") {
+        let path = path.trim();
+        if !path.is_empty() {
+            return Some(PathBuf::from(path));
+        }
+    }
+    config_dir().map(|dir| dir.join("audit-keys.json"))
+}
+
+/// Reads a keyring file. Absent is `Ok(None)`; present-but-broken is an
+/// error, matching the single-key file's present-but-unusable rule.
+#[doc(hidden)]
+pub fn load_keyring(path: &Path) -> Result<Option<Keyring>, String> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    check_key_file_permissions(path)?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read audit keyring {}: {err}", path.display()))?;
+    let parsed: KeyringFile = serde_json::from_str(&text).map_err(|err| {
+        format!(
+            "audit keyring {} is not valid keyring JSON: {err}",
+            path.display()
+        )
+    })?;
+    if parsed.version != 1 {
+        return Err(format!(
+            "audit keyring {} has unsupported version {}",
+            path.display(),
+            parsed.version
+        ));
+    }
+    if !parsed.keys.contains_key(&parsed.active) {
+        return Err(format!(
+            "audit keyring {} names active key \"{}\" it does not contain",
+            path.display(),
+            parsed.active
+        ));
+    }
+    let mut keys = Vec::with_capacity(parsed.keys.len());
+    for (id, material) in &parsed.keys {
+        let bytes = parse_key_material(material)
+            .map_err(|err| format!("audit keyring {}: key \"{id}\": {err}", path.display()))?;
+        keys.push(AuditKey {
+            id: id.clone(),
+            bytes,
+        });
+    }
+    Ok(Some(Keyring {
+        active: parsed.active,
+        keys,
+    }))
+}
+
+fn keyring_keys() -> Result<Vec<AuditKey>, String> {
+    let Some(path) = keyring_path() else {
+        return Ok(Vec::new());
+    };
+    Ok(load_keyring(&path)?.map(|kr| kr.keys).unwrap_or_default())
+}
+
+fn keyring_active() -> Result<Option<AuditKey>, String> {
+    let Some(path) = keyring_path() else {
+        return Ok(None);
+    };
+    // load_keyring guarantees `active` names a contained id.
+    Ok(load_keyring(&path)?.and_then(|kr| kr.keys.into_iter().find(|key| key.id == kr.active)))
+}
+
+/// Generates a new audit key, registers it as the keyring's active key, and
+/// retires the previously configured key — whichever source supplied it —
+/// into the keyring so its entries stay verifiable.
+pub fn rotate(requested_id: Option<&str>) -> Result<Rotation, String> {
+    let path = keyring_path().ok_or_else(|| {
+        "cannot rotate the audit key: no config directory resolved; set FRAMETRACE_AUDIT_KEYRING_FILE"
+            .to_string()
+    })?;
+    rotate_at(&path, requested_id, configured()?)
+}
+
+/// `rotate` against an explicit keyring path and an explicit previous key,
+/// so tests exercise rotation without process-global env state.
+#[doc(hidden)]
+pub fn rotate_at(
+    keyring_path: &Path,
+    requested_id: Option<&str>,
+    previous: Option<AuditKey>,
+) -> Result<Rotation, String> {
+    let mut keys: BTreeMap<String, Vec<u8>> = load_keyring(keyring_path)?
+        .map(|kr| kr.keys.into_iter().map(|key| (key.id, key.bytes)).collect())
+        .unwrap_or_default();
+
+    // OS entropy via getrandom — the only source of key material, so the
+    // same CSPRNG guarantee holds on every supported OS.
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)
+        .map_err(|err| format!("failed to draw OS randomness for the new audit key: {err}"))?;
+
+    let id = match requested_id {
+        Some(id) => {
+            let id = id.trim();
+            if !valid_key_id(id) {
+                return Err(format!(
+                    "invalid key id \"{id}\": use non-empty text without quotes, backslashes, or control characters"
+                ));
+            }
+            id.to_string()
+        }
+        // Default id is a key-fingerprint prefix — stable, non-secret.
+        None => format!("key-{}", &crate::sha256::digest_bytes(&bytes)[..8]),
+    };
+    if keys.contains_key(&id) {
+        return Err(format!(
+            "audit key id \"{id}\" already exists in the keyring"
+        ));
+    }
+
+    let previous_id = previous.as_ref().map(|prev| prev.id.clone());
+    if let Some(prev) = previous {
+        match keys.get(&prev.id) {
+            Some(known) if *known == prev.bytes => {}
+            Some(_) => {
+                return Err(format!(
+                    "keyring already holds different key material under id \"{}\"; refusing to merge",
+                    prev.id
+                ));
+            }
+            None => {
+                keys.insert(prev.id, prev.bytes);
+            }
+        }
+    }
+    keys.insert(id.clone(), bytes.to_vec());
+
+    write_keyring(
+        keyring_path,
+        &KeyringFile {
+            version: 1,
+            active: id.clone(),
+            keys: keys
+                .iter()
+                .map(|(id, bytes)| (id.clone(), hex_encode(bytes)))
+                .collect(),
+        },
+    )?;
+    Ok(Rotation {
+        new_key: AuditKey {
+            id,
+            bytes: bytes.to_vec(),
+        },
+        previous_id,
+        keyring_path: keyring_path.to_path_buf(),
+    })
+}
+
+fn write_keyring(path: &Path, keyring: &KeyringFile) -> Result<(), String> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "failed to create audit keyring directory {}: {err}",
+                parent.display()
+            )
+        })?;
+    }
+    let text = serde_json::to_string_pretty(keyring)
+        .map_err(|err| format!("failed to serialize audit keyring: {err}"))?;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|err| format!("failed to write audit keyring {}: {err}", path.display()))?;
+    file.write_all(text.as_bytes())
+        .and_then(|_| file.sync_all())
+        .map_err(|err| format!("failed to write audit keyring {}: {err}", path.display()))?;
+    drop(file);
+    // Truncate keeps a pre-existing file's mode; normalize so key material
+    // never sits group/other-readable after a re-rotation.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|err| {
+            format!(
+                "failed to restrict audit keyring {} permissions: {err}",
+                path.display()
+            )
+        })?;
+    }
+    crate::util::sync_parent_directory(path);
+    Ok(())
+}
+
+/// Key ids land inside JSON strings (`entry_hmac_key_id`, keyring `keys`
+/// map); rejecting quotes/backslashes/controls keeps them readable
+/// everywhere without leaning on escaping.
+fn valid_key_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|ch| !ch.is_control() && ch != '"' && ch != '\\')
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }
 
 /// Decodes hex- or base64-encoded key material into exactly 32 bytes.
@@ -225,7 +556,21 @@ fn base64_decode(text: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{base64_decode, hex_decode, parse_key_material};
+    use super::{
+        AuditKey, base64_decode, hex_decode, load_keyring, parse_key_material, resolve_key_source,
+        rotate_at,
+    };
+    use std::fs;
+
+    fn test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "frametrace-audit-key-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn decodes_hex_key() {
@@ -254,5 +599,182 @@ mod tests {
         assert!(parse_key_material("not a key at all!!!").is_err());
         assert!(base64_decode("a").is_none());
         assert!(hex_decode("xyz").is_none());
+    }
+
+    /// The rotation contract: entries keyed before rotation verify against
+    /// the retired key, entries keyed after verify against the active key,
+    /// and the keyring hands verification both generations.
+    #[test]
+    fn rotate_then_verify_old_and_new_entries() {
+        let dir = test_dir("rotate");
+        let keyring_path = dir.join("audit-keys.json");
+        let log = dir.join("audit.jsonl");
+        let old = AuditKey::new("2026-Q1", &[0x11; 32]);
+
+        // Pre-rotation history exists under the old key.
+        crate::audit::append_chained_jsonl_keyed(&log, r#"{"kind":"before"}"#, Some(&old)).unwrap();
+
+        let rotation = rotate_at(&keyring_path, Some("2026-Q2"), Some(old.clone())).unwrap();
+        assert_eq!(rotation.new_key.id, "2026-Q2");
+        assert_eq!(rotation.previous_id.as_deref(), Some("2026-Q1"));
+        assert_eq!(rotation.new_key.bytes.len(), 32);
+        assert_ne!(rotation.new_key.bytes, old.bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&keyring_path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "keyring mode was {mode:o}");
+        }
+
+        // New entries chain on under the new key.
+        crate::audit::append_chained_jsonl_keyed(
+            &log,
+            r#"{"kind":"after"}"#,
+            Some(&rotation.new_key),
+        )
+        .unwrap();
+
+        let keyring = load_keyring(&keyring_path).unwrap().unwrap();
+        assert_eq!(keyring.active, "2026-Q2");
+        assert_eq!(keyring.keys.len(), 2);
+        let verification = crate::audit::verify_chained_jsonl_keyed(&log, &keyring.keys).unwrap();
+        assert_eq!(verification.entries, 2);
+        assert_eq!(verification.keyed_entries, 2);
+        assert_eq!(verification.integrity, crate::audit::AuditIntegrity::Keyed);
+        assert!(verification.warnings.is_empty());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Two rotations keep every generation verifiable: the keyring grows
+    /// retired entries and only ever has one active key.
+    #[test]
+    fn second_rotation_keeps_every_generation_verifiable() {
+        let dir = test_dir("rotate2");
+        let keyring_path = dir.join("audit-keys.json");
+        let log = dir.join("audit.jsonl");
+        let first = AuditKey::new("gen1", &[0x21; 32]);
+
+        let r1 = rotate_at(&keyring_path, Some("gen2"), Some(first.clone())).unwrap();
+        let r2 = rotate_at(&keyring_path, Some("gen3"), Some(r1.new_key.clone())).unwrap();
+
+        crate::audit::append_chained_jsonl_keyed(&log, r#"{"kind":"e1"}"#, Some(&first)).unwrap();
+        crate::audit::append_chained_jsonl_keyed(&log, r#"{"kind":"e2"}"#, Some(&r1.new_key))
+            .unwrap();
+        crate::audit::append_chained_jsonl_keyed(&log, r#"{"kind":"e3"}"#, Some(&r2.new_key))
+            .unwrap();
+
+        let keyring = load_keyring(&keyring_path).unwrap().unwrap();
+        assert_eq!(keyring.active, "gen3");
+        assert_eq!(keyring.keys.len(), 3);
+        let verification = crate::audit::verify_chained_jsonl_keyed(&log, &keyring.keys).unwrap();
+        assert_eq!(verification.entries, 3);
+        assert_eq!(verification.integrity, crate::audit::AuditIntegrity::Keyed);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Rotating with nothing configured enables keying from scratch: no
+    /// retired key, generated fingerprint id.
+    #[test]
+    fn rotate_with_no_previous_key_enables_keying() {
+        let dir = test_dir("rotate-fresh");
+        let keyring_path = dir.join("audit-keys.json");
+        let rotation = rotate_at(&keyring_path, None, None).unwrap();
+        assert!(rotation.previous_id.is_none());
+        assert!(
+            rotation.new_key.id.starts_with("key-"),
+            "{}",
+            rotation.new_key.id
+        );
+        let keyring = load_keyring(&keyring_path).unwrap().unwrap();
+        assert_eq!(keyring.keys.len(), 1);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rotate_rejects_duplicate_id() {
+        let dir = test_dir("rotate-dupe");
+        let keyring_path = dir.join("audit-keys.json");
+        rotate_at(&keyring_path, Some("dup"), None).unwrap();
+        let err = rotate_at(&keyring_path, Some("dup"), None).unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// A retired id already present in the keyring under different material
+    /// is a hard stop — silently keeping it would mask a keying mixup.
+    #[test]
+    fn rotate_rejects_conflicting_previous_id() {
+        let dir = test_dir("rotate-conflict");
+        let keyring_path = dir.join("audit-keys.json");
+        rotate_at(&keyring_path, Some("default"), None).unwrap();
+        let stranger = AuditKey::new("default", &[0x33; 32]);
+        let err = rotate_at(&keyring_path, Some("next"), Some(stranger)).unwrap_err();
+        assert!(err.contains("different key material"), "{err}");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_keyring_rejects_broken_files() {
+        let dir = test_dir("keyring-broken");
+        let path = dir.join("audit-keys.json");
+        let write = |bytes: &[u8]| {
+            fs::write(&path, bytes).unwrap();
+            // The permission gate runs before parsing; pin 0600 so the test
+            // exercises the format checks, not the mode check.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            }
+        };
+        write(b"not json");
+        assert!(load_keyring(&path).is_err());
+        write(br#"{"version":9,"active":"a","keys":{"a":"00"}}"#);
+        assert!(load_keyring(&path).is_err());
+        // Active id must name a contained key.
+        write(
+            format!(
+                "{{\"version\":1,\"active\":\"ghost\",\"keys\":{{\"a\":\"{}\"}}}}",
+                "00".repeat(32)
+            )
+            .as_bytes(),
+        );
+        assert!(load_keyring(&path).is_err());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// `env:VAR` resolves material without touching disk — the secret-store
+    /// hand-off. Unique var name so no other test can observe it.
+    #[test]
+    fn env_key_source_parses_material() {
+        let var = "FRAMETRACE_TEST_KEY_SOURCE";
+        unsafe {
+            std::env::set_var(var, "11".repeat(32));
+        }
+        let key = resolve_key_source(&format!("env:{var}")).unwrap();
+        assert_eq!(key.bytes, vec![0x11; 32]);
+        unsafe {
+            std::env::remove_var(var);
+        }
+        let err = resolve_key_source("env:FRAMETRACE_TEST_KEY_SOURCE_MISSING").unwrap_err();
+        assert!(err.contains("is not set"), "{err}");
+        assert!(resolve_key_source("env:").is_err());
+        assert!(resolve_key_source("bogus").is_err());
+        assert!(resolve_key_source("file:/nonexistent/key").is_err());
+    }
+
+    #[test]
+    fn file_key_source_reads_key_file() {
+        let dir = test_dir("key-source-file");
+        let path = dir.join("key");
+        fs::write(&path, "22".repeat(32)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let key = resolve_key_source(&format!("file:{}", path.display())).unwrap();
+        assert_eq!(key.bytes, vec![0x22; 32]);
+        let _ = fs::remove_dir_all(dir);
     }
 }

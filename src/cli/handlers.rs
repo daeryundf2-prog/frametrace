@@ -963,6 +963,35 @@ pub fn verify_audit(log_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `rotate-audit-key`: generate a fresh key, make it the keyring's active
+/// key, retire the previously configured key, and optionally stamp signed
+/// marker entries into the logs that grow across the boundary.
+pub fn rotate_audit_key(key_id: Option<&str>, marker_logs: &[PathBuf]) -> Result<(), String> {
+    let rotation = crate::audit_key::rotate(key_id)?;
+    println!("audit key rotated");
+    println!("new key id: {}", rotation.new_key.id);
+    match &rotation.previous_id {
+        Some(id) => {
+            println!("retired key id: {id} (kept in the keyring — its entries still verify)")
+        }
+        None => println!("no previous key configured — audit keying enabled"),
+    }
+    println!("keyring: {}", rotation.keyring_path.display());
+    for log in marker_logs {
+        let marker = format!(
+            "{{\"kind\":\"audit-key-rotate\",\"from\":{},\"to\":{}}}",
+            audit::optional_string(rotation.previous_id.as_deref()),
+            audit::optional_string(Some(&rotation.new_key.id)),
+        );
+        // The marker is signed under the NEW key explicitly (the design's
+        // rotation rule), even if a --key-source override still names the
+        // old key for this process.
+        audit::append_chained_jsonl_keyed(log, &marker, Some(&rotation.new_key))?;
+        println!("marker appended: {}", log.display());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct BatchOutcome {
     selector: String,

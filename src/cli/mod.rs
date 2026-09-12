@@ -17,6 +17,12 @@ use handlers::*;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+    /// Audit-chain key source override for this invocation: `env:VAR` reads
+    /// hex/base64 key material from that variable (secret-store injection
+    /// without touching disk), `file:PATH` reads a 0600 key file at PATH.
+    /// Wins over every configured source
+    #[arg(long, global = true, value_name = "env:VAR|file:PATH")]
+    pub key_source: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -262,6 +268,19 @@ pub enum Commands {
     },
     /// Verify a chained JSONL audit log and report tamper status
     VerifyAudit { log_path: PathBuf },
+    /// Rotate the audit-chain HMAC key: generate a new key, register it as
+    /// the keyring's active key, and retire the previous key so older keyed
+    /// entries stay verifiable
+    RotateAuditKey {
+        /// Key id stamped as entry_hmac_key_id on new entries
+        /// (default: key-<key fingerprint prefix>)
+        #[arg(long)]
+        key_id: Option<String>,
+        /// Append a signed audit-key-rotate marker entry to this audit log
+        /// (repeatable; the marker is keyed under the NEW key)
+        #[arg(long)]
+        log: Vec<PathBuf>,
+    },
     /// Batch-process a viewer selection file (export/proxy/thumbnail per item)
     ExportBatch {
         case_dir: PathBuf,
@@ -411,6 +430,10 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             };
         }
     };
+
+    if let Some(spec) = &cli.key_source {
+        crate::audit_key::install_source_override(spec)?;
+    }
 
     match cli.command {
         Commands::InitCase {
@@ -684,6 +707,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             validate_artifact(&case_dir, &selector, options)
         }
         Commands::VerifyAudit { log_path } => verify_audit(&log_path),
+        Commands::RotateAuditKey { key_id, log } => rotate_audit_key(key_id.as_deref(), &log),
         Commands::ExportBatch {
             case_dir,
             selection,
