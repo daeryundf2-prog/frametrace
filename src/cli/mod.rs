@@ -246,6 +246,14 @@ pub enum Commands {
         case_dir: PathBuf,
         selection: PathBuf,
     },
+    /// Diff this case's video index against another case's (candidate-grade report)
+    CompareCases {
+        case_dir: PathBuf,
+        other_case_dir: PathBuf,
+        /// Output path inside this case (default: reports/case-compare.json)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Emit a candidate-grade JSONL event stream merging index, ffprobe, and carve timestamps
     Timeline {
         case_dir: PathBuf,
@@ -602,6 +610,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             selection,
         } => validate_batch(&case_dir, &selection),
         Commands::Timeline { case_dir, output } => timeline(&case_dir, output),
+        Commands::CompareCases {
+            case_dir,
+            other_case_dir,
+            output,
+        } => compare_cases(&case_dir, &other_case_dir, output),
         Commands::ImportMarks { case_dir, marks } => import_marks(&case_dir, &marks),
         Commands::ExportMarks { case_dir, output } => export_marks(&case_dir, output.as_deref()),
         Commands::BenchmarkDb { output_dir, rows } => {

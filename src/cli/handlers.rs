@@ -1240,6 +1240,49 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     Ok(())
 }
 
+/// Diffs this case's video index against another case's and writes a
+/// candidate-grade JSON report inside THIS case (reports/case-compare.json by
+/// default). Audit-chained under evidence/logs/case-compare-log.jsonl.
+pub fn compare_cases(
+    case_dir: &Path,
+    other_case_dir: &Path,
+    output: Option<PathBuf>,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    ensure_case(other_case_dir)?;
+    let output_path = output.unwrap_or_else(|| case_dir.join("reports/case-compare.json"));
+    let job = case_db::start_job(case_dir, "compare-cases", other_case_dir, None, "{}")?;
+    let result = match crate::case_compare::compare_cases(case_dir, other_case_dir, &output_path) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        (result.both_count
+            + result.only_in_a_count
+            + result.only_in_b_count
+            + result.hash_mismatch_count) as u64,
+        "compare-cases completed",
+    )?;
+    println!("case comparison written: {}", result.report_path.display());
+    println!("present in both: {}", result.both_count);
+    println!("only in this case: {}", result.only_in_a_count);
+    println!("only in other case: {}", result.only_in_b_count);
+    println!(
+        "hash mismatches on same path: {}",
+        result.hash_mismatch_count
+    );
+    println!(
+        "label: {} (index rows are recorded claims, not re-verified content)",
+        crate::case_compare::LABEL
+    );
+    Ok(())
+}
+
 /// Emits the merged candidate timeline (db/timeline.jsonl by default). The
 /// stream is audit-logged under evidence/logs/timeline-log.jsonl and tracked
 /// as a job like the other case-mutating commands.
