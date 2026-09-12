@@ -12,6 +12,7 @@ pub mod e01;
 pub mod ffprobe;
 pub mod hikvision;
 pub mod html_report;
+pub mod known_hash;
 pub mod model;
 pub mod package;
 pub mod qa;

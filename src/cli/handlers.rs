@@ -1341,6 +1341,46 @@ pub fn compare_cases(
     Ok(())
 }
 
+/// Splits the case index into known/unknown against a user-supplied sha256
+/// list (reports/known-hash-filter.json by default), audit-chained under
+/// evidence/logs/known-hash-log.jsonl. The hash list is an input and may
+/// live outside the case; the report stays confined inside it.
+pub fn known_hash_filter(
+    case_dir: &Path,
+    hash_list: &Path,
+    output: Option<PathBuf>,
+) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let output_path = output.unwrap_or_else(|| case_dir.join("reports/known-hash-filter.json"));
+    let job = case_db::start_job(case_dir, "known-hash-filter", hash_list, None, "{}")?;
+    let result = match crate::known_hash::filter_known_hashes(case_dir, hash_list, &output_path) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        (result.known_count + result.unknown_count + result.unhashed_count) as u64,
+        "known-hash-filter completed",
+    )?;
+    println!(
+        "known-hash report written: {}",
+        result.report_path.display()
+    );
+    println!("list digests: {}", result.list_size);
+    println!("known: {}", result.known_count);
+    println!("unknown: {}", result.unknown_count);
+    println!("unhashed: {}", result.unhashed_count);
+    println!(
+        "label: {} (matches reflect recorded index hashes, not re-verified content)",
+        crate::known_hash::LABEL
+    );
+    Ok(())
+}
+
 /// Exports the case video index as DFXML (reports/case-index.dfxml by
 /// default), confined to the case directory and audit-chained under
 /// evidence/logs/dfxml-export-log.jsonl. Values are recorded index claims —

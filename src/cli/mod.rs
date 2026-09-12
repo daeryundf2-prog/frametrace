@@ -263,6 +263,15 @@ pub enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Split the case index into known/unknown files against a sha256 list
+    /// (one digest per line or `sha256,<rest>` rows; candidate-grade report)
+    KnownHashFilter {
+        case_dir: PathBuf,
+        hash_list: PathBuf,
+        /// Output path inside the case (default: reports/known-hash-filter.json)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Export the case video index as DFXML (Digital Forensics XML; values are
     /// recorded index claims, not re-verified measurements)
     ExportDfxml {
@@ -633,6 +642,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             case_dir,
             selection,
         } => validate_batch(&case_dir, &selection),
+        Commands::KnownHashFilter {
+            case_dir,
+            hash_list,
+            output,
+        } => known_hash_filter(&case_dir, &hash_list, output),
         Commands::ExportDfxml { case_dir, output } => export_dfxml(&case_dir, output),
         Commands::Timeline { case_dir, output } => timeline(&case_dir, output),
         Commands::CompareCases {
