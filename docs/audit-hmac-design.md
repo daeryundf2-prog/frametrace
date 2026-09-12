@@ -1,10 +1,33 @@
 # Audit Chain HMAC Design
 
-**Status: design only — not implemented.** Tracked as roadmap M5 candidate
-(`docs/ROADMAP-v2.md` §4, open decision #1); adoption requires legal/practice
-review before any code lands. This document records the current chain format,
-the residual threat, and the proposed keyed format so the decision can be made
-without re-deriving the analysis.
+**Status: implemented (opt-in).** Keyed appends and verification ship behind
+key configuration — with no key configured, behavior is byte-identical to the
+unkeyed chain. Legal/practice review still governs how much weight a keyed log
+carries in testimony; the code deliberately reports `integrity-structural-only`
+so unkeyed logs are never oversold. This document records the chain format, the
+residual threat, and the keyed format as shipped.
+
+**Implementation notes (what shipped):**
+
+- `src/hmac.rs` — HMAC-SHA-256 hand-assembled over the existing `sha2`
+  dependency (RFC 2104; tested against the RFC 4231 vectors). No new crates.
+- `src/audit_key.rs` — key resolution in the design's preference order:
+  first a `0600` key file (`$XDG_CONFIG_HOME/frametrace/audit-key` or
+  `~/.config/frametrace/audit-key` on Unix, `%APPDATA%\frametrace\audit-key`
+  on Windows; `FRAMETRACE_AUDIT_KEY_FILE` overrides the path), then
+  `FRAMETRACE_AUDIT_KEY` (hex- or base64-encoded 32-byte material). A present
+  but unusable source — world/group-readable file on Unix, malformed or
+  wrong-length material — is an error, never a silent downgrade.
+- `FRAMETRACE_AUDIT_KEY_ID` names the loaded key (default `"default"`) and is
+  stamped as `entry_hmac_key_id`.
+- `verify-audit` prints the log-level mark (`integrity-keyed` /
+  `integrity-structural-only`), keyed-entry counts, and per-log warnings
+  (mixed chain, missing key).
+- **Not yet shipped:** OS-keystore integration (macOS Keychain / DPAPI) —
+  the `0600` file fallback from the design covers all platforms today — and a
+  `rotate-audit-key` command. Rotation remains a documented procedure
+  (marker entry keyed under the new key); verification already accepts the
+  ordered key-set fallback the rotation rules require.
 
 ## Current chain structure
 

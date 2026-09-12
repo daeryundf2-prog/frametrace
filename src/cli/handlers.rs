@@ -950,6 +950,16 @@ pub fn verify_audit(log_path: &Path) -> Result<(), String> {
     println!("audit verified: {}", log_path.display());
     println!("entries: {}", result.entries);
     println!("last entry sha256: {}", result.last_entry_sha256);
+    println!("integrity: {}", result.integrity.label());
+    if result.keyed_entries > 0 {
+        println!(
+            "keyed entries: {} ({} unauthenticated)",
+            result.keyed_entries, result.unauthenticated_keyed_entries
+        );
+    }
+    for warning in &result.warnings {
+        println!("warning: {warning}");
+    }
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 pub mod anomaly;
 pub mod artifacts;
 pub mod audit;
+pub mod audit_key;
 pub mod carve;
 pub mod case_compare;
 pub mod case_db;
@@ -13,6 +14,7 @@ pub mod dfxml;
 pub mod e01;
 pub mod ffprobe;
 pub mod hikvision;
+pub mod hmac;
 pub mod html_report;
 pub mod known_hash;
 pub mod model;

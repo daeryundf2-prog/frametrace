@@ -1,3 +1,4 @@
+use crate::audit_key::AuditKey;
 use crate::sha256;
 use crate::util::{json_escape, read_to_string};
 use fs2::FileExt;
@@ -5,10 +6,43 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+/// Log-level integrity classification per `docs/audit-hmac-design.md`'s
+/// verification matrix. The chain's structural check always runs; keyed
+/// integrity is reported on top of it, never instead of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditIntegrity {
+    /// No keyed entries, or keyed entries that could not all be
+    /// authenticated (missing key / mixed chain). Structural checks still
+    /// passed — this is the pre-keying guarantee, reported honestly.
+    StructuralOnly,
+    /// Every entry carries an `entry_hmac_sha256` that verified against a
+    /// configured key.
+    Keyed,
+}
+
+impl AuditIntegrity {
+    /// The stable label `verify-audit` prints and receipts record.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::StructuralOnly => "integrity-structural-only",
+            Self::Keyed => "integrity-keyed",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditChainVerification {
     pub entries: usize,
     pub last_entry_sha256: String,
+    /// Entries carrying `entry_hmac_sha256`/`entry_hmac_key_id`.
+    pub keyed_entries: usize,
+    /// Keyed entries whose HMAC could not be checked because no key was
+    /// configured (a subset of `keyed_entries`).
+    pub unauthenticated_keyed_entries: usize,
+    /// Log-level mark per the design's verification matrix.
+    pub integrity: AuditIntegrity,
+    /// Caveats that keep the mark honest (mixed chain, missing key, ...).
+    pub warnings: Vec<String>,
 }
 
 pub fn digest_file(path: &Path) -> Result<String, String> {
@@ -24,6 +58,20 @@ pub fn digest_file(path: &Path) -> Result<String, String> {
 /// a single append + fsync so a crash can at worst tear the final line — which
 /// `append` refuses to chain onto and `verify-audit` reports distinctly.
 pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> {
+    // Keyed mode is opt-in: no configured key → the exact same unkeyed
+    // entries this function has always written.
+    let key = crate::audit_key::configured()?;
+    append_chained_jsonl_keyed(path, body_json, key.as_ref())
+}
+
+/// `append_chained_jsonl` with an explicit key, so tests and tools can
+/// exercise keyed appends without touching process-global env state.
+#[doc(hidden)]
+pub fn append_chained_jsonl_keyed(
+    path: &Path,
+    body_json: &str,
+    key: Option<&AuditKey>,
+) -> Result<(), String> {
     let body = body_json.trim();
     if !body.starts_with('{') || !body.ends_with('}') {
         return Err("audit log body must be a JSON object".to_string());
@@ -45,7 +93,7 @@ pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> 
             path.display()
         )
     })?;
-    let result = append_chained_locked(&mut file, body);
+    let result = append_chained_locked(&mut file, body, key);
     let _ = file.unlock();
     // First-time log creation must have its directory entry synced too, or a
     // power loss can lose the whole audit trail despite per-line fsync.
@@ -55,7 +103,11 @@ pub fn append_chained_jsonl(path: &Path, body_json: &str) -> Result<(), String> 
     result
 }
 
-fn append_chained_locked(file: &mut File, body: &str) -> Result<(), String> {
+fn append_chained_locked(
+    file: &mut File,
+    body: &str,
+    key: Option<&AuditKey>,
+) -> Result<(), String> {
     use std::io::{Read, Seek, SeekFrom, Write};
     let mut existing = String::new();
     file.seek(SeekFrom::Start(0))
@@ -80,11 +132,25 @@ fn append_chained_locked(file: &mut File, body: &str) -> Result<(), String> {
         json_escape(&previous_entry_sha256)
     );
     let entry_sha256 = sha256::digest_bytes(chained.as_bytes());
-    let line = format!(
-        "{},\"entry_sha256\":\"{}\"}}\n",
-        &chained[..chained.len() - 1],
-        json_escape(&entry_sha256)
-    );
+    let line = if let Some(key) = key {
+        // The HMAC covers EXACTLY the bytes entry_sha256 covers (the line
+        // through previous_entry_sha256 + closing brace), so keyed fields
+        // are purely additive and unkeyed verification is untouched.
+        let entry_hmac = crate::hmac::hmac_sha256_hex(&key.bytes, chained.as_bytes());
+        format!(
+            "{},\"entry_sha256\":\"{}\",\"entry_hmac_sha256\":\"{}\",\"entry_hmac_key_id\":\"{}\"}}\n",
+            &chained[..chained.len() - 1],
+            json_escape(&entry_sha256),
+            json_escape(&entry_hmac),
+            json_escape(&key.id)
+        )
+    } else {
+        format!(
+            "{},\"entry_sha256\":\"{}\"}}\n",
+            &chained[..chained.len() - 1],
+            json_escape(&entry_sha256)
+        )
+    };
     // Append mode always writes at the end; one write_all + fsync keeps the
     // window for a torn write down to the final line only.
     file.write_all(line.as_bytes())
@@ -109,9 +175,21 @@ pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, Strin
         },
         Err(_) => None,
     };
+    let keys = crate::audit_key::verification_keys()?;
+    verify_chained_jsonl_keyed(path, &keys)
+}
+
+/// `verify_chained_jsonl` with an explicit key set — the design's
+/// `{key_id: key}` map. Tests use this so no process-global env state is
+/// touched; production callers go through `verify_chained_jsonl`.
+#[doc(hidden)]
+pub fn verify_chained_jsonl_keyed(
+    path: &Path,
+    keys: &[AuditKey],
+) -> Result<AuditChainVerification, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read audit log {}: {err}", path.display()))?;
-    verify_chained_jsonl_text(&text, &path.display().to_string())
+    verify_chained_jsonl_text(&text, &path.display().to_string(), keys)
 }
 
 /// In-memory form of `verify_chained_jsonl` over the raw log text, so the
@@ -121,6 +199,7 @@ pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, Strin
 pub fn verify_chained_jsonl_text(
     text: &str,
     source_name: &str,
+    keys: &[AuditKey],
 ) -> Result<AuditChainVerification, String> {
     let complete_tail = text.is_empty() || text.ends_with('\n');
     let lines: Vec<&str> = text
@@ -130,10 +209,19 @@ pub fn verify_chained_jsonl_text(
     let mut previous_entry_sha256 = "GENESIS".to_string();
     let mut last_entry_sha256 = previous_entry_sha256.clone();
     let mut entries = 0usize;
+    let mut keyed_entries = 0usize;
+    let mut unauthenticated_keyed = 0usize;
 
     for (index, line) in lines.iter().enumerate() {
         let line_number = index + 1;
-        let verify_line = || -> Result<(), String> {
+        // What the keyed layer found on this line, reported up to the
+        // log-level tallies.
+        enum Keyed {
+            Unkeyed,
+            Verified,
+            Unauthenticated,
+        }
+        let verify_line = || -> Result<Keyed, String> {
             let recorded_previous =
                 extract_json_string(line, "previous_entry_sha256").ok_or_else(|| {
                     format!("audit line {line_number} is missing previous_entry_sha256")
@@ -155,15 +243,59 @@ pub fn verify_chained_jsonl_text(
                     "audit line {line_number} entry hash mismatch: expected {computed_entry}, found {recorded_entry}"
                 ));
             }
-            Ok(())
-        };
-        if let Err(error) = verify_line() {
-            if line_number == lines.len() && !complete_tail {
-                return Err(format!(
-                    "audit log {source_name} ends with an incomplete final entry (torn write): {error}; remove or repair the last line, then re-run verify"
-                ));
+
+            // Keyed layer — purely additive over the same signed bytes.
+            let recorded_hmac = extract_json_string(line, "entry_hmac_sha256");
+            let recorded_key_id = extract_json_string(line, "entry_hmac_key_id");
+            match (recorded_hmac, recorded_key_id) {
+                (None, None) => Ok(Keyed::Unkeyed),
+                (Some(_), None) | (None, Some(_)) => Err(format!(
+                    "audit line {line_number} carries only one of entry_hmac_sha256/entry_hmac_key_id"
+                )),
+                (Some(recorded), Some(key_id)) => {
+                    if keys.is_empty() {
+                        // Keyed entry, no key anywhere: the structural
+                        // check above already passed; authenticity is
+                        // reported as unverified at the log level.
+                        return Ok(Keyed::Unauthenticated);
+                    }
+                    // Declared key_id first, then every known key — a
+                    // renamed id must not brick old entries (rotation
+                    // rules in the design doc).
+                    let verified = keys
+                        .iter()
+                        .filter(|key| key.id == key_id)
+                        .chain(keys.iter().filter(|key| key.id != key_id))
+                        .any(|key| {
+                            crate::hmac::tags_equal(
+                                &crate::hmac::hmac_sha256(&key.bytes, signed_entry.as_bytes()),
+                                &decode_hex_tag(&recorded).unwrap_or([0xff; 32]),
+                            )
+                        });
+                    if !verified {
+                        return Err(format!(
+                            "audit line {line_number} HMAC verification failed (key_id \"{key_id}\"): the entry was re-written or signed under a different key"
+                        ));
+                    }
+                    Ok(Keyed::Verified)
+                }
             }
-            return Err(error);
+        };
+        match verify_line() {
+            Ok(Keyed::Verified) => keyed_entries += 1,
+            Ok(Keyed::Unauthenticated) => {
+                keyed_entries += 1;
+                unauthenticated_keyed += 1;
+            }
+            Ok(Keyed::Unkeyed) => {}
+            Err(error) => {
+                if line_number == lines.len() && !complete_tail {
+                    return Err(format!(
+                        "audit log {source_name} ends with an incomplete final entry (torn write): {error}; remove or repair the last line, then re-run verify"
+                    ));
+                }
+                return Err(error);
+            }
         }
 
         previous_entry_sha256 = sha256::digest_bytes(line.as_bytes());
@@ -171,10 +303,47 @@ pub fn verify_chained_jsonl_text(
         entries += 1;
     }
 
+    // Log-level mark per the design's verification matrix.
+    let mut warnings = Vec::new();
+    let mut integrity = AuditIntegrity::StructuralOnly;
+    if keyed_entries > 0 && unauthenticated_keyed > 0 {
+        warnings.push(format!(
+            "{unauthenticated_keyed} keyed entr{} present but no audit key is configured — authenticity unverified (structural chain verified)",
+            if unauthenticated_keyed == 1 { "y" } else { "ies" }
+        ));
+    }
+    if keyed_entries > 0 && keyed_entries < entries {
+        warnings.push(
+            "mixed keyed/unkeyed entries — log-level integrity degrades to structural-only"
+                .to_string(),
+        );
+    }
+    if keyed_entries == entries && entries > 0 && unauthenticated_keyed == 0 {
+        integrity = AuditIntegrity::Keyed;
+    }
+
     Ok(AuditChainVerification {
         entries,
         last_entry_sha256,
+        keyed_entries,
+        unauthenticated_keyed_entries: unauthenticated_keyed,
+        integrity,
+        warnings,
     })
+}
+
+/// Hex-decodes a recorded `entry_hmac_sha256` into a fixed-size tag.
+/// Malformed (non-hex / wrong length) tags decode to a sentinel that can
+/// never equal a real tag, so the comparison stays total.
+fn decode_hex_tag(text: &str) -> Option<[u8; 32]> {
+    if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut tag = [0u8; 32];
+    for (index, byte) in tag.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(tag)
 }
 
 fn recorded_entry_hash(line: &str) -> Option<String> {
@@ -240,10 +409,18 @@ fn entry_without_recorded_hash(line: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_chained_jsonl, digest_file, verify_chained_jsonl};
+    use super::{
+        AuditIntegrity, append_chained_jsonl, append_chained_jsonl_keyed, digest_file,
+        verify_chained_jsonl, verify_chained_jsonl_keyed,
+    };
+    use crate::audit_key::AuditKey;
     use crate::util::read_to_string;
     use std::fs;
     use std::io::Write;
+
+    fn test_key(id: &str, seed: u8) -> AuditKey {
+        AuditKey::new(id, &[seed; 32])
+    }
 
     #[test]
     fn appends_chained_json_lines() {
@@ -343,6 +520,155 @@ mod tests {
         });
         let verification = verify_chained_jsonl(&path).unwrap();
         assert_eq!(verification.entries, 60);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Keyed append → keyed verify round trip: fields land after
+    /// entry_sha256 and the log reports integrity-keyed.
+    #[test]
+    fn keyed_append_and_verify_round_trip() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-keyed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        let key = test_key("2026-Q1", 0x42);
+
+        append_chained_jsonl_keyed(&path, r#"{"kind":"one"}"#, Some(&key)).unwrap();
+        append_chained_jsonl_keyed(&path, r#"{"kind":"two"}"#, Some(&key)).unwrap();
+        let text = read_to_string(&path).unwrap();
+        for line in text.lines() {
+            // Keyed fields are appended after entry_sha256, exactly per
+            // the design's versioned field order.
+            let entry = line.find("\"entry_sha256\"").unwrap();
+            let hmac = line.find("\"entry_hmac_sha256\"").unwrap();
+            let key_id = line.find("\"entry_hmac_key_id\"").unwrap();
+            assert!(entry < hmac && hmac < key_id, "{line}");
+            assert!(line.contains("\"entry_hmac_key_id\":\"2026-Q1\""), "{line}");
+        }
+
+        let verification = verify_chained_jsonl_keyed(&path, &[key]).unwrap();
+        assert_eq!(verification.entries, 2);
+        assert_eq!(verification.keyed_entries, 2);
+        assert_eq!(verification.integrity, AuditIntegrity::Keyed);
+        assert!(verification.warnings.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A log rewritten under a different key fails verification outright —
+    /// this is the threat the keyed chain exists to catch.
+    #[test]
+    fn keyed_log_rejects_wrong_key() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-wrongkey-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        let writer_key = test_key("default", 0x01);
+        let attacker_key = test_key("default", 0x02);
+
+        append_chained_jsonl_keyed(&path, r#"{"kind":"one"}"#, Some(&writer_key)).unwrap();
+        // Attacker rewrites the log under their own key: structure is
+        // internally consistent, but the HMAC was made with key material
+        // the verifier does not hold.
+        let _ = fs::remove_file(&path);
+        append_chained_jsonl_keyed(&path, r#"{"kind":"evil"}"#, Some(&attacker_key)).unwrap();
+
+        let err = verify_chained_jsonl_keyed(&path, &[writer_key]).unwrap_err();
+        assert!(err.contains("HMAC verification failed"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A keyed log verified on a machine without the key still passes
+    /// structurally but reports authenticity as unverified.
+    #[test]
+    fn keyed_log_without_key_is_structural_only_with_warning() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-keyless-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        let key = test_key("default", 0x07);
+
+        append_chained_jsonl_keyed(&path, r#"{"kind":"one"}"#, Some(&key)).unwrap();
+
+        let verification = verify_chained_jsonl_keyed(&path, &[]).unwrap();
+        assert_eq!(verification.entries, 1);
+        assert_eq!(verification.keyed_entries, 1);
+        assert_eq!(verification.unauthenticated_keyed_entries, 1);
+        assert_eq!(verification.integrity, AuditIntegrity::StructuralOnly);
+        assert!(
+            verification
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("authenticity unverified")),
+            "{:?}",
+            verification.warnings
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Mixed keyed/unkeyed chains (e.g. a log that grew across a keying
+    /// rollout) verify structurally but degrade the log-level mark.
+    #[test]
+    fn mixed_chain_degrades_to_structural_only() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-mixed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        let key = test_key("default", 0x09);
+
+        append_chained_jsonl(&path, r#"{"kind":"unkeyed"}"#).unwrap();
+        append_chained_jsonl_keyed(&path, r#"{"kind":"keyed"}"#, Some(&key)).unwrap();
+
+        let verification = verify_chained_jsonl_keyed(&path, &[key]).unwrap();
+        assert_eq!(verification.entries, 2);
+        assert_eq!(verification.keyed_entries, 1);
+        assert_eq!(verification.integrity, AuditIntegrity::StructuralOnly);
+        assert!(
+            verification
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("mixed keyed/unkeyed")),
+            "{:?}",
+            verification.warnings
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A rotated key id verifies under a later configured key set: the
+    /// declared id is tried first, all known keys are the fallback.
+    #[test]
+    fn rotated_key_ids_still_verify_via_fallback() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-rotate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        // Entry written under id "old" — same bytes the verifier now only
+        // knows as "current" (a renamed id must not brick the entry).
+        let old = test_key("old", 0x11);
+        let current = test_key("current", 0x11);
+        append_chained_jsonl_keyed(&path, r#"{"kind":"one"}"#, Some(&old)).unwrap();
+        let verification = verify_chained_jsonl_keyed(&path, &[current]).unwrap();
+        assert_eq!(verification.integrity, AuditIntegrity::Keyed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Unkeyed logs (everything written before keying existed, or with no
+    /// key configured) verify and report structural-only explicitly.
+    #[test]
+    fn unkeyed_log_reports_structural_only() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-audit-unkeyed-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("audit.jsonl");
+        append_chained_jsonl(&path, r#"{"kind":"one"}"#).unwrap();
+        let verification = verify_chained_jsonl(&path).unwrap();
+        assert_eq!(verification.integrity, AuditIntegrity::StructuralOnly);
+        assert_eq!(verification.keyed_entries, 0);
         let _ = fs::remove_dir_all(&dir);
     }
 }
