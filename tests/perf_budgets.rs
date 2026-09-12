@@ -152,6 +152,7 @@ fn scan_synthetic_tree_1k_files() {
         hash_files: false,
         use_ffprobe: false,
         max_depth: None,
+        incremental: false,
     };
     let started = Instant::now();
     let result = scan::scan_folder(&case_dir, &source, &options).expect("scan");

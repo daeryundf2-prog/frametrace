@@ -49,6 +49,10 @@ pub struct ScanOptions {
     pub hash_files: bool,
     pub use_ffprobe: bool,
     pub max_depth: Option<usize>,
+    /// Rescan mode: files whose indexed size+mtime still match are reused
+    /// verbatim (no re-hash, no re-probe); only new/changed files are
+    /// processed and missing paths are marked stale.
+    pub incremental: bool,
 }
 
 impl Default for ScanOptions {
@@ -57,6 +61,7 @@ impl Default for ScanOptions {
             hash_files: false,
             use_ffprobe: true,
             max_depth: None,
+            incremental: false,
         }
     }
 }
@@ -215,6 +220,9 @@ pub struct ScanResult {
     pub scanned_unix: u64,
     pub video_count: usize,
     pub total_bytes: u64,
+    /// Files an incremental rescan left untouched because their indexed
+    /// size+mtime still matched (0 for full scans).
+    pub unchanged_files: usize,
     pub warnings: Vec<String>,
     pub options: ScanOptions,
     pub records: Vec<VideoRecord>,
@@ -232,6 +240,10 @@ impl ScanResult {
         out.push_str(&format!("  \"scanned_unix\": {},\n", self.scanned_unix));
         out.push_str(&format!("  \"video_count\": {},\n", self.video_count));
         out.push_str(&format!("  \"total_bytes\": {},\n", self.total_bytes));
+        out.push_str(&format!(
+            "  \"unchanged_files\": {},\n",
+            self.unchanged_files
+        ));
         out.push_str("  \"warnings\": [\n");
         for (index, warning) in self.warnings.iter().enumerate() {
             out.push_str(&format!("    \"{}\"", json_escape(warning)));
@@ -249,6 +261,10 @@ impl ScanResult {
         out.push_str(&format!(
             "    \"use_ffprobe\": {},\n",
             self.options.use_ffprobe
+        ));
+        out.push_str(&format!(
+            "    \"incremental\": {},\n",
+            self.options.incremental
         ));
         match self.options.max_depth {
             Some(max_depth) => out.push_str(&format!("    \"max_depth\": {}\n", max_depth)),

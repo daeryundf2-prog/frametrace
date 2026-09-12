@@ -51,6 +51,11 @@ pub enum Commands {
         no_ffprobe: bool,
         #[arg(long)]
         max_depth: Option<usize>,
+        /// Rescan incrementally: reuse indexed records whose size+mtime still
+        /// match (no re-hash/re-probe), reprocess new/changed files, mark
+        /// missing paths stale
+        #[arg(long)]
+        incremental: bool,
     },
     /// Register an evidence source in the SQLite case database
     RegisterSource {
@@ -407,11 +412,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             hash,
             no_ffprobe,
             max_depth,
+            incremental,
         } => {
             let options = ScanOptions {
                 hash_files: hash,
                 use_ffprobe: !no_ffprobe,
                 max_depth,
+                incremental,
             };
             scan_folder(&case_dir, &source_dir, options)
         }

@@ -29,13 +29,34 @@ pub fn scan_folder(
     let excluded_dirs = excluded_case_dirs(case_dir, &source_dir)?;
     let collection = collect_video_candidates(&source_dir, options.max_depth, &excluded_dirs)?;
     let mut id_registry = load_existing_video_ids(case_dir)?;
+    // Incremental mode: the existing index is the skip oracle. A record is
+    // reused verbatim (never re-hashed or re-probed) when its stored
+    // size+mtime still match the file on disk; merge_existing_with_scan then
+    // carries the untouched record forward and marks missing paths stale.
+    let incremental_index: HashMap<String, IndexedRecordLine> = if options.incremental {
+        load_existing_record_lines(case_dir)?
+            .into_iter()
+            .map(|line| (normalize_source_key(&line.source_path), line))
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let mut records = Vec::with_capacity(collection.files.len());
+    let mut unchanged_files = 0usize;
     let mut total_bytes = 0u64;
 
     for path in collection.files {
         let metadata = fs::metadata(&path)
             .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
         total_bytes = total_bytes.saturating_add(metadata.len());
+        let modified_unix = modified_unix(&metadata);
+        if let Some(existing) =
+            incremental_index.get(&normalize_source_key(&path.to_string_lossy()))
+            && record_is_unchanged(existing, metadata.len(), modified_unix, options)
+        {
+            unchanged_files += 1;
+            continue;
+        }
         let extension = path
             .extension()
             .and_then(|ext| ext.to_str())
@@ -76,7 +97,7 @@ pub fn scan_folder(
             relative_path,
             extension,
             size_bytes: metadata.len(),
-            modified_unix: modified_unix(&metadata),
+            modified_unix,
             sha256,
             hash_status,
             probe,
@@ -90,6 +111,7 @@ pub fn scan_folder(
         scanned_unix: now_unix()?,
         video_count: records.len(),
         total_bytes,
+        unchanged_files,
         warnings: collection.warnings,
         options: options.clone(),
         records,
@@ -232,6 +254,36 @@ fn modified_unix(metadata: &fs::Metadata) -> Option<u64> {
         .ok()
         .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs())
+}
+
+/// Whether an incremental rescan may reuse an indexed record verbatim.
+/// The oracle is size+mtime equality (cheap, metadata-only); the record must
+/// also be unflagged (a stale or otherwise marked record is reprocessed so
+/// the marker can clear) and already carry every datum this run's options
+/// would produce — `--hash` against an unhashed record, or ffprobe against a
+/// never-probed one, reprocesses the file instead of skipping it.
+fn record_is_unchanged(
+    existing: &IndexedRecordLine,
+    size_bytes: u64,
+    modified_unix: Option<u64>,
+    options: &ScanOptions,
+) -> bool {
+    // Substring check, not a depth-aware key lookup: a planted nested
+    // `index_status` tag inside ffprobe JSON would only force a reprocess,
+    // which is the safe direction.
+    if existing.json_line.contains("\"index_status\"") {
+        return false;
+    }
+    if existing.record.size_bytes != size_bytes || existing.record.modified_unix != modified_unix {
+        return false;
+    }
+    if options.hash_files && existing.record.sha256.is_none() {
+        return false;
+    }
+    if options.use_ffprobe && existing.record.probe.error.as_deref() == Some("ffprobe skipped") {
+        return false;
+    }
+    true
 }
 
 fn classify_confidence(extension: &str, probe: &ProbeSummary) -> String {
@@ -691,6 +743,10 @@ fn scan_index_json(result: &ScanResult, records: &[IndexedRecordLine]) -> String
             .map(|record| record.record.size_bytes)
             .sum::<u64>()
     ));
+    out.push_str(&format!(
+        "  \"unchanged_files\": {},\n",
+        result.unchanged_files
+    ));
     out.push_str("  \"warnings\": [\n");
     for (index, warning) in result.warnings.iter().enumerate() {
         out.push_str(&format!("    \"{}\"", json_escape(warning)));
@@ -708,6 +764,10 @@ fn scan_index_json(result: &ScanResult, records: &[IndexedRecordLine]) -> String
     out.push_str(&format!(
         "    \"use_ffprobe\": {},\n",
         result.options.use_ffprobe
+    ));
+    out.push_str(&format!(
+        "    \"incremental\": {},\n",
+        result.options.incremental
     ));
     match result.options.max_depth {
         Some(max_depth) => out.push_str(&format!("    \"max_depth\": {}\n", max_depth)),
@@ -934,6 +994,7 @@ mod tests {
             scanned_unix: 5,
             video_count: 0,
             total_bytes: 0,
+            unchanged_files: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: Vec::new(),
@@ -998,6 +1059,7 @@ mod tests {
             scanned_unix: 1,
             video_count: 1,
             total_bytes: 2,
+            unchanged_files: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: vec![rescanned_second],
@@ -1053,6 +1115,7 @@ mod tests {
             scanned_unix: 2,
             video_count: 1,
             total_bytes: 1,
+            unchanged_files: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: vec![rescanned],
@@ -1065,5 +1128,197 @@ mod tests {
         assert!(!merged[0].json_line.contains("index_status"));
 
         let _ = fs::remove_dir_all(case_dir);
+    }
+
+    fn incremental_fixture(name: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "frametrace-incremental-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let case_dir = root.join("case");
+        let source_dir = root.join("source");
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::create_dir_all(&source_dir).unwrap();
+        (case_dir, source_dir)
+    }
+
+    fn read_jsonl_ids_with_hash(case_dir: &std::path::Path) -> Vec<(String, bool)> {
+        let text = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        text.lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                (
+                    value["id"].as_str().unwrap().to_string(),
+                    value["sha256"].is_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// Unchanged files (same size+mtime) are reused verbatim: no re-hash,
+    /// no re-probe, and the stored JSONL line survives byte-identical.
+    #[test]
+    fn incremental_rescan_skips_unchanged_files() {
+        let (case_dir, source_dir) = incremental_fixture("skip");
+        fs::write(source_dir.join("a.mp4"), b"\0\0\0\x18ftypmp42one").unwrap();
+        fs::write(source_dir.join("b.mp4"), b"\0\0\0\x18ftypmp42two").unwrap();
+        let options = ScanOptions {
+            hash_files: false,
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        let first = super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        assert_eq!(first.video_count, 2);
+        let before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+
+        let rescan = super::scan_folder(
+            &case_dir,
+            &source_dir,
+            &ScanOptions {
+                incremental: true,
+                ..options.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(rescan.video_count, 0, "nothing was re-processed");
+        assert_eq!(rescan.unchanged_files, 2);
+        let after = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        assert_eq!(before, after, "unchanged records must stay verbatim");
+
+        // ...but --hash against never-hashed records must NOT skip them.
+        let hashed = super::scan_folder(
+            &case_dir,
+            &source_dir,
+            &ScanOptions {
+                hash_files: true,
+                incremental: true,
+                ..ScanOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(hashed.video_count, 2);
+        assert_eq!(hashed.unchanged_files, 0);
+        let rows = read_jsonl_ids_with_hash(&case_dir);
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|(_, hashed)| *hashed));
+
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A file whose size changed is re-indexed; one that disappeared is
+    /// marked stale; a brand-new file is indexed with a fresh id.
+    #[test]
+    fn incremental_rescan_reindexes_changed_and_marks_deleted_stale() {
+        let (case_dir, source_dir) = incremental_fixture("change");
+        fs::write(source_dir.join("keep.mp4"), b"\0\0\0\x18ftypmp42keep").unwrap();
+        fs::write(source_dir.join("change.mp4"), b"\0\0\0\x18ftypmp42v1").unwrap();
+        fs::write(source_dir.join("gone.mp4"), b"\0\0\0\x18ftypmp42gone").unwrap();
+        let options = ScanOptions {
+            hash_files: true,
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        let first = super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        assert_eq!(first.video_count, 3);
+        let index_before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        let keep_line = index_before
+            .lines()
+            .find(|line| line.contains("keep.mp4"))
+            .unwrap()
+            .to_string();
+        let change_sha = {
+            let line = index_before
+                .lines()
+                .find(|line| line.contains("change.mp4"))
+                .unwrap();
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["sha256"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+
+        fs::write(
+            source_dir.join("change.mp4"),
+            b"\0\0\0\x18ftypmp42v2-longer",
+        )
+        .unwrap();
+        fs::remove_file(source_dir.join("gone.mp4")).unwrap();
+        fs::write(source_dir.join("new.mov"), b"\0\0\0\x18ftypmp42new").unwrap();
+
+        let rescan = super::scan_folder(
+            &case_dir,
+            &source_dir,
+            &ScanOptions {
+                incremental: true,
+                ..options
+            },
+        )
+        .unwrap();
+        assert_eq!(rescan.video_count, 2, "changed + new files processed");
+        assert_eq!(rescan.unchanged_files, 1, "keep.mp4 skipped");
+
+        let index_after = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        let lines: Vec<&str> = index_after
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(lines.len(), 4, "stale record stays in the index");
+
+        let keep_after = lines.iter().find(|line| line.contains("keep.mp4")).unwrap();
+        assert_eq!(*keep_after, keep_line, "unchanged record is verbatim");
+        let gone = lines.iter().find(|line| line.contains("gone.mp4")).unwrap();
+        assert!(gone.contains("\"index_status\":\"stale\""), "{gone}");
+        assert!(gone.contains("\"stale_since_unix\""));
+        let changed = lines
+            .iter()
+            .find(|line| line.contains("change.mp4"))
+            .unwrap();
+        let changed_sha = serde_json::from_str::<serde_json::Value>(changed).unwrap()["sha256"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(changed_sha, change_sha, "changed file re-hashed");
+        assert!(!changed.contains("index_status"));
+        assert!(lines.iter().any(|line| line.contains("new.mov")));
+
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A record already flagged must not be skipped: reprocessing clears the
+    /// marker by regenerating the record.
+    #[test]
+    fn incremental_rescan_refreshes_flagged_records() {
+        let (case_dir, source_dir) = incremental_fixture("flagged");
+        fs::write(source_dir.join("a.mp4"), b"\0\0\0\x18ftypmp42one").unwrap();
+        let options = ScanOptions {
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        // Flag the record, then rescan unchanged: the flag forces a fresh
+        // record, so the flag does not linger on live evidence.
+        let index_path = case_dir.join("db/videos.jsonl");
+        let flagged = set_json_field(
+            &fs::read_to_string(&index_path).unwrap(),
+            "index_status",
+            "\"stale\"",
+        );
+        fs::write(&index_path, flagged).unwrap();
+        let rescan = super::scan_folder(
+            &case_dir,
+            &source_dir,
+            &ScanOptions {
+                incremental: true,
+                ..options
+            },
+        )
+        .unwrap();
+        assert_eq!(rescan.video_count, 1);
+        assert_eq!(rescan.unchanged_files, 0);
+        let index_after = fs::read_to_string(&index_path).unwrap();
+        assert!(!index_after.contains("index_status"), "{index_after}");
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
     }
 }

@@ -130,6 +130,12 @@ pub fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> 
     println!("source registered: {} ({})", source.source_id, source.kind);
     println!("job: {} ({})", job.job_id, job.job_type);
     println!("videos indexed: {}", result.video_count);
+    if options.incremental {
+        println!(
+            "unchanged files skipped: {} (size+mtime still match the index)",
+            result.unchanged_files
+        );
+    }
     println!("bytes indexed: {}", result.total_bytes);
     println!("index: {}", case_dir.join("db/video_index.json").display());
     println!("sqlite: {}", case_db::case_db_path(case_dir).display());
@@ -1938,13 +1944,14 @@ fn validation_options_json(options: &ValidationOptions) -> String {
 
 fn scan_options_json(options: &ScanOptions) -> String {
     format!(
-        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{}}}",
+        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{},\"incremental\":{}}}",
         options.hash_files,
         options.use_ffprobe,
         options
             .max_depth
             .map(|value| value.to_string())
-            .unwrap_or_else(|| "null".to_string())
+            .unwrap_or_else(|| "null".to_string()),
+        options.incremental
     )
 }
 

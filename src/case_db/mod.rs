@@ -159,6 +159,7 @@ mod tests {
             scanned_unix,
             video_count: records.len(),
             total_bytes: records.iter().map(|record| record.size_bytes).sum(),
+            unchanged_files: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records,
