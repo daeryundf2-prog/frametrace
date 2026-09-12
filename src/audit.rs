@@ -111,6 +111,17 @@ pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, Strin
     };
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read audit log {}: {err}", path.display()))?;
+    verify_chained_jsonl_text(&text, &path.display().to_string())
+}
+
+/// In-memory form of `verify_chained_jsonl` over the raw log text, so the
+/// chain parser can be exercised without a filesystem (fuzz harness).
+/// `source_name` is only used to name the input in error messages.
+#[doc(hidden)]
+pub fn verify_chained_jsonl_text(
+    text: &str,
+    source_name: &str,
+) -> Result<AuditChainVerification, String> {
     let complete_tail = text.is_empty() || text.ends_with('\n');
     let lines: Vec<&str> = text
         .lines()
@@ -149,8 +160,7 @@ pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, Strin
         if let Err(error) = verify_line() {
             if line_number == lines.len() && !complete_tail {
                 return Err(format!(
-                    "audit log {} ends with an incomplete final entry (torn write): {error}; remove or repair the last line, then re-run verify",
-                    path.display()
+                    "audit log {source_name} ends with an incomplete final entry (torn write): {error}; remove or repair the last line, then re-run verify"
                 ));
             }
             return Err(error);

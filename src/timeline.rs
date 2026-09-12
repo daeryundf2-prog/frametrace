@@ -261,7 +261,11 @@ fn creation_time_tags(row: &serde_json::Value) -> Vec<(String, String)> {
 /// Parses `YYYY-MM-DD[T ]HH:MM:SS[.frac][Z|±HH[:MM]]` into unix seconds.
 /// Returns `None` for anything unparseable or before the epoch — missing or
 /// malformed timestamps are excluded from the stream, never zeroed.
-fn parse_creation_time_unix(text: &str) -> Option<u64> {
+///
+/// `#[doc(hidden)]`: exposed so the fuzz harness can feed it arbitrary
+/// strings; not part of the supported API.
+#[doc(hidden)]
+pub fn parse_creation_time_unix(text: &str) -> Option<u64> {
     let text = text.trim();
     let bytes = text.as_bytes();
     if bytes.len() < 10 || bytes[4] != b'-' || bytes[7] != b'-' {

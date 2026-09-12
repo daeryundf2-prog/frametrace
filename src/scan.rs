@@ -505,7 +505,11 @@ impl IndexedRecordLine {
 /// Appends or replaces one top-level scalar field on a serialized JSON object
 /// through raw text edits only, so existing byte-stable records keep their
 /// field order and spelling.
-fn set_json_field(line: &str, key: &str, value: &str) -> String {
+///
+/// `#[doc(hidden)]`: exposed so the fuzz harness can hit this hand-rolled
+/// editor with arbitrary input; not part of the supported API.
+#[doc(hidden)]
+pub fn set_json_field(line: &str, key: &str, value: &str) -> String {
     if find_top_level_key(line, key).is_some() {
         replace_json_field(line, key, value)
     } else {
@@ -619,7 +623,11 @@ fn insert_json_field(line: &str, key: &str, value: &str) -> String {
     format!("{prefix}{separator}\"{key}\":{value}{suffix}")
 }
 
-fn json_record_lines(text: &str) -> Vec<String> {
+/// Splits index text into top-level JSON object records. The splitter is
+/// hand-rolled (depth + string/escape tracking), so it is exposed for the
+/// fuzz harness; not part of the supported API.
+#[doc(hidden)]
+pub fn json_record_lines(text: &str) -> Vec<String> {
     let mut records = Vec::new();
     let mut current = String::new();
     let mut depth = 0usize;

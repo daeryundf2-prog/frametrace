@@ -1,0 +1,44 @@
+[package]
+name = "frametrace-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep the fuzz crate in its own workspace so `cargo` at the repo root never
+# builds it and `--locked` keeps using the root Cargo.lock.
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[dependencies.frametrace]
+path = ".."
+
+[[bin]]
+name = "audit_jsonl_verify"
+path = "fuzz_targets/audit_jsonl_verify.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "index_jsonl_records"
+path = "fuzz_targets/index_jsonl_records.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "carve_signature_scan"
+path = "fuzz_targets/carve_signature_scan.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "creation_time_unix"
+path = "fuzz_targets/creation_time_unix.rs"
+test = false
+doc = false

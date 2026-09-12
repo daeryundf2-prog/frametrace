@@ -246,13 +246,25 @@ fn validation_note_for_signature(signature: &str) -> &'static str {
 
 fn find_video_signatures(path: &Path, max_candidates: usize) -> Result<Vec<CarveHit>, String> {
     let mut file = File::open(path).map_err(|err| format!("failed to open carve source: {err}"))?;
+    find_video_signatures_in(&mut file, max_candidates)
+}
+
+/// Chunked signature scan over any byte source, identical to the on-disk
+/// carve walk (1 MiB chunks, 32-byte overlap). `#[doc(hidden)]`: exposed so
+/// the fuzz harness can drive the scanner without touching the filesystem;
+/// not part of the supported API.
+#[doc(hidden)]
+pub fn find_video_signatures_in(
+    reader: &mut impl Read,
+    max_candidates: usize,
+) -> Result<Vec<CarveHit>, String> {
     let mut hits = Vec::new();
     let mut offset = 0u64;
     let mut overlap = Vec::<u8>::new();
 
     loop {
         let mut chunk = vec![0u8; CHUNK_SIZE];
-        let read = file
+        let read = reader
             .read(&mut chunk)
             .map_err(|err| format!("failed to read carve source: {err}"))?;
         if read == 0 {
