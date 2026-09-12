@@ -1,0 +1,17 @@
+{
+  "name": "frametrace",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/ffmpeg:1": {},
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  "postCreateCommand": "apt-get update && apt-get install -y --no-install-recommends libewf-tools sleuthkit && rustup toolchain install 1.94.0 --component clippy rustfmt && rustup default 1.94.0 && cargo fetch --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  }
+}
