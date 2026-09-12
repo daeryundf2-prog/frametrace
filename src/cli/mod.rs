@@ -246,6 +246,13 @@ pub enum Commands {
         case_dir: PathBuf,
         selection: PathBuf,
     },
+    /// Emit a candidate-grade JSONL event stream merging index, ffprobe, and carve timestamps
+    Timeline {
+        case_dir: PathBuf,
+        /// Output path inside the case (default: db/timeline.jsonl)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Import reviewer marks exported from the evidence viewer into the case DB
     ImportMarks { case_dir: PathBuf, marks: PathBuf },
     /// Export stored reviewer marks as a JSON file for the viewer
@@ -594,6 +601,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             case_dir,
             selection,
         } => validate_batch(&case_dir, &selection),
+        Commands::Timeline { case_dir, output } => timeline(&case_dir, output),
         Commands::ImportMarks { case_dir, marks } => import_marks(&case_dir, &marks),
         Commands::ExportMarks { case_dir, output } => export_marks(&case_dir, output.as_deref()),
         Commands::BenchmarkDb { output_dir, rows } => {

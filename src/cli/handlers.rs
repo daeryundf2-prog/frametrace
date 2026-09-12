@@ -1240,6 +1240,39 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     Ok(())
 }
 
+/// Emits the merged candidate timeline (db/timeline.jsonl by default). The
+/// stream is audit-logged under evidence/logs/timeline-log.jsonl and tracked
+/// as a job like the other case-mutating commands.
+pub fn timeline(case_dir: &Path, output: Option<PathBuf>) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let output_path = output.unwrap_or_else(|| case_dir.join("db/timeline.jsonl"));
+    let job = case_db::start_job(case_dir, "timeline", case_dir, None, "{}")?;
+    let result = match crate::timeline::generate_timeline(case_dir, &output_path) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.event_count as u64,
+        "timeline completed",
+    )?;
+    println!("timeline written: {}", result.output_path.display());
+    println!("events: {}", result.event_count);
+    println!(
+        "skipped without timestamps: {}",
+        result.skipped_no_timestamp
+    );
+    println!(
+        "label: {} (timestamps are recorded metadata, not validated truth)",
+        crate::timeline::LABEL
+    );
+    Ok(())
+}
+
 /// Batch-recovers viewer-selected deleted inodes (kind "candidate") from a
 /// raw image. Each recovery appends its own tsk-audit entry; the batch outcome
 /// is chained into artifacts/logs/batch-log.jsonl.
