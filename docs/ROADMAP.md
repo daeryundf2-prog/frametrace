@@ -202,6 +202,9 @@ file:// 모드 JS file_url 인코딩(F1-6), 죽은 코드 정리(F1-5), 문서 �
    컨테이너-스트림 불일치, 해시 재검증 불일치 → "candidate-finding" 라벨로 보고서에 표기(과장 금지 원칙 유지).
    > **상태: 구현 (2026-09-06).** `src/anomaly.rs` + `qa anomalies` →
    > `evidence/logs/anomaly-log.jsonl`. `make-report`와 검수 파이프라인이 자동 스캔.
+   > `make-report`는 기본적으로 인덱스에 저장된 해시를 신뢰하고(`hash_mode:"stored"`)
+   > 드리프트만 `index-record-stale`로 표기; `make-report --rehash`는 전수 재해시
+   > 재검증(`hash_mode:"rehash"`). `qa anomalies`는 항상 전수 재검증.
     > 뷰어 배지·칩 필터·상세 패널. 종류: `timestamp-regression`, `timestamp-gap`,
     > `container-stream-mismatch`, `hash-revalidation-mismatch`. DAV 프레임 간격은 실샘플 후속.
     >

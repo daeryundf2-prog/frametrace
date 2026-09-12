@@ -106,7 +106,13 @@ pub enum Commands {
     /// Print the manufacturer/source parser plugin catalog as JSON
     ListParsers,
     /// Generate a case report at reports/case-report.html
-    MakeReport { case_dir: PathBuf },
+    MakeReport {
+        case_dir: PathBuf,
+        /// Re-hash every indexed file for full revalidation; default trusts
+        /// the stored index hashes and only flags stale index records
+        #[arg(long)]
+        rehash: bool,
+    },
     /// Build a checksummed report/review package directory with manifest files
     PackageCase {
         case_dir: PathBuf,
@@ -448,7 +454,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             println!("{}", crate::detector::parser_catalog_json());
             Ok(())
         }
-        Commands::MakeReport { case_dir } => make_report(&case_dir),
+        Commands::MakeReport { case_dir, rehash } => make_report(&case_dir, rehash),
         Commands::PackageCase { case_dir, output } => {
             let options = PackageOptions { output_dir: output };
             package_case(&case_dir, options)
@@ -671,7 +677,9 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
             Ok(())
         }
         QaCommands::Anomalies { case_dir } => {
-            let result = crate::anomaly::scan_case(&case_dir)?;
+            // The dedicated anomalies command keeps full live revalidation;
+            // only make-report defaults to the cheaper stored-hash lane.
+            let result = crate::anomaly::scan_case(&case_dir, true)?;
             println!(
                 "anomaly scan complete: {} candidate finding(s)",
                 result.findings.len()

@@ -25,15 +25,16 @@ pub struct Finding {
 }
 
 #[derive(Debug, Clone)]
-struct IndexedRow {
-    id: String,
-    source_path: String,
-    sha256: Option<String>,
-    modified_unix: Option<u64>,
-    duration_seconds: Option<f64>,
-    format_name: Option<String>,
-    video_codec: Option<String>,
-    ffprobe_ok: Option<bool>,
+pub struct IndexedRow {
+    pub id: String,
+    pub source_path: String,
+    pub sha256: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub modified_unix: Option<u64>,
+    pub duration_seconds: Option<f64>,
+    pub format_name: Option<String>,
+    pub video_codec: Option<String>,
+    pub ffprobe_ok: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,10 +45,19 @@ pub struct AnomalyScanResult {
 }
 
 /// Scan the case index for candidate anomalies and append a chained log.
-pub fn scan_case(case_dir: &Path) -> Result<AnomalyScanResult, String> {
+///
+/// `rehash` selects the integrity lane: `true` re-hashes every indexed file
+/// (full revalidation, slow on large cases); `false` trusts the stored index
+/// hashes and only flags records whose filesystem metadata drifted from what
+/// was indexed — cheap enough to run inside `make-report` by default.
+pub fn scan_case(case_dir: &Path, rehash: bool) -> Result<AnomalyScanResult, String> {
     let rows = read_indexed_rows(case_dir)?;
     let mut findings = Vec::new();
-    findings.extend(hash_revalidation_findings(&rows));
+    if rehash {
+        findings.extend(hash_revalidation_findings(&rows));
+    } else {
+        findings.extend(index_staleness_findings(&rows));
+    }
     findings.extend(timestamp_findings(&rows));
     findings.extend(container_stream_findings(&rows));
     findings.extend(dav_frame_gap_findings(case_dir, &rows));
@@ -73,6 +83,20 @@ pub fn scan_case(case_dir: &Path) -> Result<AnomalyScanResult, String> {
         );
         audit::append_chained_jsonl(&log_path, &line)?;
     }
+    // Every scan records which integrity lane ran so a report generated from
+    // stored hashes is never mistaken for a full revalidation pass.
+    let line = format!(
+        "{{\"schema_version\":1,\"event\":\"anomaly-scan-run\",\"scanned_unix\":{},\"hash_mode\":\"{}\",\"finding_count\":{},\"detail\":\"{}\"}}",
+        scanned_unix,
+        if rehash { "rehash" } else { "stored" },
+        findings.len(),
+        json_escape(if rehash {
+            "live re-hashing of every indexed file"
+        } else {
+            "stored index hashes only; pass --rehash for full revalidation"
+        }),
+    );
+    audit::append_chained_jsonl(&log_path, &line)?;
     Ok(AnomalyScanResult {
         findings,
         log_path,
@@ -123,6 +147,65 @@ fn hash_revalidation_findings(rows: &[IndexedRow]) -> Vec<Finding> {
                 selector: row.id.clone(),
                 source_path: row.source_path.clone(),
                 detail: format!("indexed sha256 {indexed} != live sha256 {live}"),
+            });
+        }
+    }
+    out
+}
+
+/// Cheap staleness lane used when `scan_case` runs without re-hashing. Only
+/// `metadata()` calls (no file reads) compare each indexed row against the
+/// live filesystem: a missing or drifted file means the stored sha256 may no
+/// longer describe the bytes on disk — reported as candidate staleness, never
+/// as a verified mismatch.
+fn index_staleness_findings(rows: &[IndexedRow]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for row in rows {
+        let Some(indexed) = row.sha256.as_deref() else {
+            continue; // no stored hash: nothing to be stale about
+        };
+        let path = Path::new(&row.source_path);
+        let Ok(metadata) = std::fs::metadata(path) else {
+            out.push(Finding {
+                kind: "index-record-stale",
+                selector: row.id.clone(),
+                source_path: row.source_path.clone(),
+                detail: format!(
+                    "indexed sha256 {indexed} on record but the source file is no longer readable; stored hash is the last verified state (rerun with --rehash for full revalidation)"
+                ),
+            });
+            continue;
+        };
+        let mut drift = Vec::new();
+        if let Some(indexed_size) = row.size_bytes
+            && metadata.len() != indexed_size
+        {
+            drift.push(format!(
+                "size {} != indexed {}",
+                metadata.len(),
+                indexed_size
+            ));
+        }
+        if let Some(indexed_mtime) = row.modified_unix
+            && let Ok(live_mtime) = metadata.modified()
+            && let Ok(live) = live_mtime.duration_since(std::time::UNIX_EPOCH)
+            && live.as_secs() != indexed_mtime
+        {
+            drift.push(format!(
+                "mtime {} != indexed {}",
+                live.as_secs(),
+                indexed_mtime
+            ));
+        }
+        if !drift.is_empty() {
+            out.push(Finding {
+                kind: "index-record-stale",
+                selector: row.id.clone(),
+                source_path: row.source_path.clone(),
+                detail: format!(
+                    "{}; stored sha256 {indexed} may no longer describe the file (rerun with --rehash for full revalidation)",
+                    drift.join("; ")
+                ),
             });
         }
     }
@@ -312,7 +395,7 @@ fn packed_date_seconds(frame: &crate::dav::DavFrame) -> u64 {
         + u64::from(second)
 }
 
-fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
+pub fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
     let path = case_dir.join("db/videos.jsonl");
     let text = match read_to_string(&path) {
         Ok(text) => text,
@@ -343,6 +426,7 @@ fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
                 .get("sha256")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string),
+            size_bytes: value.get("size_bytes").and_then(serde_json::Value::as_u64),
             modified_unix: value
                 .get("modified_unix")
                 .and_then(serde_json::Value::as_u64),
@@ -381,6 +465,7 @@ mod tests {
             id: "vid_1".into(),
             source_path: dav_path.to_string_lossy().to_string(),
             sha256: None,
+            size_bytes: None,
             modified_unix: None,
             duration_seconds: None,
             format_name: None,
@@ -404,6 +489,7 @@ mod tests {
             id: "vid_2".into(),
             source_path: steady_path.to_string_lossy().to_string(),
             sha256: None,
+            size_bytes: None,
             modified_unix: None,
             duration_seconds: None,
             format_name: None,
@@ -453,6 +539,7 @@ mod tests {
                 id: "vid_1".into(),
                 source_path: "C:/ev/a.mp4".into(),
                 sha256: None,
+                size_bytes: None,
                 modified_unix: Some(200),
                 duration_seconds: None,
                 format_name: None,
@@ -463,6 +550,7 @@ mod tests {
                 id: "vid_2".into(),
                 source_path: "C:/ev/b.mp4".into(),
                 sha256: None,
+                size_bytes: None,
                 modified_unix: Some(100),
                 duration_seconds: None,
                 format_name: None,
@@ -477,11 +565,69 @@ mod tests {
     }
 
     #[test]
+    fn stored_hash_lane_flags_drift_and_missing_files_without_rehashing() {
+        let dir =
+            std::env::temp_dir().join(format!("frametrace-staleness-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let media = dir.join("clip.mp4");
+        std::fs::write(&media, b"payload").unwrap();
+        let metadata = std::fs::metadata(&media).unwrap();
+        let live_mtime = metadata
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let row = |size: Option<u64>, mtime: Option<u64>, path: &Path| IndexedRow {
+            id: "vid_1".into(),
+            source_path: path.to_string_lossy().to_string(),
+            sha256: Some("deadbeef".into()),
+            size_bytes: size,
+            modified_unix: mtime,
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            ffprobe_ok: None,
+        };
+
+        // Recorded metadata still matches: stored hash is treated as current.
+        assert!(
+            index_staleness_findings(&[row(Some(metadata.len()), Some(live_mtime), &media)])
+                .is_empty()
+        );
+
+        // Size drift means the stored hash may no longer describe the file.
+        let drifted =
+            index_staleness_findings(&[row(Some(metadata.len() + 1), Some(live_mtime), &media)]);
+        assert_eq!(drifted.len(), 1);
+        assert_eq!(drifted[0].kind, "index-record-stale");
+        assert!(drifted[0].detail.contains("size"), "{drifted:?}");
+
+        // A vanished source is reported from the record, not silently skipped.
+        let missing = index_staleness_findings(&[row(
+            Some(metadata.len()),
+            Some(live_mtime),
+            &dir.join("gone.mp4"),
+        )]);
+        assert_eq!(missing.len(), 1);
+        assert!(missing[0].detail.contains("no longer readable"));
+
+        // Rows without a stored hash stay out of the staleness lane.
+        let mut unhashed = row(Some(metadata.len()), Some(live_mtime), &media);
+        unhashed.sha256 = None;
+        assert!(index_staleness_findings(&[unhashed]).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn detects_zero_duration_with_video_codec() {
         let rows = vec![IndexedRow {
             id: "vid_1".into(),
             source_path: "C:/ev/a.mp4".into(),
             sha256: None,
+            size_bytes: None,
             modified_unix: None,
             duration_seconds: Some(0.0),
             format_name: Some("mov,mp4,m4a,3gp,3g2,mj2".into()),

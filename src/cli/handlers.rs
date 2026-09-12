@@ -488,7 +488,7 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn make_report(case_dir: &Path) -> Result<(), String> {
+pub fn make_report(case_dir: &Path, rehash: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
     let index_json = read_to_string(&index_path).map_err(|err| {
@@ -501,10 +501,15 @@ pub fn make_report(case_dir: &Path) -> Result<(), String> {
             format!("failed to read {}: {err}", index_path.display())
         }
     })?;
-    let anomaly_scan = crate::anomaly::scan_case(case_dir)?;
+    let anomaly_scan = crate::anomaly::scan_case(case_dir, rehash)?;
     println!(
-        "anomaly scan: {} candidate finding(s)",
-        anomaly_scan.findings.len()
+        "anomaly scan: {} candidate finding(s) (hash mode: {})",
+        anomaly_scan.findings.len(),
+        if rehash {
+            "rehash — live digest of every indexed file"
+        } else {
+            "stored index hashes (pass --rehash for full revalidation)"
+        }
     );
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)

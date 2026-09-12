@@ -184,6 +184,14 @@ Generate the current HTML report:
 .\target\release\frametrace.exe make-report C:\Cases\case-001
 ```
 
+By default `make-report` trusts the SHA-256 hashes stored in the index and only flags index records whose files went missing or whose size/mtime drifted (`index-record-stale` candidate findings). Pass `--rehash` to re-hash every indexed file for full revalidation:
+
+```powershell
+.\target\release\frametrace.exe make-report C:\Cases\case-001 --rehash
+```
+
+The anomaly log entry records which mode was used (`"hash_mode":"stored"` or `"rehash"`).
+
 Open:
 
 ```text
