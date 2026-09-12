@@ -42,6 +42,6 @@ jobs:
           FRAMETRACE_IT: "1"
         run: cargo test --locked --test workstation_e2e -- --ignored
       - name: QA performance smoke
-        run: cargo run --locked -- qa performance target/frametrace-ci-performance --rows 1000
+        run: cargo run --locked --bin frametrace -- qa performance target/frametrace-ci-performance --rows 1000
       - name: Release build
         run: cargo build --release --locked
