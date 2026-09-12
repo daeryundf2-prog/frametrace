@@ -353,71 +353,20 @@ fn query_value(query: &str, key: &str) -> Option<String> {
     None
 }
 
-/// Minimal JSON-string / bool / number field extractor for the tiny
-/// fixed-shape bodies this server accepts ({"key": value, ...}).
+/// Top-level field extractor for the tiny fixed-shape JSON bodies this
+/// server accepts ({"key": value, ...}). Parsed with serde_json instead of
+/// a `"key":` substring scan, so a `"key":` literal embedded in a string
+/// *value* (e.g. a marks note quoting JSON) can no longer masquerade as a
+/// real field. A malformed body simply yields no values, which every
+/// caller already maps to the same "missing/invalid input" error shape.
 fn body_value(body: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\":");
-    let mut search = 0;
-    while let Some(hit) = body[search..].find(&needle) {
-        let absolute = search + hit;
-        let rest = body[absolute + needle.len()..].trim_start();
-        if let Some(rest) = rest.strip_prefix('"') {
-            let mut decoded = String::new();
-            let mut chars = rest.chars();
-            while let Some(ch) = chars.next() {
-                match ch {
-                    '\\' => match chars.next() {
-                        Some('n') => decoded.push('\n'),
-                        Some('t') => decoded.push('\t'),
-                        Some('r') => decoded.push('\r'),
-                        // \uXXXX: decode the hex scalar so Korean marks and
-                        // other non-ASCII survive the substring parser. Only
-                        // hex digits are consumed, so a malformed escape
-                        // never eats the closing quote.
-                        Some('u') => {
-                            let mut code = String::new();
-                            while code.len() < 4 {
-                                let next = chars.clone().next();
-                                match next {
-                                    Some(hex) if hex.is_ascii_hexdigit() => {
-                                        chars.next();
-                                        code.push(hex);
-                                    }
-                                    _ => break,
-                                }
-                            }
-                            match (code.len() == 4, u32::from_str_radix(&code, 16).ok()) {
-                                (true, Some(scalar)) => {
-                                    if let Some(decoded_char) = char::from_u32(scalar) {
-                                        decoded.push(decoded_char);
-                                    } else {
-                                        decoded.push_str(&code);
-                                    }
-                                }
-                                _ => decoded.push_str(&code),
-                            }
-                        }
-                        Some(other) => decoded.push(other),
-                        None => break,
-                    },
-                    '"' => return Some(decoded),
-                    other => decoded.push(other),
-                }
-            }
-            return Some(decoded);
-        }
-        for (token, value) in [("true", "true"), ("false", "false")] {
-            if rest.starts_with(token) {
-                return Some(value.to_string());
-            }
-        }
-        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if !digits.is_empty() {
-            return Some(digits);
-        }
-        search = absolute + needle.len();
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok()?;
+    match parsed.get(key)? {
+        serde_json::Value::String(text) => Some(text.clone()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        _ => None,
     }
-    None
 }
 
 fn json_string(value: &str) -> String {
@@ -1029,47 +978,29 @@ fn run_step(exe: &Path, args: &[String]) -> Result<String, String> {
     Ok(text.trim_end().to_string())
 }
 
-/// Extract every `"id":"..."` value from db/video_index.json and write a
-/// validate-batch selection file covering all of them.
+/// Extract every top-level `videos[].id` from db/video_index.json and
+/// write a validate-batch selection file covering all of them. The index
+/// is one JSON document (see `scan_index_json`); parsing it properly keeps
+/// `"id"` literals inside string values or nested ffprobe records from
+/// being mistaken for video ids.
 fn build_selection_file(case_dir: &Path, output: &Path) -> Result<usize, String> {
     let index_path = case_dir.join("db/video_index.json");
     let index = std::fs::read_to_string(&index_path)
         .map_err(|err| format!("failed to read {}: {err}", index_path.display()))?;
-    let bytes = index.as_bytes();
-    let mut ids: Vec<String> = Vec::new();
-    let mut cursor = 0usize;
-    while let Some(hit) = index[cursor..].find("\"id\"") {
-        let absolute = cursor + hit;
-        let mut after = absolute + 4;
-        while bytes.get(after).is_some_and(|b| b.is_ascii_whitespace()) {
-            after += 1;
-        }
-        if bytes.get(after) == Some(&b':') {
-            after += 1;
-            while bytes.get(after).is_some_and(|b| b.is_ascii_whitespace()) {
-                after += 1;
-            }
-            if bytes.get(after) == Some(&b'"') {
-                let start = after + 1;
-                let mut end = start;
-                while let Some(&byte) = bytes.get(end) {
-                    if byte == b'"' && bytes.get(end.wrapping_sub(1)) != Some(&b'\\') {
-                        break;
-                    }
-                    end += 1;
-                }
-                if end > start
-                    && let Ok(raw) = std::str::from_utf8(&bytes[start..end])
-                    && raw.starts_with("vid_")
-                {
-                    ids.push(raw.to_string());
-                }
-                cursor = end + 1;
-                continue;
-            }
-        }
-        cursor = absolute + 4;
-    }
+    let parsed =
+        serde_json::from_str::<serde_json::Value>(&index).unwrap_or(serde_json::Value::Null);
+    let ids: Vec<String> = parsed
+        .get("videos")
+        .and_then(|videos| videos.as_array())
+        .map(|videos| {
+            videos
+                .iter()
+                .filter_map(|video| video.get("id").and_then(|id| id.as_str()))
+                .filter(|id| id.starts_with("vid_"))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
     if ids.is_empty() {
         return Err("색인된 영상이 없습니다 (스캔 결과 확인 필요)".into());
     }
@@ -1514,11 +1445,36 @@ mod tests {
             body_value(r#"{"notes":"\ud655\uc778"}"#, "notes").as_deref(),
             Some("확인")
         );
-        // A malformed \u keeps its raw characters instead of eating the
-        // closing quote; the value then ends at the next real quote.
+        // Surrogate pairs decode to the intended non-BMP scalar.
         assert_eq!(
-            body_value(r#"{"notes":"a\u12"}"#, "notes").as_deref(),
-            Some("a12")
+            body_value(r#"{"notes":"\ud83d\ude00"}"#, "notes").as_deref(),
+            Some("😀")
+        );
+    }
+
+    #[test]
+    fn body_parser_rejects_malformed_and_value_embedded_keys() {
+        // Malformed JSON (here: a truncated \u escape) rejects the whole
+        // body instead of yielding a partial value.
+        assert_eq!(body_value(r#"{"notes":"a\u12"}"#, "notes"), None);
+        assert_eq!(body_value("not json at all", "path"), None);
+        assert_eq!(body_value(r#"{"path":"unterminated"#, "path"), None);
+        // The old substring scan treated a `"key":` literal inside a
+        // string *value* as a real field — the exact confusion serde_json
+        // removes.
+        let body = r#"{"note":"see {\"path\":\"C:\\evil\"} quoted","path":"C:\\real"}"#;
+        assert_eq!(body_value(body, "path").as_deref(), Some("C:\\real"));
+        let body = r#"{"note":"contains \"source_path\":\"C:\\evil\" text"}"#;
+        assert_eq!(body_value(body, "source_path"), None);
+        // Keys nested inside other objects are not top-level fields.
+        let body = r#"{"outer":{"path":"C:\\nested"},"path":null}"#;
+        assert_eq!(body_value(body, "path"), None);
+        // A real top-level marks_json string holding embedded JSON still
+        // round-trips as a plain string.
+        let body = r#"{"marks_json":"{\"marks\":[{\"t\":1}]}"}"#;
+        assert_eq!(
+            body_value(body, "marks_json").as_deref(),
+            Some(r#"{"marks":[{"t":1}]}"#)
         );
     }
 
@@ -1571,6 +1527,29 @@ mod tests {
         assert!(content.contains("\"selector\":\"vid_000002\""));
         assert!(!content.contains("0x1"));
         assert!(content.contains("\"action\":\"validate\""));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn selection_file_ignores_id_literals_inside_string_values() {
+        let base = std::env::temp_dir().join(format!("ft_sel_embed_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("db")).unwrap();
+        // A `"id":"vid_..."` literal inside a string value (ffprobe error
+        // text quoting JSON) must not produce a phantom selector — the old
+        // substring scan would have collected vid_evil.
+        let index = r#"{"schema_version":3,"videos":[
+            {"id":"vid_000001","ffprobe_error":"bad blob {\"id\":\"vid_evil\"} here"},
+            {"id":"vid_000002"}
+        ]}"#;
+        std::fs::write(base.join("db/video_index.json"), index).unwrap();
+        let out = base.join("selection-all.json");
+        let count = build_selection_file(&base, &out).unwrap();
+        assert_eq!(count, 2);
+        let content = std::fs::read_to_string(&out).unwrap();
+        assert!(content.contains("\"selector\":\"vid_000001\""));
+        assert!(content.contains("\"selector\":\"vid_000002\""));
+        assert!(!content.contains("vid_evil"));
         let _ = std::fs::remove_dir_all(&base);
     }
 
