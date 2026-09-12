@@ -404,11 +404,13 @@ mod tests {
     #[test]
     fn rejects_e01_filenames_with_glob_metacharacters() {
         // libewf expands the final argument as a segment glob; an evidence
-        // name like x[*].E01 would silently select the wrong segment set.
+        // name like x[abc].E01 would silently select the wrong segment set.
+        // ('*' and '?' cannot exist in a Windows filename at all, so the
+        // fixture uses bracket metacharacters which are legal everywhere.)
         let dir = std::env::temp_dir().join(format!("ft-e01-glob-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let evil = dir.join("x[*].E01");
+        let evil = dir.join("x[abc].E01");
         fs::write(&evil, b"segment").unwrap();
         let err = canonical_e01_path(&evil).unwrap_err();
         assert!(err.contains("glob metacharacters"), "{err}");
