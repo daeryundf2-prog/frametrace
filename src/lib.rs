@@ -14,6 +14,7 @@ pub mod html_report;
 pub mod model;
 pub mod package;
 pub mod qa;
+pub mod redact;
 pub mod report;
 pub mod scan;
 pub mod selection;

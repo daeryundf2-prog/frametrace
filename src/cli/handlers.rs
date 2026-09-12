@@ -424,7 +424,7 @@ fn export_hik_inner(
     Ok(())
 }
 
-pub fn make_review(case_dir: &Path) -> Result<(), String> {
+pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
     let index_json = read_to_string(&index_path).map_err(|err| {
@@ -440,20 +440,34 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     let manifest_path = case_dir.join("case.json");
     let manifest_json = read_to_string(&manifest_path)
         .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
+    let redact = |text: &str| -> String {
+        if redact_paths {
+            crate::redact::redact_json_text(text, case_dir)
+        } else {
+            text.to_string()
+        }
+    };
+    let manifest_json = redact(&manifest_json);
+    let index_json = redact(&index_json);
     let html = html_report::render_review_html(&manifest_json, &index_json);
     let review_path = case_dir.join("review/index.html");
-    write_text(&review_path, &html).map_err(|err| format!("failed to write review html: {err}"))?;
-    let carve_log =
-        read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default();
-    let filesystem_log =
-        read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default();
-    let validation_log =
-        read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default();
+    write_text(&review_path, &inject_redaction_banner(html, redact_paths))
+        .map_err(|err| format!("failed to write review html: {err}"))?;
+    let carve_log = redact(
+        &read_to_string(&case_dir.join("artifacts/carved/carve-log.jsonl")).unwrap_or_default(),
+    );
+    let filesystem_log = redact(
+        &read_to_string(&case_dir.join("evidence/logs/tsk-audit.jsonl")).unwrap_or_default(),
+    );
+    let validation_log = redact(
+        &read_to_string(&case_dir.join("evidence/logs/validation-log.jsonl")).unwrap_or_default(),
+    );
     // Prefer an existing anomaly log; scan on demand so make-review stays usable
     // without forcing a full-case digest pass (make-report / qa anomalies refresh).
-    let anomaly_log =
-        read_to_string(&case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap_or_default();
-    let fls_entries = latest_fls_entries_jsonl(case_dir);
+    let anomaly_log = redact(
+        &read_to_string(&case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap_or_default(),
+    );
+    let fls_entries = redact(&latest_fls_entries_jsonl(case_dir));
     let videos = collect_index_videos(&index_json);
     let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
     let evidence_viewer = html_report::render_evidence_viewer_html(
@@ -467,8 +481,11 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
         &thumbs_json,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
-    write_text(&evidence_viewer_path, &evidence_viewer)
-        .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
+    write_text(
+        &evidence_viewer_path,
+        &inject_redaction_banner(evidence_viewer, redact_paths),
+    )
+    .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
     println!("review written: {}", review_path.display());
     println!(
         "evidence viewer written: {}",
@@ -488,7 +505,28 @@ pub fn make_review(case_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn make_report(case_dir: &Path, rehash: bool) -> Result<(), String> {
+/// Inserts the redaction notice right after `<body>` so generated pages that
+/// do not take an explicit flag still visibly mark themselves as redacted.
+fn inject_redaction_banner(html: String, redact_paths: bool) -> String {
+    if !redact_paths {
+        return html;
+    }
+    let banner = format!(
+        "<div style=\"padding:8px 16px;background:#fff7ed;border-bottom:1px solid #f4c790;font-size:13px\">{}</div>",
+        crate::util::html_escape(crate::redact::REDACTION_NOTE)
+    );
+    match html.find("<body>") {
+        Some(index) => format!(
+            "{}{}{}",
+            &html[..index + "<body>".len()],
+            banner,
+            &html[index + "<body>".len()..]
+        ),
+        None => format!("{banner}{html}"),
+    }
+}
+
+pub fn make_report(case_dir: &Path, rehash: bool, redact_paths: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
     let index_json = read_to_string(&index_path).map_err(|err| {
@@ -549,6 +587,25 @@ pub fn make_report(case_dir: &Path, rehash: bool) -> Result<(), String> {
         }
         Err(_) => "[]".to_string(),
     };
+    let redact = |text: String| -> String {
+        if redact_paths {
+            crate::redact::redact_json_text(&text, case_dir)
+        } else {
+            text
+        }
+    };
+    let manifest_json = redact(manifest_json);
+    let index_json = redact(index_json);
+    let export_log = redact(export_log);
+    let proxy_log = redact(proxy_log);
+    let thumbnail_log = redact(thumbnail_log);
+    let carve_log = redact(carve_log);
+    let filesystem_log = redact(filesystem_log);
+    let validation_log = redact(validation_log);
+    let anomaly_log = redact(anomaly_log);
+    let batch_log = redact(batch_log);
+    let scan_runs_json = redact(scan_runs_json);
+    let marks_json = redact(marks_json);
     let html = report::render_case_report(&report::ReportInputs {
         manifest_json: &manifest_json,
         index_json: &index_json,
@@ -562,6 +619,7 @@ pub fn make_report(case_dir: &Path, rehash: bool) -> Result<(), String> {
         batch_log_jsonl: &batch_log,
         scan_runs_json: &scan_runs_json,
         marks_json: &marks_json,
+        redaction_applied: redact_paths,
     });
     let report_path = case_dir.join("reports/case-report.html");
     write_text(&report_path, &html).map_err(|err| format!("failed to write report html: {err}"))?;

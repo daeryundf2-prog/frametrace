@@ -9,7 +9,7 @@ Phase 2 review focused on local file handling, external command boundaries, repo
 | High | User-configurable external binary names can execute arbitrary binaries through `Command::new`. | Fixed for ffprobe, ffmpeg, libewf, and Sleuth Kit user-configurable binaries. | Security Owner |
 | High | Bare tool names resolved by `Command::new` let the Windows loader search the current directory (binary planting from evidence media). | Fixed: bare names are resolved manually against PATH only, returning canonical paths or failing. | Security Owner |
 | High | Output paths can be directed outside the case workspace for some export/proxy/package/recovery operations. | Fixed for E01 raw export, video export, proxy, thumbnail, inode recovery, marks export, and recursive package traversal. | Security Owner |
-| High | Reports and viewer payloads expose full source paths by default. | Pending | Security Owner |
+| High | Reports and viewer payloads expose full source paths by default. | Mitigated: `make-report`/`make-review --redact-paths` rewrites absolute paths as `<case>/`-relative or `<redacted:hash>` tokens and marks the output; default output is still unredacted. | Security Owner |
 | Medium | Generated HTML/JS serialization is manual and should move toward typed JSON serialization. | Pending | Engineering Lead |
 | Medium | Selector-to-path resolution may trust poisoned logs or free-form paths. | Pending | Security Owner |
 | Medium | Recursive packaging could follow symlinked inputs outside the intended tree. | Fixed for package inputs. | Engineering Lead |
@@ -40,7 +40,7 @@ Consequences and the controls that exist:
 
 ## Remaining Security Work
 
-1. Add report privacy/redaction mode before distributable report release.
+1. Report privacy/redaction mode exists as an opt-in flag (`--redact-paths`); decide whether redaction becomes the default before distributable report release.
 2. Harden selector-to-path resolution against poisoned logs.
 3. Replace manual JSON extraction with typed parsing where feasible.
 4. Add release-time privacy leakage QA once redaction policy is approved.

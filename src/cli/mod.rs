@@ -102,7 +102,12 @@ pub enum Commands {
         timeout: Option<u64>,
     },
     /// Generate a serverless HTML review dashboard at review/index.html
-    MakeReview { case_dir: PathBuf },
+    MakeReview {
+        case_dir: PathBuf,
+        /// Rewrite absolute source paths as <case>/… or <redacted:hash> tokens
+        #[arg(long)]
+        redact_paths: bool,
+    },
     /// Print the manufacturer/source parser plugin catalog as JSON
     ListParsers,
     /// Generate a case report at reports/case-report.html
@@ -112,6 +117,10 @@ pub enum Commands {
         /// the stored index hashes and only flags stale index records
         #[arg(long)]
         rehash: bool,
+        /// Rewrite absolute source paths as <case>/… or <redacted:hash> tokens
+        /// before the report is generated (distributable-report privacy mode)
+        #[arg(long)]
+        redact_paths: bool,
     },
     /// Build a checksummed report/review package directory with manifest files
     PackageCase {
@@ -464,12 +473,19 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             output,
             timeout,
         } => export_hik(&case_dir, &hik_file, output, timeout),
-        Commands::MakeReview { case_dir } => make_review(&case_dir),
+        Commands::MakeReview {
+            case_dir,
+            redact_paths,
+        } => make_review(&case_dir, redact_paths),
         Commands::ListParsers => {
             println!("{}", crate::detector::parser_catalog_json());
             Ok(())
         }
-        Commands::MakeReport { case_dir, rehash } => make_report(&case_dir, rehash),
+        Commands::MakeReport {
+            case_dir,
+            rehash,
+            redact_paths,
+        } => make_report(&case_dir, rehash, redact_paths),
         Commands::PackageCase { case_dir, output } => {
             let options = PackageOptions { output_dir: output };
             package_case(&case_dir, options)

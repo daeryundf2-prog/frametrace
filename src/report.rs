@@ -13,6 +13,10 @@ pub struct ReportInputs<'a> {
     pub batch_log_jsonl: &'a str,
     pub scan_runs_json: &'a str,
     pub marks_json: &'a str,
+    /// True when the caller already redacted absolute paths in every input;
+    /// the report then shows the redaction notice instead of silently
+    /// presenting rewritten paths as real ones.
+    pub redaction_applied: bool,
 }
 
 pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
@@ -28,6 +32,14 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
     let batch_lines = json_for_script(&jsonl_to_array(inputs.batch_log_jsonl));
     let scan_runs = json_for_script(inputs.scan_runs_json);
     let marks = json_for_script(inputs.marks_json);
+    let redaction_note = if inputs.redaction_applied {
+        format!(
+            "  <div class=\"note\">{}</div>\n",
+            crate::redact::REDACTION_NOTE
+        )
+    } else {
+        String::new()
+    };
     format!(
         r#"<!doctype html>
 <html lang="ko">
@@ -146,6 +158,7 @@ pub fn render_case_report(inputs: &ReportInputs<'_>) -> String {
 <main>
   <h1 id="title">FrameTrace 영상 포렌식 보고서</h1>
   <div class="muted" id="case-line"></div>
+{redaction_note}
   <section class="summary">
     <div class="box">색인 영상<strong id="count">0</strong></div>
     <div class="box">증거 총 용량<strong id="bytes">0</strong></div>
@@ -208,6 +221,7 @@ const anomalyLog = {anomaly_lines};
 const batchLog = {batch_lines};
 const scanRuns = {scan_runs};
 const marks = {marks};
+const redaction = {{"applied": {}}};
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
 const derivedLog = [...proxyLog, ...thumbnailLog];
@@ -546,7 +560,8 @@ document.getElementById("chain").innerHTML = chainEvents.length ? `<table>
 </main>
 </body>
 </html>
-"#
+"#,
+        inputs.redaction_applied
     )
 }
 
@@ -603,6 +618,9 @@ mod tests {
             batch_log_jsonl: &batch,
             scan_runs_json: &scan_runs,
             marks_json: &marks,
+            redaction_applied: inputs
+                .iter()
+                .any(|(name, value)| *name == "redacted" && *value == "1"),
         })
     }
 
@@ -642,5 +660,15 @@ mod tests {
         assert!(html.contains("논리 파일 스캔"));
         assert!(html.contains("중요"));
         assert!(html.contains("scan-folder (스캔·색인)"));
+    }
+
+    #[test]
+    fn redaction_note_renders_only_when_applied() {
+        let plain = render(&[]);
+        assert!(!plain.contains(crate::redact::REDACTION_NOTE));
+        assert!(plain.contains("\"applied\": false"));
+        let redacted = render(&[("redacted", "1")]);
+        assert!(redacted.contains(crate::redact::REDACTION_NOTE));
+        assert!(redacted.contains("\"applied\": true"));
     }
 }

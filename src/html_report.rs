@@ -497,6 +497,7 @@ mod tests {
                 batch_log_jsonl: "",
                 scan_runs_json: "[]",
                 marks_json: "[]",
+                redaction_applied: false,
             }),
         );
     }
