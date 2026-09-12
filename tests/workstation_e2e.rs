@@ -165,10 +165,12 @@ fn workstation_full_pipeline_over_http() {
     }
 
     // Start the folder pipeline with hashing and ffprobe.
+    // serde_json quoting keeps Windows paths valid: C:\...\source contains
+    // backslashes that would corrupt raw-{} interpolation as JSON escapes.
     let start_body = format!(
-        "{{\"input_kind\":\"folder\",\"source_path\":\"{}\",\"case_dir\":\"{}\",\"with_hash\":\"true\",\"with_ffprobe\":\"true\"}}",
-        work.join("source").display(),
-        case_dir.display()
+        "{{\"input_kind\":\"folder\",\"source_path\":{},\"case_dir\":{},\"with_hash\":\"true\",\"with_ffprobe\":\"true\"}}",
+        serde_json::to_string(&work.join("source").display().to_string()).unwrap(),
+        serde_json::to_string(&case_dir.display().to_string()).unwrap()
     );
     let (code, body) = http(port, "POST", "/api/start", Some(&start_body));
     if code != 200 || !body.contains("\"ok\":true") {
