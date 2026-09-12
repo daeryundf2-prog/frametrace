@@ -1,10 +1,12 @@
 //! Candidate timeline event stream (FORENSIC_HARDENING_PLAN Corpus D).
 //!
-//! Merges timestamps already recorded in the case — indexed file mtimes,
-//! ffprobe media metadata (`creation_time` tags) and carve-run times — into
-//! one JSONL stream sorted by `ts_unix`. Events are candidate-grade: they
-//! come from recorded metadata, not validated ground truth, and records
-//! without a timestamp are excluded rather than zeroed.
+//! Merges timestamps already recorded in the case — indexed file mtimes and
+//! stale markings, ffprobe media metadata (`creation_time` tags), carve-run
+//! times, and chained audit-log entries (`evidence/logs/*.jsonl` and
+//! `artifacts/**/*.jsonl`) — into one JSONL stream sorted by `ts_unix`.
+//! Events are candidate-grade: they come from recorded metadata, not
+//! validated ground truth, and records without a timestamp are excluded
+//! rather than zeroed.
 
 use crate::audit;
 use crate::util::{json_escape, now_unix, read_to_string, write_text};
@@ -48,7 +50,7 @@ pub struct TimelineResult {
 /// append a chained entry to `evidence/logs/timeline-log.jsonl`.
 pub fn generate_timeline(case_dir: &Path, output_path: &Path) -> Result<TimelineResult, String> {
     crate::tool_policy::require_case_output_path(case_dir, output_path, "timeline")?;
-    let (events, skipped_no_timestamp) = collect_events(case_dir)?;
+    let (events, skipped_no_timestamp) = collect_events(case_dir, output_path)?;
     let generated_unix = now_unix()?;
     let mut body = String::new();
     for event in &events {
@@ -58,7 +60,7 @@ pub fn generate_timeline(case_dir: &Path, output_path: &Path) -> Result<Timeline
     write_text(output_path, &body)
         .map_err(|err| format!("failed to write timeline {}: {err}", output_path.display()))?;
     let line = format!(
-        "{{\"schema_version\":1,\"event\":\"timeline\",\"generated_unix\":{},\"label\":\"{}\",\"output_path\":\"{}\",\"event_count\":{},\"skipped_no_timestamp\":{},\"detail\":\"candidate-grade merge of index mtimes, ffprobe creation_time tags, and carve-run times\"}}",
+        "{{\"schema_version\":1,\"event\":\"timeline\",\"generated_unix\":{},\"label\":\"{}\",\"output_path\":\"{}\",\"event_count\":{},\"skipped_no_timestamp\":{},\"detail\":\"candidate-grade merge of index mtimes and stale marks, ffprobe creation_time tags, carve-run times, and audit-log entries\"}}",
         generated_unix,
         LABEL,
         json_escape(&output_path.to_string_lossy()),
@@ -77,10 +79,14 @@ pub fn generate_timeline(case_dir: &Path, output_path: &Path) -> Result<Timeline
 /// Merge every timestamped source into one deterministically ordered event
 /// list. Returns the events plus how many input records carried no usable
 /// timestamp at all.
-fn collect_events(case_dir: &Path) -> Result<(Vec<TimelineEvent>, usize), String> {
+fn collect_events(
+    case_dir: &Path,
+    output_path: &Path,
+) -> Result<(Vec<TimelineEvent>, usize), String> {
     let mut events = Vec::new();
     let mut skipped = index_events(case_dir, &mut events)?;
     skipped += carve_events(case_dir, &mut events)?;
+    skipped += audit_log_events(case_dir, output_path, &mut events)?;
     // Deterministic ordering: repeated runs over unchanged inputs must emit
     // byte-identical streams (Corpus D), so ties break on every field.
     events.sort_by(|a, b| {
@@ -134,6 +140,20 @@ fn index_events(case_dir: &Path, events: &mut Vec<TimelineEvent>) -> Result<usiz
                 kind: "file-modified",
                 path: source_path.clone(),
                 detail: format!("indexed video {id} filesystem mtime"),
+            });
+        }
+        // Stale markers appended by rescan merges carry their own timestamp.
+        if let Some(stale_unix) = value
+            .get("stale_since_unix")
+            .and_then(serde_json::Value::as_u64)
+        {
+            emitted = true;
+            events.push(TimelineEvent {
+                ts_unix: stale_unix,
+                source: "index",
+                kind: "file-marked-stale",
+                path: source_path.clone(),
+                detail: format!("indexed video {id} marked stale by rescan"),
             });
         }
         for (location, raw) in creation_time_tags(&value) {
@@ -212,6 +232,126 @@ fn carve_events(case_dir: &Path, events: &mut Vec<TimelineEvent>) -> Result<usiz
         });
     }
     Ok(skipped)
+}
+
+/// One event per chained audit-log entry that carries a `*_unix` timestamp.
+/// Every `*.jsonl` under `evidence/logs` and `artifacts` is a chained audit
+/// log by convention (export-log, validation-log, carve-log, tsk-audit,
+/// timeline-log itself, …); each parseable line contributes an
+/// `audit-event` stamped with its first `*_unix` field, in document order.
+/// Entries without a timestamp — and torn final lines, the documented
+/// crash-survivability mode — are counted as skipped, never emitted as 0.
+/// The timeline's own output file is skipped when it sits under a scanned
+/// root so a custom `--output` is not ingested as an event.
+fn audit_log_events(
+    case_dir: &Path,
+    output_path: &Path,
+    events: &mut Vec<TimelineEvent>,
+) -> Result<usize, String> {
+    let mut files = Vec::new();
+    for root in [case_dir.join("evidence/logs"), case_dir.join("artifacts")] {
+        collect_jsonl_files(&root, &mut files)?;
+    }
+    files.sort(); // deterministic input order for the merge
+    let output_canonical = output_path.canonicalize().ok();
+    let mut skipped = 0usize;
+    for file in files {
+        if output_canonical
+            .as_deref()
+            .is_some_and(|out| Some(out) == file.canonicalize().ok().as_deref())
+        {
+            continue;
+        }
+        let text = match read_to_string(&file) {
+            Ok(text) => text,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(format!(
+                    "failed to read audit log {}: {err}",
+                    file.display()
+                ));
+            }
+        };
+        let rel = file
+            .strip_prefix(case_dir)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .to_string();
+        for line in text.lines().filter(|line| !line.trim().is_empty()) {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                skipped += 1;
+                continue;
+            };
+            let Some(object) = value.as_object() else {
+                skipped += 1;
+                continue;
+            };
+            let Some((ts_key, ts)) = object.iter().find_map(|(key, value)| {
+                if key.ends_with("_unix") {
+                    value.as_u64().map(|ts| (key.clone(), ts))
+                } else {
+                    None
+                }
+            }) else {
+                skipped += 1;
+                continue;
+            };
+            let event = object
+                .get("event")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("audit-entry");
+            // Prefer the entry's subject path so the event sorts alongside
+            // the index/carve events it describes; fall back to the log.
+            let path = [
+                "output_path",
+                "source_path",
+                "target_path",
+                "image_path",
+                "report_path",
+                "selector",
+            ]
+            .iter()
+            .find_map(|key| object.get(*key).and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .unwrap_or_else(|| rel.clone());
+            events.push(TimelineEvent {
+                ts_unix: ts,
+                source: "audit-log",
+                kind: "audit-event",
+                path,
+                detail: format!("audit event '{event}' recorded in {rel} ({ts_key})"),
+            });
+        }
+    }
+    Ok(skipped)
+}
+
+fn collect_jsonl_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            return Err(format!("failed to read directory {}: {err}", dir.display()));
+        }
+    };
+    for entry in entries {
+        let entry = entry
+            .map_err(|err| format!("failed to read directory entry in {}: {err}", dir.display()))?;
+        let path = entry.path();
+        // file_type() does not follow symlinks, so a planted symlink inside
+        // the case tree is never walked out of the case.
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("failed to read file type {}: {err}", path.display()))?;
+        if file_type.is_dir() {
+            collect_jsonl_files(&path, out)?;
+        } else if file_type.is_file()
+            && path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+        {
+            out.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Pull `creation_time` tag values out of a videos.jsonl row's embedded
@@ -442,6 +582,96 @@ mod tests {
         assert_eq!(events[0]["ts_unix"].as_u64(), Some(42));
         assert!(!body.contains("\"ts_unix\":0"), "{body}");
         assert_eq!(result.skipped_no_timestamp, 1);
+        let _ = fs::remove_dir_all(&case_dir);
+    }
+
+    #[test]
+    fn stale_marks_and_audit_log_entries_become_events() {
+        let case_dir = temp_case("audit-sources");
+        fs::write(case_dir.join("case.json"), "{}").unwrap();
+        fs::write(
+            case_dir.join("db/videos.jsonl"),
+            "{\"id\":\"vid_1\",\"source_path\":\"/ev/gone.mp4\",\"size_bytes\":10,\"modified_unix\":null,\"index_status\":\"stale\",\"stale_since_unix\":77,\"ffprobe\":null}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
+        fs::write(
+            case_dir.join("evidence/logs/validation-log.jsonl"),
+            concat!(
+                "{\"event\":\"validate-artifact\",\"validated_unix\":400,\"target_path\":\"/ev/a.mp4\",\"validation_status\":\"ok\"}\n",
+                "{\"event\":\"no-timestamp-here\",\"selector\":\"vid_9\"}\n",
+            ),
+        )
+        .unwrap();
+        fs::create_dir_all(case_dir.join("artifacts/clips")).unwrap();
+        fs::write(
+            case_dir.join("artifacts/clips/export-log.jsonl"),
+            "{\"event\":\"export-video\",\"exported_unix\":500,\"source_path\":\"/ev/a.mp4\",\"output_path\":\"/case/artifacts/clips/a.mp4\"}\n",
+        )
+        .unwrap();
+
+        let output = case_dir.join("db/timeline.jsonl");
+        let result = generate_timeline(&case_dir, &output).unwrap();
+        let events = read_events(&output);
+
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|event| event["kind"].as_str().unwrap())
+            .collect();
+        assert!(kinds.contains(&"file-marked-stale"), "{kinds:?}");
+        assert!(kinds.contains(&"audit-event"), "{kinds:?}");
+
+        let stale = events
+            .iter()
+            .find(|event| event["kind"] == "file-marked-stale")
+            .unwrap();
+        assert_eq!(stale["ts_unix"].as_u64(), Some(77));
+        assert_eq!(stale["source"].as_str(), Some("index"));
+
+        let audit_events: Vec<_> = events
+            .iter()
+            .filter(|event| event["source"] == "audit-log")
+            .collect();
+        assert_eq!(audit_events.len(), 2);
+        assert_eq!(audit_events[0]["ts_unix"].as_u64(), Some(400));
+        assert_eq!(audit_events[1]["ts_unix"].as_u64(), Some(500));
+        // The entry's subject path is used, not the log's own path.
+        assert_eq!(audit_events[0]["path"].as_str(), Some("/ev/a.mp4"));
+        assert_eq!(
+            audit_events[1]["path"].as_str(),
+            Some("/case/artifacts/clips/a.mp4")
+        );
+
+        // The timestamp-less audit line is counted as skipped, not zeroed.
+        assert_eq!(result.skipped_no_timestamp, 1);
+
+        let _ = fs::remove_dir_all(&case_dir);
+    }
+
+    #[test]
+    fn custom_output_inside_a_scanned_root_is_not_ingested() {
+        let case_dir = temp_case("self-output");
+        fs::write(case_dir.join("case.json"), "{}").unwrap();
+        let output = case_dir.join("evidence/logs/timeline.jsonl");
+        // First run creates the file inside evidence/logs; the second must
+        // not read its own previous output back in as audit events.
+        generate_timeline(&case_dir, &output).unwrap();
+        let second = generate_timeline(&case_dir, &output).unwrap();
+        let events = read_events(&output);
+        assert!(
+            events
+                .iter()
+                .all(|event| event["path"] != "evidence/logs/timeline.jsonl"),
+            "timeline output must not feed back into itself"
+        );
+        // timeline-log entries ARE ingested — exactly one prior run existed
+        // when the second collect ran.
+        let audit_events = events
+            .iter()
+            .filter(|event| event["source"] == "audit-log")
+            .count();
+        assert_eq!(audit_events, 1);
+        assert_eq!(second.event_count, 1);
         let _ = fs::remove_dir_all(&case_dir);
     }
 
