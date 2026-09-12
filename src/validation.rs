@@ -157,6 +157,110 @@ fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
     )
 }
 
+/// Serializes a completed compute result into a validate-batch checkpoint
+/// line (`{"computed":{...}}`). Internal resume state — not a published
+/// contract — but still hand-rolled except the probe sub-object, which
+/// serde_json emits deterministically in field order.
+pub fn checkpoint_line(index: usize, result: &ValidationResult) -> String {
+    let (size, modified) = std::fs::metadata(&result.target_path)
+        .map(|metadata| {
+            (
+                metadata.len(),
+                metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_secs()),
+            )
+        })
+        .unwrap_or((0, None));
+    let flags = format!(
+        "[{}]",
+        result
+            .anomaly_flags
+            .iter()
+            .map(|flag| format!("\"{}\"", json_escape(flag)))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let probe_json = serde_json::to_string(&result.probe).unwrap_or_else(|_| "null".to_string());
+    format!(
+        "{{\"computed\":{{\"index\":{},\"result\":{{\"selector\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\",\"validation_status\":\"{}\",\"validation_note\":\"{}\",\"probe\":{},\"validated_unix\":{},\"anomaly_flags\":{},\"target_size_bytes\":{},\"target_modified_unix\":{}}}}}}}",
+        index,
+        json_escape(&result.selector),
+        json_escape(&result.target_path.to_string_lossy()),
+        json_escape(&result.target_sha256),
+        json_escape(&result.validation_status),
+        json_escape(&result.validation_note),
+        probe_json,
+        result.validated_unix,
+        flags,
+        size,
+        modified
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string())
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct CheckpointComputed {
+    index: usize,
+    result: CheckpointResult,
+}
+
+#[derive(serde::Deserialize)]
+struct CheckpointResult {
+    selector: String,
+    target_path: PathBuf,
+    target_sha256: String,
+    validation_status: String,
+    validation_note: String,
+    probe: ProbeSummary,
+    validated_unix: u64,
+    #[serde(default)]
+    anomaly_flags: Vec<String>,
+    #[serde(default)]
+    target_size_bytes: u64,
+    target_modified_unix: Option<u64>,
+}
+
+/// Decodes a `{"computed":{...}}` checkpoint line back into its item index
+/// and result. Returns `None` when the entry does not parse, or when the
+/// target file's size/mtime moved since the result was computed — a
+/// changed file must be re-validated, not replayed stale.
+pub fn from_checkpoint_line(line: &str) -> Option<(usize, ValidationResult)> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    let computed: CheckpointComputed =
+        serde_json::from_value(value.get("computed")?.clone()).ok()?;
+    let result = computed.result;
+    let fresh = std::fs::metadata(&result.target_path)
+        .map(|metadata| {
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs());
+            metadata.len() == result.target_size_bytes && modified == result.target_modified_unix
+        })
+        .unwrap_or(false);
+    if !fresh {
+        return None;
+    }
+    Some((
+        computed.index,
+        ValidationResult {
+            selector: result.selector,
+            target_path: result.target_path,
+            target_sha256: result.target_sha256,
+            validation_status: result.validation_status,
+            validation_note: result.validation_note,
+            probe: result.probe,
+            validated_unix: result.validated_unix,
+            anomaly_flags: result.anomaly_flags,
+        },
+    ))
+}
+
 pub fn append_validation_log(
     case_dir: &Path,
     result: &ValidationResult,

@@ -20,6 +20,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use frametrace::audit;
 use frametrace::case_db;
+use frametrace::checkpoint::ResumeMode;
 use frametrace::model::ScanOptions;
 use frametrace::scan;
 
@@ -155,7 +156,7 @@ fn scan_synthetic_tree_1k_files() {
         incremental: false,
     };
     let started = Instant::now();
-    let result = scan::scan_folder(&case_dir, &source, &options).expect("scan");
+    let result = scan::scan_folder(&case_dir, &source, &options, ResumeMode::Auto).expect("scan");
     let elapsed = started.elapsed().as_millis();
     assert_eq!(result.video_count, SCAN_FILES);
     report("scan-folder + index outputs", SCAN_FILES, elapsed, 30_000);

@@ -56,6 +56,13 @@ pub enum Commands {
         /// missing paths stale
         #[arg(long)]
         incremental: bool,
+        /// Resume from an interrupted run's checkpoint (the default when a
+        /// checkpoint exists and its input fingerprint still matches)
+        #[arg(long, overrides_with = "no_resume")]
+        resume: bool,
+        /// Discard any interrupted-run checkpoint and process every file
+        #[arg(long, overrides_with = "resume")]
+        no_resume: bool,
     },
     /// Register an evidence source in the SQLite case database
     RegisterSource {
@@ -192,6 +199,13 @@ pub enum Commands {
         max_bytes: Option<u64>,
         #[arg(long)]
         max_candidates: Option<usize>,
+        /// Resume from an interrupted run's checkpoint (default: auto when
+        /// the checkpoint's source/options fingerprint still matches)
+        #[arg(long, overrides_with = "no_resume")]
+        resume: bool,
+        /// Discard any interrupted-run checkpoint and rescan/recarve
+        #[arg(long, overrides_with = "resume")]
+        no_resume: bool,
     },
     /// List active/deleted files in a raw forensic image with Sleuth Kit mmls/fls
     InspectImage {
@@ -259,6 +273,13 @@ pub enum Commands {
     ValidateBatch {
         case_dir: PathBuf,
         selection: PathBuf,
+        /// Resume from an interrupted run's checkpoint (default: auto when
+        /// the checkpoint's selection/options fingerprint still matches)
+        #[arg(long, overrides_with = "no_resume")]
+        resume: bool,
+        /// Discard any interrupted-run checkpoint and revalidate every item
+        #[arg(long, overrides_with = "resume")]
+        no_resume: bool,
     },
     /// Merge other cases' video indexes into this case's index with
     /// merged_from provenance; sha256 duplicates are kept and marked
@@ -422,6 +443,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             no_ffprobe,
             max_depth,
             incremental,
+            resume,
+            no_resume,
         } => {
             let options = ScanOptions {
                 hash_files: hash,
@@ -429,7 +452,12 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 max_depth,
                 incremental,
             };
-            scan_folder(&case_dir, &source_dir, options)
+            scan_folder(
+                &case_dir,
+                &source_dir,
+                options,
+                crate::checkpoint::ResumeMode::from_flags(resume, no_resume),
+            )
         }
         Commands::RegisterSource {
             case_dir,
@@ -573,6 +601,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             source_file,
             max_bytes,
             max_candidates,
+            resume,
+            no_resume,
         } => {
             let mut options = CarveOptions::default();
             if let Some(mb) = max_bytes {
@@ -581,7 +611,12 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             if let Some(mc) = max_candidates {
                 options.max_candidates = mc;
             }
-            carve_file(&case_dir, &source_file, options)
+            carve_file(
+                &case_dir,
+                &source_file,
+                options,
+                crate::checkpoint::ResumeMode::from_flags(resume, no_resume),
+            )
         }
         Commands::InspectImage {
             case_dir,
@@ -657,7 +692,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         Commands::ValidateBatch {
             case_dir,
             selection,
-        } => validate_batch(&case_dir, &selection),
+            resume,
+            no_resume,
+        } => validate_batch(
+            &case_dir,
+            &selection,
+            crate::checkpoint::ResumeMode::from_flags(resume, no_resume),
+        ),
         Commands::KnownHashFilter {
             case_dir,
             hash_list,

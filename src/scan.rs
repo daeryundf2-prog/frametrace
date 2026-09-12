@@ -1,4 +1,5 @@
 use crate::case_db::{self, IndexedVideoRow};
+use crate::checkpoint::{self, ResumeMode, RunCheckpoint};
 use crate::detector;
 use crate::ffprobe;
 use crate::model::{ProbeSummary, ScanOptions, ScanResult, VideoRecord};
@@ -23,12 +24,33 @@ pub fn scan_folder(
     case_dir: &Path,
     source_dir: &Path,
     options: &ScanOptions,
+    resume: ResumeMode,
 ) -> Result<ScanResult, String> {
     let source_dir = canonicalize_display(source_dir)
         .map_err(|err| format!("failed to canonicalize source: {err}"))?;
     let excluded_dirs = excluded_case_dirs(case_dir, &source_dir)?;
     let collection = collect_video_candidates(&source_dir, options.max_depth, &excluded_dirs)?;
+    // An interrupted run checkpoints one record line per processed file
+    // under db/scan-progress.jsonl; when the input fingerprint (source +
+    // options + candidate list) still matches, those records are replayed
+    // verbatim instead of re-hashing and re-probing gigabytes of evidence.
+    let mut checkpoint = RunCheckpoint::begin(
+        &case_dir.join("db/scan-progress.jsonl"),
+        "scan-folder",
+        &scan_fingerprint(&source_dir, options, &collection.files),
+        resume,
+    )?;
+    let resumed_records = load_checkpoint_records(&checkpoint)?;
     let mut id_registry = load_existing_video_ids(case_dir)?;
+    // The interrupted run already consumed these ids — re-registering them
+    // keeps replayed records stable and stops fresh files from colliding.
+    for record in resumed_records.values() {
+        let key = normalize_source_key(&record.source_path.to_string_lossy());
+        id_registry.ids_by_source.insert(key, record.id.clone());
+        if let Some(number) = record.id.strip_prefix("vid_").and_then(parse_usize) {
+            id_registry.next_number = id_registry.next_number.max(number + 1);
+        }
+    }
     // Incremental mode: the existing index is the skip oracle. A record is
     // reused verbatim (never re-hashed or re-probed) when its stored
     // size+mtime still match the file on disk; merge_existing_with_scan then
@@ -43,15 +65,33 @@ pub fn scan_folder(
     };
     let mut records = Vec::with_capacity(collection.files.len());
     let mut unchanged_files = 0usize;
+    let mut resumed_from_checkpoint = 0usize;
     let mut total_bytes = 0u64;
+    let mut warnings = collection.warnings;
+    if checkpoint.reset_stale() {
+        warnings.push(
+            "previous scan checkpoint was recorded for different inputs; started fresh".to_string(),
+        );
+    }
 
     for path in collection.files {
         let metadata = fs::metadata(&path)
             .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
         total_bytes = total_bytes.saturating_add(metadata.len());
         let modified_unix = modified_unix(&metadata);
-        if let Some(existing) =
-            incremental_index.get(&normalize_source_key(&path.to_string_lossy()))
+        let source_key = normalize_source_key(&path.to_string_lossy());
+        // Replay the interrupted run's record verbatim — but only while the
+        // file's size+mtime still match it, so a file changed between the
+        // crash and the resume is reprocessed rather than trusted stale.
+        if let Some(existing) = resumed_records.get(&source_key)
+            && existing.size_bytes == metadata.len()
+            && existing.modified_unix == modified_unix
+        {
+            resumed_from_checkpoint += 1;
+            records.push(existing.clone());
+            continue;
+        }
+        if let Some(existing) = incremental_index.get(&source_key)
             && record_is_unchanged(existing, metadata.len(), modified_unix, options)
         {
             unchanged_files += 1;
@@ -91,7 +131,7 @@ pub fn scan_folder(
             probe.format_name.as_deref(),
         );
         let id = id_registry.id_for(&path);
-        records.push(VideoRecord {
+        let record = VideoRecord {
             id,
             source_path: path,
             relative_path,
@@ -103,7 +143,12 @@ pub fn scan_folder(
             probe,
             confidence,
             source_profile,
-        });
+        };
+        // Checkpoint BEFORE the record goes into the in-memory list: a
+        // crash after this line replays the record, a crash before it
+        // simply reprocesses the file.
+        checkpoint.append_line(&record.to_json())?;
+        records.push(record);
     }
 
     let result = ScanResult {
@@ -112,13 +157,62 @@ pub fn scan_folder(
         video_count: records.len(),
         total_bytes,
         unchanged_files,
-        warnings: collection.warnings,
+        resumed_from_checkpoint,
+        warnings,
         options: options.clone(),
         records,
     };
 
     write_scan_outputs(case_dir, &result)?;
+    if resumed_from_checkpoint > 0 {
+        let line = format!(
+            "{{\"schema_version\":1,\"event\":\"scan-resume\",\"run_id\":\"{}\",\"source_path\":\"{}\",\"resumed_records\":{}}}",
+            json_escape(checkpoint.run_id()),
+            json_escape(&result.source_path.to_string_lossy()),
+            resumed_from_checkpoint
+        );
+        crate::audit::append_chained_jsonl(&case_dir.join("evidence/logs/scan-log.jsonl"), &line)?;
+    }
+    checkpoint.finish()?;
     Ok(result)
+}
+
+/// Fingerprint of everything that decides a scan record: source path, the
+/// option set, and the collected candidate list. A rerun against different
+/// inputs resets the checkpoint instead of silently skipping fresh work.
+fn scan_fingerprint(source_dir: &Path, options: &ScanOptions, files: &[PathBuf]) -> String {
+    let mut parts = vec![
+        "scan-folder".to_string(),
+        source_dir.to_string_lossy().to_string(),
+        format!("hash_files={}", options.hash_files),
+        format!("use_ffprobe={}", options.use_ffprobe),
+        format!("max_depth={:?}", options.max_depth),
+        format!("incremental={}", options.incremental),
+    ];
+    parts.extend(files.iter().map(|path| path.to_string_lossy().to_string()));
+    checkpoint::fingerprint(&parts.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// Decodes a resumed checkpoint's record lines (verbatim `videos.jsonl`
+/// records) into the replay map keyed by normalized source path. Later
+/// lines win so a reprocessed file's newest record is the one replayed.
+fn load_checkpoint_records(
+    checkpoint: &RunCheckpoint,
+) -> Result<HashMap<String, VideoRecord>, String> {
+    let mut records = HashMap::new();
+    for line in checkpoint.data_lines() {
+        let record: VideoRecord = serde_json::from_str(line).map_err(|err| {
+            format!(
+                "checkpoint {} holds a line that is not a video record ({err}); delete it or rerun with --no-resume",
+                checkpoint.path().display()
+            )
+        })?;
+        records.insert(
+            normalize_source_key(&record.source_path.to_string_lossy()),
+            record,
+        );
+    }
+    Ok(records)
 }
 
 struct CandidateCollection {
@@ -805,12 +899,12 @@ pub(crate) fn tsv_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_video_candidates, excluded_case_dirs, looks_like_video, merge_existing_with_scan,
-        set_json_field,
+        ResumeMode, RunCheckpoint, collect_video_candidates, excluded_case_dirs, looks_like_video,
+        merge_existing_with_scan, scan_fingerprint, set_json_field,
     };
     use crate::model::{ProbeSummary, ScanOptions, ScanResult, SourceProfile, VideoRecord};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn set_json_field_appends_without_reordering_existing_keys() {
@@ -997,6 +1091,7 @@ mod tests {
             video_count: 0,
             total_bytes: 0,
             unchanged_files: 0,
+            resumed_from_checkpoint: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: Vec::new(),
@@ -1062,6 +1157,7 @@ mod tests {
             video_count: 1,
             total_bytes: 2,
             unchanged_files: 0,
+            resumed_from_checkpoint: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: vec![rescanned_second],
@@ -1118,6 +1214,7 @@ mod tests {
             video_count: 1,
             total_bytes: 1,
             unchanged_files: 0,
+            resumed_from_checkpoint: 0,
             warnings: Vec::new(),
             options: ScanOptions::default(),
             records: vec![rescanned],
@@ -1171,7 +1268,7 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
         assert_eq!(first.video_count, 2);
         let before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
 
@@ -1182,6 +1279,7 @@ mod tests {
                 incremental: true,
                 ..options.clone()
             },
+            ResumeMode::Auto,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 0, "nothing was re-processed");
@@ -1198,6 +1296,7 @@ mod tests {
                 incremental: true,
                 ..ScanOptions::default()
             },
+            ResumeMode::Auto,
         )
         .unwrap();
         assert_eq!(hashed.video_count, 2);
@@ -1222,7 +1321,7 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
         assert_eq!(first.video_count, 3);
         let index_before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
         let keep_line = index_before
@@ -1256,6 +1355,7 @@ mod tests {
                 incremental: true,
                 ..options
             },
+            ResumeMode::Auto,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 2, "changed + new files processed");
@@ -1298,7 +1398,7 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        super::scan_folder(&case_dir, &source_dir, &options).unwrap();
+        super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
         // Flag the record, then rescan unchanged: the flag forces a fresh
         // record, so the flag does not linger on live evidence.
         let index_path = case_dir.join("db/videos.jsonl");
@@ -1315,12 +1415,178 @@ mod tests {
                 incremental: true,
                 ..options
             },
+            ResumeMode::Auto,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 1);
         assert_eq!(rescan.unchanged_files, 0);
         let index_after = fs::read_to_string(&index_path).unwrap();
         assert!(!index_after.contains("index_status"), "{index_after}");
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// Writes the checkpoint a crashed run would have left: header +
+    /// `record_lines` already-completed records.
+    fn leave_checkpoint(
+        case_dir: &Path,
+        source_dir: &Path,
+        options: &ScanOptions,
+        record_lines: &[String],
+    ) {
+        // scan_folder fingerprints the CANONICALIZED source path, so the
+        // crafted checkpoint must be computed the same way.
+        let source_dir = crate::util::canonicalize_display(source_dir).unwrap();
+        let candidates = collect_video_candidates(&source_dir, None, &[]).unwrap();
+        let fingerprint = scan_fingerprint(&source_dir, options, &candidates.files);
+        let mut checkpoint = RunCheckpoint::begin(
+            &case_dir.join("db/scan-progress.jsonl"),
+            "scan-folder",
+            &fingerprint,
+            ResumeMode::Auto,
+        )
+        .unwrap();
+        for line in record_lines {
+            checkpoint.append_line(line).unwrap();
+        }
+        // Drop without finish: the interrupted run's state stays on disk.
+    }
+
+    /// An interrupted run's checkpoint replays finished records verbatim —
+    /// no re-hash, no re-probe — and the rerun still indexes everything.
+    #[test]
+    fn resume_replays_checkpointed_records() {
+        let (case_dir, source_dir) = incremental_fixture("resume");
+        fs::write(source_dir.join("a.mp4"), b"\0\0\0\x18ftypmp42one").unwrap();
+        fs::write(source_dir.join("b.mp4"), b"\0\0\0\x18ftypmp42two").unwrap();
+        fs::write(source_dir.join("c.mp4"), b"\0\0\0\x18ftypmp42three").unwrap();
+        let options = ScanOptions {
+            hash_files: true,
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        assert_eq!(first.video_count, 3);
+        let record_lines: Vec<String> = fs::read_to_string(case_dir.join("db/videos.jsonl"))
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_string)
+            .collect();
+        assert_eq!(record_lines.len(), 3);
+
+        // Simulate the crash: index outputs never written, checkpoint with
+        // the first two processed files survives.
+        for file in [
+            "db/videos.jsonl",
+            "db/video_index.json",
+            "db/video_paths.tsv",
+        ] {
+            let _ = fs::remove_file(case_dir.join(file));
+        }
+        leave_checkpoint(&case_dir, &source_dir, &options, &record_lines[..2]);
+
+        let second =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        assert_eq!(second.resumed_from_checkpoint, 2);
+        assert_eq!(second.video_count, 3);
+        assert!(
+            !case_dir.join("db/scan-progress.jsonl").exists(),
+            "checkpoint deleted on full success"
+        );
+        let index = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
+        for name in ["a.mp4", "b.mp4", "c.mp4"] {
+            assert!(index.contains(name), "index missing {name}");
+        }
+        // The replayed lines are byte-identical to what the crashed run
+        // computed — resume does not rewrite prior work.
+        for line in index.lines().filter(|line| line.contains(".mp4")) {
+            if line.contains("a.mp4") {
+                assert_eq!(line, record_lines[0]);
+            } else if line.contains("b.mp4") {
+                assert_eq!(line, record_lines[1]);
+            }
+        }
+        // The resume is audit-logged.
+        let scan_log = fs::read_to_string(case_dir.join("evidence/logs/scan-log.jsonl")).unwrap();
+        assert!(scan_log.contains("\"event\":\"scan-resume\""), "{scan_log}");
+        assert!(scan_log.contains("\"resumed_records\":2"), "{scan_log}");
+
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A checkpoint whose input fingerprint does not match (e.g. recorded
+    /// against different scan options) is discarded, not silently reused.
+    #[test]
+    fn resume_rejects_stale_fingerprint_and_scans_fresh() {
+        let (case_dir, source_dir) = incremental_fixture("stalefp");
+        fs::write(source_dir.join("a.mp4"), b"\0\0\0\x18ftypmp42one").unwrap();
+        let options = ScanOptions {
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        let checkpoint_path = case_dir.join("db/scan-progress.jsonl");
+        {
+            let mut checkpoint =
+                RunCheckpoint::begin(&checkpoint_path, "scan-folder", "bogus", ResumeMode::Auto)
+                    .unwrap();
+            checkpoint.append_line("{\"id\":\"vid_000001\"}").unwrap();
+        }
+
+        let result =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        assert_eq!(result.resumed_from_checkpoint, 0);
+        assert_eq!(result.video_count, 1);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("different inputs")),
+            "expected a stale-checkpoint warning: {:?}",
+            result.warnings
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A checkpoint file torn mid-append drops only the incomplete tail:
+    /// complete records still replay.
+    #[test]
+    fn resume_tolerates_torn_checkpoint_tail() {
+        let (case_dir, source_dir) = incremental_fixture("torntail");
+        fs::write(source_dir.join("a.mp4"), b"\0\0\0\x18ftypmp42one").unwrap();
+        fs::write(source_dir.join("b.mp4"), b"\0\0\0\x18ftypmp42two").unwrap();
+        let options = ScanOptions {
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        };
+        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        assert_eq!(first.video_count, 2);
+        let record_lines: Vec<String> = fs::read_to_string(case_dir.join("db/videos.jsonl"))
+            .unwrap()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_string)
+            .collect();
+        for file in [
+            "db/videos.jsonl",
+            "db/video_index.json",
+            "db/video_paths.tsv",
+        ] {
+            let _ = fs::remove_file(case_dir.join(file));
+        }
+        leave_checkpoint(&case_dir, &source_dir, &options, &record_lines[..1]);
+        // Torn tail: partial JSON appended without a newline.
+        use std::io::Write;
+        let mut handle = fs::OpenOptions::new()
+            .append(true)
+            .open(case_dir.join("db/scan-progress.jsonl"))
+            .unwrap();
+        handle.write_all(b"{\"id\":\"vid_").unwrap();
+        drop(handle);
+
+        let second =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        assert_eq!(second.resumed_from_checkpoint, 1);
+        assert_eq!(second.video_count, 2);
         let _ = fs::remove_dir_all(case_dir.parent().unwrap());
     }
 }

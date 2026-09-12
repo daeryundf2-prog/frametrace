@@ -2,6 +2,7 @@ use crate::artifacts::{self, ProxyOptions, ThumbnailOptions};
 use crate::audit;
 use crate::carve::{self, CarveOptions};
 use crate::case_db;
+use crate::checkpoint::{self, ResumeMode, RunCheckpoint};
 use crate::e01::{self, E01Options};
 use crate::html_report;
 use crate::model::{CaseManifest, ScanOptions};
@@ -84,7 +85,12 @@ pub fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), Strin
     Ok(())
 }
 
-pub fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> Result<(), String> {
+pub fn scan_folder(
+    case_dir: &Path,
+    source_dir: &Path,
+    options: ScanOptions,
+    resume: ResumeMode,
+) -> Result<(), String> {
     ensure_case(case_dir)?;
     if !source_dir.is_dir() {
         return Err(format!(
@@ -113,7 +119,7 @@ pub fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> 
         None,
         &scan_options_json(&options),
     )?;
-    let result = match scan::scan_folder(case_dir, source_dir, &options) {
+    let result = match scan::scan_folder(case_dir, source_dir, &options, resume) {
         Ok(result) => result,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
@@ -130,6 +136,12 @@ pub fn scan_folder(case_dir: &Path, source_dir: &Path, options: ScanOptions) -> 
     println!("source registered: {} ({})", source.source_id, source.kind);
     println!("job: {} ({})", job.job_id, job.job_type);
     println!("videos indexed: {}", result.video_count);
+    if result.resumed_from_checkpoint > 0 {
+        println!(
+            "resumed from checkpoint: {} record(s) reused",
+            result.resumed_from_checkpoint
+        );
+    }
     if options.incremental {
         println!(
             "unchanged files skipped: {} (size+mtime still match the index)",
@@ -707,6 +719,7 @@ pub fn carve_file(
     case_dir: &Path,
     source_file: &Path,
     options: CarveOptions,
+    resume: ResumeMode,
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
     let source = case_db::register_evidence_source(
@@ -729,7 +742,7 @@ pub fn carve_file(
         Some(options.max_candidates as u64),
         &carve_options_json(&options),
     )?;
-    let result = match carve::carve_file(case_dir, source_file, &options) {
+    let result = match carve::carve_file(case_dir, source_file, &options, resume) {
         Ok(result) => result,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
@@ -747,6 +760,12 @@ pub fn carve_file(
     println!("job: {} ({})", job.job_id, job.job_type);
     println!("source: {}", result.source_path.display());
     println!("artifacts carved: {}", result.artifacts.len());
+    if result.resumed_artifacts > 0 || result.resumed_scan_offset > 0 {
+        println!(
+            "resumed from checkpoint: {} artifact(s) reused, scan offset {}",
+            result.resumed_artifacts, result.resumed_scan_offset
+        );
+    }
     println!(
         "results: {}",
         case_dir.join("db/carve_results.json").display()
@@ -1180,7 +1199,11 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
     Ok(())
 }
 
-pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), String> {
+pub fn validate_batch(
+    case_dir: &Path,
+    selection_path: &Path,
+    resume: ResumeMode,
+) -> Result<(), String> {
     ensure_case(case_dir)?;
     let selection = crate::selection::parse_selection_file(selection_path)?;
     let job = case_db::start_job(
@@ -1191,6 +1214,63 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
         &format!("{{\"items\":{}}}", selection.items.len()),
     )?;
 
+    // Mid-run resume (R-1): the checkpoint fingerprints the selection file
+    // content + ffprobe lane, so a different selection never silently skips
+    // items. `done` lines replay the recorded outcome (their validation-log
+    // entries are already durable); `computed` lines replay the stored
+    // per-file result and only need the log append retried.
+    let selection_digest = audit::digest_file(selection_path)?;
+    let fingerprint = checkpoint::fingerprint(&["validate-batch", &selection_digest, "ffprobe"]);
+    let checkpoint = RunCheckpoint::begin(
+        &case_dir.join("db/validate-batch-progress.jsonl"),
+        "validate-batch",
+        &fingerprint,
+        resume,
+    )?;
+    let mut done: std::collections::HashMap<usize, BatchOutcome> = std::collections::HashMap::new();
+    let mut computed: std::collections::HashMap<usize, validation::ValidationResult> =
+        std::collections::HashMap::new();
+    for line in checkpoint.data_lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if let Some(done_value) = value.get("done") {
+            let Some(index) = done_value
+                .get("index")
+                .and_then(serde_json::Value::as_u64)
+                .map(|index| index as usize)
+            else {
+                continue;
+            };
+            let field = |key: &str| {
+                done_value
+                    .get(key)
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            };
+            done.insert(
+                index,
+                BatchOutcome {
+                    selector: field("selector"),
+                    action: "validate",
+                    status: if field("status") == "ok" {
+                        "ok"
+                    } else {
+                        "failed"
+                    },
+                    detail: field("detail"),
+                },
+            );
+        } else if let Some((index, result)) = validation::from_checkpoint_line(line)
+            && index < selection.items.len()
+        {
+            computed.insert(index, result);
+        }
+    }
+    let replayed_done = done.len();
+    let mut replayed_computed = 0usize;
+
     // Compute phase runs in parallel (per-file SHA-256 + ffprobe dominate the
     // runtime); validation log appends then happen sequentially so the hash
     // chain stays ordered and verifiable. The video index is loaded once up
@@ -1200,12 +1280,19 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     let video_index = crate::anomaly::index_by_id(case_dir).unwrap_or_default();
     let options = ValidationOptions::default();
     let items = &selection.items;
+    let pending: Vec<usize> = (0..items.len())
+        .filter(|index| !done.contains_key(index) && !computed.contains_key(index))
+        .collect();
     let slots: std::sync::Mutex<Vec<Option<Result<crate::validation::ValidationResult, String>>>> =
         std::sync::Mutex::new((0..items.len()).map(|_| None).collect());
     let next_index = std::sync::atomic::AtomicUsize::new(0);
+    // The checkpoint moves into a mutex for the parallel sweep so workers
+    // can persist each finished compute; it is taken back afterwards.
+    let checkpoint_mutex = std::sync::Mutex::new(checkpoint);
     let items = &items;
     let slots = &slots;
     let next_index = &next_index;
+    let pending = &pending;
     let video_index = &video_index;
     let workers = std::thread::available_parallelism()
         .map(|count| count.get())
@@ -1215,36 +1302,80 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
         for _ in 0..workers {
             scope.spawn(|| {
                 loop {
-                    let index = next_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let Some(item) = items.get(index) else { break };
+                    let position = next_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(&index) = pending.get(position) else {
+                        break;
+                    };
+                    let item = &items[index];
                     let outcome = crate::validation::compute_validation(
                         case_dir,
                         &item.selector,
                         &options,
                         video_index,
                     );
+                    // Persist each completed compute immediately: a crash
+                    // mid-sweep then resumes without re-hashing/re-probing
+                    // the finished items. A checkpoint write failure is
+                    // recorded as the item's error so the batch still knows
+                    // the compute result was not made durable.
+                    if let Ok(result) = &outcome
+                        && let Err(err) = lock_or_recover(&checkpoint_mutex)
+                            .append_line(&validation::checkpoint_line(index, result))
+                    {
+                        lock_or_recover(slots)[index] = Some(Err(err));
+                        continue;
+                    }
                     lock_or_recover(slots)[index] = Some(outcome);
                 }
             });
         }
     });
 
+    let mut checkpoint = checkpoint_mutex
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut outcomes = Vec::new();
-    let results = lock_or_recover(slots).drain(..).collect::<Vec<_>>();
-    for (item, slot) in selection.items.iter().zip(results) {
-        let computed = slot.unwrap_or_else(|| Err("validation worker lost its result".to_string()));
-        outcomes.push(match computed {
+    let mut results = lock_or_recover(slots).drain(..).collect::<Vec<_>>();
+    for (index, item) in selection.items.iter().enumerate() {
+        if let Some(outcome) = done.remove(&index) {
+            outcomes.push(outcome);
+            continue;
+        }
+        let computed_result = match computed.remove(&index) {
+            Some(result) => {
+                replayed_computed += 1;
+                Ok(result)
+            }
+            None => results[index]
+                .take()
+                .unwrap_or_else(|| Err("validation worker lost its result".to_string())),
+        };
+        let outcome = match computed_result {
             Ok(result) => match validation::append_validation_log(case_dir, &result, &options) {
-                Ok(()) => BatchOutcome {
-                    selector: item.selector.clone(),
-                    action: "validate",
-                    status: if result.validation_status == "validation-failed" {
-                        "failed"
-                    } else {
-                        "ok"
-                    },
-                    detail: format!("{} ({})", result.validation_status, result.target_sha256),
-                },
+                Ok(()) => {
+                    let outcome = BatchOutcome {
+                        selector: item.selector.clone(),
+                        action: "validate",
+                        status: if result.validation_status == "validation-failed" {
+                            "failed"
+                        } else {
+                            "ok"
+                        },
+                        detail: format!("{} ({})", result.validation_status, result.target_sha256),
+                    };
+                    // The log entry is durable → the item is done. Ordering
+                    // matters: done-after-append risks a duplicate log line
+                    // on resume, done-before-append risks a replayed outcome
+                    // with no log entry behind it.
+                    checkpoint.append_line(&format!(
+                        "{{\"done\":{{\"index\":{},\"selector\":\"{}\",\"status\":\"{}\",\"detail\":\"{}\"}}}}",
+                        index,
+                        json_escape(&outcome.selector),
+                        outcome.status,
+                        json_escape(&outcome.detail)
+                    ))?;
+                    outcome
+                }
                 Err(error) => BatchOutcome {
                     selector: item.selector.clone(),
                     action: "validate",
@@ -1258,11 +1389,25 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
                 status: "failed",
                 detail: error,
             },
-        });
+        };
+        outcomes.push(outcome);
     }
 
     let ok = outcomes.iter().filter(|o| o.status == "ok").count();
     let failed = outcomes.iter().filter(|o| o.status == "failed").count();
+    if replayed_done > 0 || replayed_computed > 0 {
+        let resume_line = format!(
+            "{{\"schema_version\":1,\"event\":\"validate-batch-resume\",\"selection_path\":\"{}\",\"run_id\":\"{}\",\"skipped_items\":{},\"reused_computed\":{}}}",
+            json_escape(&selection_path.display().to_string()),
+            json_escape(checkpoint.run_id()),
+            replayed_done,
+            replayed_computed
+        );
+        audit::append_chained_jsonl(
+            &case_dir.join("artifacts/logs/batch-log.jsonl"),
+            &resume_line,
+        )?;
+    }
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"validate-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"results\":{}}}",
         json_escape(&selection_path.display().to_string()),
@@ -1290,11 +1435,17 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
         outcomes.len() as u64,
         "validate-batch completed",
     )?;
+    checkpoint.finish()?;
 
     println!("validate batch complete");
     println!("requested: {}", outcomes.len());
     println!("ok: {ok}");
     println!("failed: {failed}");
+    if replayed_done > 0 || replayed_computed > 0 {
+        println!(
+            "resumed from checkpoint: {replayed_done} item(s) replayed, {replayed_computed} reused pending log"
+        );
+    }
     for outcome in &outcomes {
         println!(
             "  [{}] {}: {}",
@@ -2062,5 +2213,172 @@ mod tests {
         });
         assert!(mutex.lock().is_err(), "mutex must be poisoned");
         assert_eq!(*lock_or_recover(&mutex), vec![7]);
+    }
+
+    /// A case dir plus a two-item selection of real files, ready for
+    /// `validate_batch`.
+    fn validate_batch_fixture(name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let base =
+            std::env::temp_dir().join(format!("frametrace-vbatch-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let case_dir = base.join("case");
+        std::fs::create_dir_all(case_dir.join("db")).unwrap();
+        std::fs::write(case_dir.join("case.json"), "{}").unwrap();
+        let target_a = base.join("one.mp4");
+        let target_b = base.join("two.mp4");
+        std::fs::write(&target_a, b"\0\0\0\x18ftypmp42one").unwrap();
+        std::fs::write(&target_b, b"\0\0\0\x18ftypmp42two").unwrap();
+        let selection = base.join("selection.json");
+        std::fs::write(
+            &selection,
+            format!(
+                "{{\"items\":[{{\"selector\":\"{}\"}},{{\"selector\":\"{}\"}}]}}",
+                crate::util::json_escape(&target_a.to_string_lossy()),
+                crate::util::json_escape(&target_b.to_string_lossy()),
+            ),
+        )
+        .unwrap();
+        (case_dir, selection, target_a, target_b)
+    }
+
+    fn validate_batch_fingerprint(selection: &Path) -> String {
+        checkpoint::fingerprint(&[
+            "validate-batch",
+            &audit::digest_file(selection).unwrap(),
+            "ffprobe",
+        ])
+    }
+
+    /// Items marked `done` in a checkpoint are replayed without
+    /// revalidating them — the resumed run appends log entries only for
+    /// the remaining items.
+    #[test]
+    fn validate_batch_resume_replays_done_items() {
+        let (case_dir, selection, target_a, _target_b) = validate_batch_fixture("done");
+        let checkpoint_path = case_dir.join("db/validate-batch-progress.jsonl");
+        {
+            let mut checkpoint = RunCheckpoint::begin(
+                &checkpoint_path,
+                "validate-batch",
+                &validate_batch_fingerprint(&selection),
+                ResumeMode::Auto,
+            )
+            .unwrap();
+            checkpoint
+                .append_line(&format!(
+                    "{{\"done\":{{\"index\":0,\"selector\":\"{}\",\"status\":\"ok\",\"detail\":\"ffprobe-video-stream-confirmed (abc)\"}}}}",
+                    crate::util::json_escape(&target_a.to_string_lossy()),
+                ))
+                .unwrap();
+        }
+
+        validate_batch(&case_dir, &selection, ResumeMode::Auto).unwrap();
+
+        // Only item 1's validation-log entry is new; item 0's was already
+        // durable when the crashed run recorded it done.
+        let log =
+            std::fs::read_to_string(case_dir.join("evidence/logs/validation-log.jsonl")).unwrap();
+        let entries: Vec<&str> = log.lines().filter(|line| !line.trim().is_empty()).collect();
+        assert_eq!(entries.len(), 1, "{log}");
+        assert!(entries[0].contains("two.mp4"), "{log}");
+        let batch =
+            std::fs::read_to_string(case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap();
+        assert!(
+            batch.contains("\"event\":\"validate-batch-resume\""),
+            "{batch}"
+        );
+        assert!(batch.contains("\"skipped_items\":1"), "{batch}");
+        assert!(batch.contains("\"requested\":2"), "{batch}");
+        assert!(
+            !checkpoint_path.exists(),
+            "checkpoint deleted on full success"
+        );
+        let _ = std::fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A `computed` line (result durable, log append never landed) replays
+    /// the stored result and only retries the log append.
+    #[test]
+    fn validate_batch_resume_reuses_pending_computed_results() {
+        let (case_dir, selection, target_a, _target_b) = validate_batch_fixture("computed");
+        let checkpoint_path = case_dir.join("db/validate-batch-progress.jsonl");
+        let result = crate::validation::compute_validation(
+            &case_dir,
+            &target_a.to_string_lossy(),
+            &ValidationOptions::default(),
+            &std::collections::HashMap::new(),
+        )
+        .unwrap();
+        {
+            let mut checkpoint = RunCheckpoint::begin(
+                &checkpoint_path,
+                "validate-batch",
+                &validate_batch_fingerprint(&selection),
+                ResumeMode::Auto,
+            )
+            .unwrap();
+            checkpoint
+                .append_line(&crate::validation::checkpoint_line(0, &result))
+                .unwrap();
+            // Item 1 fully completed before the crash.
+            checkpoint
+                .append_line(
+                    "{\"done\":{\"index\":1,\"selector\":\"two.mp4\",\"status\":\"ok\",\"detail\":\"ok\"}}",
+                )
+                .unwrap();
+        }
+
+        validate_batch(&case_dir, &selection, ResumeMode::Auto).unwrap();
+
+        let batch =
+            std::fs::read_to_string(case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap();
+        assert!(
+            batch.contains("\"event\":\"validate-batch-resume\""),
+            "{batch}"
+        );
+        assert!(batch.contains("\"skipped_items\":1"), "{batch}");
+        assert!(batch.contains("\"reused_computed\":1"), "{batch}");
+        // Exactly one fresh log append — the replayed item 0 result.
+        let log =
+            std::fs::read_to_string(case_dir.join("evidence/logs/validation-log.jsonl")).unwrap();
+        let entries: Vec<&str> = log.lines().filter(|line| !line.trim().is_empty()).collect();
+        assert_eq!(entries.len(), 1, "{log}");
+        assert!(entries[0].contains("one.mp4"), "{log}");
+        let _ = std::fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A checkpoint recorded against a different selection file must not
+    /// skip anything: the fingerprint mismatch resets the run.
+    #[test]
+    fn validate_batch_stale_fingerprint_validates_everything() {
+        let (case_dir, selection, _target_a, _target_b) = validate_batch_fixture("stale");
+        {
+            let mut checkpoint = RunCheckpoint::begin(
+                &case_dir.join("db/validate-batch-progress.jsonl"),
+                "validate-batch",
+                "bogus-fingerprint",
+                ResumeMode::Auto,
+            )
+            .unwrap();
+            checkpoint
+                .append_line(
+                    "{\"done\":{\"index\":0,\"selector\":\"one.mp4\",\"status\":\"ok\",\"detail\":\"stale\"}}",
+                )
+                .unwrap();
+        }
+
+        // Both items are computed — the result may be a validation failure
+        // for fake media, but the work must not be skipped. The all-failed
+        // batch may legitimately return Err; the log evidence is what
+        // matters.
+        let _ = validate_batch(&case_dir, &selection, ResumeMode::Auto);
+        let log =
+            std::fs::read_to_string(case_dir.join("evidence/logs/validation-log.jsonl")).unwrap();
+        let entries: Vec<&str> = log.lines().filter(|line| !line.trim().is_empty()).collect();
+        assert_eq!(entries.len(), 2, "{log}");
+        let batch =
+            std::fs::read_to_string(case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap();
+        assert!(!batch.contains("validate-batch-resume"), "{batch}");
+        let _ = std::fs::remove_dir_all(case_dir.parent().unwrap());
     }
 }

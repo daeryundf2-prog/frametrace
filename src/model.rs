@@ -223,6 +223,9 @@ pub struct ScanResult {
     /// Files an incremental rescan left untouched because their indexed
     /// size+mtime still matched (0 for full scans).
     pub unchanged_files: usize,
+    /// Records replayed verbatim from an interrupted run's checkpoint
+    /// instead of being re-hashed/re-probed (0 unless resuming).
+    pub resumed_from_checkpoint: usize,
     pub warnings: Vec<String>,
     pub options: ScanOptions,
     pub records: Vec<VideoRecord>,
@@ -243,6 +246,10 @@ impl ScanResult {
         out.push_str(&format!(
             "  \"unchanged_files\": {},\n",
             self.unchanged_files
+        ));
+        out.push_str(&format!(
+            "  \"resumed_from_checkpoint\": {},\n",
+            self.resumed_from_checkpoint
         ));
         out.push_str("  \"warnings\": [\n");
         for (index, warning) in self.warnings.iter().enumerate() {
