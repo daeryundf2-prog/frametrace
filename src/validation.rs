@@ -36,7 +36,10 @@ pub fn validate_artifact(
     selector: &str,
     options: &ValidationOptions,
 ) -> Result<ValidationResult, String> {
-    let result = compute_validation(case_dir, selector, options)?;
+    // An unreadable index previously surfaced as "no anomaly flag", so keep
+    // that failure-soft behaviour by falling back to an empty map.
+    let index = crate::anomaly::index_by_id(case_dir).unwrap_or_default();
+    let result = compute_validation(case_dir, selector, options, &index)?;
     append_validation_log(case_dir, &result, options)?;
     Ok(result)
 }
@@ -44,10 +47,13 @@ pub fn validate_artifact(
 /// Compute phase of a validation (resolve target, hash, ffprobe) with no side
 /// effects on the case. Batch commands run this in parallel and then append
 /// the validation log entries sequentially so the hash chain stays intact.
+/// `index` is the case's video index keyed by record id, loaded once by the
+/// caller rather than re-read per item.
 pub fn compute_validation(
     case_dir: &Path,
     selector: &str,
     options: &ValidationOptions,
+    index: &std::collections::HashMap<String, crate::anomaly::IndexedRow>,
 ) -> Result<ValidationResult, String> {
     let target_path = resolve_artifact_path(case_dir, selector)?;
     let validated_unix = now_unix()?;
@@ -55,9 +61,7 @@ pub fn compute_validation(
     let probe = ffprobe::probe_with_binary(&options.ffprobe_bin, &target_path);
     let (validation_status, validation_note) = validation_status(&probe);
     let mut anomaly_flags = Vec::new();
-    if let Ok(Some(finding)) =
-        crate::anomaly::hash_mismatch_finding(case_dir, selector, &target_sha256)
-    {
+    if let Some(finding) = crate::anomaly::hash_mismatch_finding(index, selector, &target_sha256) {
         anomaly_flags.push(finding.kind.to_string());
     }
     Ok(ValidationResult {

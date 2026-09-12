@@ -104,28 +104,35 @@ pub fn scan_case(case_dir: &Path, rehash: bool) -> Result<AnomalyScanResult, Str
     })
 }
 
-/// Compare a live digest against the indexed hash for one selector, if known.
-pub fn hash_mismatch_finding(
+/// Load the video index into an id-keyed map so batch paths pay one read of
+/// `db/videos.jsonl` instead of one per item.
+pub fn index_by_id(
     case_dir: &Path,
+) -> Result<std::collections::HashMap<String, IndexedRow>, String> {
+    Ok(read_indexed_rows(case_dir)?
+        .into_iter()
+        .map(|row| (row.id.clone(), row))
+        .collect())
+}
+
+/// Compare a live digest against the indexed hash for one selector, if known.
+/// The index is preloaded by the caller and shared across lookups.
+pub fn hash_mismatch_finding(
+    index: &std::collections::HashMap<String, IndexedRow>,
     selector: &str,
     live_sha256: &str,
-) -> Result<Option<Finding>, String> {
-    let rows = read_indexed_rows(case_dir)?;
-    let Some(row) = rows.iter().find(|row| row.id == selector) else {
-        return Ok(None);
-    };
-    let Some(indexed) = row.sha256.as_deref() else {
-        return Ok(None);
-    };
+) -> Option<Finding> {
+    let row = index.get(selector)?;
+    let indexed = row.sha256.as_deref()?;
     if indexed.eq_ignore_ascii_case(live_sha256) {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(Finding {
+    Some(Finding {
         kind: "hash-revalidation-mismatch",
         selector: row.id.clone(),
         source_path: row.source_path.clone(),
         detail: format!("indexed sha256 {indexed} != live sha256 {live_sha256}"),
-    }))
+    })
 }
 
 fn hash_revalidation_findings(rows: &[IndexedRow]) -> Vec<Finding> {

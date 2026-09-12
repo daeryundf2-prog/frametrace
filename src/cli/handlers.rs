@@ -1129,7 +1129,11 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
 
     // Compute phase runs in parallel (per-file SHA-256 + ffprobe dominate the
     // runtime); validation log appends then happen sequentially so the hash
-    // chain stays ordered and verifiable.
+    // chain stays ordered and verifiable. The video index is loaded once up
+    // front — per-item reads of db/videos.jsonl made hash-mismatch checks
+    // O(items x index size). An unreadable index previously surfaced as "no
+    // anomaly flag" per item, so keep that failure-soft behaviour.
+    let video_index = crate::anomaly::index_by_id(case_dir).unwrap_or_default();
     let options = ValidationOptions::default();
     let items = &selection.items;
     let slots: std::sync::Mutex<Vec<Option<Result<crate::validation::ValidationResult, String>>>> =
@@ -1138,6 +1142,7 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
     let items = &items;
     let slots = &slots;
     let next_index = &next_index;
+    let video_index = &video_index;
     let workers = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(4)
@@ -1148,8 +1153,12 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
                 loop {
                     let index = next_index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let Some(item) = items.get(index) else { break };
-                    let outcome =
-                        crate::validation::compute_validation(case_dir, &item.selector, &options);
+                    let outcome = crate::validation::compute_validation(
+                        case_dir,
+                        &item.selector,
+                        &options,
+                        video_index,
+                    );
                     lock_or_recover(slots)[index] = Some(outcome);
                 }
             });
