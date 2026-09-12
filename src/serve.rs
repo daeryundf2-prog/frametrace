@@ -434,9 +434,14 @@ fn request_is_localhost_trusted(request: &Request) -> bool {
     if let Some(origin) = request.origin.as_deref() {
         let origin = origin.trim();
         // `null` origins come from sandboxed frames, not our own pages.
-        let loopback_origin = origin.starts_with("http://127.0.0.1")
-            || origin.starts_with("http://localhost")
-            || origin.starts_with("http://[::1]");
+        // The authority must parse to an exact loopback host: a prefix
+        // match would admit `http://127.0.0.1.evil.com`.
+        let loopback_origin = origin
+            .strip_prefix("http://")
+            .and_then(origin_authority_host)
+            .is_some_and(|host| {
+                matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]" | "::1")
+            });
         if !loopback_origin {
             return false;
         }
@@ -449,6 +454,43 @@ fn request_is_localhost_trusted(request: &Request) -> bool {
         }
     }
     true
+}
+
+/// Extracts the lowercase host from the authority portion of an
+/// `http://` Origin (the scheme is stripped by the caller). Prefix
+/// matching is unsafe here: `http://127.0.0.1.evil.com` and
+/// `http://127.0.0.1@evil.example` both contain the loopback literal
+/// while pointing at an attacker-controlled host.
+fn origin_authority_host(authority: &str) -> Option<String> {
+    // Origins are `scheme://host[:port]`; a path tail is cut off and any
+    // userinfo (`host@real-host`) disqualifies the value outright.
+    let authority = authority.split('/').next()?;
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        // IPv6 literal: `[host]` followed by nothing or a valid `:port`.
+        let end = rest.find(']')?;
+        let tail = &rest[end + 1..];
+        if let Some(port) = tail.strip_prefix(':') {
+            port.parse::<u16>().ok()?;
+        } else if !tail.is_empty() {
+            return None;
+        }
+        &rest[..end]
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) => {
+                port.parse::<u16>().ok()?;
+                host
+            }
+            None => authority,
+        }
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
 }
 
 fn route(request: &Request, state: &SharedState) -> Vec<u8> {
@@ -1541,6 +1583,57 @@ mod tests {
         let out = base.join("selection-all.json");
         assert!(build_selection_file(&base, &out).is_err());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn origin_gate_requires_exact_loopback_authority() {
+        let request = |origin: Option<&str>, host: Option<&str>| Request {
+            method: "POST".into(),
+            path: "/api/start".into(),
+            query: String::new(),
+            body: String::new(),
+            range: None,
+            origin: origin.map(str::to_string),
+            host: host.map(str::to_string),
+        };
+        // Prefix-spoofed authorities that the old starts_with gate let
+        // through: a loopback literal as a subdomain prefix, as userinfo,
+        // or under a non-http scheme must all be rejected.
+        for origin in [
+            "http://127.0.0.1.evil.com",
+            "http://127.0.0.1@evil.example",
+            "http://localhost.attacker.io",
+            "https://127.0.0.1",
+            "null",
+        ] {
+            assert!(
+                !request_is_localhost_trusted(&request(Some(origin), Some("127.0.0.1"))),
+                "origin {origin} must be rejected"
+            );
+        }
+        // Exact loopback hosts with an optional port stay accepted.
+        for origin in [
+            "http://127.0.0.1",
+            "http://127.0.0.1:8477",
+            "http://localhost",
+            "http://localhost:3000",
+            "http://[::1]",
+            "http://[::1]:9000",
+        ] {
+            assert!(
+                request_is_localhost_trusted(&request(Some(origin), Some("127.0.0.1"))),
+                "origin {origin} must be trusted"
+            );
+        }
+        // Local tools send no Origin at all; the Host gate still applies.
+        assert!(request_is_localhost_trusted(&request(
+            None,
+            Some("127.0.0.1")
+        )));
+        assert!(!request_is_localhost_trusted(&request(
+            None,
+            Some("evil.example")
+        )));
     }
 
     #[test]

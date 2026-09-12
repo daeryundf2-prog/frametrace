@@ -134,7 +134,8 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     )
     .expect("marks file should be written");
     assert_success(&run(&["import-marks", path(&case_dir), path(&marks_file)]));
-    let marks_out = root.join("exported-marks.json");
+    // export-marks output is confined inside the case directory.
+    let marks_out = case_dir.join("db/exported-marks.json");
     assert_success(&run(&[
         "export-marks",
         path(&case_dir),

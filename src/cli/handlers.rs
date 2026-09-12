@@ -1145,14 +1145,14 @@ pub fn validate_batch(case_dir: &Path, selection_path: &Path) -> Result<(), Stri
                     let Some(item) = items.get(index) else { break };
                     let outcome =
                         crate::validation::compute_validation(case_dir, &item.selector, &options);
-                    slots.lock().unwrap()[index] = Some(outcome);
+                    lock_or_recover(slots)[index] = Some(outcome);
                 }
             });
         }
     });
 
     let mut outcomes = Vec::new();
-    let results = slots.lock().unwrap().drain(..).collect::<Vec<_>>();
+    let results = lock_or_recover(slots).drain(..).collect::<Vec<_>>();
     for (item, slot) in selection.items.iter().zip(results) {
         let computed = slot.unwrap_or_else(|| Err("validation worker lost its result".to_string()));
         outcomes.push(match computed {
@@ -1377,6 +1377,7 @@ pub fn export_marks(case_dir: &Path, output: Option<&Path>) -> Result<(), String
     let output_path = output
         .map(|path| path.to_path_buf())
         .unwrap_or_else(|| case_dir.join("db/review-marks.json"));
+    require_case_output_path(case_dir, &output_path, "marks export")?;
     write_text(&output_path, &text)
         .map_err(|err| format!("failed to write marks export: {err}"))?;
     println!("marks exported");
@@ -1551,7 +1552,7 @@ fn generate_review_thumbnails(
                         }
                     }
                     if created {
-                        created_ids.lock().unwrap().push((*id).clone());
+                        lock_or_recover(created_ids).push((*id).clone());
                     } else {
                         skipped.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     }
@@ -1559,7 +1560,7 @@ fn generate_review_thumbnails(
             });
         }
     });
-    stats.created = created_ids.lock().unwrap().len();
+    stats.created = lock_or_recover(created_ids).len();
     stats.skipped = skipped.load(std::sync::atomic::Ordering::SeqCst);
     map.extend(
         cached_ids
@@ -1567,9 +1568,7 @@ fn generate_review_thumbnails(
             .map(|id| (id.clone(), format!("thumbs/{id}.jpg"))),
     );
     map.extend(
-        created_ids
-            .lock()
-            .unwrap()
+        lock_or_recover(created_ids)
             .iter()
             .map(|id| (id.clone(), format!("thumbs/{id}.jpg"))),
     );
@@ -1621,6 +1620,16 @@ fn latest_fls_entries_jsonl(case_dir: &Path) -> String {
         return String::new();
     };
     read_to_string(&path).unwrap_or_default()
+}
+
+/// A panicked batch worker poisons these mutexes, but the slot/id vectors
+/// themselves stay consistent — recover the guard (same policy as the
+/// `state_lock` helper in serve.rs) instead of cascading one worker panic
+/// into a whole-batch abort.
+fn lock_or_recover<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn ensure_case(case_dir: &Path) -> Result<(), String> {
@@ -1732,4 +1741,50 @@ fn default_host() -> Option<String> {
         .ok()
         .or_else(|| env::var("HOSTNAME").ok())
         .filter(|value| !value.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_marks_output_stays_inside_the_case() {
+        let base = std::env::temp_dir().join(format!(
+            "frametrace-marks-export-test-{}",
+            std::process::id()
+        ));
+        let case_dir = base.join("case");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&case_dir).unwrap();
+        std::fs::write(case_dir.join("case.json"), "{}").unwrap();
+        // A sibling that shares the case directory's name prefix must not
+        // pass containment — the check compares canonical parents, not
+        // string prefixes, so `<case>-evil/out.json` resolves outside.
+        let sibling = base.join("case-evil").join("out.json");
+        let err = export_marks(&case_dir, Some(&sibling)).unwrap_err();
+        assert!(err.contains("inside the case directory"), "{err}");
+        assert!(!sibling.exists());
+        // An in-case output stays writable.
+        let inside = case_dir.join("db/exported-marks.json");
+        export_marks(&case_dir, Some(&inside)).unwrap();
+        assert!(inside.is_file());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn batch_lock_recovers_inner_state_after_poison() {
+        // A panicking worker must not crash the whole batch: the poisoned
+        // mutex still holds consistent slot state, so recover it.
+        let mutex = std::sync::Mutex::new(vec![7usize]);
+        std::thread::scope(|scope| {
+            let _ = scope
+                .spawn(|| {
+                    let _guard = mutex.lock().unwrap();
+                    panic!("simulated worker panic");
+                })
+                .join();
+        });
+        assert!(mutex.lock().is_err(), "mutex must be poisoned");
+        assert_eq!(*lock_or_recover(&mutex), vec![7]);
+    }
 }
