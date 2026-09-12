@@ -159,24 +159,51 @@ fn append_chained_locked(
 }
 
 pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, String> {
-    // Take the same exclusive lock the appender holds (fs2 byte-range lock
-    // on the log file itself) so a verify running concurrently with an
-    // append never observes a half-written final line and reports a
-    // spurious torn write.
-    let _lock = match std::fs::OpenOptions::new()
+    let keys = crate::audit_key::verification_keys()?;
+    let text = read_log_for_verification(path)?;
+    verify_chained_jsonl_text(&text, &path.display().to_string(), &keys)
+}
+
+/// Reads the audit log for verification under the same exclusive lock the
+/// appender holds (fs2 byte-range lock on the log file itself), so a
+/// verify running concurrently with an append never observes a
+/// half-written final line and reports a spurious torn write.
+///
+/// Windows semantics: fs2's `lock_exclusive` is a `LockFileEx` byte-range
+/// lock, which is *mandatory* — while it is held, EVERY other handle to
+/// the file is refused with `ERROR_LOCK_VIOLATION` (os error 33),
+/// including a second handle opened by this same process. POSIX advisory
+/// locks do not block the locking process, which is why locking one
+/// handle and then reading through `fs::read_to_string` worked on
+/// Unix but failed on Windows. The read therefore goes through the SAME
+/// handle that holds the lock — the lock-owning handle always retains
+/// access to its locked range — mirroring how `append_chained_locked`
+/// reads through its own locked handle.
+///
+/// Fail-open is preserved: a verify that could not take the lock (or
+/// could not open the file for locking at all, e.g. read-only media)
+/// still reads unlocked rather than refusing to run.
+fn read_log_for_verification(path: &Path) -> Result<String, String> {
+    use std::io::Read;
+    let read_error =
+        |err: std::io::Error| format!("failed to read audit log {}: {err}", path.display());
+    match std::fs::OpenOptions::new()
         .create(true)
         .read(true)
         .append(true)
         .open(path)
     {
-        Ok(lock_file) => match lock_file.lock_exclusive() {
-            Ok(()) => Some(lock_file),
-            Err(_) => None, // fail open: verify still runs, just unserialized
-        },
-        Err(_) => None,
-    };
-    let keys = crate::audit_key::verification_keys()?;
-    verify_chained_jsonl_keyed(path, &keys)
+        // `append` access is requested for the lock, not for writing:
+        // Windows exclusive locking requires a handle with write access.
+        Ok(mut file) => {
+            let _ = file.lock_exclusive();
+            let mut text = String::new();
+            file.read_to_string(&mut text)
+                .map(|_| text)
+                .map_err(read_error)
+        }
+        Err(_) => read_to_string(path).map_err(read_error),
+    }
 }
 
 /// `verify_chained_jsonl` with an explicit key set — the design's
