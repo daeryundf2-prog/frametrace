@@ -78,3 +78,4 @@ echo "package: dist/${ARTIFACT}.zip"
 echo "sums:    dist/SHA256SUMS"
 [ "$SBOM" -eq 1 ] && echo "sbom:    dist/${ARTIFACT}.sbom.cyclonedx.json"
 [ "$SIGN" -eq 1 ] && echo "sigs:    dist/${ARTIFACT}.zip.sigstore.json, dist/SHA256SUMS.sigstore.json"
+exit 0
