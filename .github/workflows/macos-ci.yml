@@ -1,4 +1,4 @@
-name: Windows CI
+name: macOS CI
 
 on:
   push:
@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  windows-msvc:
-    runs-on: windows-latest
+  macos-arm64:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -29,12 +29,11 @@ jobs:
         run: |
           node --check gui/evidence-viewer/app.js
           node --check assets/evidence_viewer.js
-      - name: Install ffmpeg
-        run: choco install ffmpeg -y --no-progress
-        shell: pwsh
+      - name: Install external tools
+        run: brew install ffmpeg libewf sleuthkit
       - name: Test
         run: cargo test --locked
-      - name: Integration tests with real ffmpeg
+      - name: Integration tests with real tools
         env:
           FRAMETRACE_IT: "1"
         run: cargo test --locked --test integration_tools -- --ignored
