@@ -263,6 +263,14 @@ pub enum Commands {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Export the case video index as DFXML (Digital Forensics XML; values are
+    /// recorded index claims, not re-verified measurements)
+    ExportDfxml {
+        case_dir: PathBuf,
+        /// Output path inside the case (default: reports/case-index.dfxml)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Emit a candidate-grade JSONL event stream merging index, ffprobe, and carve timestamps
     Timeline {
         case_dir: PathBuf,
@@ -625,6 +633,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             case_dir,
             selection,
         } => validate_batch(&case_dir, &selection),
+        Commands::ExportDfxml { case_dir, output } => export_dfxml(&case_dir, output),
         Commands::Timeline { case_dir, output } => timeline(&case_dir, output),
         Commands::CompareCases {
             case_dir,

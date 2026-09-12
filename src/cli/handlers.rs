@@ -1341,6 +1341,37 @@ pub fn compare_cases(
     Ok(())
 }
 
+/// Exports the case video index as DFXML (reports/case-index.dfxml by
+/// default), confined to the case directory and audit-chained under
+/// evidence/logs/dfxml-export-log.jsonl. Values are recorded index claims —
+/// the export carries the `candidate-export` label.
+pub fn export_dfxml(case_dir: &Path, output: Option<PathBuf>) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let output_path = output.unwrap_or_else(|| case_dir.join("reports/case-index.dfxml"));
+    let job = case_db::start_job(case_dir, "export-dfxml", &output_path, None, "{}")?;
+    let result = match crate::dfxml::export_dfxml(case_dir, &output_path) {
+        Ok(result) => result,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        result.object_count as u64,
+        "export-dfxml completed",
+    )?;
+    println!("dfxml written: {}", result.output_path.display());
+    println!("fileobjects: {}", result.object_count);
+    println!("with sha256: {}", result.hashed_count);
+    println!(
+        "label: {} (index values are recorded claims, not re-verified measurements)",
+        crate::dfxml::LABEL
+    );
+    Ok(())
+}
+
 /// Emits the merged candidate timeline (db/timeline.jsonl by default). The
 /// stream is audit-logged under evidence/logs/timeline-log.jsonl and tracked
 /// as a job like the other case-mutating commands.

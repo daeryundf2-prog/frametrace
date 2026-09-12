@@ -7,6 +7,7 @@ pub mod case_db;
 pub mod cli;
 pub mod dav;
 pub mod detector;
+pub mod dfxml;
 pub mod e01;
 pub mod ffprobe;
 pub mod hikvision;
