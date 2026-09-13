@@ -82,11 +82,11 @@
   <div class="env" id="env"></div>
 </header>
 <main>
-  <div class="steps">
-    <div class="step active" id="s1"><b>STEP 1</b>실행</div>
-    <div class="step" id="s2"><b>STEP 2</b>INPUT 입력</div>
-    <div class="step" id="s3"><b>STEP 3</b>분석 데이터 검증</div>
-    <div class="step" id="s4"><b>STEP 4</b>결과물 정리</div>
+  <div class="steps" role="list" aria-label="작업 단계">
+    <div class="step active" id="s1" role="listitem"><b>STEP 1</b>실행</div>
+    <div class="step" id="s2" role="listitem"><b>STEP 2</b>INPUT 입력</div>
+    <div class="step" id="s3" role="listitem"><b>STEP 3</b>분석 데이터 검증</div>
+    <div class="step" id="s4" role="listitem"><b>STEP 4</b>결과물 정리</div>
   </div>
 
   <section class="card" id="inputCard">
@@ -122,7 +122,11 @@
     <h2>분석 진행</h2>
     <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
     <ol class="steptrack" id="track"></ol>
-    <pre class="log" id="log"></pre>
+    <pre class="log" id="log" aria-live="polite"></pre>
+    <div class="row" style="margin-top:10px">
+      <button id="btnCancel" style="display:none;background:#b42318;border-color:#b42318;color:#fff">분석 중단</button>
+      <button id="btnNew" style="display:none">새 케이스 시작</button>
+    </div>
   </section>
 
   <section class="card results" id="resultCard">
@@ -189,7 +193,13 @@ function setStep(active, doneCount) {
     const el = $("s" + i);
     el.classList.toggle("active", i === active);
     el.classList.toggle("done", i <= (doneCount || 0));
+    if (i === active) el.setAttribute("aria-current", "step");
+    else el.removeAttribute("aria-current");
   }
+}
+
+function setInputsDisabled(disabled) {
+  document.querySelectorAll("#inputCard input, #inputCard select, #inputCard button").forEach(el => { el.disabled = disabled; });
 }
 
 function renderTrack(steps, names) {
@@ -221,9 +231,15 @@ async function poll() {
     if (!st.has_job) { setTimeout(poll, 1500); return; }
     $("progCard").classList.add("show");
     renderTrack(st.steps || [], st.step_names);
-    $("log").textContent = (st.logs || []).join("\n");
+    const logEl = $("log");
+    logEl.textContent = (st.logs || []).join("\n");
+    logEl.scrollTop = logEl.scrollHeight;
     const running = st.phase === "running";
+    setInputsDisabled(running);
     $("btnStart").disabled = running || finalizing;
+    $("btnCancel").style.display = running ? "" : "none";
+    if (!running && !cancelRequested) { $("btnCancel").disabled = false; $("btnCancel").textContent = "분석 중단"; }
+    $("btnNew").style.display = (!running && (st.error || st.phase !== "running")) ? "" : "none";
     if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
       if (!auditVerified) { auditVerified = true; verifyAudit(); }
       $("resultCard").classList.add("show");
@@ -258,6 +274,7 @@ $("btnStart").addEventListener("click", async () => {
   if (!source) { $("startErr").classList.add("show"); $("startErr").textContent = "증거 소스 경로를 입력하십시오."; return; }
   $("startErr").classList.remove("show");
   $("btnStart").disabled = true;
+  cancelRequested = false;
   const res = await jpost("/api/start", {
     input_kind: inputKind(),
     source_path: $("sourcePath").value.trim(),
@@ -276,6 +293,15 @@ $("btnStart").addEventListener("click", async () => {
   setStep(3, 2);
   $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
+
+let cancelRequested = false;
+$("btnCancel").addEventListener("click", async () => {
+  cancelRequested = true;
+  $("btnCancel").disabled = true;
+  $("btnCancel").textContent = "중단 요청 중…";
+  await jpost("/api/cancel", {});
+});
+$("btnNew").addEventListener("click", () => location.reload());
 
 $("btnFinalize").addEventListener("click", async () => {
   finalizing = true;

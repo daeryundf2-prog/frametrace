@@ -11,7 +11,7 @@ use crate::util::json_escape;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
@@ -89,6 +89,7 @@ struct JobState {
     package_dir: Option<PathBuf>,
     error: Option<String>,
     busy: bool,
+    cancel_requested: bool,
 }
 
 impl JobState {
@@ -103,6 +104,7 @@ impl JobState {
             package_dir: None,
             error: None,
             busy: false,
+            cancel_requested: false,
         }
     }
 }
@@ -457,6 +459,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
         ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
+        ("POST", "/api/cancel") => json(api_cancel(state)),
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
         ("POST", "/api/open-folder") => {
             let path = body_value(&request.body, "path").unwrap_or_default();
@@ -591,6 +594,7 @@ fn api_start(request: &Request, state: &SharedState) -> String {
         }
         guard.busy = true;
         guard.phase = "running";
+        guard.cancel_requested = false;
         guard.steps = [StepStatus::Pending; 5];
         guard.step_names = job.kind.step_names().to_vec();
         guard.logs = Vec::new();
@@ -667,6 +671,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
                 "--title".into(),
                 "FrameTrace E01 검수 케이스".into(),
             ],
+            &state,
         ) {
             Ok(output) => {
                 log(&state, output);
@@ -715,7 +720,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
         if job.skip_e01_verify {
             args.push("--skip-verify".into());
         }
-        match run_step(&exe, &args) {
+        match run_step(&exe, &args, &state) {
             Ok(output) => {
                 log(&state, output);
                 // Bind the imported raw to this E01 so a later run with a
@@ -736,6 +741,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
     match run_step(
         &exe,
         &["inspect-image".into(), case_text.clone(), raw_text.clone()],
+        &state,
     ) {
         Ok(output) => {
             log(&state, output);
@@ -761,7 +767,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
     if job.with_hash {
         scan_args.push("--hash".into());
     }
-    match run_step(&exe, &scan_args) {
+    match run_step(&exe, &scan_args, &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 3, StepStatus::Done);
@@ -773,12 +779,16 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
     }
 
     // Step 5: candidate anomaly scan (non-fatal) then review bundle.
-    match run_step(&exe, &["qa".into(), "anomalies".into(), case_text.clone()]) {
+    match run_step(
+        &exe,
+        &["qa".into(), "anomalies".into(), case_text.clone()],
+        &state,
+    ) {
         Ok(output) => log(&state, output),
         Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
     }
     set_step(&state, 4, StepStatus::Running);
-    match run_step(&exe, &["make-review".into(), case_text.clone()]) {
+    match run_step(&exe, &["make-review".into(), case_text.clone()], &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 4, StepStatus::Done);
@@ -831,6 +841,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
                 "--title".into(),
                 "FrameTrace 검수 케이스".into(),
             ],
+            &state,
         ) {
             Ok(output) => {
                 log(&state, output);
@@ -856,6 +867,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
             "--write-protect".into(),
             "launcher-managed read-only review".into(),
         ],
+        &state,
     ) {
         Ok(output) => {
             log(&state, output);
@@ -878,7 +890,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
     if !with_ffprobe {
         scan_args.push("--no-ffprobe".into());
     }
-    match run_step(&exe, &scan_args) {
+    match run_step(&exe, &scan_args, &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 2, StepStatus::Done);
@@ -903,6 +915,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
                         case_text.clone(),
                         selection_path.to_string_lossy().to_string(),
                     ],
+                    &state,
                 ) {
                     Ok(output) => {
                         log(&state, output);
@@ -924,13 +937,17 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
         set_step(&state, 3, StepStatus::Done);
     }
 
-    match run_step(&exe, &["qa".into(), "anomalies".into(), case_text.clone()]) {
+    match run_step(
+        &exe,
+        &["qa".into(), "anomalies".into(), case_text.clone()],
+        &state,
+    ) {
         Ok(output) => log(&state, output),
         Err(err) => log(&state, format!("이상 징후 스캔 건너뜀: {err}")),
     }
 
     set_step(&state, 4, StepStatus::Running);
-    match run_step(&exe, &["make-review".into(), case_text.clone()]) {
+    match run_step(&exe, &["make-review".into(), case_text.clone()], &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 4, StepStatus::Done);
@@ -956,11 +973,31 @@ fn fail(state: &SharedState, message: &str) {
     guard.logs.push(format!("오류: {message}"));
 }
 
-fn run_step(exe: &Path, args: &[String]) -> Result<String, String> {
-    let output = Command::new(exe)
+fn run_step(exe: &Path, args: &[String], state: &SharedState) -> Result<String, String> {
+    let mut child = Command::new(exe)
         .args(args)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|err| format!("{} 실행 실패: {err}", exe.display()))?;
+    let output = loop {
+        let cancelled = state_lock(state).cancel_requested;
+        if cancelled {
+            let _ = child.kill();
+        }
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                break child
+                    .wait_with_output()
+                    .map_err(|err| format!("{} 출력 수집 실패: {err}", exe.display()))?;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(150)),
+            Err(err) => return Err(format!("{} 실행 대기 실패: {err}", exe.display())),
+        }
+    };
+    if state_lock(state).cancel_requested {
+        return Err("사용자가 분석을 중단했습니다.".to_string());
+    }
     let mut text = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stderr.trim().is_empty() {
@@ -1065,10 +1102,11 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
             case_text.clone(),
             marks_path.to_string_lossy().to_string(),
         ],
+        state,
     ) {
         return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
     }
-    if let Err(err) = run_step(&exe, &["make-report".into(), case_text.clone()]) {
+    if let Err(err) = run_step(&exe, &["make-report".into(), case_text.clone()], state) {
         return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
     }
     {
@@ -1083,6 +1121,18 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
 /// `POST /api/verify-audit`: verify every chained audit log under
 /// `case_dir/evidence/logs/*.jsonl` in-process and report per-log and
 /// overall integrity (keyed vs structural-only vs failed).
+fn api_cancel(state: &SharedState) -> String {
+    let mut guard = state_lock(state);
+    if !guard.busy {
+        return "{\"ok\":false,\"error\":\"진행 중인 작업이 없습니다.\"}".to_string();
+    }
+    guard.cancel_requested = true;
+    guard
+        .logs
+        .push("중단 요청을 받았습니다. 현재 단계를 멈추는 중입니다.".to_string());
+    "{\"ok\":true}".to_string()
+}
+
 fn api_verify_audit(state: &SharedState) -> String {
     let case_dir = {
         let guard = state_lock(state);
@@ -1192,9 +1242,9 @@ fn api_finalize(state: &SharedState) -> String {
         guard.logs.push("결과 보고서 생성 중…".into());
     }
     let case_text = case_dir.to_string_lossy().to_string();
-    let report = run_step(&exe, &["make-report".into(), case_text.clone()]);
+    let report = run_step(&exe, &["make-report".into(), case_text.clone()], state);
     let packaging = if report.is_ok() {
-        run_step(&exe, &["package-case".into(), case_text.clone()])
+        run_step(&exe, &["package-case".into(), case_text.clone()], state)
     } else {
         report.clone()
     };
