@@ -6,6 +6,7 @@
 //! generated review/report pages, and streams evidence media with Range
 //! support so the browser can play it without file:// restrictions.
 
+use crate::audit;
 use crate::util::json_escape;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
@@ -455,6 +456,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("GET", "/api/status") => json(api_status(state)),
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
+        ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
         ("POST", "/api/open-folder") => {
             let path = body_value(&request.body, "path").unwrap_or_default();
@@ -1076,6 +1078,90 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
             .push("판독 마크를 반영해 보고서를 갱신했습니다.".into());
     }
     "{\"ok\":true,\"report_url\":\"case/reports/case-report.html\"}".to_string()
+}
+
+/// `POST /api/verify-audit`: verify every chained audit log under
+/// `case_dir/evidence/logs/*.jsonl` in-process and report per-log and
+/// overall integrity (keyed vs structural-only vs failed).
+fn api_verify_audit(state: &SharedState) -> String {
+    let case_dir = {
+        let guard = state_lock(state);
+        guard.case_dir.clone()
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
+    };
+    let logs_dir = case_dir.join("evidence/logs");
+    let mut log_paths: Vec<PathBuf> = match std::fs::read_dir(&logs_dir) {
+        Ok(read_dir) => read_dir
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
+            .collect(),
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&format!("감사 로그 디렉터리를 읽지 못했습니다: {err}"))
+            );
+        }
+    };
+    log_paths.sort();
+    if log_paths.is_empty() {
+        return "{\"ok\":false,\"error\":\"검증할 감사 로그가 없습니다.\"}".to_string();
+    }
+    let mut logs_json = Vec::new();
+    let mut failed = 0usize;
+    let mut any_structural_only = false;
+    let mut total_entries = 0usize;
+    for path in &log_paths {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        match audit::verify_chained_jsonl(path) {
+            Ok(result) => {
+                total_entries += result.entries;
+                if result.integrity == audit::AuditIntegrity::StructuralOnly {
+                    any_structural_only = true;
+                }
+                let warnings: Vec<String> =
+                    result.warnings.iter().map(|w| json_string(w)).collect();
+                logs_json.push(format!(
+                    "{{\"name\":{},\"entries\":{},\"integrity\":{},\"keyed_entries\":{},\"unauthenticated_keyed_entries\":{},\"warnings\":[{}]}}",
+                    json_string(&name),
+                    result.entries,
+                    json_string(result.integrity.label()),
+                    result.keyed_entries,
+                    result.unauthenticated_keyed_entries,
+                    warnings.join(",")
+                ));
+            }
+            Err(err) => {
+                failed += 1;
+                logs_json.push(format!(
+                    "{{\"name\":{},\"entries\":0,\"integrity\":\"failed\",\"error\":{},\"warnings\":[]}}",
+                    json_string(&name),
+                    json_string(&err)
+                ));
+            }
+        }
+    }
+    let overall = if failed > 0 {
+        "integrity-failed"
+    } else if any_structural_only {
+        "integrity-structural-only"
+    } else {
+        "integrity-keyed"
+    };
+    format!(
+        "{{\"ok\":{},\"verified\":{},\"failed\":{},\"entries\":{},\"integrity\":{},\"logs\":[{}]}}",
+        if failed == 0 { "true" } else { "false" },
+        log_paths.len() - failed,
+        failed,
+        total_entries,
+        json_string(overall),
+        logs_json.join(",")
+    )
 }
 
 fn api_finalize(state: &SharedState) -> String {

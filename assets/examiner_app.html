@@ -167,7 +167,7 @@ async function loadEnv() {
       `<span class="badge ${env.ffmpeg ? "ok" : "bad"}">ffmpeg ${env.ffmpeg ? "준비됨" : "없음"}</span>` +
       `<span class="badge ${env.ffprobe ? "ok" : "bad"}">ffprobe ${env.ffprobe ? "준비됨" : "없음"}</span>` +
       `<span class="badge ${env.ewf ? "ok" : "bad"}" id="ewfBadge">libewf(E01) ${env.ewf ? "준비됨" : "없음"}</span>` +
-      `<span class="badge ok">감사 로그 활성</span>`;
+      `<span class="badge" id="auditBadge" title="감사 로그 무결성은 분석 완료 후 자동 검증됩니다">감사 로그 대기</span>`;
     if (!env.ffprobe) $("withFfprobe").checked = false;
   } catch (e) { /* ignore */ }
 }
@@ -202,6 +202,19 @@ function renderTrack(steps, names) {
 }
 
 let finalizing = false;
+let auditVerified = false;
+async function verifyAudit() {
+  const badge = $("auditBadge");
+  if (!badge) return;
+  try {
+    const res = await jpost("/api/verify-audit", {});
+    if (!res.ok) { badge.className = "badge bad"; badge.textContent = "감사 로그 검증 실패"; return; }
+    const keyed = res.integrity === "integrity-keyed";
+    badge.className = "badge ok";
+    badge.textContent = `감사 로그 ${keyed ? "키 서명 검증됨" : "구조 검증됨"} (${res.verified}개 로그, ${res.entries}항목)`;
+    badge.title = (res.logs || []).map(l => `${l.name}: ${l.integrity}, ${l.entries}항목`).join("\n");
+  } catch (e) { badge.className = "badge bad"; badge.textContent = "감사 로그 검증 불가"; }
+}
 async function poll() {
   try {
     const st = await jget("/api/status");
@@ -212,6 +225,7 @@ async function poll() {
     const running = st.phase === "running";
     $("btnStart").disabled = running || finalizing;
     if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
+      if (!auditVerified) { auditVerified = true; verifyAudit(); }
       $("resultCard").classList.add("show");
       $("finalCard").classList.add("show");
       setStep(st.phase === "running" ? 4 : 4, 3);
