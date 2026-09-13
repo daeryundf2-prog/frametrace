@@ -104,6 +104,7 @@
       <span>케이스 폴더 <span class="opt">(비우면 오늘 날짜로 자동 생성)</span></span>
       <input type="text" id="caseDir" placeholder="예: C:\Cases\case-001">
     </label>
+    <p class="hint">이미 만들어진 케이스 폴더를 넣으면 분석을 이어서 하거나, 아래 버튼으로 검토 화면만 바로 열 수 있습니다.</p>
     <div class="checks">
       <label><input type="checkbox" id="withHash" checked> 파일별 SHA-256 해시 계산 (증거 대조용)</label>
       <label><input type="checkbox" id="withFfprobe" checked> ffprobe 재생성 검증 (코덱/길이 메타데이터)</label>
@@ -113,6 +114,7 @@
     </div>
     <div class="row">
       <button class="primary" id="btnStart">분석 시작</button>
+      <button id="btnOpenCase">기존 케이스 열기</button>
       <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
     </div>
     <div class="err" id="startErr"></div>
@@ -291,6 +293,29 @@ $("btnStart").addEventListener("click", async () => {
   }
   $("progCard").classList.add("show");
   setStep(3, 2);
+  $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+$("btnOpenCase").addEventListener("click", async () => {
+  const dir = $("caseDir").value.trim();
+  if (!dir) {
+    $("startErr").classList.add("show");
+    $("startErr").textContent = "열 기존 케이스 폴더 경로를 입력하십시오.";
+    return;
+  }
+  $("startErr").classList.remove("show");
+  const res = await jpost("/api/open-case", { case_dir: dir });
+  if (!res.ok) {
+    $("startErr").classList.add("show");
+    $("startErr").textContent = "오류: " + (res.error || "케이스 열기 실패");
+    return;
+  }
+  if (!res.has_review) {
+    $("startErr").classList.add("show");
+    $("startErr").textContent = "케이스를 열었으나 검토 결과가 아직 없습니다 — 분석을 실행하십시오.";
+    return;
+  }
+  $("progCard").classList.add("show");
   $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 

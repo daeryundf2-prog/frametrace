@@ -460,6 +460,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/finalize") => json(api_finalize(state)),
         ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
         ("POST", "/api/cancel") => json(api_cancel(state)),
+        ("POST", "/api/open-case") => json(api_open_case(request, state)),
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
         ("POST", "/api/open-folder") => {
             let path = body_value(&request.body, "path").unwrap_or_default();
@@ -1131,6 +1132,36 @@ fn api_cancel(state: &SharedState) -> String {
         .logs
         .push("중단 요청을 받았습니다. 현재 단계를 멈추는 중입니다.".to_string());
     "{\"ok\":true}".to_string()
+}
+
+fn api_open_case(request: &Request, state: &SharedState) -> String {
+    let dir_text = body_value(&request.body, "case_dir").unwrap_or_default();
+    if dir_text.trim().is_empty() {
+        return "{\"ok\":false,\"error\":\"케이스 폴더 경로를 입력하십시오.\"}".to_string();
+    }
+    let case_dir = PathBuf::from(dir_text.trim());
+    if !case_dir.join("case.json").is_file() {
+        return "{\"ok\":false,\"error\":\"해당 폴더에 case.json이 없습니다 — 기존 케이스 폴더가 아닙니다.\"}"
+            .to_string();
+    }
+    let has_review = case_dir.join("review/index.html").is_file();
+    let mut guard = state_lock(state);
+    if guard.busy {
+        return "{\"ok\":false,\"error\":\"분석이 진행 중입니다.\"}".to_string();
+    }
+    guard.case_dir = Some(case_dir.clone());
+    guard.media_roots = vec![case_dir.clone()];
+    if has_review {
+        guard.phase = "review-ready";
+        guard.steps = [StepStatus::Done; 5];
+        guard
+            .logs
+            .push(format!("기존 케이스를 열었습니다: {}", case_dir.display()));
+    }
+    format!(
+        "{{\"ok\":true,\"has_review\":{}}}",
+        if has_review { "true" } else { "false" }
+    )
 }
 
 fn api_verify_audit(state: &SharedState) -> String {
