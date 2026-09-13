@@ -1273,7 +1273,14 @@ fn api_finalize(state: &SharedState) -> String {
         guard.logs.push("결과 보고서 생성 중…".into());
     }
     let case_text = case_dir.to_string_lossy().to_string();
-    let report = run_step(&exe, &["make-report".into(), case_text.clone()], state);
+    // --rehash makes the packaged report re-digest every indexed source file
+    // and flag hash-revalidation mismatches — the integrity claim behind a
+    // finalized package should rest on live digests, not stored scan hashes.
+    let report = run_step(
+        &exe,
+        &["make-report".into(), case_text.clone(), "--rehash".into()],
+        state,
+    );
     let packaging = if report.is_ok() {
         run_step(&exe, &["package-case".into(), case_text.clone()], state)
     } else {
