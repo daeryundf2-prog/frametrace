@@ -299,6 +299,20 @@ $("marksFile").addEventListener("change", async () => {
 
 loadEnv();
 document.querySelectorAll("input[name='inputKind']").forEach(radio => radio.addEventListener("change", syncInputKind));
+
+// Auto-detect forensic image extensions in the source path: pasting an
+// E01/Ex01/L01/S01 path while "증거 폴더" is selected would otherwise send the
+// file to the folder pipeline and fail at the scan step.
+$("sourcePath").addEventListener("input", () => {
+  const v = $("sourcePath").value.trim().toLowerCase();
+  const looksImage = /\.(e01|ex01|l01|s01|e02|ex02|l02|s02)$/.test(v);
+  const e01Radio = document.querySelector("input[name='inputKind'][value='e01']");
+  if (looksImage && inputKind() !== "e01") {
+    e01Radio.checked = true;
+    syncInputKind();
+    $("startErr").classList.remove("show");
+  }
+});
 syncInputKind();
 poll();
 </script>

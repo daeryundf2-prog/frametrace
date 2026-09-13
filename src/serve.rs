@@ -1668,4 +1668,14 @@ mod tests {
         );
         assert!(traversal.contains("\"ok\":false"));
     }
+
+    #[test]
+    fn examiner_page_auto_detects_image_extension() {
+        // Regression guard: the page must switch inputKind to "e01" when the
+        // pasted source path ends in a forensic-image extension, so an E01 is
+        // never routed into the folder pipeline by a stale radio selection.
+        assert!(EXAMINER_PAGE.contains("looksImage"));
+        assert!(EXAMINER_PAGE.contains("\\.(e01|ex01|l01|s01|e02|ex02|l02|s02)$"));
+        assert!(EXAMINER_PAGE.contains("input[name='inputKind'][value='e01']"));
+    }
 }
