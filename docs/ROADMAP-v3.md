@@ -15,7 +15,8 @@
 | **출력 confinement** | case 디렉터리 밖 `--output` 지정 시도 | ✅ "must be inside the case directory"로 거부 — 보안 계약 정상 |
 | **감사로그** | `verify-audit` on e01-audit.jsonl, timeline-log.jsonl | ✅ chained 검증 통과 (structural-only, 키 미설정 상태) |
 | **키 rotation E2E** | `rotate-audit-key --key-id k1 --log` → `k2` → `verify-audit` | ✅ 2세대 signed marker가 keyring의 retired 키로 전부 `integrity-keyed` 검증 (tests/cli_smoke.rs) |
-| **릴리즈 패키징** | `scripts/build-release.sh` | ✅ `frametrace-0.5.0-aarch64-apple-darwin.zip` + SHA256SUMS 생성·검증 통과. 스크립트 마지막 조건식이 exit 1을 반환하던 미세 결함 수정 |
+| **릴리즈 패키징** | `scripts/build-release.sh` | ✅ zip + SHA256SUMS 생성·검증 통과. 스크립트 마지막 조건식이 exit 1을 반환하던 미세 결함 수정 |
+| **릴리즈 서명+SBOM** | `build-release.sh --sign --sbom` with `COSIGN_KEY` (local-key mode added this session) | ✅ cosign 로컬키 서명(zip+SHA256SUMS) → `verify-blob` Verified OK ×2. `cargo sbom` SPDX 문서 생성(69 packages). Rekor OIDC는 네트워크 필요 — 로컬키 경로는 오프라인 완결 |
 | **fuzz 스모크** | nightly + ASAN, 4개 타깃 | ✅ ~9M executions, 크래시 0 (audit_jsonl_verify 3.66M, creation_time_unix 3.67M, index_jsonl_records 0.95M, carve_signature_scan 0.76M) |
 | **워크스테이션 E2E** | `FRAMETRACE_IT=1` HTTP 파이프라인 | ✅ 로컬 통과 |
 | **CI** | push된 head( a1c6aa9 ) | ✅ Windows + macOS dual-OS green |
@@ -37,7 +38,7 @@ E01은 libewf가 실제로 쓴 정품 포맷이므로 intake·verify·export 경
 | 2 | 손상/부분 E01 + Ex01 검증 | 인수 이미지 부재 | 실제 케이스 이미지 |
 | 3 | Windows 실기기 풀레인 | 이 호스트는 macOS | Windows 머신 (`WINDOWS_IMPLEMENTATION_HANDOFF.md` 런북) |
 | 4 | 대용량 스케일 런 (1만 건 E01) | 대용량 증거 부재 | 실제 사건급 볼륨 |
-| 5 | 릴리즈 서명 | cosign/cargo-sbom 미설치 + OIDC 키 결정 | 서명 키 인프라 결정 (스크립트는 준비됨, `--sign`/`--sbom` 플래그) |
+| 5 | 프로덕션 서명 키 운영 | 로컬키 서명은 검증됨 — 남은 건 키 보관/배포 결정 | 키 관리 결정 (KMS/하드웨어키). `COSIGN_KEY` 모드 추가로 오프라인 서명 가능 |
 | 6 | OS keystore 통합 (Keychain/DPAPI) | 무거운 의존성 도입 결정 | `--key-source env:`로 이미 커버 — 필요 시에만 |
 | 7 | WinUI/풀 GUI | 제품 결정 | 브라우저 런처 실무 피드백 우선 (v2 §4 결정 3) |
 | 8 | 제3자/법정 검증 | 외부 프로세스 | 법실무 자문 + 독립 검증 |

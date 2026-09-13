@@ -66,12 +66,33 @@ if [ "$SIGN" -eq 1 ]; then
         echo "cosign not found; see docs/repro-build.md#signing" >&2
         exit 1
     }
-    cosign sign-blob --yes \
-        --bundle "dist/${ARTIFACT}.zip.sigstore.json" \
-        "dist/${ARTIFACT}.zip"
-    cosign sign-blob --yes \
-        --bundle "dist/SHA256SUMS.sigstore.json" \
-        "dist/SHA256SUMS"
+    if [ -n "${COSIGN_KEY:-}" ]; then
+        # Local-key mode (offline): COSIGN_KEY points at a cosign private key,
+        # COSIGN_PASSWORD unlocks it. Uses a signing config without a
+        # transparency-log service so no Rekor upload is attempted; the bundle
+        # still verifies offline via `cosign verify-blob --insecure-ignore-tlog`.
+        CONFIG="${COSIGN_SIGNING_CONFIG:-}"
+        if [ -z "$CONFIG" ]; then
+            CONFIG="$(mktemp -t ft-signing-config).json"
+            curl -fsSL https://raw.githubusercontent.com/sigstore/root-signing/refs/heads/main/targets/signing_config.v0.2.json \
+                | python3 -c 'import json,sys; c=json.load(sys.stdin); c.pop("rekorTlogUrls",None); c.pop("rekorTlogConfig",None); json.dump(c,sys.stdout)' \
+                > "$CONFIG"
+        fi
+        cosign sign-blob --yes --key "$COSIGN_KEY" --signing-config "$CONFIG" \
+            --bundle "dist/${ARTIFACT}.zip.sigstore.json" \
+            "dist/${ARTIFACT}.zip"
+        cosign sign-blob --yes --key "$COSIGN_KEY" --signing-config "$CONFIG" \
+            --bundle "dist/SHA256SUMS.sigstore.json" \
+            "dist/SHA256SUMS"
+    else
+        # Keyless mode: OIDC identity + Rekor transparency log (needs network).
+        cosign sign-blob --yes \
+            --bundle "dist/${ARTIFACT}.zip.sigstore.json" \
+            "dist/${ARTIFACT}.zip"
+        cosign sign-blob --yes \
+            --bundle "dist/SHA256SUMS.sigstore.json" \
+            "dist/SHA256SUMS"
+    fi
 fi
 
 echo "package: dist/${ARTIFACT}.zip"
