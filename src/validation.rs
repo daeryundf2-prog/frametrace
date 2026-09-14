@@ -151,6 +151,16 @@ fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
             "ffprobe parsed the container but found no video stream.",
         );
     }
+    // The catch-all "bin" demuxer accepts any byte blob and reports it as a
+    // bintext "video" stream (real case: a recovered NTFS tracking.log).
+    // That is a guess, not container recognition, so it must not count as
+    // a confirmed video stream.
+    if probe.format_name.as_deref() == Some("bin") {
+        return (
+            "validation-failed",
+            "ffprobe only matched the generic binary demuxer (bin/bintext), which guesses any byte blob; keep as candidate until manual/vendor-player validation.",
+        );
+    }
     (
         "ffprobe-video-stream-confirmed",
         "ffprobe parsed a video stream; examiner playback review is still required before final reporting.",
@@ -347,6 +357,26 @@ mod tests {
             validation_status(&probe).0,
             "ffprobe-video-stream-confirmed"
         );
+    }
+
+    /// ffprobe's catch-all "bin" demuxer claims any byte blob is a bintext
+    /// "video" stream (real case: recovered NTFS tracking.log probed as
+    /// bin/bintext with score 50). It must not be reported as a confirmed
+    /// video stream.
+    #[test]
+    fn classifies_generic_bin_demuxer_as_failed_not_confirmed() {
+        let probe = ProbeSummary {
+            ok: true,
+            raw_json: Some("{}".to_string()),
+            error: None,
+            duration_seconds: Some(1.0),
+            format_name: Some("bin".to_string()),
+            video_codec: Some("bintext".to_string()),
+            audio_codec: None,
+            width: None,
+            height: None,
+        };
+        assert_eq!(validation_status(&probe).0, "validation-failed");
     }
 
     #[test]

@@ -167,6 +167,97 @@ examiner does not misread the mismatch.
   the partial `.raw` is removed — torn output cannot masquerade as a
   completed export (a `.raw.info` ewfexport sidecar does remain behind).
 
+## Fourth pass — many-segment image, GPT truncation boundary, partial-image triage
+
+Evidence: `D:\한종인\#914_260812_PC_003\#914_260812_PC_SSD_004\Image\#914_260812_PC_SSD_004.E01`
+(60-segment FTK set, Samsung 870 EVO 500 GB, 465 GiB media, MD5+SHA1) plus
+16 MiB head exports of six other real sets (`BSH`, `HDD3`, `HJI`, `HJY`,
+`NEXSTIN`, `PCG1`) and a 32 GiB bounded export of SSD_004.
+
+### Bugs found and fixed
+
+1. **ewfinfo probe timeout on large segment sets** — `inspect-e01` /
+   `import-e01` forced a 120 s probe cap; this 60-segment set legitimately
+   needs 8 min 21 s to parse. `E01Options.timeout_secs` is now honored
+   (default `None` = unbounded, matching export semantics); `--timeout`
+   still caps when set.
+2. **GPT auto-selection picked Microsoft Reserved** — win32 mmls prints an
+   empty description for the data partition on this image (non-ASCII GPT
+   name), so keyword matching fell back to `allocated.first()` = the MSR
+   at sector 34 → `fls` failed. Selection now prefers the largest
+   allocated non-reserved slot → offset 32768, and `inspect-image` on the
+   32 GiB export listed the real NTFS root ($MFT, $Extend, ~41 k entries).
+3. **Truncated-GPT layout produced a cryptic error** — TSK's
+   `gpt_load_table` discards the whole GPT when the first two populated
+   entries start beyond the image bounds, leaving only the protective-MBR
+   "GPT Safety Partition (0xee)" slot; `inspect-image` then ran fls at
+   offset 1 and failed with `Cannot determine file system type`. All five
+   16 MiB heads hit this. Now detected up front with a clear cause/remedy
+   message ("partial export; larger --max-bytes or --partition-offset").
+4. **fls failure gave no partial-image hint** — on the 6 GiB BSH head the
+   NTFS volume opens (boot sector + $MFT at ~3.5 GiB in-range) but the
+   root directory index sits ~8 GiB in → `Address missing in partial
+   image`. When the chosen partition extends past the image end, the error
+   now says so explicitly.
+5. **`verify-audit <case-dir>` died on the directory read** — now
+   discovers and verifies every `evidence/logs/*.jsonl` in the case,
+   failing if any log fails.
+6. **ffprobe `bin`/`bintext` guess counted as confirmed video** — a
+   recovered NTFS `tracking.log` probed as format `bin` (score 50) with a
+   "video" stream and was labeled `ffprobe-video-stream-confirmed`. The
+   catch-all binary demuxer is a guess, not container recognition — now
+   `validation-failed` with a keep-as-candidate note.
+7. **Package README/manifest pointed at a report that may not exist** —
+   both now state honestly when `reports/case-report.html` was not
+   generated and name the producing command (`make-report`).
+8. **All-zero recoveries presented as content** — `recover-inode` on
+   TRIMmed/unallocated clusters (routine on SSD images) produced e.g.
+   6.58 MB of zeros with no signal. Now emits an explicit warning in CLI
+   output and the `recover-inode` audit event.
+
+### Verified on the 32 GiB SSD_004 partial export
+
+- `inspect-image`: GPT table parsed, MSR skipped, NTFS @ 32768 listed —
+  41,453 entries (truncated to 20,000), 19,946 deleted entries
+  (dominated by `$OrphanFiles`), 0 video candidates (the only `.mp4`-named
+  items were Unity `.mp4.bundle` assets — correctly not flagged).
+- `recover-inode 43-128-3` (`System Volume Information/tracking.log`):
+  20,480 bytes of real content recovered; SHA-256 logged.
+- `verify-audit case-ssd004`, `make-report`, `package-case` (44 files,
+  manifest+checksums) — all OK.
+- `carve-file --max-bytes 268435456` on the 34 GiB export: complete —
+  0 candidates in the OS/system region prefix; job recorded cleanly.
+
+### TSK reads E01 sets directly — no export needed for filesystem triage
+
+`inspect-image`, `recover-inode`, and `recover-batch` run against the raw
+`.E01` path and TSK 4.15 decompresses via libewf internally — the full
+60-segment, 465 GiB SSD_004 set listed its NTFS tree and recovered files
+without any raw export:
+
+- `inspect-image <E01>` → same partition pick (32768), same 41 k-entry
+  listing as the raw export.
+- `recover-inode 43-128-3` → identical SHA-256 to the export-derived
+  recovery.
+- `recover-batch` on a 3-item selection → 2 ok, 1 failed
+  (`Metadata address too large` for a nonexistent inode); batch audit
+  logged, job completed.
+- Deleted-file recoveries on this SSD return all-zero bytes (TRIMmed
+  clusters) — `recover-inode` now flags `recovered content is entirely
+  zero bytes` instead of presenting slack as content.
+
+Note: `carve-file` still needs a linear image — signature scanning inside
+a compressed E01 container is meaningless.
+
+### Partial-export boundary reference (measured)
+
+- GPT table itself: visible iff the first two populated GPT entries start
+  within the export (TSK rule). EFI@2048 + MSR@534528 → >273 MiB needed;
+  MSR@34 + data@32768 → >16 MiB needed.
+- `fls` usability: needs volume boot sector + $MFT + the directory index
+  extents. SSD_004: fully listed at 32 GiB. BSH: $MFT at ~3.5 GiB but
+  root index ~8 GiB → 6 GiB export still aborts mid-walk.
+
 ## Still unvalidated
 
 - ewfverify end-to-end on a real *large* image — relaunched against the

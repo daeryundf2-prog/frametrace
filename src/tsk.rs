@@ -124,6 +124,7 @@ pub struct TskRecoverResult {
     pub size_bytes: u64,
     pub sha256: String,
     pub validation_status: String,
+    pub warnings: Vec<String>,
 }
 
 pub fn inspect_image(
@@ -176,6 +177,16 @@ pub fn inspect_image(
     };
 
     let partition_offset = choose_partition_offset(&partitions, options.partition_offset);
+    // On a truncated GPT export TSK discards the partition table when the
+    // first populated GPT entries start beyond the image bounds, leaving
+    // only the protective-MBR (0xee) slot. Running fls against that slot
+    // always fails with a misleading "cannot determine file system type",
+    // so surface the real cause and the remedy instead.
+    if options.partition_offset.is_none() && is_protective_mbr_only(&partitions) {
+        return Err(
+            "mmls reports only the GPT protective (0xee) partition: the disk's GPT entries start beyond this image's bounds, which is characteristic of a truncated/partial export. Re-export with a larger --max-bytes, or pass --partition-offset explicitly if the filesystem data is present".to_string(),
+        );
+    }
     let fls_log_path = unique_path(
         &case_dir
             .join("evidence/logs")
@@ -186,11 +197,25 @@ pub fn inspect_image(
     write_text(&fls_log_path, &fls.combined_text())
         .map_err(|err| format!("failed to write fls log: {err}"))?;
     if !fls.status_success {
-        return Err(format!(
+        let mut message = format!(
             "fls failed at offset {}: {}",
             partition_offset,
             fls.stderr.trim()
-        ));
+        );
+        // A truncated export can still hold the boot sector while $MFT or
+        // the FAT lie past EOF; say so instead of leaving a bare
+        // "cannot determine file system type".
+        if let Some(partition) = partitions
+            .iter()
+            .find(|partition| partition.allocated && partition.start == partition_offset)
+            && let Ok(metadata) = fs::metadata(&image_path)
+            && partition.end >= metadata.len() / 512
+        {
+            message.push_str(
+                " (the selected partition extends beyond the image bounds — filesystem metadata may be outside a partial export; retry with a larger --max-bytes)",
+            );
+        }
+        return Err(message);
     }
 
     let mut entries = parse_fls_entries(&fls.stdout);
@@ -358,11 +383,20 @@ pub fn recover_inode(
         .len();
     let sha256 = audit::digest_file(&output_path)?;
     let validation_status = "candidate-unvalidated".to_string();
+    let mut warnings = Vec::new();
+    // An all-zero recovery means the clusters are unallocated or were
+    // TRIMmed — routine on SSD images — and must not be reported as
+    // recovered content.
+    if size_bytes > 0 && file_is_all_zero(&output_path)? {
+        warnings.push(
+            "recovered content is entirely zero bytes — the clusters are likely unallocated or TRIMmed (common on SSD images); do not report this as recovered content".to_string(),
+        );
+    }
 
     append_tsk_audit(
         case_dir,
         &format!(
-            "{{\"schema_version\":1,\"event\":\"recover-inode\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+            "{{\"schema_version\":1,\"event\":\"recover-inode\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"warnings\":{}}}",
             recovered_unix,
             json_escape(&image_path.to_string_lossy()),
             options.partition_offset,
@@ -376,7 +410,8 @@ pub fn recover_inode(
             options.skip_sparse_holes,
             json_escape(&tsk_command_version(&options.icat_bin, &["icat"])),
             json_escape(&options.icat_bin),
-            audit::json_string_array(&args)
+            audit::json_string_array(&args),
+            audit::json_string_array(&warnings)
         ),
     )?;
 
@@ -389,7 +424,28 @@ pub fn recover_inode(
         size_bytes,
         sha256,
         validation_status,
+        warnings,
     })
+}
+
+/// Streams a file and reports whether every byte is zero — used to flag
+/// recoveries that are all unallocated slack.
+fn file_is_all_zero(path: &Path) -> Result<bool, String> {
+    use std::io::Read;
+    let mut file =
+        File::open(path).map_err(|err| format!("failed to read recovered output: {err}"))?;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|err| format!("failed to read recovered output: {err}"))?;
+        if read == 0 {
+            return Ok(true);
+        }
+        if buffer[..read].iter().any(|byte| *byte != 0) {
+            return Ok(false);
+        }
+    }
 }
 
 struct InspectSummaryInput<'a> {
@@ -559,13 +615,55 @@ fn choose_partition_offset(partitions: &[MmlsPartition], explicit: Option<u64>) 
             .iter()
             .any(|fs| description.contains(fs))
         };
+        // When no description matches a filesystem keyword — e.g. win32
+        // mmls prints an empty/mojibake name for a non-ASCII GPT label —
+        // fall back to the largest allocated partition that is not a
+        // known container/reserved slot, not simply the first allocated
+        // one (which on GPT is usually the tiny Microsoft reserved
+        // partition and holds no filesystem).
+        let is_system_slot = |partition: &MmlsPartition| {
+            let description = partition.description.to_ascii_lowercase();
+            description.contains("reserved partition")
+                || description.contains("bios boot")
+                || description.contains("efi system")
+                || is_gpt_safety_partition(partition)
+        };
         allocated
             .iter()
             .find(|partition| looks_like_data_fs(partition))
-            .or_else(|| allocated.first())
+            .copied()
+            .or_else(|| {
+                allocated
+                    .iter()
+                    .copied()
+                    .filter(|partition| !is_system_slot(partition))
+                    .max_by_key(|partition| partition.length)
+            })
+            .or_else(|| allocated.first().copied())
             .map(|partition| partition.start)
             .unwrap_or(0)
     })
+}
+
+/// The protective-MBR 0xee slot mmls prints for a GPT disk — a metadata
+/// placeholder, never a filesystem-bearing partition.
+fn is_gpt_safety_partition(partition: &MmlsPartition) -> bool {
+    let description = partition.description.to_ascii_lowercase();
+    description.contains("safety partition") || description.contains("(0xee)")
+}
+
+/// True when every allocated slot is the GPT protective partition — what
+/// mmls shows for a truncated GPT export whose real partition entries lie
+/// beyond the image bounds (TSK then discards the whole table).
+fn is_protective_mbr_only(partitions: &[MmlsPartition]) -> bool {
+    let allocated: Vec<&MmlsPartition> = partitions
+        .iter()
+        .filter(|partition| partition.allocated)
+        .collect();
+    !allocated.is_empty()
+        && allocated
+            .iter()
+            .all(|partition| is_gpt_safety_partition(partition))
 }
 
 fn parse_fls_entries(text: &str) -> Vec<FlsEntry> {
@@ -670,8 +768,8 @@ fn sanitize_filename(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        TskRecoverOptions, choose_partition_offset, fls_args, icat_args, parse_fls_entry,
-        parse_mmls_partitions,
+        TskRecoverOptions, choose_partition_offset, fls_args, icat_args, is_protective_mbr_only,
+        parse_fls_entry, parse_mmls_partitions,
     };
     use std::path::Path;
 
@@ -713,6 +811,29 @@ Units are in 512-byte sectors
         assert_eq!(choose_partition_offset(&partitions, None), 4112);
     }
 
+    /// win32 mmls prints an empty description for GPT names it cannot
+    /// render (non-ASCII), so the data partition never matches a
+    /// filesystem keyword. Auto-selection must then take the largest
+    /// allocated non-reserved partition — not the tiny Microsoft reserved
+    /// partition that sorts first (real case: #914_260812_PC_SSD_004).
+    #[test]
+    fn choose_partition_skips_microsoft_reserved_with_blank_description() {
+        let text = "\
+GUID Partition Table (EFI)
+Offset Sector: 0
+Units are in 512-byte sectors
+
+      Slot      Start        End          Length       Description
+000:  Meta      0000000000   0000000000   0000000001   Safety Table
+001:  Meta      0000000001   0000000001   0000000001   GPT Header
+002:  Meta      0000000002   0000000033   0000000032   Partition Table
+003:  000       0000000034   0000032767   0000032734   Microsoft reserved partition
+004:  001       0000032768   0976773119   0976740352
+";
+        let partitions = parse_mmls_partitions(text);
+        assert_eq!(choose_partition_offset(&partitions, None), 32768);
+    }
+
     /// A DOS extended layout lists the container ("Extended Table") before
     /// the logical data volume; the container must not be chosen.
     #[test]
@@ -729,6 +850,47 @@ Units are in 512-byte sectors
 ";
         let partitions = parse_mmls_partitions(text);
         assert_eq!(choose_partition_offset(&partitions, None), 4116480);
+    }
+
+    /// On a truncated GPT export TSK discards the partition table when the
+    /// first populated entries start beyond the image bounds, so mmls
+    /// prints only the protective-MBR 0xee slot. That layout must be
+    /// detected as "protective only" so the examiner gets a clear cause
+    /// instead of `fls failed at offset 1` (real case: 16 MiB prefix of
+    /// #462_250530_BSH_PC1).
+    #[test]
+    fn detects_protective_mbr_only_truncated_gpt() {
+        let text = "\
+DOS Partition Table
+Offset Sector: 0
+Units are in 512-byte sectors
+
+      Slot      Start        End          Length       Description
+000:  Meta      0000000000   0000000000   0000000001   Primary Table (#0)
+001:  -------   0000000000   0000000000   0000000001   Unallocated
+002:  000:000   0000000001   4294967295   4294967295   GPT Safety Partition (0xee)
+";
+        let partitions = parse_mmls_partitions(text);
+        assert!(is_protective_mbr_only(&partitions));
+    }
+
+    /// A normal DOS layout with a real data partition is not
+    /// protective-only, and a GPT disk that did parse keeps its real
+    /// partitions eligible.
+    #[test]
+    fn normal_layouts_are_not_protective_only() {
+        let dos = "\
+DOS Partition Table
+Offset Sector: 0
+Units are in 512-byte sectors
+
+      Slot      Start        End          Length       Description
+000:  Meta      0000000000   0000000000   0000000001   Primary Table (#0)
+001:  -------   0000000000   0000002047   0000002048   Unallocated
+002:  000:000   0000002048   0004095999   0004093952   NTFS / exFAT (0x07)
+";
+        assert!(!is_protective_mbr_only(&parse_mmls_partitions(dos)));
+        assert!(!is_protective_mbr_only(&[]));
     }
 
     #[test]

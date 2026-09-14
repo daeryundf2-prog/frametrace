@@ -87,9 +87,19 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     write_text(&manifest_path, &manifest_json)
         .map_err(|err| format!("failed to write package manifest: {err}"))?;
 
+    let report_included = files
+        .iter()
+        .any(|file| file.relative_path == Path::new("reports/case-report.html"));
+    let report_note = if report_included {
+        "Open reports/case-report.html for the HTML report. Use the browser print dialog to create a PDF when required by the engagement."
+    } else {
+        "No HTML report is included — run `frametrace make-report <case-dir>` in the case before packaging to produce reports/case-report.html."
+    };
     write_text(
         &output_dir.join("README.txt"),
-        "FrameTrace case package\n\nOpen reports/case-report.html for the HTML report. Use the browser print dialog to create a PDF when required by the engagement. Verify package contents with manifest.sha256 before transfer.\n\nFor Amped FIVE or Magnet DVR Examiner handoff steps, see docs/COMMERCIAL_HANDOFF.md in the FrameTrace repository.\n",
+        &format!(
+            "FrameTrace case package\n\n{report_note} Verify package contents with manifest.sha256 before transfer.\n\nFor Amped FIVE or Magnet DVR Examiner handoff steps, see docs/COMMERCIAL_HANDOFF.md in the FrameTrace repository.\n"
+        ),
     )
     .map_err(|err| format!("failed to write package README: {err}"))?;
 
@@ -372,7 +382,15 @@ fn package_manifest_json(
         out.push('\n');
     }
     out.push_str("  ],\n");
-    out.push_str("  \"pdf_ready_note\": \"Open reports/case-report.html and print to PDF after examiner review.\"\n");
+    let pdf_note = if files
+        .iter()
+        .any(|file| file.relative_path == Path::new("reports/case-report.html"))
+    {
+        "Open reports/case-report.html and print to PDF after examiner review."
+    } else {
+        "No HTML report is included; run `frametrace make-report <case-dir>` before packaging to produce one."
+    };
+    out.push_str(&format!("  \"pdf_ready_note\": \"{pdf_note}\"\n"));
     out.push_str("}\n");
     out
 }

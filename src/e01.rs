@@ -46,11 +46,15 @@ pub struct E01ImportResult {
 pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Result<bool, String> {
     let e01_path = canonical_e01_path(e01_path)?;
     let inspected_unix = now_unix()?;
+    // ewfinfo reads every segment header, so its runtime scales with
+    // segment count — a 60-segment set already exceeds the 120s probe
+    // default on a slow disk. Respect --timeout; default to unlimited,
+    // matching ewfverify/ewfexport.
     let info = run_capture(
         &options.ewfinfo_bin,
         &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
-        Some(crate::util::PROBE_TIMEOUT_SECS),
+        options.timeout_secs,
     )?;
     let info_log_path = unique_path(
         &case_dir
@@ -89,11 +93,13 @@ pub fn import_e01(
     let e01_path = canonical_e01_path(e01_path)?;
     let imported_unix = now_unix()?;
 
+    // Same scaling issue as inspect_e01: ewfinfo reads every segment
+    // header, so the fixed probe timeout is wrong for large segment sets.
     let info = run_capture(
         &options.ewfinfo_bin,
         &["ewfinfo"],
         &["-f", "text", &audit::path_string(&e01_path)],
-        Some(crate::util::PROBE_TIMEOUT_SECS),
+        options.timeout_secs,
     )?;
     let info_log_path = unique_path(
         &case_dir

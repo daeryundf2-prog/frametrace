@@ -902,6 +902,9 @@ pub fn recover_inode(
     println!("size bytes: {}", result.size_bytes);
     println!("sha256: {}", result.sha256);
     println!("validation: {}", result.validation_status);
+    for warning in &result.warnings {
+        println!("warning: {warning}");
+    }
     println!(
         "next: scan-folder {} {} --no-ffprobe",
         case_dir.display(),
@@ -961,6 +964,58 @@ pub fn benchmark_db(output_dir: &Path, options: BenchmarkOptions) -> Result<(), 
 }
 
 pub fn verify_audit(log_path: &Path) -> Result<(), String> {
+    // Examiners naturally point this at the case directory; discover the
+    // standard chained logs under evidence/logs instead of dying on the
+    // directory read.
+    if log_path.is_dir() {
+        let logs_dir = log_path.join("evidence/logs");
+        let mut logs: Vec<PathBuf> = Vec::new();
+        let entries = std::fs::read_dir(&logs_dir).map_err(|err| {
+            format!(
+                "{} is a directory but has no readable evidence/logs: {err}",
+                log_path.display()
+            )
+        })?;
+        for entry in entries {
+            let path = entry
+                .map_err(|err| format!("failed to list {}: {err}", logs_dir.display()))?
+                .path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+                logs.push(path);
+            }
+        }
+        logs.sort();
+        if logs.is_empty() {
+            return Err(format!(
+                "no audit .jsonl logs found under {}",
+                logs_dir.display()
+            ));
+        }
+        let mut failures = Vec::new();
+        for log in &logs {
+            match audit::verify_chained_jsonl(log) {
+                Ok(result) => {
+                    println!(
+                        "audit verified: {} (entries: {}, integrity: {})",
+                        log.display(),
+                        result.entries,
+                        result.integrity.label()
+                    );
+                }
+                Err(err) => {
+                    println!("audit FAILED: {}: {err}", log.display());
+                    failures.push(log.display().to_string());
+                }
+            }
+        }
+        if !failures.is_empty() {
+            return Err(format!(
+                "{} audit log(s) failed verification",
+                failures.len()
+            ));
+        }
+        return Ok(());
+    }
     let result = audit::verify_chained_jsonl(log_path)?;
     println!("audit verified: {}", log_path.display());
     println!("entries: {}", result.entries);
