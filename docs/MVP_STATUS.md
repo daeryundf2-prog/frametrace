@@ -108,6 +108,14 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   validation, recent-path autocomplete and remembered options
   (localStorage), case-folder suggestion, copyable logs, cancel
   confirmation, Enter-to-start.
+- Review-time triage and handoff: one-key marks (`1`/`2`/`3`/`0`) that
+  auto-advance, a live triage counter (판독 N/M · 중요 · 검증 대기),
+  deleted·recovered and marked-anything filter chips, selection CSV
+  (UTF-8 BOM, Excel-ready), a printable standalone summary-report HTML,
+  and `POST /api/export-selected` — copies chosen files into
+  `case/exports/selection-*/` with a SHA-256 manifest (CSV + JSONL +
+  README), refusing paths outside approved roots and recording
+  pre-recovery candidates as skipped rather than dropping them.
 - Schema init uses BEGIN IMMEDIATE around version check/migration so
   concurrent first-initializers wait on busy_timeout instead of dying
   on SQLite's lock-upgrade deadlock.

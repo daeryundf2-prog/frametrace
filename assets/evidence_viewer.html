@@ -84,6 +84,7 @@ __CSS__
       </div>
       <div class="pager">
         <span class="muted" id="resultCount"></span>
+        <span class="muted" id="triageStatus"></span>
         <button id="prevPage" data-i18n="page.prev">이전</button>
         <span class="muted" id="pageStatus"></span>
         <button id="nextPage" data-i18n="page.next">다음</button>
@@ -141,6 +142,10 @@ __CSS__
     <button id="btnCopyPaths" type="button">경로 복사</button>
     <button id="btnDownloadSelection" type="button">선택 목록 다운로드</button>
     <button id="btnDownloadMarks" type="button">마크 내려받기</button>
+    <span class="sep"></span>
+    <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다">선별 CSV</button>
+    <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다">요약 리포트</button>
+    <button id="btnExportSelected" type="button" title="선택 항목을 케이스 exports 폴더에 해시 매니페스트와 함께 복사합니다 — 워크스테이션 서버 필요">선별 자료 묶기</button>
   </div>
   <div id="toastHost"></div>
   <div id="shortcutsModal" class="modal-backdrop" hidden>
@@ -151,6 +156,8 @@ __CSS__
           <tr><td><code>j</code> / <code>k</code></td><td>다음 / 이전 증거</td></tr>
           <tr><td><code>space</code></td><td>현재 증거 선택 토글</td></tr>
           <tr><td><code>enter</code></td><td>현재 증거 미리보기</td></tr>
+          <tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>현재 증거 판독 완료 / 중요 / 검증 대기 (다음으로 이동)</td></tr>
+          <tr><td><code>0</code></td><td>현재 증거 마크 해제</td></tr>
           <tr><td><code>ctrl+a</code></td><td>필터 결과 전체 선택</td></tr>
           <tr><td><code>ctrl+d</code></td><td>선택 해제</td></tr>
           <tr><td><code>f</code></td><td>영상 전체화면</td></tr>

@@ -534,6 +534,7 @@ const state = {
 const els = {
   caseLine: document.getElementById("caseLine"),
   resultCount: document.getElementById("resultCount"),
+  triageStatus: document.getElementById("triageStatus"),
   metricVideos: document.getElementById("metricVideos"),
   metricCarved: document.getElementById("metricCarved"),
   metricVerified: document.getElementById("metricVerified"),
@@ -571,6 +572,8 @@ const els = {
 
 const PRESET_CHIPS = [
   ["", "전체"],
+  ["kind:recovery", "삭제·복구 항목"],
+  ["marked:any", "마크/태그된 항목"],
   ["anomaly", "이상 징후 후보"],
   ["status:validation-failed", "검증 실패"],
   ["status:candidate-unvalidated", "미검증 후보"],
@@ -587,6 +590,8 @@ function filteredRecords() {
     if (state.recType && (record.recType || "unclassified") !== state.recType) return false;
     if (state.status && record.status !== state.status) return false;
     if (state.chip === "anomaly" && !record.hasAnomaly) return false;
+    if (state.chip === "kind:recovery" && record.kind !== "candidate" && record.kind !== "filesystem") return false;
+    if (state.chip === "marked:any" && !state.marks[record.id] && !(state.tags[record.id] || []).length) return false;
     if (state.dateFrom || state.dateTo) {
       if (!record.recDay) return false;
       if (state.dateFrom && record.recDay < state.dateFrom) return false;
@@ -771,6 +776,16 @@ function renderGrid(filtered) {
   const rangeEnd = Math.min(filtered.length, start + pageRows.length);
   const rangeStart = filtered.length ? start + 1 : 0;
   els.pageStatus.textContent = `${rangeStart}–${rangeEnd} / ${filtered.length} · ${state.currentPage}/${pageCount}`;
+  let reviewed = 0, important = 0, pending = 0;
+  records.forEach(record => {
+    const status = state.marks[record.id]?.status;
+    if (status === "reviewed") reviewed += 1;
+    else if (status === "important") important += 1;
+    else if (status === "needs_verification") pending += 1;
+  });
+  if (els.triageStatus) {
+    els.triageStatus.textContent = `· 판독 ${reviewed}/${records.length} 완료 (중요 ${important} · 검증 대기 ${pending})`;
+  }
   els.prevPage.disabled = state.currentPage <= 1;
   els.nextPage.disabled = state.currentPage >= pageCount;
 
@@ -1238,6 +1253,51 @@ function downloadJSON(filename, payload) {
   toast(`${filename} 다운로드를 시작했습니다.`);
 }
 
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+  toast(`${filename} 다운로드를 시작했습니다.`);
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function isoTime(unix) {
+  return unix ? new Date(unix * 1000).toISOString() : "";
+}
+
+const KIND_LABELS = {
+  video: "원본 (논리 파일)",
+  carved: "카빙 후보",
+  filesystem: "파일시스템 복구",
+  candidate: "삭제 영상 후보 (복구 전)"
+};
+
+function exportItem(record) {
+  return {
+    id: record.id,
+    name: record.name || "",
+    path: record.path || "",
+    kind: record.kind || "",
+    status: record.status || "",
+    mark: state.marks[record.id]?.status || "",
+    tags: state.tags[record.id] || [],
+    warnings: record.warnings || [],
+    sha256: record.sha256 && record.sha256 !== "-" ? record.sha256 : "",
+    rec_time: isoTime(record.recTime),
+    original_path: record.originalPath || "",
+    note: record.note && record.note !== "-" ? record.note : ""
+  };
+}
+
 function selectedRecords() {
   return records.filter(record => state.selectedIds.has(record.id));
 }
@@ -1336,6 +1396,17 @@ function toggleShortcuts(open) {
   if (open) document.getElementById("btnShortcutsClose")?.focus();
 }
 
+// Single-key triage: mark the active record and advance so an examiner
+// can clear a review queue without touching the mouse.
+function markActive(status) {
+  if (!state.activeId) return;
+  if (status === null) delete state.marks[state.activeId];
+  else state.marks[state.activeId] = { status, marked_unix: Math.floor(Date.now() / 1000) };
+  storageSet(MARKS_KEY, state.marks);
+  render();
+  moveActive(1);
+}
+
 document.addEventListener("keydown", event => {
   const tag = document.activeElement?.tagName;
   if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") {
@@ -1354,6 +1425,10 @@ document.addEventListener("keydown", event => {
     case "Enter":
       els.mediaStage.querySelector("video")?.play().catch(() => {});
       break;
+    case "1": markActive("reviewed"); break;
+    case "2": markActive("important"); break;
+    case "3": markActive("needs_verification"); break;
+    case "0": markActive(null); break;
     case "f": toggleFullscreen(); break;
     case "t": toggleTheater(); break;
     case "p": togglePip(); break;
@@ -1452,6 +1527,128 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
     tags: tagEntries
   });
 });
+
+// --- 선별 결과 내보내기: 사람이 받는 형태 (CSV / 요약 리포트 / 자료 묶음) ---
+
+document.getElementById("btnDownloadCsv").addEventListener("click", () => {
+  const selected = selectedRecords();
+  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  const header = ["id", "kind", "name", "status", "mark", "tags", "sha256", "size_bytes",
+    "recorded_time", "channel", "rec_type", "inode", "original_path", "source_path",
+    "warnings", "note", "anomalies"];
+  const rows = selected.map(record => [
+    record.id,
+    KIND_LABELS[record.kind] || record.kind,
+    record.name,
+    record.status,
+    state.marks[record.id]?.status || "",
+    (state.tags[record.id] || []).join("; "),
+    record.sha256,
+    record.size ?? "",
+    isoTime(record.recTime),
+    record.channel || "",
+    record.recType || "",
+    record.inode ?? "",
+    record.originalPath || "",
+    record.path || "",
+    (record.warnings || []).join("; "),
+    record.note && record.note !== "-" ? record.note : "",
+    (record.anomalies || []).map(item => item.kind).join("; ")
+  ].map(csvCell).join(","));
+  downloadText(
+    `frametrace-selection-${manifest.case_id || "case"}.csv`,
+    String.fromCharCode(0xFEFF) + header.join(",") + "\n" + rows.join("\n") + "\n",
+    "text/csv;charset=utf-8"
+  );
+});
+
+// A self-contained, printable handoff report: everything a requester
+// needs to understand what was selected and why, without the viewer.
+document.getElementById("btnSummary").addEventListener("click", () => {
+  let items = selectedRecords();
+  if (!items.length) {
+    items = records.filter(record => state.marks[record.id] || (state.tags[record.id] || []).length);
+  }
+  if (!items.length) { toast("선택하거나 마크된 항목이 없습니다."); return; }
+  const e = escapeHtml;
+  const fmtSize = value => Number.isFinite(value) ? `${(value / 1048576).toFixed(1)} MB` : "-";
+  const rowHtml = items.map(record => {
+    const mark = state.marks[record.id]?.status;
+    const warn = [...(record.warnings || []), ...(record.anomalies || []).map(item => item.kind)].join("; ");
+    return `<tr><td>${e(record.id)}</td><td>${e(record.name)}</td><td>${e(KIND_LABELS[record.kind] || record.kind)}</td>` +
+      `<td>${e(record.status)}</td><td>${e(mark ? markLabel(mark) : "")}</td>` +
+      `<td>${e((state.tags[record.id] || []).join(", "))}</td>` +
+      `<td class="mono">${e(record.sha256 && record.sha256 !== "-" ? record.sha256 : "")}</td>` +
+      `<td>${fmtSize(record.size)}</td><td>${e(isoTime(record.recTime))}</td>` +
+      `<td>${e(warn)}${record.note && record.note !== "-" ? `<br>${e(record.note)}` : ""}</td>` +
+      `<td class="mono">${e(record.originalPath || record.path || "")}</td></tr>`;
+  }).join("\n");
+  const counts = { verified: 0, candidate: 0, failed: 0 };
+  items.forEach(record => {
+    if (record.status === "validation-failed") counts.failed += 1;
+    else if (record.status === "ffprobe-video-stream-confirmed") counts.verified += 1;
+    else counts.candidate += 1;
+  });
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>FrameTrace 판독 요약 — ${e(manifest.case_id || "case")}</title>
+<style>
+body{font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;margin:32px;color:#1f2724}
+h1{font-size:20px} .meta{color:#68736f;font-size:13px;margin-bottom:4px}
+.note{background:#fdf6e8;border:1px solid #e3cf9e;border-radius:6px;padding:10px 12px;font-size:13px;margin:14px 0}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{border:1px solid #d8dedb;padding:6px 8px;text-align:left;vertical-align:top}
+th{background:#f2f5f4} .mono{font-family:Consolas,monospace;font-size:11px;word-break:break-all}
+</style></head><body>
+<h1>FrameTrace 판독 요약</h1>
+<div class="meta">케이스: ${e(manifest.case_id || "-")} · 생성: ${e(new Date().toLocaleString("ko"))} · 항목 ${items.length}개</div>
+<div class="meta">검증됨 ${counts.verified} · 후보 ${counts.candidate} · 검증 실패 ${counts.failed}</div>
+<div class="note">이 문서는 검토자가 선별한 항목의 요약입니다. 원본 증거 무결성은 케이스 감사 로그와
+SHA-256 값으로 대조하십시오. '후보' 표시 항목은 검증 전이므로 증거로 주장하기 전 추가 검증이 필요합니다.</div>
+<table><thead><tr><th>ID</th><th>파일명</th><th>출처</th><th>검증 상태</th><th>마크</th><th>태그</th>
+<th>SHA-256</th><th>크기</th><th>녹화 시각</th><th>경고/메모</th><th>원본 경로</th></tr></thead>
+<tbody>
+${rowHtml}
+</tbody></table>
+</body></html>`;
+  downloadText(`frametrace-summary-${manifest.case_id || "case"}.html`, html, "text/html;charset=utf-8");
+});
+
+// 서버 측 자료 묶음 — 선택 파일을 exports/selection-*/ 에 해시 매니페스트와 함께 복사.
+document.getElementById("btnExportSelected").addEventListener("click", async () => {
+  const selected = selectedRecords();
+  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  const btn = document.getElementById("btnExportSelected");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/export-selected", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: selected.map(exportItem) })
+    }).then(reply => reply.json());
+    if (!res.ok) {
+      toast("내보내기 실패: " + (res.error || ""));
+      return;
+    }
+    toast(`선별 자료 ${res.copied}개 복사 완료 (제외 ${res.skipped}) — ${res.export_dir}`);
+    fetch("/api/open-folder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: res.export_dir })
+    }).catch(() => {});
+  } catch (err) {
+    toast("워크스테이션 서버에 연결할 수 없습니다 — 서버 주소로 뷰어를 여십시오.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// The viewer also runs standalone via file:// — the bundle export needs
+// the workstation server, so make that limitation visible up front.
+if (location.protocol === "file:") {
+  const btn = document.getElementById("btnExportSelected");
+  btn.disabled = true;
+  btn.title = "워크스테이션 서버(127.0.0.1:8477)로 뷰어를 열어야 사용할 수 있습니다.";
+}
 
 state.pageSize = Number(els.pageSize.value) || 100;
 setupHeightSplitter();

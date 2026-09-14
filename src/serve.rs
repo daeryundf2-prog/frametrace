@@ -14,10 +14,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const EXAMINER_PAGE: &str = include_str!("../assets/examiner_app.html");
-const MAX_BODY: usize = 1024 * 1024;
+// Bounded so a malformed client cannot exhaust memory; export payloads
+// carry one small JSON record per selected item.
+const MAX_BODY: usize = 4 * 1024 * 1024;
 
 pub struct ServeOptions {
     pub case_dir: Option<PathBuf>,
@@ -476,6 +478,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
         ("POST", "/api/recover-deleted") => json(api_recover_deleted(state)),
+        ("POST", "/api/export-selected") => json(api_export_selected(request, state)),
         ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
         ("POST", "/api/cancel") => json(api_cancel(state)),
         ("POST", "/api/open-case") => json(api_open_case(request, state)),
@@ -1787,6 +1790,230 @@ fn api_recover_deleted(state: &SharedState) -> String {
     }
 }
 
+/// Copies reviewer-selected evidence into an organized handoff folder:
+/// `case/exports/selection-<unix>/` holds the files plus a hash manifest
+/// (CSV + JSONL + README) — the material package an examiner hands to a
+/// requester. Only paths under the approved media roots are copied, and
+/// items without a file (e.g. pre-recovery candidates) are recorded in
+/// the manifest as skipped instead of silently vanishing.
+fn api_export_selected(request: &Request, state: &SharedState) -> String {
+    let (case_dir, roots) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.media_roots.clone())
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"열린 케이스가 없습니다.\"}".to_string();
+    };
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(&request.body) else {
+        return "{\"ok\":false,\"error\":\"invalid export payload\"}".to_string();
+    };
+    let items = body
+        .get("items")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        return "{\"ok\":false,\"error\":\"선택된 항목이 없습니다.\"}".to_string();
+    }
+    if items.len() > 5000 {
+        return "{\"ok\":false,\"error\":\"한 번에 최대 5000개 항목까지 내보낼 수 있습니다.\"}"
+            .to_string();
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|span| span.as_secs())
+        .unwrap_or(0);
+    let export_dir =
+        crate::util::unique_dir(&case_dir.join("exports").join(format!("selection-{stamp}")));
+    if let Err(err) = std::fs::create_dir_all(&export_dir) {
+        return format!(
+            "{{\"ok\":false,\"error\":{}}}",
+            json_string(&format!("내보내기 폴더 생성 실패: {err}"))
+        );
+    }
+    let roots: Vec<PathBuf> = roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .collect();
+    let field = |item: &serde_json::Value, key: &str| {
+        item.get(key)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let joined = |item: &serde_json::Value, key: &str| {
+        item.get(key)
+            .and_then(|value| value.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|entry| entry.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .unwrap_or_default()
+    };
+    let mut csv_rows = vec![
+        "id,exported_file,kind,status,mark,tags,sha256_source,sha256_copy,size_bytes,recorded_time,original_path,source_path,warnings,note".to_string(),
+    ];
+    let mut jsonl_rows: Vec<String> = Vec::new();
+    let mut copied = 0usize;
+    let mut skipped = 0usize;
+    for item in &items {
+        let id = field(item, "id");
+        let path_text = field(item, "path");
+        let mut exported = String::new();
+        let mut copy_hash = String::new();
+        let mut size = String::new();
+        let mut skip_reason = String::new();
+        if path_text.is_empty() {
+            skip_reason = "no-file(pre-recovery candidate)".to_string();
+        } else {
+            match PathBuf::from(&path_text).canonicalize() {
+                Err(_) => skip_reason = "source-missing".to_string(),
+                Ok(canonical) if !roots.iter().any(|root| path_is_under(root, &canonical)) => {
+                    skip_reason = "outside-approved-roots".to_string();
+                }
+                Ok(canonical) => {
+                    let filename = canonical
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| field(item, "name"));
+                    let target = crate::util::unique_available_path(&export_dir.join(format!(
+                        "{}__{}",
+                        export_safe_name(&id),
+                        export_safe_name(&filename)
+                    )));
+                    match std::fs::copy(&canonical, &target) {
+                        Ok(_) => {
+                            exported = target
+                                .file_name()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            copy_hash = audit::digest_file(&target).unwrap_or_default();
+                            size = std::fs::metadata(&target)
+                                .map(|meta| meta.len().to_string())
+                                .unwrap_or_default();
+                            copied += 1;
+                        }
+                        Err(err) => skip_reason = format!("copy-failed: {err}"),
+                    }
+                }
+            }
+        }
+        if !skip_reason.is_empty() {
+            skipped += 1;
+        }
+        let base_warnings = joined(item, "warnings");
+        let warnings = if skip_reason.is_empty() {
+            base_warnings
+        } else if base_warnings.is_empty() {
+            skip_reason.clone()
+        } else {
+            format!("{base_warnings}; {skip_reason}")
+        };
+        csv_rows.push(csv_row(&[
+            id.clone(),
+            exported.clone(),
+            field(item, "kind"),
+            field(item, "status"),
+            field(item, "mark"),
+            joined(item, "tags"),
+            field(item, "sha256"),
+            copy_hash.clone(),
+            size,
+            field(item, "rec_time"),
+            field(item, "original_path"),
+            path_text.clone(),
+            warnings,
+            field(item, "note"),
+        ]));
+        let mut row = item.clone();
+        row["exported_file"] = serde_json::Value::String(exported);
+        row["sha256_copy"] = serde_json::Value::String(copy_hash);
+        row["skipped"] = if skip_reason.is_empty() {
+            serde_json::Value::Bool(false)
+        } else {
+            serde_json::Value::String(skip_reason)
+        };
+        jsonl_rows.push(row.to_string());
+    }
+    let write = |name: &str, contents: String| -> Result<(), String> {
+        std::fs::write(export_dir.join(name), contents)
+            .map_err(|err| format!("manifest write failed for {name}: {err}"))
+    };
+    let result = write("manifest.csv", format!("\u{feff}{}\n", csv_rows.join("\n")))
+        .and_then(|_| write("manifest.jsonl", jsonl_rows.join("\n") + "\n"))
+        .and_then(|_| {
+            write(
+                "README.txt",
+                format!(
+                    "FrameTrace 선별 증거 묶음\n\n\
+                     생성 시각(unix): {stamp}\n\
+                     항목: {}개 — 복사 {copied}개, 제외 {skipped}개\n\n\
+                     - 복사된 파일은 원본의 사본입니다. manifest의 sha256_copy가\n  \
+                     sha256_source와 동일하면 복사가 정확히 이루어진 것입니다.\n\
+                     - manifest.csv: Excel로 여는 항목별 메타데이터 (UTF-8 BOM).\n\
+                     - manifest.jsonl: 같은 내용의 기계 판독용 JSONL.\n\
+                     - 복구 전 후보처럼 파일이 없는 항목은 복사되지 않고\n  \
+                     manifest에 skipped 사유가 기록됩니다.\n",
+                    items.len()
+                ),
+            )
+        });
+    if let Err(err) = result {
+        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+    }
+    let _ = audit::append_chained_jsonl(
+        &case_dir.join("evidence/logs/export-log.jsonl"),
+        &format!(
+            "{{\"event\":\"selection-export\",\"export_dir\":{},\"items\":{},\"copied\":{copied},\"skipped\":{skipped},\"unix\":{stamp}}}",
+            json_string(&export_dir.to_string_lossy()),
+            items.len()
+        ),
+    );
+    format!(
+        "{{\"ok\":true,\"export_dir\":{},\"copied\":{copied},\"skipped\":{skipped}}}",
+        json_string(&export_dir.to_string_lossy())
+    )
+}
+
+fn csv_row(fields: &[String]) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            if field.contains([',', '"', '\n', '\r']) {
+                format!("\"{}\"", field.replace('"', "\"\""))
+            } else {
+                field.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Windows-safe filename that keeps non-ASCII (e.g. Korean) evidence
+/// names — only path separators, forbidden characters, and control
+/// characters are replaced; trailing dots/spaces are trimmed.
+fn export_safe_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|ch| {
+            if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_control()
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_end_matches(['.', ' ']).to_string();
+    if trimmed.is_empty() {
+        "item".to_string()
+    } else {
+        trimmed
+    }
+}
+
 fn opt_path(value: &Option<PathBuf>) -> String {
     match value {
         Some(path) => json_string(&path.to_string_lossy()),
@@ -2348,6 +2575,74 @@ mod tests {
         assert!(roots.contains("\"ok\":true"));
         assert!(roots.contains("\"entries\":["));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn export_selected_copies_allowed_files_and_writes_manifest() {
+        let base = std::env::temp_dir().join(format!("ft_export_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let case_dir = base.join("case");
+        let source_dir = base.join("source");
+        std::fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(source_dir.join("clip.mp4"), b"video-bytes").unwrap();
+        std::fs::write(base.join("outside.bin"), b"out").unwrap();
+
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        {
+            let mut guard = state.lock().unwrap();
+            guard.case_dir = Some(case_dir.clone());
+            guard.media_roots = vec![case_dir.clone(), source_dir.clone()];
+        }
+        let body = format!(
+            "{{\"items\":[\
+                {{\"id\":\"vid_1\",\"name\":\"clip.mp4\",\"path\":{},\"kind\":\"video\",\"status\":\"ffprobe-video-stream-confirmed\",\"mark\":\"important\",\"tags\":[\"사고\"],\"warnings\":[]}},\
+                {{\"id\":\"fls:7\",\"name\":\"\",\"path\":\"\",\"kind\":\"candidate\",\"status\":\"candidate-unvalidated\"}},\
+                {{\"id\":\"evil\",\"name\":\"outside.bin\",\"path\":{},\"kind\":\"video\"}}\
+            ]}}",
+            json_string(&source_dir.join("clip.mp4").display().to_string()),
+            json_string(&base.join("outside.bin").display().to_string())
+        );
+        let request = Request {
+            method: "POST".into(),
+            path: "/api/export-selected".into(),
+            query: String::new(),
+            body,
+            range: None,
+            origin: None,
+            host: None,
+        };
+        let out = api_export_selected(&request, &state);
+        assert!(out.contains("\"ok\":true"), "{out}");
+        assert!(out.contains("\"copied\":1"), "{out}");
+        assert!(out.contains("\"skipped\":2"), "{out}");
+
+        let export_dir = std::fs::read_dir(case_dir.join("exports"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert!(export_dir.join("vid_1__clip.mp4").is_file());
+        let manifest = std::fs::read_to_string(export_dir.join("manifest.csv")).unwrap();
+        assert!(manifest.contains("vid_1"));
+        assert!(manifest.contains("no-file(pre-recovery candidate)"));
+        // A path outside the approved roots is refused, not copied.
+        assert!(manifest.contains("outside-approved-roots"));
+        assert!(!export_dir.join("evil__outside.bin").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn export_safe_names_keep_unicode_and_strip_forbidden_chars() {
+        assert_eq!(export_safe_name("블랙박스 영상.mp4"), "블랙박스 영상.mp4");
+        assert_eq!(
+            export_safe_name("a/b\\c:d*e?f\"g<h>i|j"),
+            "a_b_c_d_e_f_g_h_i_j"
+        );
+        assert_eq!(export_safe_name("name."), "name");
+        assert_eq!(export_safe_name("..."), "item");
+        assert_eq!(export_safe_name(""), "item");
     }
 
     #[test]
