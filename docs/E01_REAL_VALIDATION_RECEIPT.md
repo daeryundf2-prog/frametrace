@@ -280,10 +280,14 @@ MD5+SHA1.
   (drive's deleted clusters are wiped — consistent with pre-imaging
   sanitization, and the all-zero warning flags each one).
 
-### Full-set ewfverify (background, real large image)
+### Full-set ewfverify (real large image) — completed
 
-`ewfverify` on #453 (223 GiB media) is running: ~11 MiB/s, ETA ~6 h —
-full verify of large sets is a matter of hours, not seconds. Log:
+`ewfverify` on #453 (223 GiB media) finished **SUCCESS** after several
+hours at ~11 MiB/s — full verify of large sets is a matter of hours,
+not seconds. The segment set stores no acquisition MD5 ("stored: N/A"),
+so verification proves internal CRC consistency; the calculated MD5
+`db2c5001f323abd51292d945cc0cc8cf` is recorded for comparison against
+external acquisition records. Log:
 `D:\frametrace-e01-test\verify-logs\pcg2-verify2.txt`.
 
 ## Sixth pass — direct-E01 triage productized
