@@ -139,6 +139,27 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|err| format!("failed to initialize SQLite schema: {err}"))?;
 
+    // Two connections can reach first initialization at once (e.g. the
+    // workstation status poller vs. a pipeline child). Without a write
+    // lock up front, a racer that read schema_meta while holding a
+    // SHARED lock hits SQLite's lock-upgrade deadlock — BUSY returned
+    // immediately, bypassing busy_timeout. BEGIN IMMEDIATE takes the
+    // RESERVED lock before the read, so losers simply wait.
+    conn.execute_batch("BEGIN IMMEDIATE TRANSACTION")
+        .map_err(|err| format!("failed to begin SQLite schema transaction: {err}"))?;
+    let migrated = init_schema_locked(conn);
+    match migrated {
+        Ok(()) => conn
+            .execute_batch("COMMIT")
+            .map_err(|err| format!("failed to commit SQLite schema transaction: {err}")),
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+fn init_schema_locked(conn: &Connection) -> Result<(), String> {
     let stored: Option<String> = conn
         .query_row(
             "SELECT value FROM schema_meta WHERE key = 'schema_version'",
@@ -151,10 +172,6 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
         None => {
             apply_schema_v2_indexes(conn)?;
             apply_schema_v3_tables(conn)?;
-            // Two processes can lose this same first-initialization race
-            // (e.g. the workstation status poller vs. a pipeline child):
-            // both see no row, one inserts first. OR IGNORE keeps the
-            // loser consistent instead of failing on the PRIMARY KEY.
             conn.execute(
                 "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
                 [SCHEMA_VERSION],

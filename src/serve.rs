@@ -471,6 +471,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => page(EXAMINER_PAGE.as_bytes().to_vec()),
         ("GET", "/api/env") => json(api_env()),
+        ("GET", "/api/browse") => json(api_browse(request)),
         ("GET", "/api/status") => json(api_status(state)),
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
@@ -577,6 +578,144 @@ fn tool_available(name: &str, version_arg: &str) -> bool {
 
 fn json_bool(value: bool) -> &'static str {
     if value { "true" } else { "false" }
+}
+
+/// Directory listing for the in-app path picker. An empty `path` returns
+/// drive roots; a directory returns its children — subdirectories always,
+/// first-segment E01-family files only when `files=e01`. Existence and
+/// entry type are always reported, so the same endpoint also validates
+/// paths typed directly into the form.
+fn api_browse(request: &Request) -> String {
+    let raw = query_value(&request.query, "path").unwrap_or_default();
+    let want_files = query_value(&request.query, "files").as_deref() == Some("e01");
+    browse_json(raw.trim(), want_files)
+}
+
+fn browse_json(raw: &str, want_files: bool) -> String {
+    if raw.is_empty() {
+        let entries = drive_roots()
+            .iter()
+            .map(|root| browse_entry_json(root, root, true))
+            .collect::<Vec<_>>()
+            .join(",");
+        return format!(
+            "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"path\":\"\",\"entries\":[{entries}]}}"
+        );
+    }
+    let path = PathBuf::from(raw);
+    let display = path.display().to_string();
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return format!(
+            "{{\"ok\":true,\"exists\":false,\"path\":{}}}",
+            json_string(&display)
+        );
+    };
+    if meta.is_file() {
+        return format!(
+            "{{\"ok\":true,\"exists\":true,\"is_file\":true,\"is_dir\":false,\"path\":{},\"name\":{}}}",
+            json_string(&display),
+            json_string(
+                &path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
+        );
+    }
+    let read = match std::fs::read_dir(&path) {
+        Ok(read) => read,
+        Err(error) => {
+            return format!(
+                "{{\"ok\":false,\"exists\":true,\"is_dir\":true,\"path\":{},\"error\":{}}}",
+                json_string(&display),
+                json_string(&format!("폴더를 읽을 수 없습니다: {error}")),
+            );
+        }
+    };
+    // Cap keeps the picker responsive on huge directories; the status
+    // line tells the examiner the listing was truncated.
+    const MAX_ENTRIES: usize = 500;
+    let mut dirs: Vec<(String, String)> = Vec::new();
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut truncated = false;
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+        let shown = is_dir || (want_files && is_e01_first_segment(&name));
+        if !shown {
+            continue;
+        }
+        if dirs.len() + files.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
+        let full = path.join(&name).display().to_string();
+        if is_dir {
+            dirs.push((name, full));
+        } else {
+            files.push((name, full));
+        }
+    }
+    let by_name =
+        |a: &(String, String), b: &(String, String)| a.0.to_lowercase().cmp(&b.0.to_lowercase());
+    dirs.sort_by(by_name);
+    files.sort_by(by_name);
+    let entries = dirs
+        .iter()
+        .map(|(name, full)| browse_entry_json(name, full, true))
+        .chain(
+            files
+                .iter()
+                .map(|(name, full)| browse_entry_json(name, full, false)),
+        )
+        .collect::<Vec<_>>()
+        .join(",");
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(|parent| format!("\"parent\":{},", json_string(&parent.display().to_string())))
+        .unwrap_or_default();
+    format!(
+        "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"path\":{},{parent}\"entries\":[{entries}],\"truncated\":{}}}",
+        json_string(&display),
+        json_bool(truncated),
+    )
+}
+
+fn browse_entry_json(name: &str, path: &str, dir: bool) -> String {
+    format!(
+        "{{\"name\":{},\"path\":{},\"dir\":{}}}",
+        json_string(name),
+        json_string(path),
+        json_bool(dir)
+    )
+}
+
+/// `true` for the first segment of a split forensic image family. The
+/// examiner picks `.E01`/`.Ex01`/`.L01`/`.S01`; later segments (.E02…)
+/// are opened implicitly by libewf, so the picker hides them.
+fn is_e01_first_segment(name: &str) -> bool {
+    matches!(
+        name.rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str(),
+        "e01" | "ex01" | "l01" | "s01"
+    )
+}
+
+#[cfg(windows)]
+fn drive_roots() -> Vec<String> {
+    (b'A'..=b'Z')
+        .map(|letter| format!("{}:\\", letter as char))
+        .filter(|root| Path::new(root).exists())
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn drive_roots() -> Vec<String> {
+    vec!["/".to_string()]
 }
 
 fn api_status(state: &SharedState) -> String {
@@ -2175,6 +2314,39 @@ mod tests {
         std::fs::write(base.join("db/video_index.json"), r#"{"videos":[]}"#).unwrap();
         let out = base.join("selection-all.json");
         assert!(build_selection_file(&base, &out).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn browse_lists_dirs_and_first_segment_images() {
+        let base = std::env::temp_dir().join(format!("ft_browse_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        std::fs::write(base.join("img.E01"), b"e").unwrap();
+        std::fs::write(base.join("img.E02"), b"e").unwrap();
+        std::fs::write(base.join("note.txt"), b"n").unwrap();
+
+        let listing = browse_json(&base.display().to_string(), true);
+        assert!(listing.contains("\"name\":\"sub\""));
+        assert!(listing.contains("\"name\":\"img.E01\""));
+        // Continuation segments and unrelated files stay hidden — the
+        // examiner picks the first segment and libewf opens the rest.
+        assert!(!listing.contains("img.E02"));
+        assert!(!listing.contains("note.txt"));
+
+        let dirs_only = browse_json(&base.display().to_string(), false);
+        assert!(dirs_only.contains("\"name\":\"sub\""));
+        assert!(!dirs_only.contains("img.E01"));
+
+        let file = browse_json(&base.join("img.E01").display().to_string(), true);
+        assert!(file.contains("\"is_file\":true"));
+
+        let missing = browse_json(&base.join("nope").display().to_string(), false);
+        assert!(missing.contains("\"exists\":false"));
+
+        let roots = browse_json("", false);
+        assert!(roots.contains("\"ok\":true"));
+        assert!(roots.contains("\"entries\":["));
         let _ = std::fs::remove_dir_all(&base);
     }
 

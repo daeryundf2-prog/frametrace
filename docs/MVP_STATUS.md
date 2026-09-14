@@ -103,6 +103,14 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Recovery/inspection warnings reach the reviewer: all-zero (TRIMmed)
   icat output and truncated-listing warnings render as viewer badges,
   detail entries, a case-level banner, and a report table column.
+- Examiner convenience: in-app folder/E01 picker browsing the server
+  filesystem (`/api/browse`, first-segment image filter), live path
+  validation, recent-path autocomplete and remembered options
+  (localStorage), case-folder suggestion, copyable logs, cancel
+  confirmation, Enter-to-start.
+- Schema init uses BEGIN IMMEDIATE around version check/migration so
+  concurrent first-initializers wait on busy_timeout instead of dying
+  on SQLite's lock-upgrade deadlock.
 
 ## Scope Decisions (2026-09)
 

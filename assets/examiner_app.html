@@ -34,11 +34,33 @@
     section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 14px; }
     section.card h2 { font-size: 15px; margin: 0 0 4px; }
     section.card p.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
-    label.field { display: block; margin-bottom: 12px; }
-    label.field span { display: block; font-size: 12px; font-weight: 700; margin-bottom: 5px; }
-    label.field .opt { color: var(--muted); font-weight: 400; }
+    .field { margin-bottom: 12px; }
+    .fieldlabel { display: block; font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+    .fieldlabel .opt { color: var(--muted); font-weight: 400; }
     input[type="text"] { width: 100%; height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; font: inherit; background: #fff; }
     input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    .pathrow { display: flex; gap: 8px; }
+    .pathrow input { flex: 1; min-width: 0; }
+    .pathstatus { display: block; font-size: 12px; margin-top: 4px; min-height: 15px; color: var(--muted); }
+    .pathstatus.ok { color: var(--ok); }
+    .pathstatus.warn { color: var(--warn); }
+    .pathstatus.err { color: var(--danger); }
+    button:focus-visible, .picker-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(16,24,21,.45); display: grid; place-items: center; z-index: 50; }
+    .modal-backdrop[hidden] { display: none; }
+    .modal { width: min(560px, 92vw); max-height: 80vh; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; display: flex; flex-direction: column; box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+    .modal-head { display: flex; align-items: center; padding: 14px 16px 10px; }
+    .modal-head h3 { margin: 0; font-size: 15px; flex: 1; }
+    .modal-head button { height: 30px; width: 34px; padding: 0; font-size: 17px; line-height: 1; }
+    .picker-pathrow { display: flex; gap: 6px; padding: 0 16px 10px; }
+    .picker-pathrow input { flex: 1; min-width: 0; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; font-family: var(--mono); font-size: 12px; }
+    .picker-list { list-style: none; margin: 0 16px; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff; overflow: auto; min-height: 200px; flex: 1; }
+    .picker-item { display: block; padding: 7px 10px; border-radius: 5px; font-family: var(--mono); font-size: 12.5px; cursor: pointer; word-break: break-all; }
+    .picker-item:hover, .picker-item:focus-visible { background: #eef5f3; }
+    .picker-item .dir { font-weight: 700; }
+    .picker-item.muted { cursor: default; }
+    .modal-foot { display: flex; gap: 8px; align-items: center; padding: 12px 16px 14px; }
+    .modal-foot .muted { flex: 1; font-size: 12px; }
     .checks { display: flex; gap: 18px; margin: 4px 0 14px; font-size: 13px; }
     .checks label { display: flex; align-items: center; gap: 6px; }
     button { font: inherit; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; cursor: pointer; padding: 0 14px; }
@@ -101,14 +123,25 @@
       <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
       <label><input type="radio" name="inputKind" value="e01"> E01 디스크 이미지</label>
     </div>
-    <label class="field">
-      <span id="sourceLabel">증거 소스 경로 (필수)</span>
-      <input type="text" id="sourcePath" placeholder="예: E:\ 또는 D:\BLACKBOX 또는 C:\Users\me\Desktop\입수자료" autofocus>
-    </label>
-    <label class="field">
-      <span>케이스 폴더 <span class="opt">(비우면 오늘 날짜로 자동 생성)</span></span>
-      <input type="text" id="caseDir" placeholder="예: C:\Cases\case-001">
-    </label>
+    <div class="field">
+      <label class="fieldlabel" for="sourcePath"><span id="sourceLabel">증거 소스 경로 (필수)</span></label>
+      <div class="pathrow">
+        <input type="text" id="sourcePath" list="recentSources" autocomplete="off" spellcheck="false" placeholder="예: E:\ 또는 D:\BLACKBOX 또는 C:\Users\me\Desktop\입수자료" autofocus>
+        <button type="button" id="btnBrowseSource">찾아보기…</button>
+      </div>
+      <datalist id="recentSources"></datalist>
+      <div class="pathstatus" id="sourceStatus" aria-live="polite"></div>
+    </div>
+    <div class="field">
+      <label class="fieldlabel" for="caseDir"><span>케이스 폴더 <span class="opt">(비우면 오늘 날짜로 자동 생성)</span></span></label>
+      <div class="pathrow">
+        <input type="text" id="caseDir" list="recentCases" autocomplete="off" spellcheck="false" placeholder="예: C:\Cases\case-001">
+        <button type="button" id="btnBrowseCase">찾아보기…</button>
+        <button type="button" id="btnSuggestCase" title="소스 이름과 오늘 날짜로 케이스 폴더 경로를 채웁니다">제안</button>
+      </div>
+      <datalist id="recentCases"></datalist>
+      <div class="pathstatus" id="caseStatus" aria-live="polite"></div>
+    </div>
     <p class="hint">이미 만들어진 케이스 폴더를 넣으면 분석을 이어서 하거나, 아래 버튼으로 검토 화면만 바로 열 수 있습니다.</p>
     <div class="checks">
       <label><input type="checkbox" id="withHash" checked> 파일별 SHA-256 해시 계산 (증거 대조용)</label>
@@ -134,6 +167,7 @@
     <div class="row" style="margin-top:10px">
       <button id="btnCancel" style="display:none;background:#b42318;border-color:#b42318;color:#fff">분석 중단</button>
       <button id="btnNew" style="display:none">새 케이스 시작</button>
+      <button id="btnCopyLog">로그 복사</button>
     </div>
   </section>
 
@@ -163,6 +197,24 @@
     <div class="pkg" id="pkgPath"></div>
   </section>
 </main>
+<div class="modal-backdrop" id="pickerBackdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+    <div class="modal-head">
+      <h3 id="pickerTitle">폴더 선택</h3>
+      <button id="pickerClose" aria-label="선택 창 닫기">×</button>
+    </div>
+    <div class="picker-pathrow">
+      <input type="text" id="pickerPath" aria-label="현재 경로 — 직접 입력 후 Enter로 이동" spellcheck="false">
+      <button id="pickerUp">상위</button>
+    </div>
+    <ul class="picker-list" id="pickerList"></ul>
+    <div class="modal-foot">
+      <span class="muted" id="pickerStatus"></span>
+      <button class="primary" id="pickerSelect">이 폴더 선택</button>
+      <button id="pickerCancel">취소</button>
+    </div>
+  </div>
+</div>
 <footer>FrameTrace는 로컬 전용 도구입니다. 원본 증거 매체는 쓰기 보호 상태로 두고, 본 도구는 케이스 폴더에만 산출물을 작성합니다.</footer>
 <script>
 const $ = id => document.getElementById(id);
@@ -211,6 +263,7 @@ function syncInputKind() {
     ? "예: D:\\Images\\blackbox.E01 (또는 Ex01/S01/L01)"
     : "예: E:\\ 또는 D:\\BLACKBOX 또는 C:\\Users\\me\\Desktop\\입수자료";
   $("verifyRow").style.display = e01 ? "flex" : "none";
+  validatePaths();
 }
 
 function syncDirectE01() {
@@ -345,6 +398,17 @@ $("btnStart").addEventListener("click", async () => {
     $("startErr").textContent = "오류: " + (res.error || "시작 실패");
     return;
   }
+  savePrefs({
+    inputKind: inputKind(),
+    withHash: $("withHash").checked,
+    withFfprobe: $("withFfprobe").checked,
+    skipE01Verify: $("skipE01Verify").checked,
+    directE01: $("directE01").checked,
+    lastSource: $("sourcePath").value.trim(),
+    lastCase: $("caseDir").value.trim(),
+  });
+  pushRecent("recentSources", $("sourcePath").value.trim());
+  pushRecent("recentCases", $("caseDir").value.trim());
   $("progCard").classList.add("show");
   setStep(3, 2);
   $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -369,12 +433,15 @@ $("btnOpenCase").addEventListener("click", async () => {
     $("startErr").textContent = "케이스를 열었으나 검토 결과가 아직 없습니다 — 분석을 실행하십시오.";
     return;
   }
+  pushRecent("recentCases", dir);
+  savePrefs({ lastCase: dir });
   $("progCard").classList.add("show");
   $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 
 let cancelRequested = false;
 $("btnCancel").addEventListener("click", async () => {
+  if (!confirm("분석을 중단하시겠습니까?\n진행 중인 단계의 중간 산출물은 케이스 폴더에 남을 수 있습니다.")) return;
   cancelRequested = true;
   $("btnCancel").disabled = true;
   $("btnCancel").textContent = "중단 요청 중…";
@@ -445,7 +512,215 @@ $("sourcePath").addEventListener("input", () => {
     syncInputKind();
     $("startErr").classList.remove("show");
   }
+  scheduleValidate();
 });
+$("caseDir").addEventListener("input", scheduleValidate);
+
+// Enter in a path field starts analysis, matching the single-action form.
+for (const id of ["sourcePath", "caseDir"]) {
+  $(id).addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing && !$("btnStart").disabled) $("btnStart").click();
+  });
+}
+
+// ---- 편의 기능: 경로 선택기 · 경로 검증 · 최근 경로 · 옵션 기억 ----
+
+const LS_KEY = "ft.examiner.prefs";
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}") || {}; } catch { return {}; }
+}
+function savePrefs(patch) {
+  const prefs = loadPrefs();
+  Object.assign(prefs, patch);
+  try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch { /* storage may be full/blocked */ }
+}
+function pushRecent(key, value) {
+  if (!value) return;
+  const prefs = loadPrefs();
+  prefs[key] = [value, ...(prefs[key] || []).filter(v => v !== value)].slice(0, 8);
+  try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+  renderRecent();
+}
+function renderRecent() {
+  const prefs = loadPrefs();
+  const fill = (id, items) => {
+    $(id).innerHTML = (items || []).map(v => `<option value="${esc(v)}"></option>`).join("");
+  };
+  fill("recentSources", prefs.recentSources);
+  fill("recentCases", prefs.recentCases);
+}
+
+function setStatus(el, cls, msg) {
+  el.className = "pathstatus" + (cls ? " " + cls : "");
+  el.textContent = msg;
+}
+
+let validateTimer = 0;
+function scheduleValidate() {
+  clearTimeout(validateTimer);
+  validateTimer = setTimeout(validatePaths, 250);
+}
+
+// Typed paths are checked against the server filesystem so a mistyped
+// drive letter fails before the analysis does, not three steps in.
+async function validatePaths() {
+  const src = $("sourcePath").value.trim();
+  const srcEl = $("sourceStatus");
+  if (!src) {
+    setStatus(srcEl, "", "");
+  } else {
+    try {
+      const res = await jget("/api/browse?path=" + encodeURIComponent(src));
+      if ($("sourcePath").value.trim() !== src) return; // stale reply
+      if (res.exists === false) setStatus(srcEl, "err", "경로를 찾을 수 없습니다 — 드라이브 문자와 경로를 확인하십시오.");
+      else if (res.is_file) {
+        if (inputKind() === "e01") setStatus(srcEl, "ok", "이미지 파일이 확인되었습니다.");
+        else setStatus(srcEl, "warn", "파일 경로입니다 — E01 계열 이미지면 'E01 디스크 이미지'를 선택하고, 아니면 폴더를 지정하십시오.");
+      } else if (inputKind() === "e01") setStatus(srcEl, "warn", "폴더입니다 — E01 이미지 파일을 선택하십시오.");
+      else setStatus(srcEl, "ok", "폴더가 확인되었습니다.");
+    } catch { setStatus(srcEl, "", ""); }
+  }
+  const dir = $("caseDir").value.trim();
+  const caseEl = $("caseStatus");
+  if (!dir) {
+    setStatus(caseEl, "", "");
+  } else {
+    try {
+      const res = await jget("/api/browse?path=" + encodeURIComponent(dir));
+      if ($("caseDir").value.trim() !== dir) return;
+      if (res.exists === false) setStatus(caseEl, "", "새 케이스 폴더로 생성됩니다.");
+      else if (res.is_file) setStatus(caseEl, "err", "파일 경로입니다 — 폴더를 지정하십시오.");
+      else setStatus(caseEl, "ok", "기존 폴더입니다 — 케이스 데이터가 있으면 이어서 진행되고, '기존 케이스 열기'로 검토 화면을 바로 열 수 있습니다.");
+    } catch { setStatus(caseEl, "", ""); }
+  }
+}
+
+// ---- 경로 선택 대화상자 (서버 파일시스템 탐색) ----
+let pickerTarget = null;
+let pickerMode = "dir";
+let pickerCurrent = "";
+let pickerParent = "";
+let pickerLastFocus = null;
+
+function openPicker(targetId, mode) {
+  pickerTarget = targetId;
+  pickerMode = mode;
+  pickerLastFocus = document.activeElement;
+  $("pickerTitle").textContent = mode === "e01" ? "E01 이미지 선택" : "폴더 선택";
+  $("pickerSelect").style.display = mode === "e01" ? "none" : "";
+  $("pickerBackdrop").hidden = false;
+  browseTo($(targetId).value.trim());
+  setTimeout(() => $("pickerPath").focus(), 0);
+}
+function closePicker() {
+  $("pickerBackdrop").hidden = true;
+  pickerTarget = null;
+  if (pickerLastFocus) pickerLastFocus.focus();
+}
+function choose(path) {
+  const input = $(pickerTarget);
+  input.value = path;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  closePicker();
+}
+async function browseTo(path) {
+  $("pickerStatus").textContent = "읽는 중…";
+  const files = pickerMode === "e01" ? "&files=e01" : "";
+  const res = await jget("/api/browse?path=" + encodeURIComponent(path) + files);
+  if (res.is_file) {
+    // Seeded with a file path — show its containing folder instead.
+    const parent = (res.path || "").replace(/[\\/][^\\/]+$/, "");
+    if (parent && parent !== res.path) { browseTo(parent); return; }
+  }
+  pickerCurrent = res.path || "";
+  pickerParent = res.parent || "";
+  $("pickerPath").value = pickerCurrent;
+  $("pickerSelect").disabled = pickerMode === "dir" && !pickerCurrent;
+  const list = $("pickerList");
+  list.innerHTML = "";
+  if (!res.ok || res.exists === false) {
+    list.innerHTML = `<li class="picker-item muted">${esc(res.error || "경로를 찾을 수 없습니다")}</li>`;
+    $("pickerStatus").textContent = "";
+    return;
+  }
+  const up = document.createElement("li");
+  up.className = "picker-item";
+  up.tabIndex = 0;
+  up.innerHTML = `<span class="dir">.. (상위 / 드라이브 목록)</span>`;
+  const goUp = () => browseTo(pickerParent);
+  up.addEventListener("click", goUp);
+  up.addEventListener("keydown", e => { if (e.key === "Enter") goUp(); });
+  list.appendChild(up);
+  for (const e of res.entries || []) {
+    const li = document.createElement("li");
+    li.className = "picker-item";
+    li.tabIndex = 0;
+    li.innerHTML = `<span class="${e.dir ? "dir" : ""}">${esc(e.name)}${e.dir ? "/" : ""}</span>`;
+    const act = () => { if (e.dir) browseTo(e.path); else choose(e.path); };
+    li.addEventListener("click", act);
+    li.addEventListener("keydown", ev => { if (ev.key === "Enter") act(); });
+    list.appendChild(li);
+  }
+  if (!(res.entries || []).length) {
+    const li = document.createElement("li");
+    li.className = "picker-item muted";
+    li.textContent = pickerMode === "e01" ? "(하위 폴더나 E01 이미지가 없습니다)" : "(하위 폴더가 없습니다)";
+    list.appendChild(li);
+  }
+  $("pickerStatus").textContent = res.truncated ? "항목이 많아 일부만 표시합니다 (500개 제한) — 경로를 직접 입력해도 됩니다" : "";
+}
+
+$("btnBrowseSource").addEventListener("click", () => openPicker("sourcePath", inputKind() === "e01" ? "e01" : "dir"));
+$("btnBrowseCase").addEventListener("click", () => openPicker("caseDir", "dir"));
+$("pickerCancel").addEventListener("click", closePicker);
+$("pickerClose").addEventListener("click", closePicker);
+$("pickerBackdrop").addEventListener("click", e => { if (e.target === $("pickerBackdrop")) closePicker(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pickerBackdrop").hidden) closePicker(); });
+$("pickerSelect").addEventListener("click", () => { if (pickerCurrent) choose(pickerCurrent); });
+$("pickerUp").addEventListener("click", () => browseTo(pickerParent));
+$("pickerPath").addEventListener("keydown", e => { if (e.key === "Enter") browseTo($("pickerPath").value.trim()); });
+
+$("btnSuggestCase").addEventListener("click", () => {
+  const src = $("sourcePath").value.trim().replace(/[\\/]+$/, "");
+  const now = new Date();
+  const p2 = n => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}-${p2(now.getHours())}${p2(now.getMinutes())}`;
+  if (/^[A-Za-z]:$/.test(src)) {
+    $("caseDir").value = `${src}\\ftcase-${src[0]}-${stamp}`;
+  } else {
+    const m = src.match(/^(.*)[\\/]([^\\/]+)$/);
+    const parent = m ? m[1] : "";
+    let base = m ? m[2] : (src || "case");
+    base = base.replace(/\.(e\d+|ex\d+|l\d+|s\d+)$/i, "") || "case";
+    const name = `ftcase-${base}-${stamp}`;
+    $("caseDir").value = parent ? `${parent.replace(/[\\/]+$/, "")}\\${name}` : `cases\\${name}`;
+  }
+  validatePaths();
+});
+
+$("btnCopyLog").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("log").textContent);
+    $("btnCopyLog").textContent = "복사됨";
+    setTimeout(() => { $("btnCopyLog").textContent = "로그 복사"; }, 1500);
+  } catch { /* clipboard needs a secure context; 127.0.0.1 qualifies, failures are silent */ }
+});
+
+// Restore last-used paths/options, then validate what was restored.
+(function restorePrefs() {
+  const prefs = loadPrefs();
+  if (prefs.inputKind) {
+    const radio = document.querySelector(`input[name='inputKind'][value='${prefs.inputKind}']`);
+    if (radio && !radio.disabled) radio.checked = true;
+  }
+  for (const [id, key] of [["withHash", "withHash"], ["withFfprobe", "withFfprobe"], ["skipE01Verify", "skipE01Verify"], ["directE01", "directE01"]]) {
+    if (typeof prefs[key] === "boolean") $(id).checked = prefs[key];
+  }
+  if (prefs.lastSource) $("sourcePath").value = prefs.lastSource;
+  if (prefs.lastCase) $("caseDir").value = prefs.lastCase;
+  renderRecent();
+})();
+
 syncInputKind();
 poll();
 </script>
