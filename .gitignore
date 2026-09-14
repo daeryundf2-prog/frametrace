@@ -42,3 +42,4 @@
 # Locally staged third-party tool binaries (libewf, Sleuth Kit, ffmpeg).
 # These are deployed per-workstation, never committed.
 /tools
+/target3
