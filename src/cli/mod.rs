@@ -97,6 +97,10 @@ pub enum Commands {
         ewfinfo: Option<String>,
         #[arg(long)]
         timeout: Option<u64>,
+        /// Also run the Sleuth Kit filesystem listing on the E01 itself —
+        /// mmls/fls decompress via libewf, so no raw export is needed
+        #[arg(long)]
+        filesystem: bool,
     },
     /// Verify an E01 with libewf, export it to raw image form, hash the raw output
     ImportE01 {
@@ -253,9 +257,15 @@ pub enum Commands {
     RecoverBatch {
         case_dir: PathBuf,
         image_file: PathBuf,
-        selection: PathBuf,
+        /// Selection file; optional when --deleted-videos picks targets
+        /// from the latest inspect-image entries
+        selection: Option<PathBuf>,
         #[arg(long, default_value_t = 0)]
         partition_offset: u64,
+        /// Recover every deleted video-candidate inode found by the latest
+        /// filesystem inspection instead of a selection file
+        #[arg(long)]
+        deleted_videos: bool,
         #[arg(long)]
         timeout: Option<u64>,
     },
@@ -508,6 +518,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             hash_e01,
             ewfinfo,
             timeout,
+            filesystem,
         } => {
             let options = E01Options {
                 output_path: None,
@@ -519,7 +530,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 ewfexport_bin: "ewfexport".to_string(),
                 timeout_secs: timeout,
             };
-            inspect_e01(&case_dir, &e01_file, options)
+            inspect_e01(&case_dir, &e01_file, options, filesystem)
         }
         Commands::ImportE01 {
             case_dir,
@@ -694,12 +705,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             image_file,
             selection,
             partition_offset,
+            deleted_videos,
             timeout,
         } => recover_batch(
             &case_dir,
             &image_file,
-            &selection,
+            selection.as_deref(),
             partition_offset,
+            deleted_videos,
             timeout,
         ),
         Commands::ValidateArtifact {

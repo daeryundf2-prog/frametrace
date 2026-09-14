@@ -88,21 +88,65 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   10k-record filter/sort/facet data path measured at ~6 ms/render against a
   30 ms budget — card DOM is already capped at 1000/page, so no
   virtualization was added.
+- Direct-E01 filesystem triage (`inspect-e01 --filesystem`): Sleuth Kit
+  mmls/fls/icat read E01 segment sets through libewf, so partition
+  listing, deleted-file enumeration, and inode recovery run with no raw
+  export — validated on a 120-segment 932 GiB image.
+- Automatic deleted-video recovery (`recover-batch --deleted-videos`):
+  selects deleted video-candidate inodes from the latest filesystem
+  inspection instead of requiring a hand-written selection file.
+
+## Scope Decisions (2026-09)
+
+Product calls recorded after real-evidence validation passes; the
+"Deliberately Not Claimed Yet" list below keeps each item's status
+honest, while this section fixes the intended direction.
+
+- **Acquisition is out of scope — decided.** FrameTrace analyzes
+  already-acquired evidence (E01/Ex01/S01/L01/raw). `\\.\PhysicalDriveN`
+  and E01 creation belong to FTK Imager/ewfacquire-class tools; do not
+  add an acquisition lane.
+- **External libewf/TSK/FFmpeg tools are the architecture — decided.**
+  No native in-process E01 parser: the CLI tools are validated against
+  real evidence and a rewrite only adds risk. Tool resolution stays
+  `tools/bin` + PATH with audit-logged versions.
+- **Direct-E01 triage is a first-class workflow — decided.** Export is
+  optional, required only for signature carving. `inspect-e01
+  --filesystem` + `recover-batch` cover inspection and recovery straight
+  from segment sets; keep partial-export paths for carving.
+- **Deleted-file recovery is inode-scoped — decided.** Auto-selection
+  covers deleted video candidates; arbitrary deleted files go through
+  examiner-built selection files. All-zero icat output is flagged as
+  unallocated/TRIMmed, never reported as recovered content.
+- **Browser-based workstation is the product UI — decided.** The thin
+  WinUI host and MSIX signing stay deferred until a deployment
+  requirement appears; `frametrace-app` + HTML review/report remain the
+  shipped interface.
+- **DVR/proprietary filesystems wait for sample corpus — decided.**
+  Vendor filesystem recovery (Hikvision/Dahua/BlackVue recorders) is not
+  claimed; lane work resumes when real recorder media is available.
+- **PDF and trusted timestamping deferred — decided.** Browser
+  print-to-PDF plus the keyed/structural HMAC audit chain covers current
+  needs; revisit only if a chain-of-custody requirement mandates
+  RFC 3161 timestamping or a signed PDF deliverable.
 
 ## Deliberately Not Claimed Yet
 
-- Raw `\\.\PhysicalDriveN` acquisition.
-- Native in-process E01 parsing without external libewf command-line tools.
-- E01 image creation/acquisition.
-- Automatic bulk deleted-file reconstruction from E01/raw images.
+- Raw `\\.\PhysicalDriveN` acquisition. *(scope decision: out)*
+- Native in-process E01 parsing without external libewf command-line tools. *(scope decision: out)*
+- E01 image creation/acquisition. *(scope decision: out)*
+- Automatic bulk deleted-file reconstruction for arbitrary files
+  (deleted video candidates are auto-recovered via
+  `recover-batch --deleted-videos`; other inodes go through selection
+  files).
 - File-system-aware unallocated-space carving.
-- Proprietary DVR/NVR file-system recovery.
+- Proprietary DVR/NVR file-system recovery. *(waiting on sample corpus)*
 - Court/admissibility validation for recovered proprietary formats.
 - External timestamping of reports/logs (keyed HMAC chain exists; trusted
-  timestamping does not).
-- Windows GUI packaging (MSIX/code signing).
-- Final Windows GUI shell (thin WinUI host exists; not the product GUI).
-- PDF report rendering (browser print-to-PDF only).
+  timestamping does not). *(deferred)*
+- Windows GUI packaging (MSIX/code signing). *(deferred)*
+- Final Windows GUI shell (thin WinUI host exists; not the product GUI). *(deferred)*
+- PDF report rendering (browser print-to-PDF only). *(deferred)*
 - Motion/object/license-plate analysis.
 - Real-recorder validation of the DAV/Hikvision remux lanes (synthetic
   samples only — see docs/ROADMAP-v3.md §2).

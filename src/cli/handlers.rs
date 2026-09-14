@@ -17,6 +17,7 @@ use crate::util::{
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -186,7 +187,12 @@ pub fn register_source(
     Ok(())
 }
 
-pub fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
+pub fn inspect_e01(
+    case_dir: &Path,
+    e01_file: &Path,
+    options: E01Options,
+    filesystem: bool,
+) -> Result<(), String> {
     ensure_case(case_dir)?;
     let is_corrupted = e01::inspect_e01(case_dir, e01_file, &options)?;
     let row = case_db::register_evidence_source(
@@ -214,6 +220,17 @@ pub fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Res
         "audit log: {}",
         case_dir.join("evidence/logs/e01-audit.jsonl").display()
     );
+    if filesystem {
+        // TSK reads the E01 through libewf, so filesystem triage needs no
+        // raw export; decompression makes any probe-class timeout
+        // meaningless, so run unbounded.
+        println!("filesystem triage: mmls/fls read the E01 via libewf (no export)");
+        let tsk_options = crate::tsk::TskInspectOptions {
+            timeout_secs: None,
+            ..Default::default()
+        };
+        inspect_image(case_dir, e01_file, tsk_options)?;
+    }
     Ok(())
 }
 
@@ -1779,21 +1796,114 @@ pub fn timeline(case_dir: &Path, output: Option<PathBuf>) -> Result<(), String> 
 /// Batch-recovers viewer-selected deleted inodes (kind "candidate") from a
 /// raw image. Each recovery appends its own tsk-audit entry; the batch outcome
 /// is chained into artifacts/logs/batch-log.jsonl.
+/// Newest `db/filesystem/tsk-files-*.jsonl` inspection output, or None
+/// when no inspect-image/inspect-e01 --filesystem run exists yet. The
+/// unix-timestamp suffix orders runs chronologically.
+fn latest_entries_jsonl(case_dir: &Path) -> Option<PathBuf> {
+    fs::read_dir(case_dir.join("db/filesystem"))
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("tsk-files-") && name.ends_with(".jsonl"))
+        })
+        .max()
+}
+
+/// Deleted video-candidate selectors from an inspect-image entries file —
+/// the auto-target list for `recover-batch --deleted-videos`. The
+/// entries' inode becomes the selector; the filesystem path is kept as a
+/// note so the audit record shows what each inode was.
+fn deleted_video_selectors(
+    entries_jsonl: &Path,
+) -> Result<Vec<crate::selection::SelectionItem>, String> {
+    let text = fs::read_to_string(entries_jsonl)
+        .map_err(|err| format!("failed to read {}: {err}", entries_jsonl.display()))?;
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (line_no, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|err| {
+            format!(
+                "invalid entries line {}:{}: {err}",
+                entries_jsonl.display(),
+                line_no + 1
+            )
+        })?;
+        let deleted = value.get("deleted").and_then(|v| v.as_bool()) == Some(true);
+        let video = value.get("video_candidate").and_then(|v| v.as_bool()) == Some(true);
+        let Some(inode) = value.get("inode").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if deleted && video && !inode.is_empty() && seen.insert(inode.to_string()) {
+            items.push(crate::selection::SelectionItem {
+                selector: inode.to_string(),
+                kind: Some("filesystem".to_string()),
+                action: Some("recover".to_string()),
+                format: None,
+                time_seconds: None,
+                notes: value
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            });
+        }
+    }
+    Ok(items)
+}
+
 pub fn recover_batch(
     case_dir: &Path,
     image_file: &Path,
-    selection_path: &Path,
+    selection_path: Option<&Path>,
     partition_offset: u64,
+    deleted_videos: bool,
     timeout_secs: Option<u64>,
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
-    let selection = crate::selection::parse_selection_file(selection_path)?;
+    let (selection, selection_label) = if deleted_videos {
+        let entries_jsonl = latest_entries_jsonl(case_dir).ok_or_else(|| {
+            "no filesystem inspection entries found; run inspect-image or inspect-e01 --filesystem first"
+                .to_string()
+        })?;
+        let items = deleted_video_selectors(&entries_jsonl)?;
+        if items.is_empty() {
+            return Err(format!(
+                "latest inspection {} lists no deleted video candidates",
+                entries_jsonl.display()
+            ));
+        }
+        println!("auto-selection: {}", entries_jsonl.display());
+        (
+            crate::selection::SelectionFile {
+                case_id: None,
+                items,
+            },
+            entries_jsonl.display().to_string(),
+        )
+    } else {
+        let selection_path = selection_path.ok_or_else(|| {
+            "recover-batch needs a selection file or --deleted-videos".to_string()
+        })?;
+        (
+            crate::selection::parse_selection_file(selection_path)?,
+            selection_path.display().to_string(),
+        )
+    };
     let job = case_db::start_job(
         case_dir,
         "recover-batch",
-        selection_path,
+        image_file,
         Some(selection.items.len() as u64),
-        &format!("{{\"items\":{}}}", selection.items.len()),
+        &format!(
+            "{{\"items\":{},\"deleted_videos\":{deleted_videos}}}",
+            selection.items.len()
+        ),
     )?;
 
     let mut outcomes = Vec::new();
@@ -1835,7 +1945,7 @@ pub fn recover_batch(
     let failed = outcomes.iter().filter(|o| o.status == "failed").count();
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"recover-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"results\":{}}}",
-        json_escape(&selection_path.display().to_string()),
+        json_escape(&selection_label),
         outcomes.len(),
         ok,
         failed,
@@ -2504,5 +2614,54 @@ mod tests {
             std::fs::read_to_string(case_dir.join("artifacts/logs/batch-log.jsonl")).unwrap();
         assert!(!batch.contains("validate-batch-resume"), "{batch}");
         let _ = std::fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// --deleted-videos auto-selection picks only deleted entries whose
+    /// path ends in a video extension, dedupes reallocated inodes, and
+    /// keeps the filesystem path as a note for the audit record.
+    #[test]
+    fn deleted_video_selectors_filters_dedupes_and_keeps_paths() {
+        let base = std::env::temp_dir().join(format!("frametrace-delvid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let entries = base.join("tsk-files-1.jsonl");
+        std::fs::write(
+            &entries,
+            concat!(
+                "{\"raw_line\":\"r/r * 100-128-1:\\tdel.mp4\",\"file_type\":\"r/r\",\"inode\":\"100-128-1\",\"path\":\"del.mp4\",\"deleted\":true,\"video_candidate\":true}\n",
+                "{\"raw_line\":\"r/r 101-128-1:\\tlive.mp4\",\"file_type\":\"r/r\",\"inode\":\"101-128-1\",\"path\":\"live.mp4\",\"deleted\":false,\"video_candidate\":true}\n",
+                "{\"raw_line\":\"r/r * 102-128-1:\\tnotes.txt\",\"file_type\":\"r/r\",\"inode\":\"102-128-1\",\"path\":\"notes.txt\",\"deleted\":true,\"video_candidate\":false}\n",
+                "{\"raw_line\":\"d/d * 103-128-1:\\tdir\",\"file_type\":\"d/d\",\"inode\":\"103-128-1\",\"path\":\"dir\",\"deleted\":true,\"video_candidate\":false}\n",
+                "{\"raw_line\":\"r/r * 100-128-1:\\tdel.mp4\",\"file_type\":\"r/r\",\"inode\":\"100-128-1\",\"path\":\"del.mp4\",\"deleted\":true,\"video_candidate\":true}\n",
+                "{\"raw_line\":\"r/r * 104-128-1:\\tdeep/show.avi\",\"file_type\":\"r/r\",\"inode\":\"104-128-1\",\"path\":\"deep/show.avi\",\"deleted\":true,\"video_candidate\":true}\n"
+            ),
+        )
+        .unwrap();
+        let items = deleted_video_selectors(&entries).unwrap();
+        assert_eq!(items.len(), 2, "{items:?}");
+        assert_eq!(items[0].selector, "100-128-1");
+        assert_eq!(items[0].notes.as_deref(), Some("del.mp4"));
+        assert_eq!(items[1].selector, "104-128-1");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// --deleted-videos uses the newest tsk-files-*.jsonl; a case with no
+    /// inspection run fails with a clear "run inspect first" error.
+    #[test]
+    fn latest_entries_jsonl_picks_newest_and_handles_missing() {
+        let base =
+            std::env::temp_dir().join(format!("frametrace-latest-entries-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let case_dir = base.join("case");
+        std::fs::create_dir_all(case_dir.join("db/filesystem")).unwrap();
+        assert!(latest_entries_jsonl(&case_dir).is_none());
+        let older = case_dir.join("db/filesystem/tsk-files-100.jsonl");
+        let newer = case_dir.join("db/filesystem/tsk-files-200.jsonl");
+        std::fs::write(&older, "").unwrap();
+        std::fs::write(&newer, "").unwrap();
+        // Unrelated files in the same directory must not be picked.
+        std::fs::write(case_dir.join("db/filesystem/tsk-inspection-300.json"), "").unwrap();
+        assert_eq!(latest_entries_jsonl(&case_dir).unwrap(), newer);
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

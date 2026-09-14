@@ -286,6 +286,31 @@ MD5+SHA1.
 full verify of large sets is a matter of hours, not seconds. Log:
 `D:\frametrace-e01-test\verify-logs\pcg2-verify2.txt`.
 
+## Sixth pass — direct-E01 triage productized
+
+- `inspect-e01 --filesystem` (new): ewfinfo → mmls/fls on the segment
+  set in one command; validated on `synthetic/synth.E01` (offset 2048
+  auto-selected, 6 entries, 1 deleted, 2 video candidates) and on the
+  932 GiB HDD3 set in the previous pass.
+- `recover-batch --deleted-videos` (new): auto-selects deleted
+  video-candidate inodes from the newest `tsk-files-*.jsonl` instead of
+  a hand-written selection file. On the synth E01 it recovered inode 4
+  (`_ELETED.MP4`, 8 KiB first-cluster remnant — FAT16 deletion leaves
+  only the first cluster mapped, which icat reports honestly) with
+  SHA-256 `606f454e…` identical to the same inode recovered from the
+  raw export — direct-E01 recovery is byte-equivalent to raw recovery.
+  On HDD3 it correctly reports "no deleted video candidates" when the
+  inspection lists none.
+- **Bug fixed:** `mmls`/`fls`/`icat` silently failed on relative or
+  mixed-separator image paths (`synthetic/synth.E01` → exit 1, empty
+  output) because libewf globbing needs absolute paths. TSK image paths
+  are now canonicalized (absolute, separator-normalized, `\\?\` prefix
+  stripped) before spawning tools — matching what `canonical_e01_path`
+  already did for libewf.
+- Edge cases: `recover-batch` with neither selection file nor
+  `--deleted-videos` errors cleanly; `--deleted-videos` on a case with
+  no inspection run points the examiner at `inspect-image` first.
+
 ## Still unvalidated
 
 - ewfverify end-to-end on a real *large* image — relaunched against the

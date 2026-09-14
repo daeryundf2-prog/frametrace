@@ -493,10 +493,19 @@ fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
 }
 
 fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
+    // libewf-backed tools (mmls/fls/icat reading E01 directly) cannot open
+    // relative or mixed-separator paths — canonicalize to an absolute,
+    // separator-normalized, non-extended path before spawning them.
+    let path = crate::util::canonicalize_display(path).map_err(|err| {
+        format!(
+            "failed to canonicalize image path {}: {err}",
+            path.display()
+        )
+    })?;
     if !path.is_file() {
         return Err(format!("forensic image is not a file: {}", path.display()));
     }
-    Ok(path.to_path_buf())
+    Ok(path)
 }
 
 fn run_capture(
