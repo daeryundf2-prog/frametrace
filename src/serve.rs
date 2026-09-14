@@ -28,6 +28,8 @@ pub struct ServeOptions {
 enum InputKind {
     Folder,
     E01,
+    /// Same evidence kind as E01 but triaged directly on the segment set.
+    E01Direct,
 }
 
 impl InputKind {
@@ -47,6 +49,13 @@ impl InputKind {
                 "논리 파일 색인",
                 "리뷰 생성",
             ],
+            InputKind::E01Direct => &[
+                "케이스 준비",
+                "E01 메타데이터 (ewfinfo)",
+                "파일시스템 조사 (export 생략)",
+                "논리 파일 색인",
+                "리뷰 생성",
+            ],
         }
     }
 }
@@ -58,6 +67,9 @@ struct PipelineJob {
     with_hash: bool,
     with_ffprobe: bool,
     skip_e01_verify: bool,
+    /// Triage mode: inspect-e01 --filesystem reads the segment set
+    /// directly instead of exporting hundreds of GiB to raw first.
+    e01_direct: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -462,6 +474,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("GET", "/api/status") => json(api_status(state)),
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
+        ("POST", "/api/recover-deleted") => json(api_recover_deleted(state)),
         ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
         ("POST", "/api/cancel") => json(api_cancel(state)),
         ("POST", "/api/open-case") => json(api_open_case(request, state)),
@@ -677,7 +690,9 @@ fn byte_progress_json(byte_progress: Option<&(PathBuf, Option<u64>)>) -> String 
 }
 
 fn api_start(request: &Request, state: &SharedState) -> String {
+    let e01_direct = body_value(&request.body, "e01_direct").as_deref() == Some("true");
     let input_kind = match body_value(&request.body, "input_kind").as_deref() {
+        Some("e01") if e01_direct => InputKind::E01Direct,
         Some("e01") => InputKind::E01,
         _ => InputKind::Folder,
     };
@@ -696,7 +711,9 @@ fn api_start(request: &Request, state: &SharedState) -> String {
             ))
         );
     }
-    if input_kind == InputKind::E01 && !tool_available("ewfinfo", "-V") {
+    if matches!(input_kind, InputKind::E01 | InputKind::E01Direct)
+        && !tool_available("ewfinfo", "-V")
+    {
         return "{\"ok\":false,\"error\":\"E01 처리에는 libewf 도구(ewfinfo/ewfverify/ewfexport)가 필요합니다. 도구를 설치한 뒤 다시 시도하십시오.\"}".to_string();
     }
     let with_hash = body_value(&request.body, "with_hash").as_deref() == Some("true");
@@ -713,6 +730,7 @@ fn api_start(request: &Request, state: &SharedState) -> String {
         with_hash,
         with_ffprobe,
         skip_e01_verify,
+        e01_direct,
     };
     {
         let mut guard = state_lock(state);
@@ -730,7 +748,7 @@ fn api_start(request: &Request, state: &SharedState) -> String {
         guard.case_dir = Some(case_dir.clone());
         guard.media_roots = match input_kind {
             InputKind::Folder => vec![case_dir.clone(), source_path.clone()],
-            InputKind::E01 => vec![case_dir.clone()],
+            InputKind::E01 | InputKind::E01Direct => vec![case_dir.clone()],
         };
     }
     let worker_state = Arc::clone(state);
@@ -760,7 +778,7 @@ fn default_case_dir() -> PathBuf {
 fn run_pipeline(state: SharedState, job: PipelineJob) {
     match job.kind {
         InputKind::Folder => run_folder_pipeline(state, job),
-        InputKind::E01 => run_e01_pipeline(state, job),
+        InputKind::E01 | InputKind::E01Direct => run_e01_pipeline(state, job),
     }
 }
 
@@ -810,6 +828,36 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
                 return;
             }
         }
+    }
+
+    if job.e01_direct {
+        // Triage mode: a single inspect-e01 --filesystem run does ewfinfo
+        // metadata plus mmls/fls straight off the segment set — no raw
+        // export, so even a ~1 TB image is reviewable in minutes.
+        set_step(&state, 1, StepStatus::Running);
+        match run_step(
+            &exe,
+            &[
+                "inspect-e01".into(),
+                case_text.clone(),
+                source_text.clone(),
+                "--filesystem".into(),
+            ],
+            &state,
+        ) {
+            Ok(output) => {
+                log(&state, output);
+                set_step(&state, 1, StepStatus::Done);
+                set_step(&state, 2, StepStatus::Done);
+            }
+            Err(err) => {
+                set_step(&state, 1, StepStatus::Failed);
+                fail(&state, &err);
+                return;
+            }
+        }
+        run_e01_pipeline_tail(state, job);
+        return;
     }
 
     // Step 2: import the E01 (ewfverify runs unless explicitly skipped).
@@ -888,9 +936,27 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
         }
     }
 
-    // Step 4: refresh the logical index over the case evidence tree so the
-    // review bundle always has a current db/video_index.json (normally 0
-    // logical files for a pure E01 case; recovered exports land here later).
+    run_e01_pipeline_tail(state, job);
+}
+
+/// Shared E01 tail: refresh the logical index over the case evidence
+/// tree, run the non-fatal anomaly scan, then emit the review bundle.
+fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob) {
+    let log = |state: &SharedState, line: String| state_lock(state).logs.push(line);
+    let set_step = |state: &SharedState, index: usize, status: StepStatus| {
+        state_lock(state).steps[index] = status;
+    };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            fail(
+                &state,
+                &format!("실행 파일 경로를 확인할 수 없습니다: {err}"),
+            );
+            return;
+        }
+    };
+    let case_text = job.case_dir.to_string_lossy().to_string();
     set_step(&state, 3, StepStatus::Running);
     let mut scan_args: Vec<String> = vec![
         "scan-folder".into(),
@@ -931,7 +997,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
             guard.busy = false;
             guard.byte_progress = None;
             guard.logs.push(
-                "검토 화면이 준비되었습니다. 삭제파일 복구·카빙은 CLI(recover-inode/carve-file)로 수행한 뒤 재검토하십시오.".into(),
+                "검토 화면이 준비되었습니다. 삭제 영상 후보는 '삭제 영상 후보 복구' 버튼으로, 카빙·개별 inode 복구는 CLI(carve-file/recover-inode)로 수행한 뒤 재검토하십시오.".into(),
             );
         }
         Err(err) => {
@@ -1478,6 +1544,102 @@ fn api_finalize(state: &SharedState) -> String {
         }
         (report, packaging) => {
             let error = report.err().or_else(|| packaging.err()).unwrap_or_default();
+            guard.phase = "review-ready";
+            guard.busy = false;
+            guard.error = Some(error.clone());
+            format!("{{\"ok\":false,\"error\":{}}}", json_string(&error))
+        }
+    }
+}
+
+/// Newest `db/filesystem/tsk-inspection-*.json` summary — carries the
+/// image path and auto-selected partition offset the recover step needs.
+fn newest_tsk_inspection(case_dir: &Path) -> Option<(PathBuf, u64)> {
+    let path = std::fs::read_dir(case_dir.join("db/filesystem"))
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("tsk-inspection-") && name.ends_with(".json"))
+        })
+        .max()?;
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let image = value.get("image_path")?.as_str()?;
+    let offset = value.get("partition_offset")?.as_u64()?;
+    Some((PathBuf::from(image), offset))
+}
+
+/// `POST /api/recover-deleted`: run recover-batch --deleted-videos on the
+/// image from the latest filesystem inspection, then regenerate the
+/// review bundle so the recovered items appear in the viewer.
+fn api_recover_deleted(state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석이 아직 진행 중입니다.\"}".to_string();
+    }
+    let Some((image_path, partition_offset)) = newest_tsk_inspection(&case_dir) else {
+        return "{\"ok\":false,\"error\":\"파일시스템 조사 결과가 없습니다 — 먼저 E01/이미지 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    };
+    {
+        let mut guard = state_lock(state);
+        guard.phase = "finalizing";
+        guard.busy = true;
+        guard.error = None;
+        guard.logs.push(format!(
+            "삭제 영상 후보 복구 중… ({} @ 오프셋 {partition_offset})",
+            image_path.display()
+        ));
+    }
+    let case_text = case_dir.to_string_lossy().to_string();
+    let recover = run_step(
+        &exe,
+        &[
+            "recover-batch".into(),
+            case_text.clone(),
+            image_path.to_string_lossy().to_string(),
+            "--deleted-videos".into(),
+            "--partition-offset".into(),
+            partition_offset.to_string(),
+        ],
+        state,
+    );
+    let review = if recover.is_ok() {
+        run_step(&exe, &["make-review".into(), case_text.clone()], state)
+    } else {
+        recover.clone()
+    };
+    let mut guard = state_lock(state);
+    match (recover, review) {
+        (Ok(recover_out), Ok(_)) => {
+            guard.phase = "review-ready";
+            guard.busy = false;
+            guard.logs.push(recover_out.clone());
+            guard
+                .logs
+                .push("복구 완료 — 뷰어를 새로 열면 복구된 항목이 보입니다.".into());
+            "{\"ok\":true}".to_string()
+        }
+        (recover, review) => {
+            let error = recover.err().or_else(|| review.err()).unwrap_or_default();
             guard.phase = "review-ready";
             guard.busy = false;
             guard.error = Some(error.clone());

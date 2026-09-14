@@ -116,6 +116,7 @@
     </div>
     <div class="checks" id="verifyRow" style="display:none;">
       <label><input type="checkbox" id="skipE01Verify"> E01 해시 검증 생략 (ewfverify는 이미지 크기에 비례해 오래 걸립니다 — 최종 증거용은 생략 비권장)</label>
+      <label><input type="checkbox" id="directE01"> 빠른 검토 — raw export 생략, E01에서 직접 파일시스템 조사 (대용량 이미지에 적합; 카빙은 별도 export 필요)</label>
     </div>
     <div class="row">
       <button class="primary" id="btnStart">분석 시작</button>
@@ -139,6 +140,10 @@
   <section class="card results" id="resultCard">
     <h2>STEP 3 — 분석된 데이터 검증</h2>
     <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
+    <div class="row" style="margin-bottom:10px">
+      <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
+      <span class="muted" id="recoverHint">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.</span>
+    </div>
     <div class="linklist">
       <a href="/review/evidence-viewer.html" target="_blank"><b>증거 뷰어 열기 (검토 화면)</b><span>썸네일 그리드 · 재생 · 검증 상태 · 판독 마크/태그</span></a>
       <a href="/review/index.html" target="_blank"><b>색인 대시보드 열기</b><span>전체 색인 목록 · 해시 · 파서 평가</span></a>
@@ -206,6 +211,12 @@ function syncInputKind() {
     ? "예: D:\\Images\\blackbox.E01 (또는 Ex01/S01/L01)"
     : "예: E:\\ 또는 D:\\BLACKBOX 또는 C:\\Users\\me\\Desktop\\입수자료";
   $("verifyRow").style.display = e01 ? "flex" : "none";
+}
+
+function syncDirectE01() {
+  const direct = $("directE01").checked;
+  $("skipE01Verify").disabled = direct;
+  if (direct) $("skipE01Verify").checked = false;
 }
 
 function setStep(active, doneCount) {
@@ -325,7 +336,8 @@ $("btnStart").addEventListener("click", async () => {
     case_dir: $("caseDir").value.trim(),
     with_hash: $("withHash").checked,
     with_ffprobe: $("withFfprobe").checked,
-    skip_e01_verify: $("skipE01Verify").checked
+    skip_e01_verify: $("skipE01Verify").checked,
+    e01_direct: inputKind() === "e01" && $("directE01").checked
   });
   if (!res.ok) {
     $("btnStart").disabled = false;
@@ -369,6 +381,20 @@ $("btnCancel").addEventListener("click", async () => {
   await jpost("/api/cancel", {});
 });
 $("btnNew").addEventListener("click", () => location.reload());
+
+$("directE01").addEventListener("change", syncDirectE01);
+$("btnRecoverDeleted").addEventListener("click", async () => {
+  const btn = $("btnRecoverDeleted");
+  btn.disabled = true;
+  $("recoverHint").textContent = "삭제 영상 후보 복구 중… (후보 수에 따라 시간이 걸릴 수 있습니다)";
+  const res = await jpost("/api/recover-deleted", {});
+  btn.disabled = false;
+  if (!res.ok) {
+    $("recoverHint").textContent = "복구 실패: " + (res.error || "");
+    return;
+  }
+  $("recoverHint").textContent = "복구 완료 — 뷰어를 새로 열면 복구된 항목이 보입니다.";
+});
 
 $("btnFinalize").addEventListener("click", async () => {
   finalizing = true;

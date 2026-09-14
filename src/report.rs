@@ -417,7 +417,7 @@ document.getElementById("anomaly-findings").innerHTML = anomalyRows.length ? `<t
 
 document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length ? `<table>
   <thead>
-    <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
+    <tr><th>이벤트</th><th>이미지</th><th>오프셋</th><th>Inode</th><th>결과</th><th>경고</th><th>SHA-256 / 로그</th><th>감사 체인</th></tr>
   </thead>
   <tbody>
     ${{filesystemLog.map(item => `<tr>
@@ -426,6 +426,7 @@ document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length 
       <td>${{escapeHtml(item.partition_offset ?? "-")}}</td>
       <td><code>${{escapeHtml(item.inode || "-")}}</code></td>
       <td>${{escapeHtml(item.validation_status || `${{item.entry_count ?? "-"}} entries`)}}<br><code>${{escapeHtml(item.output_path || item.summary_path || "-")}}</code></td>
+      <td>${{Array.isArray(item.warnings) && item.warnings.length ? item.warnings.map(escapeHtml).join("<br>") : "-"}}</td>
       <td><code>${{escapeHtml(item.sha256 || item.entries_jsonl_path || "-")}}</code></td>
       <td><code>${{escapeHtml(item.entry_sha256 || "-")}}</code></td>
     </tr>`).join("")}}
@@ -471,7 +472,7 @@ function techniqueRows() {{
       parser: "tsk/icat",
       where: item.output_path || "-",
       when: null,
-      meta: fmtBytes(item.size_bytes),
+      meta: fmtBytes(item.size_bytes) + (Array.isArray(item.warnings) && item.warnings.length ? ` · 경고: ${{item.warnings.join("; ")}}` : ""),
       hash: item.sha256 || "-"
     }});
   }});

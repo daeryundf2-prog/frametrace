@@ -95,6 +95,14 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Automatic deleted-video recovery (`recover-batch --deleted-videos`):
   selects deleted video-candidate inodes from the latest filesystem
   inspection instead of requiring a hand-written selection file.
+- Examiner-workstation E01 triage mode ("빠른 검토"): a checkbox routes
+  E01 input through `inspect-e01 --filesystem`, so large segment sets
+  review without a raw export; a "삭제 영상 후보 복구" button runs
+  `recover-batch --deleted-videos` on the inspected image and refreshes
+  the review bundle.
+- Recovery/inspection warnings reach the reviewer: all-zero (TRIMmed)
+  icat output and truncated-listing warnings render as viewer badges,
+  detail entries, a case-level banner, and a report table column.
 
 ## Scope Decisions (2026-09)
 

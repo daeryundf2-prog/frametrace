@@ -151,8 +151,12 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
         None => {
             apply_schema_v2_indexes(conn)?;
             apply_schema_v3_tables(conn)?;
+            // Two processes can lose this same first-initialization race
+            // (e.g. the workstation status poller vs. a pipeline child):
+            // both see no row, one inserts first. OR IGNORE keeps the
+            // loser consistent instead of failing on the PRIMARY KEY.
             conn.execute(
-                "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
+                "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
                 [SCHEMA_VERSION],
             )
             .map_err(|err| format!("failed to store SQLite schema version: {err}"))?;
@@ -384,6 +388,40 @@ mod tests {
             });
         assert!(backup_exists);
 
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    /// First-initialization racing: the workstation status poller and a
+    /// pipeline child can both see an empty schema_meta and race the
+    /// version insert. Every racer must finish cleanly.
+    #[test]
+    fn concurrent_first_init_does_not_fail_on_version_insert() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-schema-race-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                handles.push(scope.spawn(|| {
+                    // Retry a few rounds: a racer may briefly see the
+                    // table before the winner commits the version row.
+                    for _ in 0..3 {
+                        let conn = open_case_db(&case_dir).unwrap();
+                        init_schema(&conn).unwrap();
+                    }
+                }));
+            }
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+
+        let conn = open_case_db(&case_dir).unwrap();
+        assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
         let _ = fs::remove_dir_all(case_dir);
     }
 

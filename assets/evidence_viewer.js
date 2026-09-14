@@ -377,6 +377,12 @@ function storageSet(key, value) {
 
 const validationsByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
 const recoveredFilesystemLog = filesystemLog.filter(item => item.event === "recover-inode" && item.output_path);
+// Case-level warnings recorded on inspection events (e.g. a truncated
+// fls listing means the deleted-file list is incomplete) — the reviewer
+// must see them, not just the CLI.
+const inspectionWarnings = filesystemLog
+  .filter(item => item.event === "inspect-image-filesystem" && Array.isArray(item.warnings) && item.warnings.length)
+  .flatMap(item => item.warnings);
 
 const records = [
   ...videos.map(video => {
@@ -467,6 +473,7 @@ const records = [
       offset: item.partition_offset,
       inode: item.inode,
       originalPath: original?.path || "",
+      warnings: Array.isArray(item.warnings) ? item.warnings : [],
       indexStatus: "active",
       validation
     };
@@ -558,7 +565,8 @@ const els = {
   dateFrom: document.getElementById("dateFrom"),
   dateTo: document.getElementById("dateTo"),
   dayHistogram: document.getElementById("dayHistogram"),
-  periodLabel: document.getElementById("periodLabel")
+  periodLabel: document.getElementById("periodLabel"),
+  caseWarnings: document.getElementById("caseWarnings")
 };
 
 const PRESET_CHIPS = [
@@ -812,11 +820,14 @@ function renderCard(record) {
   const anomalyChip = record.hasAnomaly
     ? `<span class="badge anomaly" title="${escapeHtml(record.anomalies.map(item => item.kind).join(", "))}">${escapeHtml(t("header.anomaly"))}</span>`
     : "";
+  const warnChip = (record.warnings || []).length
+    ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>`
+    : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}</div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}</div>
       ${tagsHtml}
       <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
@@ -959,6 +970,7 @@ function renderDetails() {
   const recordTags = tagListFor(record);
   document.getElementById("detailBadges").innerHTML = [
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
+    (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>` : "",
     record.hasAnomaly ? `<span class="badge anomaly">${escapeHtml(t("header.anomaly"))}</span>` : "",
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
     ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
@@ -1017,7 +1029,13 @@ function renderDetails() {
     <div class="muted">${escapeHtml(item.detail || "")}</div>
     <code>candidate-finding</code>
   </div>`);
+  const warningItems = (record.warnings || []).map(warning => `<div class="validation-item warn">
+    <strong>경고</strong>
+    <div class="muted">${escapeHtml(warning)}</div>
+    <code>recovery-warning</code>
+  </div>`);
   els.validationList.innerHTML = [
+    ...warningItems,
     ...related.map(item => `<div class="validation-item">
     <strong>${escapeHtml(item.validation_status || "-")}</strong>
     <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>
@@ -1094,6 +1112,14 @@ function renderMetrics() {
   }
   const markCount = Object.keys(state.marks).length;
   els.selectionCount.textContent = `${state.selectedIds.size}개 선택 · 마크 ${markCount}`;
+  if (els.caseWarnings) {
+    if (inspectionWarnings.length) {
+      els.caseWarnings.hidden = false;
+      els.caseWarnings.innerHTML = `<b>조사 경고 ${inspectionWarnings.length}건</b>${inspectionWarnings.map(escapeHtml).join(" · ")}`;
+    } else {
+      els.caseWarnings.hidden = true;
+    }
+  }
 }
 
 function renderChips() {
