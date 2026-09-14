@@ -20,11 +20,17 @@ const VIDEO_EXTENSIONS: &[&str] = &[
     "h265", "hevc",
 ];
 
+/// Called with `(processed, total)` file counts; `None` disables mid-run
+/// progress reporting (tests and headless callers). `total` is only known
+/// after candidate collection, so it rides along on every tick.
+pub type ScanProgress<'a> = dyn Fn(u64, u64) + Send + Sync + 'a;
+
 pub fn scan_folder(
     case_dir: &Path,
     source_dir: &Path,
     options: &ScanOptions,
     resume: ResumeMode,
+    progress: Option<&ScanProgress<'_>>,
 ) -> Result<ScanResult, String> {
     let source_dir = canonicalize_display(source_dir)
         .map_err(|err| format!("failed to canonicalize source: {err}"))?;
@@ -63,9 +69,11 @@ pub fn scan_folder(
     } else {
         HashMap::new()
     };
+    let total_files = collection.files.len() as u64;
     let mut records = Vec::with_capacity(collection.files.len());
     let mut unchanged_files = 0usize;
     let mut resumed_from_checkpoint = 0usize;
+    let mut processed_files = 0u64;
     let mut total_bytes = 0u64;
     let mut warnings = collection.warnings;
     if checkpoint.reset_stale() {
@@ -75,6 +83,15 @@ pub fn scan_folder(
     }
 
     for path in collection.files {
+        processed_files += 1;
+        // Report every 64 files (and once at the start) — frequent enough
+        // for a live progress bar, rare enough to keep SQLite writes off
+        // the hot path on 10k-file scans.
+        if let Some(report) = progress
+            && (processed_files % 64 == 1 || processed_files == total_files)
+        {
+            report(processed_files, total_files);
+        }
         let metadata = fs::metadata(&path)
             .map_err(|err| format!("failed to read metadata for {}: {err}", path.display()))?;
         total_bytes = total_bytes.saturating_add(metadata.len());
@@ -1268,7 +1285,8 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        let first =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(first.video_count, 2);
         let before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
 
@@ -1280,6 +1298,7 @@ mod tests {
                 ..options.clone()
             },
             ResumeMode::Auto,
+            None,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 0, "nothing was re-processed");
@@ -1297,6 +1316,7 @@ mod tests {
                 ..ScanOptions::default()
             },
             ResumeMode::Auto,
+            None,
         )
         .unwrap();
         assert_eq!(hashed.video_count, 2);
@@ -1321,7 +1341,8 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        let first =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(first.video_count, 3);
         let index_before = fs::read_to_string(case_dir.join("db/videos.jsonl")).unwrap();
         let keep_line = index_before
@@ -1356,6 +1377,7 @@ mod tests {
                 ..options
             },
             ResumeMode::Auto,
+            None,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 2, "changed + new files processed");
@@ -1398,7 +1420,7 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         // Flag the record, then rescan unchanged: the flag forces a fresh
         // record, so the flag does not linger on live evidence.
         let index_path = case_dir.join("db/videos.jsonl");
@@ -1416,6 +1438,7 @@ mod tests {
                 ..options
             },
             ResumeMode::Auto,
+            None,
         )
         .unwrap();
         assert_eq!(rescan.video_count, 1);
@@ -1464,7 +1487,8 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        let first =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(first.video_count, 3);
         let record_lines: Vec<String> = fs::read_to_string(case_dir.join("db/videos.jsonl"))
             .unwrap()
@@ -1486,7 +1510,7 @@ mod tests {
         leave_checkpoint(&case_dir, &source_dir, &options, &record_lines[..2]);
 
         let second =
-            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(second.resumed_from_checkpoint, 2);
         assert_eq!(second.video_count, 3);
         assert!(
@@ -1533,7 +1557,7 @@ mod tests {
         }
 
         let result =
-            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(result.resumed_from_checkpoint, 0);
         assert_eq!(result.video_count, 1);
         assert!(
@@ -1558,7 +1582,8 @@ mod tests {
             use_ffprobe: false,
             ..ScanOptions::default()
         };
-        let first = super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+        let first =
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(first.video_count, 2);
         let record_lines: Vec<String> = fs::read_to_string(case_dir.join("db/videos.jsonl"))
             .unwrap()
@@ -1584,7 +1609,7 @@ mod tests {
         drop(handle);
 
         let second =
-            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto).unwrap();
+            super::scan_folder(&case_dir, &source_dir, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(second.resumed_from_checkpoint, 1);
         assert_eq!(second.video_count, 2);
         let _ = fs::remove_dir_all(case_dir.parent().unwrap());

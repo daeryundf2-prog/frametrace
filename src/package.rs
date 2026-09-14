@@ -43,6 +43,14 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
         ),
     };
     validate_required_package_files(case_dir)?;
+    // Preflight: the package duplicates every report/artifact under the
+    // case dir, so ensure the target volume can hold a second copy before
+    // the copy loop starts.
+    crate::diskspace::ensure_available(
+        &output_dir,
+        estimate_package_bytes(case_dir),
+        "package-case",
+    )?;
     fs::create_dir_all(&output_dir)
         .map_err(|err| format!("failed to create package output: {err}"))?;
 
@@ -90,6 +98,52 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
         file_count: files.len(),
         manifest_path,
     })
+}
+
+/// Upper-bound estimate of bytes the package will copy: every required and
+/// optional file, all reports/*.md, and every file under the recursively
+/// packaged directories.
+fn estimate_package_bytes(case_dir: &Path) -> u64 {
+    fn dir_bytes(path: &Path, total: &mut u64) {
+        let Ok(entries) = fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                *total =
+                    total.saturating_add(fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0));
+            } else if path.is_dir() {
+                dir_bytes(&path, total);
+            }
+        }
+    }
+
+    let mut total = 0u64;
+    for rel in required_package_files()
+        .iter()
+        .chain(optional_package_files().iter())
+    {
+        total = total.saturating_add(
+            fs::metadata(case_dir.join(rel))
+                .map(|meta| meta.len())
+                .unwrap_or(0),
+        );
+    }
+    let reports_dir = case_dir.join("reports");
+    if let Ok(entries) = fs::read_dir(&reports_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "md") && path.is_file() {
+                total =
+                    total.saturating_add(fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0));
+            }
+        }
+    }
+    for rel_dir in recursive_package_dirs() {
+        dir_bytes(&case_dir.join(rel_dir), &mut total);
+    }
+    total
 }
 
 fn reject_recursive_package_output(case_dir: &Path, output_dir: &Path) -> Result<(), String> {

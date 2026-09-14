@@ -750,8 +750,7 @@ function applyVideoScale() {
   }
 }
 
-function renderGrid() {
-  const filtered = filteredRecords();
+function renderGrid(filtered) {
   if (!filtered.some(record => record.id === state.activeId)) {
     state.activeId = filtered[0]?.id || records[0]?.id || null;
   }
@@ -824,9 +823,9 @@ function renderCard(record) {
   </div>`;
 }
 
-function renderHistogram() {
+function renderHistogram(filtered) {
   const days = new Map();
-  filteredRecords().forEach(record => {
+  filtered.forEach(record => {
     if (record.recDay) days.set(record.recDay, (days.get(record.recDay) || 0) + 1);
   });
   const top = [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-16);
@@ -1120,11 +1119,13 @@ function renderChips() {
 
 function render() {
   applyChromeI18n();
+  // Filter+sort once per render — grid and histogram share the result.
+  const filtered = filteredRecords();
   renderMetrics();
   renderChips();
-  renderHistogram();
+  renderHistogram(filtered);
   renderTree();
-  renderGrid();
+  renderGrid(filtered);
   renderDetails();
 }
 
@@ -1138,7 +1139,7 @@ function setupGridDelegation() {
       const key = header.dataset.group;
       if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
       else state.collapsedGroups.add(key);
-      renderGrid();
+      renderGrid(filteredRecords());
       return;
     }
     if (event.target.closest("input[type='checkbox']")) return;

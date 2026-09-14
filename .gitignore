@@ -1,4 +1,5 @@
 /target
+/target2
 /fuzz/target
 /fuzz/artifacts
 /fuzz/corpus
@@ -32,7 +33,12 @@
 *.dd
 *.E01
 *.Ex01
+*.L01
 *.jpg
 *.jpeg
 *.png
 /dist/
+
+# Locally staged third-party tool binaries (libewf, Sleuth Kit, ffmpeg).
+# These are deployed per-workstation, never committed.
+/tools

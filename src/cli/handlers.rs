@@ -119,7 +119,13 @@ pub fn scan_folder(
         None,
         &scan_options_json(&options),
     )?;
-    let result = match scan::scan_folder(case_dir, source_dir, &options, resume) {
+    let progress_job_id = job.job_id.clone();
+    let progress = move |done: u64, total: u64| {
+        // Progress ticks are best-effort: a transient SQLite write failure
+        // must never fail the scan itself.
+        let _ = case_db::report_job_progress(case_dir, &progress_job_id, Some(total), done);
+    };
+    let result = match scan::scan_folder(case_dir, source_dir, &options, resume, Some(&progress)) {
         Ok(result) => result,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
@@ -182,7 +188,7 @@ pub fn register_source(
 
 pub fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
     ensure_case(case_dir)?;
-    e01::inspect_e01(case_dir, e01_file, &options)?;
+    let is_corrupted = e01::inspect_e01(case_dir, e01_file, &options)?;
     let row = case_db::register_evidence_source(
         case_dir,
         &case_db::EvidenceSourceInput {
@@ -197,6 +203,11 @@ pub fn inspect_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Res
         },
     )?;
     println!("E01 inspected");
+    if is_corrupted {
+        println!(
+            "warning: ewfinfo flags this segment set as corrupted/incomplete; see the info log"
+        );
+    }
     println!("source registered: {} ({})", row.source_id, row.kind);
     println!("source: {}", e01_file.display());
     println!(
@@ -742,7 +753,11 @@ pub fn carve_file(
         Some(options.max_candidates as u64),
         &carve_options_json(&options),
     )?;
-    let result = match carve::carve_file(case_dir, source_file, &options, resume) {
+    let progress_job_id = job.job_id.clone();
+    let progress = move |done: u64, total: u64| {
+        let _ = case_db::report_job_progress(case_dir, &progress_job_id, Some(total), done);
+    };
+    let result = match carve::carve_file(case_dir, source_file, &options, resume, Some(&progress)) {
         Ok(result) => result,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
@@ -1325,6 +1340,8 @@ pub fn validate_batch(
     let slots: std::sync::Mutex<Vec<Option<Result<crate::validation::ValidationResult, String>>>> =
         std::sync::Mutex::new((0..items.len()).map(|_| None).collect());
     let next_index = std::sync::atomic::AtomicUsize::new(0);
+    let completed_count = std::sync::atomic::AtomicUsize::new(replayed_done);
+    let progress_job_id = job.job_id.clone();
     // The checkpoint moves into a mutex for the parallel sweep so workers
     // can persist each finished compute; it is taken back afterwards.
     let checkpoint_mutex = std::sync::Mutex::new(checkpoint);
@@ -1365,6 +1382,19 @@ pub fn validate_batch(
                         continue;
                     }
                     lock_or_recover(slots)[index] = Some(outcome);
+                    // Progress ticks land on whichever worker crosses each
+                    // 16-item boundary — best-effort, so a SQLite hiccup
+                    // never fails the batch.
+                    let finished =
+                        completed_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    if finished.is_multiple_of(16) || finished == items.len() {
+                        let _ = case_db::report_job_progress(
+                            case_dir,
+                            &progress_job_id,
+                            None,
+                            finished as u64,
+                        );
+                    }
                 }
             });
         }

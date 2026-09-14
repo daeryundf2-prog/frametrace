@@ -14,6 +14,10 @@ Phase 2 review focused on local file handling, external command boundaries, repo
 | Medium | Selector-to-path resolution may trust poisoned logs or free-form paths. | Pending | Security Owner |
 | Medium | Recursive packaging could follow symlinked inputs outside the intended tree. | Fixed for package inputs. | Engineering Lead |
 | Medium | Manual JSON-like parsing increases malformed input risk. | Partially mitigated for `ffprobe`; broader migration pending. | Engineering Lead |
+| Medium | Media-path containment compared canonical path strings case-insensitively, which could pass a case-only-different sibling on case-sensitive filesystems. | Fixed: `Path::starts_with` component-wise comparison on canonicalized paths. | Engineering Lead |
+| Medium | The workstation pipeline piped child stdout/stderr but only drained them after exit, so a chatty child (>64 KiB output) could deadlock the run. | Fixed: both pipes are drained on separate threads while the child runs; only a bounded tail is retained. | Engineering Lead |
+| Low | `first_free_port` probed a port by binding then dropping the listener, racing any process that claimed it before the real bind. | Fixed: the successfully bound listener is reused directly. | Engineering Lead |
+| Low | `fs2` 0.4.3 (audit-chain file locking, disk-space checks) is unmaintained upstream. | Accepted risk: API is a thin OS wrapper with 72M+ downloads; successor `fs4` is API-incompatible churn. Re-evaluate if a lock-semantics CVE appears. | Engineering Lead |
 
 ## Implemented Security Fixes
 

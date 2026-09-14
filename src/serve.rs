@@ -90,6 +90,11 @@ struct JobState {
     error: Option<String>,
     busy: bool,
     cancel_requested: bool,
+    /// Byte-level progress hint for steps that run inside an external tool
+    /// (ewfexport) where no in-process callback exists: the pipeline spawns
+    /// a thread that stats the growing output file and stores its size
+    /// here. `None` when the DB `jobs` row is the progress source.
+    byte_progress: Option<(PathBuf, Option<u64>)>,
 }
 
 impl JobState {
@@ -105,6 +110,7 @@ impl JobState {
             error: None,
             busy: false,
             cancel_requested: false,
+            byte_progress: None,
         }
     }
 }
@@ -123,12 +129,15 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     if let Some(case_dir) = &options.case_dir {
         state_lock(&state).case_dir = Some(case_dir.clone());
     }
-    let port = match options.port {
-        Some(port) => port,
+    let listener = match options.port {
+        Some(port) => TcpListener::bind(("127.0.0.1", port))
+            .map_err(|err| format!("failed to bind 127.0.0.1:{port}: {err}"))?,
+        // The probe listener is passed straight through instead of being
+        // dropped and re-bound: between "probe says free" and "bind for
+        // real" another process could claim the port (classic TOCTOU).
         None => first_free_port().ok_or("사용 가능한 로컬 포트를 찾지 못했습니다")?,
     };
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .map_err(|err| format!("failed to bind 127.0.0.1:{port}: {err}"))?;
+    let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
     let url = format!("http://127.0.0.1:{port}/");
     println!("FrameTrace examiner workstation is running.");
     println!("  {url}");
@@ -157,18 +166,13 @@ fn serve_on(listener: TcpListener, state: SharedState) {
     }
 }
 
-fn first_free_port() -> Option<u16> {
+fn first_free_port() -> Option<TcpListener> {
     for port in 8477..=8486 {
-        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return Some(port);
-        }
-    }
-    for port in [0u16] {
         if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
-            return listener.local_addr().ok().map(|addr| addr.port());
+            return Some(listener);
         }
     }
-    None
+    TcpListener::bind(("127.0.0.1", 0)).ok()
 }
 
 fn open_in_browser(url: &str) {
@@ -478,12 +482,61 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
     }
 }
 
+/// Tools probed at startup. `(binary, version-arg)`: TSK tools print usage
+/// to stderr and exit non-zero for a bare `-V`, so presence is checked by
+/// binary resolution alone (arg `""` → resolve only, don't execute).
+const PROBED_TOOLS: &[(&str, &str)] = &[
+    ("ffmpeg", "-version"),
+    ("ffprobe", "-version"),
+    ("ewfinfo", "-V"),
+    ("ewfverify", "-V"),
+    ("ewfexport", "-V"),
+    ("mmls", ""),
+    ("fls", ""),
+    ("icat", ""),
+];
+
 fn api_env() -> String {
+    let tools: Vec<(&str, bool)> = PROBED_TOOLS
+        .iter()
+        .map(|(name, arg)| (*name, tool_available(name, arg)))
+        .collect();
+    let has = |name: &str| tools.iter().any(|(n, ok)| *n == name && *ok);
+    // Workflows require every binary in their set.
+    let media = has("ffmpeg") && has("ffprobe");
+    let ewf = has("ewfinfo") && has("ewfverify") && has("ewfexport");
+    let tsk = has("mmls") && has("fls") && has("icat");
     format!(
-        "{{\"ok\":true,\"ffmpeg\":{},\"ffprobe\":{},\"ewf\":{}}}",
-        json_bool(tool_available("ffmpeg", "-version")),
-        json_bool(tool_available("ffprobe", "-version")),
-        json_bool(tool_available("ewfinfo", "-V"))
+        "{{\"ok\":true,\"ffmpeg\":{},\"ffprobe\":{},\"ewf\":{},\"tools\":{{{}}},\"workflows\":{{\"media\":{},\"e01\":{},\"filesystem\":{}}},\"hints\":{{{}}}}}",
+        json_bool(has("ffmpeg")),
+        json_bool(has("ffprobe")),
+        json_bool(ewf),
+        tools
+            .iter()
+            .map(|(name, ok)| format!("{}:{}", json_string(name), json_bool(*ok)))
+            .collect::<Vec<_>>()
+            .join(","),
+        json_bool(media),
+        json_bool(ewf),
+        json_bool(tsk),
+        [
+            (
+                "media",
+                "FFmpeg 설치 후 ffmpeg/ffprobe가 PATH에 있어야 합니다. portable 배포본은 tools/bin에 복사하면 자동 인식됩니다.",
+            ),
+            (
+                "e01",
+                "libewf(ewfinfo/ewfverify/ewfexport) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+            ),
+            (
+                "filesystem",
+                "Sleuth Kit(mmls/fls/icat) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+            ),
+        ]
+        .iter()
+        .map(|(key, hint)| format!("{}:{}", json_string(key), json_string(hint)))
+        .collect::<Vec<_>>()
+        .join(","),
     )
 }
 
@@ -493,6 +546,11 @@ fn tool_available(name: &str, version_arg: &str) -> bool {
     let Ok(resolved) = crate::tool_policy::resolve_tool_binary(name, &[name]) else {
         return false;
     };
+    // An empty version_arg means "resolution is enough" — TSK tools have no
+    // -V flag and print usage to stderr, so executing them tells us nothing.
+    if version_arg.is_empty() {
+        return true;
+    }
     let mut command = Command::new(&resolved);
     command.arg(version_arg);
     command
@@ -510,6 +568,8 @@ fn json_bool(value: bool) -> &'static str {
 
 fn api_status(state: &SharedState) -> String {
     let guard = state_lock(state);
+    let case_dir = guard.case_dir.clone();
+    let byte_progress = guard.byte_progress.clone();
     let steps: Vec<String> = guard
         .steps
         .iter()
@@ -539,7 +599,7 @@ fn api_status(state: &SharedState) -> String {
         None => "null".to_string(),
     };
     format!(
-        "{{\"ok\":true,\"has_job\":{},\"phase\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error}}}",
+        "{{\"ok\":true,\"has_job\":{},\"phase\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
         json_bool(guard.phase != "idle"),
         json_string(guard.phase),
         steps.join(","),
@@ -547,6 +607,72 @@ fn api_status(state: &SharedState) -> String {
         logs.join(","),
         opt(&guard.case_dir),
         opt(&guard.package_dir),
+        progress_json(case_dir.as_deref(), byte_progress.as_ref()),
+    )
+}
+
+/// Reads the newest running job's progress from the case DB so the UI can
+/// render a real progress bar + ETA instead of an indeterminate spinner.
+/// Failures degrade to `"progress":null` — status must never 500 because
+/// a progress read raced the job writer.
+fn progress_json(
+    case_dir: Option<&Path>,
+    byte_progress: Option<&(PathBuf, Option<u64>)>,
+) -> String {
+    let Some(case_dir) = case_dir else {
+        return "null".to_string();
+    };
+    let job = crate::case_db::latest_running_job(case_dir).ok().flatten();
+    let Some(job) = job else {
+        // Fallback: external-tool steps (e.g. ewfexport) don't touch the
+        // jobs table — report output bytes seen so far as an indeterminate
+        // progress signal.
+        return byte_progress_json(byte_progress);
+    };
+    let now = crate::util::now_unix().unwrap_or(job.updated_unix);
+    let elapsed = now.saturating_sub(job.started_unix).max(1);
+    let total = job.total_units.unwrap_or(0);
+    let done = job.completed_units;
+    // ETA from the average rate since job start; caller treats it as an
+    // estimate ("계산 중" below some completeness) and rounds for display.
+    let eta = if total > 0 && done > 0 && done < total {
+        let rate = done as f64 / elapsed as f64;
+        if rate > 0.0 {
+            ((total - done) as f64 / rate) as u64
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    format!(
+        "{{\"job_type\":{},\"done\":{},\"total\":{},\"elapsed_secs\":{},\"eta_secs\":{}}}",
+        json_string(&job.job_type),
+        done,
+        total,
+        elapsed,
+        eta
+    )
+}
+
+/// Byte-level fallback for steps whose work happens inside an external
+/// tool (ewfexport): the pipeline records the output path being written
+/// and an optional total (E01 source size ≈ lower bound of raw bytes).
+fn byte_progress_json(byte_progress: Option<&(PathBuf, Option<u64>)>) -> String {
+    let Some((path, total)) = byte_progress else {
+        return "null".to_string();
+    };
+    let done = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    if done == 0 {
+        return "null".to_string();
+    }
+    let total = match total {
+        Some(t) if *t > done => *t,
+        _ => 0, // unknown total → UI shows indeterminate + bytes written
+    };
+    format!(
+        "{{\"job_type\":\"import-e01\",\"done\":{},\"total\":{},\"elapsed_secs\":0,\"eta_secs\":0}}",
+        done, total
     )
 }
 
@@ -721,7 +847,14 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
         if job.skip_e01_verify {
             args.push("--skip-verify".into());
         }
-        match run_step(&exe, &args, &state) {
+        // ewfexport runs inside the CLI child, so no in-process progress
+        // callback exists — the UI instead reports the growing raw file
+        // size as a byte-level progress signal. E01 is compressed, so the
+        // source size is only a lower bound; pass None (indeterminate).
+        state_lock(&state).byte_progress = Some((raw_path.clone(), None));
+        let import_result = run_step(&exe, &args, &state);
+        state_lock(&state).byte_progress = None;
+        match import_result {
             Ok(output) => {
                 log(&state, output);
                 // Bind the imported raw to this E01 so a later run with a
@@ -796,6 +929,7 @@ fn run_e01_pipeline(state: SharedState, job: PipelineJob) {
             let mut guard = state_lock(&state);
             guard.phase = "review-ready";
             guard.busy = false;
+            guard.byte_progress = None;
             guard.logs.push(
                 "검토 화면이 준비되었습니다. 삭제파일 복구·카빙은 CLI(recover-inode/carve-file)로 수행한 뒤 재검토하십시오.".into(),
             );
@@ -955,6 +1089,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
             let mut guard = state_lock(&state);
             guard.phase = "review-ready";
             guard.busy = false;
+            guard.byte_progress = None;
             guard
                 .logs
                 .push("검토 화면이 준비되었습니다. 뷰어에서 증거를 확인하십시오.".into());
@@ -970,9 +1105,15 @@ fn fail(state: &SharedState, message: &str) {
     let mut guard = state_lock(state);
     guard.phase = "error";
     guard.busy = false;
+    guard.byte_progress = None;
     guard.error = Some(message.to_string());
     guard.logs.push(format!("오류: {message}"));
 }
+
+/// How much of a pipeline step's stdout/stderr the workstation keeps.
+/// The full stream is drained (required to prevent the deadlock below) but
+/// only this tail is retained for the log panel and error reporting.
+const STEP_OUTPUT_TAIL_BYTES: usize = 256 * 1024;
 
 fn run_step(exe: &Path, args: &[String], state: &SharedState) -> Result<String, String> {
     let mut child = Command::new(exe)
@@ -981,41 +1122,70 @@ fn run_step(exe: &Path, args: &[String], state: &SharedState) -> Result<String, 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| format!("{} 실행 실패: {err}", exe.display()))?;
-    let output = loop {
-        let cancelled = state_lock(state).cancel_requested;
-        if cancelled {
+    // Both pipes must be drained while the child runs: a child that fills
+    // the OS pipe buffer blocks on write, and a parent that only polls
+    // try_wait() then waits forever — the classic pipe deadlock. tsk.rs
+    // uses the same reader-thread pattern for icat.
+    let mut stdout_pipe = child.stdout.take().expect("stdout was piped");
+    let mut stderr_pipe = child.stderr.take().expect("stderr was piped");
+    let stdout_reader = thread::spawn(move || drain_capped(&mut stdout_pipe));
+    let stderr_reader = thread::spawn(move || drain_capped(&mut stderr_pipe));
+    let status = loop {
+        if state_lock(state).cancel_requested {
             let _ = child.kill();
         }
         match child.try_wait() {
-            Ok(Some(_)) => {
-                break child
-                    .wait_with_output()
-                    .map_err(|err| format!("{} 출력 수집 실패: {err}", exe.display()))?;
-            }
+            Ok(Some(status)) => break status,
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(150)),
             Err(err) => return Err(format!("{} 실행 대기 실패: {err}", exe.display())),
         }
     };
+    // The child has exited, so both pipes are at EOF and these joins
+    // return immediately with whatever tail was retained.
+    let stdout_tail = stdout_reader.join().unwrap_or_default();
+    let stderr_tail = stderr_reader.join().unwrap_or_default();
     if state_lock(state).cancel_requested {
         return Err("사용자가 분석을 중단했습니다.".to_string());
     }
-    let mut text = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut text = String::from_utf8_lossy(&stdout_tail).to_string();
+    let stderr = String::from_utf8_lossy(&stderr_tail);
     if !stderr.trim().is_empty() {
         text.push_str(&stderr);
     }
-    if !output.status.success() {
+    if !status.success() {
         let mut tail_lines: Vec<&str> = text.lines().rev().take(4).collect();
         tail_lines.reverse();
         let tail = tail_lines.join(" | ");
         return Err(format!(
             "{} 실패 (exit {:?}): {}",
             args.first().map(String::as_str).unwrap_or("command"),
-            output.status.code(),
+            status.code(),
             tail
         ));
     }
     Ok(text.trim_end().to_string())
+}
+
+/// Drains `pipe` to EOF, retaining only the last `STEP_OUTPUT_TAIL_BYTES`.
+/// Retention stays bounded even when a step emits unbounded progress
+/// output, while the drain itself keeps the child's write end from ever
+/// blocking on a full pipe.
+fn drain_capped(pipe: &mut impl std::io::Read) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match pipe.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.len() > STEP_OUTPUT_TAIL_BYTES {
+                    let excess = buffer.len() - STEP_OUTPUT_TAIL_BYTES;
+                    buffer.drain(..excess);
+                }
+            }
+        }
+    }
+    buffer
 }
 
 /// Extract every top-level `videos[].id` from db/video_index.json and
@@ -1297,6 +1467,7 @@ fn api_finalize(state: &SharedState) -> String {
                 .unwrap_or_default();
             guard.phase = "done";
             guard.busy = false;
+            guard.byte_progress = None;
             guard.package_dir = package_dir.clone();
             guard.logs.push("보고서·패키지 생성 완료.".into());
             format!(
@@ -1390,14 +1561,12 @@ fn path_is_under(root: &Path, candidate: &Path) -> bool {
     let Ok(root_canonical) = root.canonicalize() else {
         return false;
     };
-    let root_text = root_canonical.to_string_lossy();
-    let candidate_text = candidate.to_string_lossy();
-    let root_len = root_text.len();
-    candidate_text.len() >= root_len
-        && candidate_text[..root_len].eq_ignore_ascii_case(&root_text)
-        && (candidate_text.len() == root_len
-            || candidate_text[root_len..].starts_with('\\')
-            || candidate_text[root_len..].starts_with('/'))
+    // Component-wise comparison on canonicalized paths: both sides resolve
+    // to the filesystem's real casing, so the prefix check is exact. The
+    // old case-folded string compare treated `CASE/` as `case/` — on a
+    // case-sensitive filesystem that is a *different* directory, i.e. a
+    // containment bypass.
+    candidate.starts_with(&root_canonical)
 }
 
 /// Streams a media file with HTTP Range support so <video> can seek.
@@ -1426,7 +1595,11 @@ fn serve_media(
         Ok(meta) => meta.len(),
         Err(_) => return write_simple(stream, 404, b"media not found"),
     };
-    let (start, end, code) = match request.range.as_deref().and_then(parse_range) {
+    let (start, end, code) = match request
+        .range
+        .as_deref()
+        .and_then(|value| parse_range(value, total))
+    {
         Some((start, end)) if start < total => {
             let end = end.unwrap_or(total - 1).min(total - 1);
             if end < start {
@@ -1501,11 +1674,23 @@ fn write_simple(stream: &mut TcpStream, code: u16, body: &[u8]) -> Result<(), St
         .map_err(|err| format!("write failed: {err}"))
 }
 
-fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
+/// Parses an HTTP `Range` header against a known entity length.
+/// Supports `bytes=start-end`, `bytes=start-`, and the suffix form
+/// `bytes=-N` (Safari issues suffix ranges; returning None there would
+/// make its <video> requests unanswerable).
+fn parse_range(value: &str, total: u64) -> Option<(u64, Option<u64>)> {
     let value = value.strip_prefix("bytes=")?;
     let (start_text, end_text) = value.split_once('-')?;
     if start_text.is_empty() {
-        return None; // suffix ranges are rare in browsers; ignore safely
+        // Suffix range: the last N bytes. A zero or unparseable length is
+        // unsatisfiable per RFC 7233 — signal it via start >= total so the
+        // caller maps to 416.
+        let suffix = end_text.parse::<u64>().ok()?;
+        if suffix == 0 {
+            return Some((u64::MAX, None));
+        }
+        let start = total.saturating_sub(suffix);
+        return Some((start, None));
     }
     let start = start_text.parse::<u64>().ok()?;
     let end = if end_text.is_empty() {
@@ -1595,11 +1780,78 @@ mod tests {
 
     #[test]
     fn parses_media_range_headers() {
-        assert_eq!(parse_range("bytes=0-1023"), Some((0, Some(1023))));
-        assert_eq!(parse_range("bytes=100-"), Some((100, None)));
-        assert_eq!(parse_range("bytes=-500"), None);
-        assert_eq!(parse_range("items=1-2"), None);
-        assert_eq!(parse_range("bytes=abc-"), None);
+        assert_eq!(parse_range("bytes=0-1023", 2048), Some((0, Some(1023))));
+        assert_eq!(parse_range("bytes=100-", 2048), Some((100, None)));
+        // Suffix ranges: last N bytes of a 2048-byte entity.
+        assert_eq!(parse_range("bytes=-500", 2048), Some((1548, None)));
+        // A suffix longer than the entity clamps to the whole entity.
+        assert_eq!(parse_range("bytes=-99999", 2048), Some((0, None)));
+        // A zero suffix is unsatisfiable (start >= total → caller maps 416).
+        assert_eq!(parse_range("bytes=-0", 2048), Some((u64::MAX, None)));
+        assert_eq!(parse_range("items=1-2", 2048), None);
+        assert_eq!(parse_range("bytes=abc-", 2048), None);
+        assert_eq!(parse_range("bytes=-abc", 2048), None);
+        // Zero-byte entity: a suffix range resolves to start 0, and the
+        // caller's `start < total` check maps it to 416 rather than
+        // trying to stream a byte that does not exist.
+        assert_eq!(parse_range("bytes=-10", 0), Some((0, None)));
+    }
+
+    #[test]
+    fn progress_json_reports_running_job_with_eta() {
+        let case_dir =
+            std::env::temp_dir().join(format!("ft-progress-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&case_dir);
+        std::fs::create_dir_all(&case_dir).unwrap();
+
+        // No job row yet → null.
+        assert_eq!(progress_json(Some(&case_dir), None), "null");
+
+        let job = crate::case_db::start_job(
+            &case_dir,
+            "scan-folder",
+            Path::new("/evidence"),
+            Some(100),
+            "{}",
+        )
+        .unwrap();
+        crate::case_db::report_job_progress(&case_dir, &job.job_id, Some(100), 50).unwrap();
+
+        let json = progress_json(Some(&case_dir), None);
+        assert!(json.contains("\"job_type\":\"scan-folder\""), "{json}");
+        assert!(json.contains("\"done\":50"), "{json}");
+        assert!(json.contains("\"total\":100"), "{json}");
+        assert!(json.contains("\"elapsed_secs\":"), "{json}");
+
+        crate::case_db::complete_job(&case_dir, &job.job_id, 100, "done").unwrap();
+        assert_eq!(progress_json(Some(&case_dir), None), "null");
+
+        let _ = std::fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn byte_progress_reports_growing_output_file() {
+        let case_dir =
+            std::env::temp_dir().join(format!("ft-byteprogress-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&case_dir);
+        std::fs::create_dir_all(&case_dir).unwrap();
+        let raw = case_dir.join("evidence.raw");
+        std::fs::write(&raw, vec![0u8; 4096]).unwrap();
+
+        let json = byte_progress_json(Some(&(raw.clone(), None)));
+        assert!(json.contains("\"done\":4096"), "{json}");
+        assert!(json.contains("\"total\":0"), "{json}");
+
+        // A known larger total yields a real numerator/denominator pair.
+        let json = byte_progress_json(Some(&(raw.clone(), Some(8192))));
+        assert!(json.contains("\"total\":8192"), "{json}");
+
+        // Missing file or absent hint degrades to null, never an error.
+        std::fs::remove_file(&raw).unwrap();
+        assert_eq!(byte_progress_json(Some(&(raw, None))), "null");
+        assert_eq!(byte_progress_json(None), "null");
+
+        let _ = std::fs::remove_dir_all(case_dir);
     }
 
     #[test]
@@ -1675,12 +1927,38 @@ mod tests {
         let sibling_canon = sibling.canonicalize().unwrap();
         assert!(path_is_under(&root_canon, &child_canon));
         assert!(path_is_under(&root_canon, &root_canon));
-        // case-insensitive drive/path comparison on Windows
+        // On case-insensitive filesystems (Windows, default APFS) an
+        // uppercased root still canonicalizes to the same directory; on
+        // case-sensitive filesystems the uppercased path does not exist
+        // and canonicalize fails — either way containment holds.
         let upper = PathBuf::from(root_canon.to_string_lossy().to_uppercase());
-        assert!(path_is_under(&upper, &child_canon));
+        if upper.canonicalize().is_ok() {
+            assert!(path_is_under(&upper, &child_canon));
+        }
         assert!(!path_is_under(&root_canon, &sibling_canon));
         let _ = std::fs::remove_dir_all(&base);
         let _ = std::fs::remove_dir_all(&sibling);
+    }
+
+    #[test]
+    fn containment_rejects_case_variant_siblings_on_case_sensitive_fs() {
+        let pid = std::process::id();
+        let lower = std::env::temp_dir().join(format!("ft_casevar_{pid}"));
+        let upper = std::env::temp_dir().join(format!("FT_CASEVAR_{pid}"));
+        let _ = std::fs::remove_dir_all(&lower);
+        let _ = std::fs::remove_dir_all(&upper);
+        std::fs::create_dir_all(&lower).unwrap();
+        std::fs::create_dir_all(&upper).unwrap();
+        let lower_canon = lower.canonicalize().unwrap();
+        let upper_canon = upper.canonicalize().unwrap();
+        // On a case-sensitive filesystem the two paths are DIFFERENT
+        // directories, so the case-variant sibling must fail containment
+        // (the old ASCII case-folded prefix compare would have passed it).
+        if lower_canon != upper_canon {
+            assert!(!path_is_under(&lower_canon, &upper_canon));
+        }
+        let _ = std::fs::remove_dir_all(&lower);
+        let _ = std::fs::remove_dir_all(&upper);
     }
 
     #[test]
@@ -1787,6 +2065,66 @@ mod tests {
             None,
             Some("evil.example")
         )));
+    }
+
+    /// Helper child for `run_step_drains_large_child_output`: re-runs this
+    /// test binary filtered to `spew_stderr_helper`, which floods stderr
+    /// well past the OS pipe buffer.
+    #[test]
+    fn spew_stderr_helper() {
+        if std::env::var("FRAMETRACE_TEST_SPEW").as_deref() != Ok("1") {
+            return;
+        }
+        for index in 0..8000 {
+            eprintln!("spew line {index}: {}", "x".repeat(80));
+        }
+    }
+
+    /// Regression: a pipeline child writing more than the ~64 KiB pipe
+    /// buffer to stderr must not deadlock the workstation. Before the
+    /// reader threads, try_wait() polled forever while the child blocked
+    /// on a full pipe — this test would hang instead of failing.
+    #[test]
+    fn run_step_drains_large_child_output() {
+        let exe = std::env::current_exe().unwrap();
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        unsafe {
+            std::env::set_var("FRAMETRACE_TEST_SPEW", "1");
+        }
+        let result = run_step(
+            &exe,
+            &[
+                "serve::tests::spew_stderr_helper".to_string(),
+                "--exact".to_string(),
+                "--nocapture".to_string(),
+            ],
+            &state,
+        );
+        unsafe {
+            std::env::remove_var("FRAMETRACE_TEST_SPEW");
+        }
+        let text = result.expect("spewing child must complete, not deadlock");
+        assert!(text.contains("spew line"), "{text}");
+        // Retained output stays bounded at the tail cap even though the
+        // child emitted ~640 KiB.
+        assert!(
+            text.len() <= STEP_OUTPUT_TAIL_BYTES + 4096,
+            "retained output {} exceeded tail cap",
+            text.len()
+        );
+    }
+
+    #[test]
+    fn drain_capped_retains_only_the_tail() {
+        let input: Vec<u8> = (0..(STEP_OUTPUT_TAIL_BYTES * 2))
+            .map(|index| (index % 251) as u8)
+            .collect();
+        let drained = drain_capped(&mut input.as_slice());
+        assert_eq!(drained.len(), STEP_OUTPUT_TAIL_BYTES);
+        assert_eq!(
+            drained.as_slice(),
+            &input[input.len() - STEP_OUTPUT_TAIL_BYTES..]
+        );
     }
 
     #[test]

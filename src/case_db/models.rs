@@ -61,6 +61,18 @@ pub struct JobRecord {
     pub status: String,
 }
 
+/// Live progress of a running job, read by the examiner workstation's
+/// status endpoint. `total_units` is None for jobs whose total cannot be
+/// known up front (e.g. external-tool exports measured in output bytes).
+pub struct JobProgress {
+    pub job_id: String,
+    pub job_type: String,
+    pub total_units: Option<u64>,
+    pub completed_units: u64,
+    pub started_unix: u64,
+    pub updated_unix: u64,
+}
+
 pub struct DbBenchmarkResult {
     pub path: PathBuf,
     pub rows: usize,

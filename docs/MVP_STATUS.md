@@ -65,6 +65,29 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   `qa consistency`, `qa performance`, `qa release`, `qa anomalies`.
 - Dual-OS CI: Windows (MSVC) and macOS (arm64) lanes, both running fmt /
   clippy / tests / real-tool ITs / workstation E2E / performance smoke.
+- Mid-command resume checkpoints for scan/carve/validate-batch runs
+  (`db/*-progress.jsonl` with input fingerprints, `--resume`/`--no-resume`).
+- Opt-in keyed HMAC layer on the audit hash chain, `rotate-audit-key`, and
+  `--key-source env:|file:` secret injection (docs/audit-hmac-design.md).
+- Release packaging script with optional cosign local-key signing and SBOM
+  (`scripts/build-release.sh --sign --sbom`, docs/repro-build.md).
+- Thin WinUI 3 engine-host shell under `gui/winui` (user-local .NET 8).
+- Live job progress + ETA in the examiner workstation: scan/carve/
+  validate-batch report `jobs.completed_units`/`total_units` ticks to the
+  case DB; `/api/status` exposes elapsed/rate/ETA and the UI renders a
+  progress bar ("계산 중" until the rate is stable). E01 export reports
+  raw-output bytes written as an indeterminate signal.
+- Disk-space preflight for import-e01 (ewfinfo media size, E01 size as
+  lower-bound fallback), carve-file (first-artifact bound + per-artifact
+  check), and package-case (copy-set size estimate) — fails fast with the
+  target volume's free space instead of mid-run.
+- Workstation dependency check covers the full tool set (ffmpeg, ffprobe,
+  ewfinfo/ewfverify/ewfexport, mmls/fls/icat) with per-workflow readiness
+  badges and install hints; the E01 input is disabled when libewf is absent.
+- Viewer large-list performance benchmark (`scripts/bench-viewer.mjs`):
+  10k-record filter/sort/facet data path measured at ~6 ms/render against a
+  30 ms budget — card DOM is already capped at 1000/page, so no
+  virtualization was added.
 
 ## Deliberately Not Claimed Yet
 
@@ -73,20 +96,29 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - E01 image creation/acquisition.
 - Automatic bulk deleted-file reconstruction from E01/raw images.
 - File-system-aware unallocated-space carving.
-- Mid-command resume from persisted job checkpoints.
 - Proprietary DVR/NVR file-system recovery.
 - Court/admissibility validation for recovered proprietary formats.
-- Cryptographic signing or external timestamping of reports/logs.
-- Windows GUI packaging.
-- Final Windows GUI shell.
-- PDF report rendering.
+- External timestamping of reports/logs (keyed HMAC chain exists; trusted
+  timestamping does not).
+- Windows GUI packaging (MSIX/code signing).
+- Final Windows GUI shell (thin WinUI host exists; not the product GUI).
+- PDF report rendering (browser print-to-PDF only).
 - Motion/object/license-plate analysis.
+- Real-recorder validation of the DAV/Hikvision remux lanes (synthetic
+  samples only — see docs/ROADMAP-v3.md §2).
+- Damaged/partial E01 and Ex01/S01 formats (real multi-segment E01 and
+  EnCase-7 L01 validated end-to-end — see
+  docs/E01_REAL_VALIDATION_RECEIPT.md).
 
 ## Next Product Milestones
 
-1. Add mid-command resume checkpoints for scan/carve/import jobs.
+1. Acquire a real-recorder DAV/Hikvision sample corpus and run the intake
+   gates (`scripts/validate-dav-samples.ps1`, `validate-hik-samples.ps1`).
 2. Add file-system-aware unallocated-space carving and bulk export controls.
 3. Add stronger carving preview triage and container validation.
-4. Add per-vendor parser implementations one at a time, starting with Dahua DAV and BlackVue/Thinkware-style dashcam metadata.
-5. Add cryptographic signing/external timestamping and native PDF rendering.
-6. Add the C#/WinUI 3 shell only after the command contract and core forensic workflows are stable.
+4. Add per-vendor parser implementations one at a time, starting with
+   BlackVue/Thinkware-style dashcam metadata (Dahua DAV remux lane exists;
+   real-sample validation pending per milestone 1).
+5. Add trusted timestamping and native PDF rendering.
+6. Add the C#/WinUI 3 shell only after the command contract and core
+   forensic workflows are stable.

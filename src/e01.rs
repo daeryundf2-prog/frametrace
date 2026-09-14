@@ -40,9 +40,10 @@ pub struct E01ImportResult {
     pub ewfexport_log_path: PathBuf,
     pub raw_sha256: String,
     pub e01_sha256: Option<String>,
+    pub is_corrupted: bool,
 }
 
-pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Result<(), String> {
+pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Result<bool, String> {
     let e01_path = canonical_e01_path(e01_path)?;
     let inspected_unix = now_unix()?;
     let info = run_capture(
@@ -59,6 +60,7 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
     write_text(&info_log_path, &info.stdout)
         .map_err(|err| format!("failed to write E01 info log: {err}"))?;
 
+    let is_corrupted = ewfinfo_is_corrupted(&info.stdout);
     let e01_sha256 = if options.hash_e01 {
         Some(audit::digest_file(&e01_path)?)
     } else {
@@ -67,14 +69,16 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
     append_e01_audit(
         case_dir,
         &format!(
-            "{{\"schema_version\":1,\"event\":\"inspect-e01\",\"inspected_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"ewfinfo_version\":\"{}\",\"ewfinfo_log_path\":\"{}\"}}",
+            "{{\"schema_version\":1,\"event\":\"inspect-e01\",\"inspected_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"is_corrupted\":{},\"ewfinfo_version\":\"{}\",\"ewfinfo_log_path\":\"{}\"}}",
             inspected_unix,
             json_escape(&e01_path.to_string_lossy()),
             audit::optional_string(e01_sha256.as_deref()),
+            is_corrupted,
             json_escape(&ewf_command_version(&options.ewfinfo_bin, &["ewfinfo"])),
             json_escape(&info_log_path.to_string_lossy())
         ),
-    )
+    )?;
+    Ok(is_corrupted)
 }
 
 pub fn import_e01(
@@ -98,6 +102,16 @@ pub fn import_e01(
     );
     write_text(&info_log_path, &info.stdout)
         .map_err(|err| format!("failed to write E01 info log: {err}"))?;
+    let is_corrupted = ewfinfo_is_corrupted(&info.stdout);
+    if is_corrupted {
+        // Not fatal: a damaged set may still export a partial image, and
+        // ewfverify (when not skipped) does its own integrity check. But
+        // the flag must be surfaced and audited so a damaged source is
+        // never reported as clean.
+        eprintln!(
+            "warning: ewfinfo reports this EWF set as corrupted or incomplete (missing segments?); results may be partial"
+        );
+    }
 
     let verify_log_path = if options.skip_verify {
         None
@@ -136,6 +150,23 @@ pub fn import_e01(
             requested_raw_path.display()
         ));
     }
+    // Disk preflight: the raw image is the source media's full byte size.
+    // ewfinfo reports it as "Media size  ... (N bytes)"; when the field is
+    // absent, fall back to the (compressed) E01 size as a lower bound so a
+    // clearly-insufficient volume still fails before ewfexport runs.
+    let e01_size = std::fs::metadata(&e01_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    let expected_raw = ewfinfo_media_size(&info.stdout)
+        .unwrap_or(e01_size)
+        .max(e01_size);
+    // --max-bytes caps the export: only require what will actually be
+    // written, not the whole media size.
+    let expected_raw = match options.max_bytes {
+        Some(cap) => expected_raw.min(cap),
+        None => expected_raw,
+    };
+    crate::diskspace::ensure_available(&requested_raw_path, expected_raw, "import-e01")?;
     if let Some(parent) = requested_raw_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create E01 output directory: {err}"))?;
@@ -189,7 +220,7 @@ pub fn import_e01(
     append_e01_audit(
         case_dir,
         &format!(
-            "{{\"schema_version\":1,\"event\":\"import-e01\",\"imported_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"raw_output_path\":\"{}\",\"raw_sha256\":\"{}\",\"max_bytes\":{},\"verified\":{},\"ewfinfo_version\":\"{}\",\"ewfverify_version\":\"{}\",\"ewfexport_version\":\"{}\",\"ewfinfo_log_path\":\"{}\",\"ewfverify_log_path\":{},\"ewfexport_log_path\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
+            "{{\"schema_version\":1,\"event\":\"import-e01\",\"imported_unix\":{},\"e01_path\":\"{}\",\"e01_sha256\":{},\"raw_output_path\":\"{}\",\"raw_sha256\":\"{}\",\"max_bytes\":{},\"verified\":{},\"is_corrupted\":{},\"ewfinfo_version\":\"{}\",\"ewfverify_version\":\"{}\",\"ewfexport_version\":\"{}\",\"ewfinfo_log_path\":\"{}\",\"ewfverify_log_path\":{},\"ewfexport_log_path\":\"{}\",\"command\":\"{}\",\"command_args\":{}}}",
             imported_unix,
             json_escape(&e01_path.to_string_lossy()),
             audit::optional_string(e01_sha256.as_deref()),
@@ -200,6 +231,7 @@ pub fn import_e01(
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "null".to_string()),
             !options.skip_verify,
+            is_corrupted,
             json_escape(&ewf_command_version(&options.ewfinfo_bin, &["ewfinfo"])),
             json_escape(&ewf_command_version(&options.ewfverify_bin, &["ewfverify"])),
             json_escape(&ewf_command_version(&options.ewfexport_bin, &["ewfexport"])),
@@ -224,7 +256,37 @@ pub fn import_e01(
         ewfexport_log_path: export_log_path,
         raw_sha256,
         e01_sha256,
+        is_corrupted,
     })
+}
+
+/// Parses the media byte size out of `ewfinfo -f text` output, whose
+/// `Media size` line ends in e.g. `500.1 GB (500107862016 bytes)`.
+/// Returns `None` when the field is missing or not parseable — callers
+/// then fall back to the E01 file size as a lower bound.
+fn ewfinfo_media_size(stdout: &str) -> Option<u64> {
+    let line = stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with("Media size"))?;
+    let open = line.rfind('(')?;
+    let close = line.rfind(')')?;
+    if close <= open {
+        return None;
+    }
+    let inside = &line[open + 1..close];
+    let digits: String = inside.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    digits.parse::<u64>().ok().filter(|value| *value > 0)
+}
+
+/// Parses the `Is corrupted` flag from `ewfinfo -f text` output. libewf
+/// sets it for incomplete segment sets and damaged data; the info log
+/// records it, but callers must also surface it so a damaged source is
+/// never reported as clean.
+fn ewfinfo_is_corrupted(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("Is corrupted"))
+        .any(|rest| rest.rsplit(':').next().map(str::trim) == Some("yes"))
 }
 
 fn canonical_e01_path(path: &Path) -> Result<PathBuf, String> {
@@ -304,16 +366,23 @@ fn ewfexport_args(
     args
 }
 
+/// ewfexport's -t is a *prefix*: it always appends ".raw". We only strip a
+/// literal ".raw" suffix — never a generic extension — because a basename
+/// like "4. 한주연 HDD.raw" contains interior dots that `with_extension`
+/// would wrongly treat as the extension boundary (producing "4.raw").
 fn ewfexport_target_for_output(raw_path: &Path) -> PathBuf {
-    if raw_path.extension().is_some() {
-        raw_path.with_extension("")
-    } else {
-        raw_path.to_path_buf()
+    match raw_path.file_name().and_then(|n| n.to_str()) {
+        Some(name) if name.to_ascii_lowercase().ends_with(".raw") => {
+            raw_path.with_file_name(&name[..name.len() - 4])
+        }
+        _ => raw_path.to_path_buf(),
     }
 }
 
 fn expected_ewfexport_output(export_target: &Path) -> PathBuf {
-    export_target.with_extension("raw")
+    let mut text = export_target.to_string_lossy().into_owned();
+    text.push_str(".raw");
+    PathBuf::from(text)
 }
 
 fn resolve_ewfexport_output(expected: &Path) -> Result<PathBuf, String> {
@@ -396,7 +465,8 @@ struct CommandOutput {
 mod tests {
     use super::{
         E01Options, canonical_e01_path, default_raw_filename, ewf_command_version, ewfexport_args,
-        ewfexport_target_for_output, expected_ewfexport_output, resolve_ewfexport_output,
+        ewfexport_target_for_output, ewfinfo_is_corrupted, ewfinfo_media_size,
+        expected_ewfexport_output, resolve_ewfexport_output,
     };
     use std::fs;
     use std::path::Path;
@@ -420,6 +490,32 @@ mod tests {
         let resolved = canonical_e01_path(&plain).unwrap();
         assert!(resolved.ends_with("blackbox.E01"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_media_size_from_ewfinfo_text() {
+        let sample = "ewfinfo 20201230\n\nAcquiry information\n\tMedia size\t\t\t500.1 GB (500107862016 bytes)\n\tBytes per sector\t512\n";
+        assert_eq!(ewfinfo_media_size(sample), Some(500107862016));
+        assert_eq!(ewfinfo_media_size("no media line at all"), None);
+        assert_eq!(
+            ewfinfo_media_size("\tMedia size\t\t\t1.0 KiB (1024 bytes)"),
+            Some(1024)
+        );
+        // Zero or garbled values are rejected so callers take the fallback.
+        assert_eq!(ewfinfo_media_size("Media size 0 (0 bytes)"), None);
+        assert_eq!(ewfinfo_media_size("Media size ???"), None);
+    }
+
+    #[test]
+    fn detects_corrupted_flag_in_ewfinfo_text() {
+        // libewf emits this for incomplete segment sets; the flag must not
+        // be lost between the info log and the audit record.
+        let damaged = "ewfinfo 20240506\n\nEWF information:\n\tFile format:\t\tEnCase 7\n\tIs corrupted:\t\tyes\n\nMedia information:\n\tMedia size:\t\t223 GiB (240057409536 bytes)\n";
+        assert!(ewfinfo_is_corrupted(damaged));
+        let clean = "ewfinfo 20240506\n\nEWF information:\n\tFile format:\t\tEnCase 7\n\nMedia information:\n\tMedia size:\t\t223 GiB (240057409536 bytes)\n";
+        assert!(!ewfinfo_is_corrupted(clean));
+        assert!(!ewfinfo_is_corrupted("\tIs corrupted:\t\tno\n"));
+        assert!(!ewfinfo_is_corrupted("no such field"));
     }
 
     #[test]
@@ -456,6 +552,22 @@ mod tests {
         assert_eq!(
             expected_ewfexport_output(Path::new("output")),
             Path::new("output.raw")
+        );
+        // Basenames with interior dots must round-trip as prefix + ".raw",
+        // not collapse at the first dot (real-world case: "4. 한주연 HDD.E01").
+        assert_eq!(
+            ewfexport_target_for_output(Path::new("dir/4. 한주연 HDD.raw")),
+            Path::new("dir/4. 한주연 HDD")
+        );
+        assert_eq!(
+            expected_ewfexport_output(Path::new("dir/4. 한주연 HDD")),
+            Path::new("dir/4. 한주연 HDD.raw")
+        );
+        assert_eq!(
+            expected_ewfexport_output(&ewfexport_target_for_output(Path::new(
+                "dir/4. 한주연 HDD.raw"
+            ))),
+            Path::new("dir/4. 한주연 HDD.raw")
         );
     }
 

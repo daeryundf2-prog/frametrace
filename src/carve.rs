@@ -145,6 +145,7 @@ pub fn carve_file(
     source_path: &Path,
     options: &CarveOptions,
     resume: ResumeMode,
+    progress: Option<&CarveProgress<'_>>,
 ) -> Result<CarveResult, String> {
     let source_path = source_path
         .canonicalize()
@@ -179,12 +180,27 @@ pub fn carve_file(
     let resume_offset = prior.scan_offset;
     let carved_map = prior.carved;
 
+    // Early preflight: if the volume cannot hold even one --max-bytes
+    // artifact, fail in seconds rather than after the signature scan.
+    // Exact per-artifact sizes are checked again before each write below,
+    // since the scan discovers hits incrementally.
+    let carve_dir = case_dir.join("artifacts/carved");
+    crate::diskspace::ensure_available(
+        &carve_dir,
+        options
+            .max_bytes
+            .min(source_size.saturating_sub(resume_offset)),
+        "carve-file",
+    )?;
+
     let hits = scan_signatures(
         &source_path,
         resume_offset,
         prior.hits,
         options.max_candidates,
         &mut checkpoint,
+        source_size,
+        progress,
     )?;
     let mut warnings = Vec::new();
     if checkpoint.reset_stale() {
@@ -239,6 +255,9 @@ pub fn carve_file(
                 .join("artifacts/carved")
                 .join(format!("{}_{:012x}.{}", id, hit.offset, hit.extension)),
         );
+        // Per-artifact check: the exact size is only known once the scan
+        // finishes, so verify before each copy_range.
+        crate::diskspace::ensure_available(&output_path, size_bytes, "carve-file")?;
         copy_range(&source_path, hit.offset, size_bytes, &output_path)
             .map_err(|err| format!("failed to carve {}: {err}", output_path.display()))?;
         let sha256 = audit::digest_file(&output_path)?;
@@ -384,12 +403,20 @@ fn scan_progress_line(offset: u64, hits: &[CarveHit]) -> String {
 /// straddling the boundary are still found — duplicates dedup at the end)
 /// and checkpoints cumulative progress every CHECKPOINT_CHUNK_INTERVAL
 /// chunks plus once at the end.
+/// Called with `(bytes_scanned, total_bytes)` during the signature walk;
+/// `None` disables mid-run progress reporting (tests, headless callers).
+/// Progress callback receiving (completed_bytes, total_bytes). Borrowed so
+/// callers can pass closures over the case DB path without 'static.
+pub type CarveProgress<'a> = dyn Fn(u64, u64) + Send + Sync + 'a;
+
 fn scan_signatures(
     source_path: &Path,
     resume_offset: u64,
     prior_hits: Vec<CarveHit>,
     max_candidates: usize,
     checkpoint: &mut RunCheckpoint,
+    source_size: u64,
+    progress: Option<&CarveProgress<'_>>,
 ) -> Result<Vec<CarveHit>, String> {
     let mut hits = prior_hits;
     if hits.len() >= max_candidates {
@@ -435,10 +462,16 @@ fn scan_signatures(
         since_checkpoint += 1;
         if since_checkpoint >= CHECKPOINT_CHUNK_INTERVAL {
             checkpoint.append_line(&scan_progress_line(offset, &hits))?;
+            if let Some(report) = progress {
+                report(offset, source_size);
+            }
             since_checkpoint = 0;
         }
     }
     checkpoint.append_line(&scan_progress_line(offset, &hits))?;
+    if let Some(report) = progress {
+        report(offset, source_size);
+    }
     hits.sort_by_key(|hit| hit.offset);
     hits.dedup_by_key(|hit| hit.offset);
     Ok(hits)
@@ -640,7 +673,7 @@ mod tests {
     fn resume_replays_scan_and_completed_artifacts() {
         let (case_dir, source, content) = resume_fixture("replay");
         let options = super::CarveOptions::default();
-        let first = carve_file(&case_dir, &source, &options, ResumeMode::Auto).unwrap();
+        let first = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(first.artifacts.len(), 2);
         let first_output = first.artifacts[0].output_path.clone();
 
@@ -683,7 +716,7 @@ mod tests {
                 .unwrap();
         }
 
-        let second = carve_file(&case_dir, &source, &options, ResumeMode::Auto).unwrap();
+        let second = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(second.resumed_artifacts, 1);
         assert_eq!(second.resumed_scan_offset, content.len() as u64);
         assert_eq!(second.artifacts.len(), 2);
@@ -719,7 +752,7 @@ mod tests {
                 .append_line(&scan_progress_line(content.len() as u64, &[]))
                 .unwrap();
         }
-        let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto).unwrap();
+        let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(result.resumed_artifacts, 0);
         assert_eq!(result.resumed_scan_offset, 0);
         assert_eq!(result.artifacts.len(), 2);
