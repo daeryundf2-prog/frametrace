@@ -655,7 +655,13 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 max_entries,
                 mmls_bin: mmls.unwrap_or_else(|| "mmls".to_string()),
                 fls_bin: fls.unwrap_or_else(|| "fls".to_string()),
-                timeout_secs: Some(timeout.unwrap_or(crate::tsk::TSK_PROBE_TIMEOUT_SECS)),
+                // 0 disables the cap: large multi-segment E01 sets need
+                // minutes of libewf decompression inside fls, and the
+                // probe default would kill them mid-walk.
+                timeout_secs: match timeout {
+                    Some(0) => None,
+                    other => Some(other.unwrap_or(crate::tsk::TSK_PROBE_TIMEOUT_SECS)),
+                },
             };
             inspect_image(&case_dir, &image_file, options)
         }

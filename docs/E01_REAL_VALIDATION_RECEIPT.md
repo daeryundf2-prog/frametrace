@@ -258,6 +258,34 @@ a compressed E01 container is meaningless.
   extents. SSD_004: fully listed at 32 GiB. BSH: $MFT at ~3.5 GiB but
   root index ~8 GiB → 6 GiB export still aborts mid-walk.
 
+## Fifth pass — largest image, direct-E01 triage at 932 GiB
+
+Evidence: `D:\한종인\#914_260812_PC_003\#914_260812_PC_HDD_003\Image\#914_260812_PC_HDD_003.E01`
+— 120-segment FTK set (ADI4.7.3.81, 2026-08-12), fixed disk, 931 GiB,
+MD5+SHA1.
+
+- `ewfinfo`: parsed fully — acquisition metadata, media size, hashes.
+- `inspect-image <E01>` (no export): GPT parsed; EFI and MSR skipped;
+  the largest data partition selected (sector 921 839 616 — this disk has
+  *two* data volumes, ~440 GB C: and ~492 GB D:; largest-first picked
+  D:). fls walked the NTFS tree through libewf decompression: 43,935
+  entries, 4,396 deleted, 0 video candidates (the one `.ts…` hit was a
+  random-extension temp file — correctly not flagged).
+- **Bug fixed:** `inspect-image --timeout 0` previously meant
+  `Some(0)` = instant kill; the 120 s probe default killed fls mid-walk
+  on this 120-segment set. 0 now means unbounded.
+- `recover-inode 12420-128-3` (live `libcrypto-3-x64.dll`): 5.1 MB real
+  PE content recovered straight from the E01 — MZ header, no export.
+- `recover-batch` on 3 deleted inodes: 3 ok, but all output is zero-fill
+  (drive's deleted clusters are wiped — consistent with pre-imaging
+  sanitization, and the all-zero warning flags each one).
+
+### Full-set ewfverify (background, real large image)
+
+`ewfverify` on #453 (223 GiB media) is running: ~11 MiB/s, ETA ~6 h —
+full verify of large sets is a matter of hours, not seconds. Log:
+`D:\frametrace-e01-test\verify-logs\pcg2-verify2.txt`.
+
 ## Still unvalidated
 
 - ewfverify end-to-end on a real *large* image — relaunched against the
