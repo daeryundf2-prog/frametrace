@@ -43,3 +43,4 @@
 # These are deployed per-workstation, never committed.
 /tools
 /target3
+/chrome-test-profile
