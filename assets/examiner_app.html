@@ -175,6 +175,7 @@
     <h2>STEP 3 — 분석된 데이터 검증</h2>
     <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
     <div class="row" style="margin-bottom:10px">
+      <button id="btnViewerWindow" class="primary">뷰어를 새 창으로 열기</button>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
       <span class="muted" id="recoverHint">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.</span>
     </div>
@@ -450,6 +451,19 @@ $("btnCancel").addEventListener("click", async () => {
 $("btnNew").addEventListener("click", () => location.reload());
 
 $("directE01").addEventListener("change", syncDirectE01);
+// popup=yes + dimensions asks the browser for a real separate window
+// (not just another tab) — useful for dual-monitor review. The named
+// target re-focuses an already-open viewer instead of stacking copies.
+$("btnViewerWindow").addEventListener("click", () => {
+  const win = window.open(
+    "/review/evidence-viewer.html",
+    "frametrace-viewer",
+    "popup=yes,width=1500,height=950"
+  );
+  if (win) win.focus();
+  else window.open("/review/evidence-viewer.html", "_blank"); // popup blocked: fall back to a tab
+});
+
 $("btnRecoverDeleted").addEventListener("click", async () => {
   const btn = $("btnRecoverDeleted");
   btn.disabled = true;
