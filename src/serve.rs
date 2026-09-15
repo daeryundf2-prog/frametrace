@@ -472,7 +472,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
     }
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => page(EXAMINER_PAGE.as_bytes().to_vec()),
-        ("GET", "/api/env") => json(api_env()),
+        ("GET", "/api/env") => json(api_env(request)),
         ("GET", "/api/browse") => json(api_browse(request)),
         ("GET", "/api/status") => json(api_status(state)),
         ("POST", "/api/start") => json(api_start(request, state)),
@@ -513,7 +513,25 @@ const PROBED_TOOLS: &[(&str, &str)] = &[
     ("icat", ""),
 ];
 
-fn api_env() -> String {
+/// The env probe spawns every probed binary with a version flag, which
+/// costs seconds on a cold call — the page's header badges used to stay
+/// empty for the whole probe window and read as "broken". Tool presence
+/// does not change during a workstation session, so the result is cached
+/// after the first probe; `?refresh=1` forces a re-probe after the
+/// examiner installs a missing tool.
+fn api_env(request: &Request) -> String {
+    static ENV_CACHE: Mutex<Option<String>> = Mutex::new(None);
+    let refresh = query_value(&request.query, "refresh").as_deref() == Some("1");
+    let mut guard = ENV_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if refresh || guard.is_none() {
+        *guard = Some(probe_env());
+    }
+    guard
+        .clone()
+        .unwrap_or_else(|| "{\"ok\":false}".to_string())
+}
+
+fn probe_env() -> String {
     let tools: Vec<(&str, bool)> = PROBED_TOOLS
         .iter()
         .map(|(name, arg)| (*name, tool_available(name, arg)))

@@ -24,13 +24,22 @@
     .badge { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line-strong); background: #f6f9f8; color: var(--muted); }
     .badge.ok { background: #e8f4ee; border-color: #bcd9c9; color: var(--ok); }
     .badge.bad { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
-    main { max-width: 980px; margin: 0 auto; padding: 22px 20px 60px; }
-    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 18px; }
-    .step { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px; font-size: 13px; color: var(--muted); }
-    .step b { display: block; font-size: 11px; color: var(--line-strong); letter-spacing: .04em; }
-    .step.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); color: var(--ink); background: #f2faf8; }
-    .step.active b { color: var(--accent); }
-    .step.done b::after { content: " ✓"; color: var(--ok); }
+    .shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
+    .rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 22px; align-self: start; }
+    .navstep { display: flex; gap: 12px; align-items: center; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; height: auto; }
+    .navstep .num { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-strong); background: #fff; color: var(--muted); font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+    .navstep .nt b { display: block; font-size: 13px; font-weight: 700; }
+    .navstep .nt small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+    .navstep:disabled { opacity: .5; cursor: default; }
+    .navstep:not(:disabled):hover { border-color: var(--accent); }
+    .navstep.current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+    .navstep.current .num { border-color: var(--accent); color: var(--accent); }
+    .navstep.sel { background: #f2faf8; }
+    .navstep.done .num { font-size: 0; background: var(--ok); border-color: var(--ok); }
+    .navstep.done .num::after { content: "✓"; font-size: 13px; color: #fff; }
+    main { min-width: 0; }
+    .view { display: none; }
+    .view.on { display: block; }
     section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin-bottom: 14px; }
     section.card h2 { font-size: 15px; margin: 0 0 4px; }
     section.card p.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
@@ -65,11 +74,11 @@
     .checks label { display: flex; align-items: center; gap: 6px; }
     button { font: inherit; height: 34px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; cursor: pointer; padding: 0 14px; }
     button:hover { border-color: var(--accent); }
+    button.ghost { border-color: transparent; background: transparent; color: var(--accent); }
+    button.ghost:hover { text-decoration: underline; }
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
     button.primary:disabled, button:disabled { background: #f2f4f7; border-color: var(--line-strong); color: #98a2b3; cursor: default; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .prog { display: none; }
-    .prog.show { display: block; }
     ol.steptrack { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
     ol.steptrack li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; color: var(--muted); }
     ol.steptrack li .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); flex: 0 0 auto; }
@@ -86,8 +95,6 @@
     .ptext { font-size: 11px; color: var(--muted); flex: 0 0 auto; min-width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
     @keyframes pulse { 50% { opacity: .35; } }
     pre.log { background: #101815; color: #cfe3dc; border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; height: 180px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; }
-    .results { display: none; }
-    .results.show { display: block; }
     .linklist { display: grid; gap: 8px; margin-top: 10px; }
     .linklist a { display: block; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; padding: 10px 14px; text-decoration: none; color: var(--ink); font-size: 13px; }
     .linklist a:hover { border-color: var(--accent); }
@@ -98,7 +105,13 @@
     .err { display: none; border: 1px solid var(--danger); background: #fdf1ef; color: var(--danger); border-radius: 6px; padding: 10px 12px; font-size: 13px; margin-top: 10px; }
     .err.show { display: block; }
     .muted { color: var(--muted); }
-    footer { max-width: 980px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; }
+    footer { max-width: 1180px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 12px; }
+    @media (max-width: 860px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { flex-direction: row; overflow-x: auto; position: static; }
+      .navstep { flex: 1 0 auto; }
+      .navstep .nt small { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -108,17 +121,18 @@
   <div class="sub">로컬 전용 · 원본 증거는 읽기 전용으로만 접근합니다</div>
   <div class="env" id="env"></div>
 </header>
+<div class="shell">
+<nav class="rail" aria-label="작업 단계">
+  <button class="navstep sel current" id="s1" data-view="1"><span class="num">1</span><span class="nt"><b>입력</b><small>증거 소스 · 케이스 폴더</small></span></button>
+  <button class="navstep" id="s2" data-view="2" disabled><span class="num">2</span><span class="nt"><b>분석 진행</b><small>단계 · 실시간 로그</small></span></button>
+  <button class="navstep" id="s3" data-view="3" disabled><span class="num">3</span><span class="nt"><b>검토</b><small>뷰어 · 삭제 영상 복구</small></span></button>
+  <button class="navstep" id="s4" data-view="4" disabled><span class="num">4</span><span class="nt"><b>결과물</b><small>보고서 · 패키지</small></span></button>
+</nav>
 <main>
-  <div class="steps" role="list" aria-label="작업 단계">
-    <div class="step active" id="s1" role="listitem"><b>STEP 1</b>실행</div>
-    <div class="step" id="s2" role="listitem"><b>STEP 2</b>INPUT 입력</div>
-    <div class="step" id="s3" role="listitem"><b>STEP 3</b>분석 데이터 검증</div>
-    <div class="step" id="s4" role="listitem"><b>STEP 4</b>결과물 정리</div>
-  </div>
 
-  <section class="card" id="inputCard">
-    <h2>증거 INPUT 입력</h2>
-    <p class="hint">분석할 증거를 입력하십시오 — 증거 폴더/드라이브 또는 E01 디스크 이미지. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
+  <section class="card view on" id="inputCard" data-view="1">
+    <h2>새 분석 — 증거 입력</h2>
+    <p class="hint">분석할 증거를 선택하십시오. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
     <div class="checks" style="margin-bottom:10px;">
       <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
       <label><input type="radio" name="inputKind" value="e01"> E01 디스크 이미지</label>
@@ -137,12 +151,11 @@
       <div class="pathrow">
         <input type="text" id="caseDir" list="recentCases" autocomplete="off" spellcheck="false" placeholder="예: C:\Cases\case-001">
         <button type="button" id="btnBrowseCase">찾아보기…</button>
-        <button type="button" id="btnSuggestCase" title="소스 이름과 오늘 날짜로 케이스 폴더 경로를 채웁니다">제안</button>
+        <button type="button" class="ghost" id="btnSuggestCase" title="소스 이름과 오늘 날짜로 케이스 폴더 경로를 채웁니다">자동 제안</button>
       </div>
       <datalist id="recentCases"></datalist>
       <div class="pathstatus" id="caseStatus" aria-live="polite"></div>
     </div>
-    <p class="hint">이미 만들어진 케이스 폴더를 넣으면 분석을 이어서 하거나, 아래 버튼으로 검토 화면만 바로 열 수 있습니다.</p>
     <div class="checks">
       <label><input type="checkbox" id="withHash" checked> 파일별 SHA-256 해시 계산 (증거 대조용)</label>
       <label><input type="checkbox" id="withFfprobe" checked> ffprobe 재생성 검증 (코덱/길이 메타데이터)</label>
@@ -153,13 +166,13 @@
     </div>
     <div class="row">
       <button class="primary" id="btnStart">분석 시작</button>
-      <button id="btnOpenCase">기존 케이스 열기</button>
       <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
     </div>
+    <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.</p>
     <div class="err" id="startErr"></div>
   </section>
 
-  <section class="card prog" id="progCard">
+  <section class="card view" id="progCard" data-view="2">
     <h2>분석 진행</h2>
     <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
     <ol class="steptrack" id="track"></ol>
@@ -167,12 +180,12 @@
     <div class="row" style="margin-top:10px">
       <button id="btnCancel" style="display:none;background:#b42318;border-color:#b42318;color:#fff">분석 중단</button>
       <button id="btnNew" style="display:none">새 케이스 시작</button>
-      <button id="btnCopyLog">로그 복사</button>
+      <button class="ghost" id="btnCopyLog">로그 복사</button>
     </div>
   </section>
 
-  <section class="card results" id="resultCard">
-    <h2>STEP 3 — 분석된 데이터 검증</h2>
+  <section class="card view" id="resultCard" data-view="3">
+    <h2>검토 — 분석된 데이터 확인</h2>
     <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
     <div class="row" style="margin-bottom:10px">
       <button id="btnViewerWindow" class="primary">뷰어를 새 창으로 열기</button>
@@ -185,8 +198,8 @@
     </div>
   </section>
 
-  <section class="card results" id="finalCard">
-    <h2>STEP 4 — 결과물 정리</h2>
+  <section class="card view" id="finalCard" data-view="4">
+    <h2>결과물 정리 — 보고서 · 패키지</h2>
     <p class="hint">검토가 끝나면 결과 보고서를 생성합니다. 보고서에는 발견된 원본 영상, 메타데이터, SHA-256 해시, 발견/분석 기법, 처리 체인이 정리됩니다. 최종 패키징은 색인된 원본 파일의 SHA-256을 다시 계산해 분석 이후 소스 변조 여부까지 검증합니다.</p>
     <div class="row">
       <button class="primary" id="btnFinalize">결과 보고서 생성 및 패키징</button>
@@ -198,6 +211,7 @@
     <div class="pkg" id="pkgPath"></div>
   </section>
 </main>
+</div>
 <div class="modal-backdrop" id="pickerBackdrop" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
     <div class="modal-head">
@@ -251,7 +265,7 @@ async function loadEnv() {
         e01Radio.closest("label")?.setAttribute("title", esc(hints.e01 || "libewf 도구가 필요합니다"));
       }
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) { console.error("loadEnv failed:", e); }
 }
 
 function inputKind() {
@@ -276,12 +290,23 @@ function syncDirectE01() {
 function setStep(active, doneCount) {
   for (let i = 1; i <= 4; i++) {
     const el = $("s" + i);
-    el.classList.toggle("active", i === active);
+    el.classList.toggle("current", i === active);
     el.classList.toggle("done", i <= (doneCount || 0));
     if (i === active) el.setAttribute("aria-current", "step");
     else el.removeAttribute("aria-current");
   }
 }
+
+// --- view switching: one screen per workflow stage ---
+function showView(n) {
+  const key = String(n);
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.dataset.view === key));
+  document.querySelectorAll(".navstep").forEach(b => b.classList.toggle("sel", b.dataset.view === key));
+}
+document.querySelectorAll(".navstep").forEach(b => b.addEventListener("click", () => showView(b.dataset.view)));
+// auto-navigation happens once per state so it never yanks the examiner
+// away from a screen they deliberately opened
+let jobSeen = false, reviewReady = false, autoProgress = false, autoReviewed = false;
 
 function setInputsDisabled(disabled) {
   document.querySelectorAll("#inputCard input, #inputCard select, #inputCard button").forEach(el => { el.disabled = disabled; });
@@ -338,7 +363,7 @@ async function poll() {
   try {
     const st = await jget("/api/status");
     if (!st.has_job) { setTimeout(poll, 1500); return; }
-    $("progCard").classList.add("show");
+    if (!jobSeen) { jobSeen = true; $("s2").disabled = false; }
     renderTrack(st.steps || [], st.step_names, st.progress);
     const logEl = $("log");
     logEl.textContent = (st.logs || []).join("\n");
@@ -349,10 +374,11 @@ async function poll() {
     $("btnCancel").style.display = running ? "" : "none";
     if (!running && !cancelRequested) { $("btnCancel").disabled = false; $("btnCancel").textContent = "분석 중단"; }
     $("btnNew").style.display = (!running && (st.error || st.phase !== "running")) ? "" : "none";
+    if (running && !autoProgress) { autoProgress = true; showView(2); }
     if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
       if (!auditVerified) { auditVerified = true; verifyAudit(); }
-      $("resultCard").classList.add("show");
-      $("finalCard").classList.add("show");
+      if (!reviewReady) { reviewReady = true; $("s3").disabled = false; $("s4").disabled = false; }
+      if (!autoReviewed) { autoReviewed = true; showView(3); }
       setStep(st.phase === "running" ? 4 : 4, 3);
       $("finalHint").textContent = st.case_dir ? ("케이스: " + st.case_dir) : "";
       if ((st.phase === "done" || st.phase === "finalized") && st.package_dir) {
@@ -410,9 +436,10 @@ $("btnStart").addEventListener("click", async () => {
   });
   pushRecent("recentSources", $("sourcePath").value.trim());
   pushRecent("recentCases", $("caseDir").value.trim());
-  $("progCard").classList.add("show");
+  jobSeen = true; autoProgress = true; autoReviewed = false;
+  $("s2").disabled = false;
+  showView(2);
   setStep(3, 2);
-  $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
 });
 
 $("btnOpenCase").addEventListener("click", async () => {
@@ -436,8 +463,7 @@ $("btnOpenCase").addEventListener("click", async () => {
   }
   pushRecent("recentCases", dir);
   savePrefs({ lastCase: dir });
-  $("progCard").classList.add("show");
-  $("progCard").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  autoReviewed = false; // let the next poll jump to the review screen
 });
 
 let cancelRequested = false;

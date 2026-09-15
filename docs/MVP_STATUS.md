@@ -124,6 +124,13 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   the layout state), and a "영상 새 창" button that opens a popup
   player window (named, reused on repeat opens) — the same controls
   work in the main viewer via `←`/`→` and `[`/`]` shortcuts.
+- Workstation UI is a stage wizard: a left step rail (입력 → 분석 진행 →
+  검토 → 결과물) shows one screen at a time with done/current markers,
+  auto-advancing to 진행 on start and to 검토 when review is ready;
+  secondary actions use ghost buttons to cut visual clutter.
+- `/api/env` caches its tool probe: the first call still spawns every
+  binary's version check, but later calls serve instantly so the header
+  badges no longer load seconds late; `?refresh=1` forces a re-probe.
 - The popup player is a full triage seat: it drives the main window's
   review state through a same-origin `__ftBridge` (mark `1`/`2`/`3`/`0`
   with auto-advance, preset tag toggles, prev/next navigation,
