@@ -119,6 +119,12 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - Schema init uses BEGIN IMMEDIATE around version check/migration so
   concurrent first-initializers wait on busy_timeout instead of dying
   on SQLite's lock-upgrade deadlock.
+- Viewer transport controls: a dedicated media toolbar row offers
+  ±10 s skip buttons, a playback-rate select (0.25×–4×, persisted in
+  the layout state), and a "영상 새 창" button that opens a minimal
+  popup player window (named, reused on repeat opens) with its own
+  skip/rate/keyboard controls — the same controls work in the main
+  viewer via `←`/`→` and `[`/`]` shortcuts.
 
 ## Scope Decisions (2026-09)
 

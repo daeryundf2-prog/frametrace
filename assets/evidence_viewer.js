@@ -516,7 +516,7 @@ const state = {
   marks: storageGet(MARKS_KEY, {}),
   tags: storageGet(TAGS_KEY, {}),
   locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
-  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0 }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -560,6 +560,7 @@ const els = {
   selectionCount: document.getElementById("selectionCount"),
   videoMode: document.getElementById("videoMode"),
   videoZoom: document.getElementById("videoZoom"),
+  playRate: document.getElementById("playRate"),
   facetTree: document.getElementById("facetTree"),
   sortBy: document.getElementById("sortBy"),
   groupBy: document.getElementById("groupBy"),
@@ -649,8 +650,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { videoMode, videoZoom, theater, playerH, colSplit } = state.layout;
-  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH, colSplit });
+  const { videoMode, videoZoom, theater, playerH, colSplit, rate } = state.layout;
+  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH, colSplit, rate });
 }
 
 let layoutSaveTimer = null;
@@ -668,6 +669,9 @@ function applyLayout() {
   applyVideoScale();
   els.videoMode.value = state.layout.videoMode;
   els.videoZoom.value = String(state.layout.videoZoom);
+  els.playRate.value = String(state.layout.rate || 1);
+  const rateVideo = els.mediaStage.querySelector("video");
+  if (rateVideo) rateVideo.playbackRate = state.layout.rate || 1;
 }
 
 // Column split between the browse pane and the media pane. The default lives
@@ -977,7 +981,11 @@ function renderDetails() {
     els.mediaStage.innerHTML = mediaSrc
       ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
       : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
-    els.mediaStage.querySelector("video")?.addEventListener("loadedmetadata", applyVideoScale);
+    const newVideo = els.mediaStage.querySelector("video");
+    if (newVideo) {
+      newVideo.playbackRate = state.layout.rate || 1;
+      newVideo.addEventListener("loadedmetadata", applyVideoScale);
+    }
     mediaRenderedFor = mediaKey;
   }
   applyVideoScale();
@@ -1359,6 +1367,90 @@ async function togglePip() {
   }
 }
 
+// --- media transport: skip / playback rate / popup player ---
+
+const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4];
+
+function currentVideo() {
+  return els.mediaStage.querySelector("video");
+}
+
+function skipVideo(delta) {
+  const video = currentVideo();
+  if (!video) return;
+  video.currentTime = Math.max(0, Math.min(video.duration || 1e9, video.currentTime + delta));
+}
+
+function setRate(rate) {
+  state.layout.rate = rate;
+  saveLayout();
+  els.playRate.value = String(rate);
+  const video = currentVideo();
+  if (video) video.playbackRate = rate;
+}
+
+function rateStep(delta) {
+  const index = RATES.indexOf(Number(state.layout.rate) || 1);
+  const next = RATES[Math.max(0, Math.min(RATES.length - 1, (index < 0 ? 3 : index) + delta))];
+  setRate(next);
+}
+
+// A minimal dedicated player window — the examiner can park the clip on
+// a second monitor while the grid keeps reviewing other records.
+function openPlayerWindow() {
+  const record = selectedRecord();
+  const src = record ? mediaSrcFor(record) : "";
+  if (!src) { toast("재생 가능한 파일 URL이 없습니다."); return; }
+  const win = window.open("", "frametrace-player", "popup=yes,width=1100,height=820");
+  if (!win) { toast("팝업이 차단되었습니다 — 브라우저 설정에서 팝업을 허용하십시오."); return; }
+  const e = escapeHtml;
+  const rate = state.layout.rate || 1;
+  const rateOptions = RATES.map(r => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("");
+  win.document.open();
+  win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<title>${e(record.name || record.id)} — FrameTrace Player</title>
+<style>
+body{margin:0;background:#101815;color:#dfe8e4;font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;height:100vh}
+header{padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #24332e}
+header .id{color:#8fa79e;font-family:monospace;font-size:11px}
+video{flex:1;width:100%;min-height:0;background:#000;object-fit:contain}
+.bar{display:flex;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid #24332e;font-size:13px;flex-wrap:wrap}
+button,select{font:inherit;height:30px;border:1px solid #3a4f48;border-radius:5px;background:#1b2b26;color:#dfe8e4;padding:0 10px;cursor:pointer}
+button:hover,select:hover{border-color:#3fa08e}
+.muted{color:#8fa79e;font-size:12px}
+</style></head><body>
+<header><strong>${e(record.originalName || record.name || record.id)}</strong><span class="id">${e(record.id)} · ${e(record.status)}</span></header>
+<video src="${e(src)}" controls autoplay></video>
+<div class="bar">
+<button id="b10">« -10초</button><button id="b1">-1초</button>
+<button id="f1">+1초</button><button id="f10">+10초 »</button>
+<select id="rate">${rateOptions}</select>
+<button id="play">재생/일시정지</button>
+<span class="muted">←/→ ±10초 · ↑/↓ 배속 · space 재생/정지</span>
+</div>
+<script>
+var v=document.querySelector("video");
+var RATES=[${RATES.join(",")}];
+var rate=document.getElementById("rate");
+v.playbackRate=${rate};
+function skip(d){v.currentTime=Math.max(0,Math.min(v.duration||1e9,v.currentTime+d));}
+function stepRate(d){var i=RATES.indexOf(Number(rate.value));var n=RATES[Math.max(0,Math.min(RATES.length-1,(i<0?3:i)+d))];rate.value=String(n);v.playbackRate=n;}
+document.getElementById("b10").onclick=function(){skip(-10)};
+document.getElementById("b1").onclick=function(){skip(-1)};
+document.getElementById("f1").onclick=function(){skip(1)};
+document.getElementById("f10").onclick=function(){skip(10)};
+rate.onchange=function(){v.playbackRate=Number(rate.value)};
+document.getElementById("play").onclick=function(){v.paused?v.play():v.pause()};
+document.addEventListener("keydown",function(e){
+if(e.key==="ArrowLeft")skip(-10);else if(e.key==="ArrowRight")skip(10);
+else if(e.key==="ArrowUp"){e.preventDefault();stepRate(1);}
+else if(e.key==="ArrowDown"){e.preventDefault();stepRate(-1);}
+else if(e.key===" "){e.preventDefault();v.paused?v.play():v.pause();}});
+<\/script></body></html>`);
+  win.document.close();
+  win.focus();
+}
+
 function moveActive(step) {
   const filtered = filteredRecords();
   if (!filtered.length) return;
@@ -1429,6 +1521,10 @@ document.addEventListener("keydown", event => {
     case "2": markActive("important"); break;
     case "3": markActive("needs_verification"); break;
     case "0": markActive(null); break;
+    case "ArrowLeft": skipVideo(-10); break;
+    case "ArrowRight": skipVideo(10); break;
+    case "[": rateStep(-1); break;
+    case "]": rateStep(1); break;
     case "f": toggleFullscreen(); break;
     case "t": toggleTheater(); break;
     case "p": togglePip(); break;
@@ -1479,6 +1575,10 @@ els.videoZoom.addEventListener("input", () => {
 document.getElementById("btnTheater").addEventListener("click", toggleTheater);
 document.getElementById("btnFullscreen").addEventListener("click", toggleFullscreen);
 document.getElementById("btnPip").addEventListener("click", togglePip);
+document.getElementById("btnSkipBack").addEventListener("click", () => skipVideo(-10));
+document.getElementById("btnSkipFwd").addEventListener("click", () => skipVideo(10));
+document.getElementById("playRate").addEventListener("change", () => setRate(Number(els.playRate.value) || 1));
+document.getElementById("btnPopPlayer").addEventListener("click", openPlayerWindow);
 document.getElementById("btnShortcuts").addEventListener("click", () => toggleShortcuts(true));
 document.getElementById("btnShortcutsClose").addEventListener("click", () => toggleShortcuts(false));
 document.getElementById("btnSelectFiltered").addEventListener("click", selectAllFiltered);

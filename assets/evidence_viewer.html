@@ -96,6 +96,19 @@ __CSS__
         <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
         <div class="media-stage" id="mediaStage"></div>
         <div class="media-toolbar">
+          <button id="btnSkipBack" type="button" title="10초 뒤로 (←)">« -10초</button>
+          <button id="btnSkipFwd" type="button" title="10초 앞으로 (→)">+10초 »</button>
+          <select id="playRate" title="재생 속도 ([ / ])">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <button id="btnPopPlayer" type="button" title="현재 영상을 별도 창으로 엽니다">영상 새 창</button>
           <span class="muted">크기</span>
           <select id="videoMode">
             <option value="fit">맞춤</option>
@@ -160,6 +173,8 @@ __CSS__
           <tr><td><code>0</code></td><td>현재 증거 마크 해제</td></tr>
           <tr><td><code>ctrl+a</code></td><td>필터 결과 전체 선택</td></tr>
           <tr><td><code>ctrl+d</code></td><td>선택 해제</td></tr>
+          <tr><td><code>←</code> / <code>→</code></td><td>영상 10초 뒤로 / 앞으로</td></tr>
+          <tr><td><code>[</code> / <code>]</code></td><td>재생 속도 낮추기 / 높이기</td></tr>
           <tr><td><code>f</code></td><td>영상 전체화면</td></tr>
           <tr><td><code>t</code></td><td>시어터 모드</td></tr>
           <tr><td><code>p</code></td><td>화면 속 화면</td></tr>
