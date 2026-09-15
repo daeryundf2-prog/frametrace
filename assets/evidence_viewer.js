@@ -1395,57 +1395,152 @@ function rateStep(delta) {
   setRate(next);
 }
 
+// Descriptor handed to the popup player so it can render the record the
+// main window considers active — the popup never owns review state.
+function playerDescriptor() {
+  const record = selectedRecord();
+  if (!record) return null;
+  return {
+    id: record.id,
+    name: record.originalName || record.name || record.id,
+    status: record.status,
+    statusLabel: statusLabel(record.status),
+    src: mediaSrcFor(record),
+    mark: state.marks[record.id]?.status || "",
+    tags: tagListFor(record),
+    warnings: record.warnings || [],
+    index: indexOfFiltered(record.id) + 1,
+    total: filteredRecords().length,
+  };
+}
+
+// Same-origin popup windows drive review through this bridge — marks and
+// tags flow through the same state/localStorage path as the main viewer,
+// so popup actions are identical to clicking the buttons there.
+window.__ftBridge = {
+  descriptor: () => playerDescriptor(),
+  focus(id) {
+    if (state.activeId !== id && records.some(record => record.id === id)) {
+      state.activeId = id;
+      render();
+    }
+    return playerDescriptor();
+  },
+  navigate(step) {
+    const before = state.activeId;
+    moveActive(step);
+    return { moved: state.activeId !== before, descriptor: playerDescriptor() };
+  },
+  // markActive applies the mark and advances — the popup treats the
+  // returned descriptor as the next clip to play.
+  mark(status) {
+    markActive(status);
+    return playerDescriptor();
+  },
+  toggleTag(tag) {
+    if (state.activeId) {
+      toggleTag(state.activeId, tag);
+      render();
+    }
+    return playerDescriptor();
+  },
+};
+
 // A minimal dedicated player window — the examiner can park the clip on
-// a second monitor while the grid keeps reviewing other records.
+// a second monitor and keep triaging: marks, tags, and next/previous
+// navigation all route back through __ftBridge.
 function openPlayerWindow() {
   const record = selectedRecord();
-  const src = record ? mediaSrcFor(record) : "";
-  if (!src) { toast("재생 가능한 파일 URL이 없습니다."); return; }
-  const win = window.open("", "frametrace-player", "popup=yes,width=1100,height=820");
+  if (!record) { toast("표시할 증거가 없습니다."); return; }
+  const win = window.open("", "frametrace-player", "popup=yes,width=1100,height=880");
   if (!win) { toast("팝업이 차단되었습니다 — 브라우저 설정에서 팝업을 허용하십시오."); return; }
   const e = escapeHtml;
   const rate = state.layout.rate || 1;
   const rateOptions = RATES.map(r => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("");
+  const tagButtons = TAG_PRESETS.map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
   win.document.open();
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <title>${e(record.name || record.id)} — FrameTrace Player</title>
 <style>
 body{margin:0;background:#101815;color:#dfe8e4;font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;height:100vh}
-header{padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #24332e}
+header{padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #24332e;flex-wrap:wrap}
 header .id{color:#8fa79e;font-family:monospace;font-size:11px}
-video{flex:1;width:100%;min-height:0;background:#000;object-fit:contain}
-.bar{display:flex;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid #24332e;font-size:13px;flex-wrap:wrap}
-button,select{font:inherit;height:30px;border:1px solid #3a4f48;border-radius:5px;background:#1b2b26;color:#dfe8e4;padding:0 10px;cursor:pointer}
+#stage{flex:1;min-height:0;display:grid;place-items:center;background:#000;position:relative}
+video{width:100%;height:100%;object-fit:contain}
+#novid{position:absolute;color:#8fa79e;font-size:13px;background:rgba(0,0,0,.6);padding:8px 14px;border-radius:6px}
+.bar{display:flex;gap:8px;align-items:center;padding:6px 14px;border-top:1px solid #24332e;font-size:13px;flex-wrap:wrap}
+button,select{font:inherit;height:28px;border:1px solid #3a4f48;border-radius:5px;background:#1b2b26;color:#dfe8e4;padding:0 10px;cursor:pointer;font-size:12px}
 button:hover,select:hover{border-color:#3fa08e}
+button.on{background:#3fa08e;border-color:#3fa08e;color:#08130f}
 .muted{color:#8fa79e;font-size:12px}
+#note{color:#d9b45b;font-size:12px}
 </style></head><body>
-<header><strong>${e(record.originalName || record.name || record.id)}</strong><span class="id">${e(record.id)} · ${e(record.status)}</span></header>
-<video src="${e(src)}" controls autoplay></video>
+<header><strong id="title"></strong><span class="id" id="meta"></span><span id="note"></span></header>
+<div id="stage"><video id="vv" controls autoplay></video><div id="novid" hidden>재생 가능한 파일이 없는 항목입니다 (복구 전 후보 등) — 다음으로 넘어가세요</div></div>
 <div class="bar">
+<button id="prev">‹ 이전</button>
 <button id="b10">« -10초</button><button id="b1">-1초</button>
 <button id="f1">+1초</button><button id="f10">+10초 »</button>
 <select id="rate">${rateOptions}</select>
 <button id="play">재생/일시정지</button>
-<span class="muted">←/→ ±10초 · ↑/↓ 배속 · space 재생/정지</span>
+<button id="next">다음 ›</button>
+<span class="muted">←/→ ±10초 · ↑/↓ 배속 · space 재생 · k/j 이전/다음</span>
+</div>
+<div class="bar">
+<span class="muted">판독</span>
+<button class="mk" data-m="reviewed">판독 완료(1)</button>
+<button class="mk" data-m="important">중요(2)</button>
+<button class="mk" data-m="needs_verification">검증 대기(3)</button>
+<button class="mk" data-m="">해제(0)</button>
+<span class="muted">태그</span>${tagButtons}
 </div>
 <script>
-var v=document.querySelector("video");
+var v=document.getElementById("vv");
 var RATES=[${RATES.join(",")}];
 var rate=document.getElementById("rate");
+var cur=null;
 v.playbackRate=${rate};
+function B(){return (window.opener&&!window.opener.closed&&window.opener.__ftBridge)||null;}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]});}
+function note(t){document.getElementById("note").textContent=t||"";}
+function dead(){note("메인 뷰어가 닫혔습니다 — 마크/태그/이동이 비활성화되었습니다.");}
+function applyDesc(d,autoplay){
+if(!d){document.getElementById("title").textContent="표시할 증거가 없습니다";return;}
+cur=d;
+document.getElementById("title").textContent=d.name;
+document.getElementById("meta").textContent=d.id+" · "+d.statusLabel+" · "+(d.index)+"/"+d.total+"건"+(d.mark?" · 마크:"+d.mark:"")+(d.warnings.length?" · 경고 "+d.warnings.length:"");
+document.title=d.name+" — FrameTrace Player";
+if(d.src){document.getElementById("novid").hidden=true;if(v.getAttribute("src")!==d.src){v.setAttribute("src",d.src);v.load();}v.playbackRate=Number(rate.value);if(autoplay!==false)v.play().catch(function(){});}
+else{document.getElementById("novid").hidden=false;v.removeAttribute("src");v.load();}
+document.querySelectorAll(".mk").forEach(function(b){b.classList.toggle("on",b.dataset.m===d.mark);});
+document.querySelectorAll(".tg").forEach(function(b){b.classList.toggle("on",d.tags.indexOf(b.dataset.tag)>=0);});
+}
+function nav(step,autoplay){var b=B();if(!b){dead();return;}var r=b.navigate(step);applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?"마지막 항목입니다":"첫 항목입니다");else note("");}
+function doMark(m){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.mark(m||null),true);}
+function doTag(t){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.toggleTag(t),false);}
 function skip(d){v.currentTime=Math.max(0,Math.min(v.duration||1e9,v.currentTime+d));}
 function stepRate(d){var i=RATES.indexOf(Number(rate.value));var n=RATES[Math.max(0,Math.min(RATES.length-1,(i<0?3:i)+d))];rate.value=String(n);v.playbackRate=n;}
 document.getElementById("b10").onclick=function(){skip(-10)};
 document.getElementById("b1").onclick=function(){skip(-1)};
 document.getElementById("f1").onclick=function(){skip(1)};
 document.getElementById("f10").onclick=function(){skip(10)};
+document.getElementById("prev").onclick=function(){nav(-1,true)};
+document.getElementById("next").onclick=function(){nav(1,true)};
 rate.onchange=function(){v.playbackRate=Number(rate.value)};
 document.getElementById("play").onclick=function(){v.paused?v.play():v.pause()};
+document.querySelectorAll(".mk").forEach(function(b){b.onclick=function(){doMark(b.dataset.m)}});
+document.querySelectorAll(".tg").forEach(function(b){b.onclick=function(){doTag(b.dataset.tag)}});
+v.addEventListener("ended",function(){nav(1,true);});
 document.addEventListener("keydown",function(e){
+if(e.target&&e.target.tagName==="SELECT")return;
 if(e.key==="ArrowLeft")skip(-10);else if(e.key==="ArrowRight")skip(10);
 else if(e.key==="ArrowUp"){e.preventDefault();stepRate(1);}
 else if(e.key==="ArrowDown"){e.preventDefault();stepRate(-1);}
-else if(e.key===" "){e.preventDefault();v.paused?v.play():v.pause();}});
+else if(e.key===" "){e.preventDefault();v.paused?v.play():v.pause();}
+else if(e.key==="j")nav(1,true);else if(e.key==="k")nav(-1,true);
+else if(e.key==="1")doMark("reviewed");else if(e.key==="2")doMark("important");
+else if(e.key==="3")doMark("needs_verification");else if(e.key==="0")doMark("");});
+var b0=B();if(b0){applyDesc(b0.descriptor(),true);}else{dead();}
 <\/script></body></html>`);
   win.document.close();
   win.focus();

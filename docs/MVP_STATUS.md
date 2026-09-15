@@ -121,10 +121,15 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   on SQLite's lock-upgrade deadlock.
 - Viewer transport controls: a dedicated media toolbar row offers
   ±10 s skip buttons, a playback-rate select (0.25×–4×, persisted in
-  the layout state), and a "영상 새 창" button that opens a minimal
-  popup player window (named, reused on repeat opens) with its own
-  skip/rate/keyboard controls — the same controls work in the main
-  viewer via `←`/`→` and `[`/`]` shortcuts.
+  the layout state), and a "영상 새 창" button that opens a popup
+  player window (named, reused on repeat opens) — the same controls
+  work in the main viewer via `←`/`→` and `[`/`]` shortcuts.
+- The popup player is a full triage seat: it drives the main window's
+  review state through a same-origin `__ftBridge` (mark `1`/`2`/`3`/`0`
+  with auto-advance, preset tag toggles, prev/next navigation,
+  auto-advance on `ended`), so marks/tags persist through the same
+  localStorage path as the grid; it degrades to a warning banner when
+  the opener closes.
 
 ## Scope Decisions (2026-09)
 
