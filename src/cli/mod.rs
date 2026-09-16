@@ -69,6 +69,10 @@ pub enum Commands {
         /// Discard any interrupted-run checkpoint and process every file
         #[arg(long, overrides_with = "resume")]
         no_resume: bool,
+        /// Screen each file through the deepfake-lens sidecar and write
+        /// artifacts/deepfake/<id>.json (slow on CPU-only machines)
+        #[arg(long)]
+        deepfake: bool,
     },
     /// Register an evidence source in the SQLite case database
     RegisterSource {
@@ -487,12 +491,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             incremental,
             resume,
             no_resume,
+            deepfake,
         } => {
             let options = ScanOptions {
                 hash_files: hash,
                 use_ffprobe: !no_ffprobe,
                 max_depth,
                 incremental,
+                deepfake_screen: deepfake,
             };
             scan_folder(
                 &case_dir,

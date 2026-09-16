@@ -2399,14 +2399,15 @@ fn validation_options_json(options: &ValidationOptions) -> String {
 
 fn scan_options_json(options: &ScanOptions) -> String {
     format!(
-        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{},\"incremental\":{}}}",
+        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{},\"incremental\":{},\"deepfake_screen\":{}}}",
         options.hash_files,
         options.use_ffprobe,
         options
             .max_depth
             .map(|value| value.to_string())
             .unwrap_or_else(|| "null".to_string()),
-        options.incremental
+        options.incremental,
+        options.deepfake_screen
     )
 }
 

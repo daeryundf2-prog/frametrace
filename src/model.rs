@@ -53,6 +53,10 @@ pub struct ScanOptions {
     /// verbatim (no re-hash, no re-probe); only new/changed files are
     /// processed and missing paths are marked stale.
     pub incremental: bool,
+    /// Screen each indexed file through the deepfake-lens sidecar and
+    /// write artifacts/deepfake/<id>.json. Opt-in: neural members make
+    /// per-file screening slow on CPU-only workstations.
+    pub deepfake_screen: bool,
 }
 
 impl Default for ScanOptions {
@@ -62,6 +66,7 @@ impl Default for ScanOptions {
             use_ffprobe: true,
             max_depth: None,
             incremental: false,
+            deepfake_screen: false,
         }
     }
 }

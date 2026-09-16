@@ -161,6 +161,32 @@ pub fn scan_folder(
             confidence,
             source_profile,
         };
+        if options.deepfake_screen {
+            // Sidecar lane: per-file report lands under
+            // artifacts/deepfake/<id>.json; failures are warnings, never
+            // scan aborts.
+            let screening = crate::deepfake::screen(&record.source_path);
+            let screen_error = screening.error.clone();
+            let artifact_dir = case_dir.join("artifacts/deepfake");
+            if let Err(err) = fs::create_dir_all(&artifact_dir) {
+                warnings.push(format!(
+                    "deepfake artifact dir failed for {}: {err}",
+                    record.id
+                ));
+            } else {
+                let body = screening.raw_json.clone().unwrap_or_else(|| {
+                    format!(
+                        "{{\"ok\":false,\"error\":\"{}\"}}",
+                        json_escape(screen_error.as_deref().unwrap_or("unknown"))
+                    )
+                });
+                if let Err(err) = write_text_atomic(&artifact_dir.join(format!("{}.json", record.id)), &body) {
+                    warnings.push(format!("deepfake artifact write failed for {}: {err}", record.id));
+                } else if let Some(error) = &screen_error {
+                    warnings.push(format!("deepfake screening failed for {}: {error}", record.id));
+                }
+            }
+        }
         // Checkpoint BEFORE the record goes into the in-memory list: a
         // crash after this line replays the record, a crash before it
         // simply reprocesses the file.

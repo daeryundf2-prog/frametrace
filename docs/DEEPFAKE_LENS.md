@@ -44,14 +44,13 @@ measured false-positive/false-negative behaviour (see
 frametrace deepfake-screen <file> [--json-out out.json]
 ```
 
-## Wiring into the case pipeline (next step)
+## Wiring into the case pipeline
 
-`deepfake::screen(&path)` returns `DeepfakeSummary`. Suggested
-attachment points, in order of effort:
-
-1. **Artifact file** (cheapest): during `scan-folder`, write
-   `artifacts/deepfake/<id>.json` per media file and reference it from
-   the record — no schema change.
+1. **Artifact file — implemented.** `scan-folder --deepfake` screens
+   each indexed file and writes `artifacts/deepfake/<id>.json`
+   (full forensic report, or `{"ok":false,"error":…}` on failure).
+   Screening failures become scan warnings, never aborts; incremental
+   rescans and checkpoint replay skip already-indexed files.
 2. **`VideoRecord` field**: add `pub deepfake: Option<DeepfakeSummary>`
    serialized as `deepfake_*` flattened keys (same pattern as
    `probe_summary_flat`). Touches the published JSONL contract — bump
