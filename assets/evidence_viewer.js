@@ -542,6 +542,27 @@ const state = {
   collapsedGroups: new Set()
 };
 
+// Same-origin hosts (e.g. the examiner workstation iframe) read live case
+// stats through this getter instead of re-parsing the embedded data.
+window.__frametraceSummary = () => {
+  const byKind = {};
+  const byStatus = {};
+  let warned = 0;
+  records.forEach(r => {
+    byKind[r.kind || "video"] = (byKind[r.kind || "video"] || 0) + 1;
+    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    if ((r.warnings || []).length) warned += 1;
+  });
+  return {
+    total: records.length,
+    byKind,
+    byStatus,
+    warned,
+    marked: Object.keys(state.marks).length,
+    noted: records.filter(r => (state.notes[r.id] || "").trim()).length
+  };
+};
+
 const els = {
   caseLine: document.getElementById("caseLine"),
   resultCount: document.getElementById("resultCount"),
