@@ -53,5 +53,19 @@ const fs2 = await ev(ws, sid, `(() => { const f = document.getElementById('revie
   return { fs: !!document.fullscreenElement, embed: f.contentWindow.document.body.classList.contains('embed') }; })()`);
 check('exit fullscreen returns to compact', !fs2.fs && fs2.embed, JSON.stringify(fs2));
 
+// re-enter fullscreen → floating close button appears, click exits
+await ev(ws, sid, `document.getElementById('btnViewerFull').click()`);
+await sleep(1200);
+const fs3 = await ev(ws, sid, `(() => { const f = document.getElementById('reviewFrame');
+  const b = f.contentWindow.document.getElementById('btnExitFs');
+  return { fs: document.fullscreenElement === f, btnShown: b && !b.hidden }; })()`);
+check('close button appears in fullscreen', fs3.fs && fs3.btnShown, JSON.stringify(fs3));
+await ev(ws, sid, `(() => { document.getElementById('reviewFrame').contentWindow.document.getElementById('btnExitFs').click(); return 1; })()`);
+await sleep(1000);
+const fs4 = await ev(ws, sid, `(() => { const f = document.getElementById('reviewFrame');
+  const b = f.contentWindow.document.getElementById('btnExitFs');
+  return { fs: !!document.fullscreenElement, embed: f.contentWindow.document.body.classList.contains('embed'), btnHidden: b.hidden }; })()`);
+check('close button exits fullscreen → compact', !fs4.fs && fs4.embed && fs4.btnHidden, JSON.stringify(fs4));
+
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
 ws.close(); process.exit(results.every(Boolean) ? 0 : 1);

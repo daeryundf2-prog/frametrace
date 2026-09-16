@@ -602,6 +602,11 @@ document.addEventListener("fullscreenchange", () => {
   const full = document.fullscreenElement === reviewFrame;
   try { reviewFrame.contentWindow.postMessage({ type: "ft-embed", embed: !full }, "*"); } catch (e) {}
 });
+window.addEventListener("message", e => {
+  if (e.data && e.data.type === "ft-exit-fullscreen" && document.fullscreenElement === reviewFrame) {
+    document.exitFullscreen();
+  }
+});
 
 async function ensureReportFrame() {
   const wrap = $("reportWrap"), frame = $("reportFrame");

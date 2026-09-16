@@ -30,6 +30,10 @@ body.embed .browse { gap: 4px; }
 body.embed .tree { display: none; }
 body.embed .midrow { grid-template-columns: minmax(0, 1fr); }
 body.embed .main { grid-template-columns: minmax(0, 58%) 10px minmax(0, 1fr); }
+/* Floating close affordance shown only while the embedded iframe is
+   fullscreen — native fullscreen has no chrome of its own. */
+.fs-exit { position: fixed; top: 10px; right: 14px; z-index: 3000; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: rgba(22,35,31,.92); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+.fs-exit:hover { background: rgba(15,124,113,.95); }
 h1 { font-size: 16px; margin: 0; }
 .case-line { color: var(--muted); font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-actions { display: flex; align-items: center; gap: 8px; }

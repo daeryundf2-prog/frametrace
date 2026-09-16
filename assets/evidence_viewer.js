@@ -2218,9 +2218,18 @@ if (examinerInput) {
 // iframe goes fullscreen, so the full UI returns there.
 const setEmbed = on => document.body.classList.toggle("embed", on);
 setEmbed(new URLSearchParams(location.search).has("embed") || window.self !== window.top);
+const exitFsBtn = document.getElementById("btnExitFs");
 window.addEventListener("message", event => {
-  if (event.data && event.data.type === "ft-embed") setEmbed(!!event.data.embed);
+  if (!event.data || event.data.type !== "ft-embed") return;
+  setEmbed(!!event.data.embed);
+  // Framed + embed off = the host fullscreened us: show a way back.
+  if (exitFsBtn) exitFsBtn.hidden = event.data.embed || window.self === window.top;
 });
+if (exitFsBtn) {
+  exitFsBtn.addEventListener("click", () => {
+    try { window.parent.postMessage({ type: "ft-exit-fullscreen" }, "*"); } catch (e) {}
+  });
+}
 setupHeightSplitter();
 setupColumnSplitter();
 setupGridDelegation();
