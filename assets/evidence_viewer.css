@@ -48,8 +48,10 @@ mark { background: #ffe9a8; padding: 0 1px; }
 body.theater .vsplitter { display: none; }
 .browse { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .browse .filters { display: flex; flex-wrap: wrap; gap: 6px; }
-.browse .filters input[type="search"] { flex: 1 1 200px; }
-.browse .filters-extra { padding: 6px 8px; background: #f7f9f8; border: 1px solid var(--line); border-radius: 8px; margin-top: 2px; }
+.browse .filters input[type="search"] { flex: 1 1 160px; min-width: 120px; }
+.browse .filters select { flex: 0 1 auto; max-width: 168px; text-overflow: ellipsis; }
+.browse .filters .chip-toggle { height: 32px; }
+.browse .filters-extra { padding: 6px 8px; background: #f7f9f8; border: 1px solid var(--line); border-radius: 8px; margin-top: 2px; align-items: center; }
 .date-row { display: flex; align-items: center; gap: 4px; }
 .date-row input { width: 128px; padding: 0 4px; font-size: 12px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -57,6 +59,9 @@ body.theater .vsplitter { display: none; }
 .chip-label:first-child { margin-left: 0; }
 .chip { height: 26px; border-radius: 999px; padding: 0 10px; font-size: 12px; background: #eef3f1; border: 1px solid #cdd8d4; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.histline { display: flex; align-items: center; gap: 10px; }
+.histline .period { flex: 0 0 auto; }
+.histline .hist { flex: 1 1 auto; min-width: 0; }
 .hist { display: flex; align-items: flex-end; gap: 2px; height: 38px; overflow-x: auto; }
 .hist button { flex: 0 0 auto; width: 22px; height: 100%; display: grid; align-items: end; justify-items: center; border: none; background: transparent; padding: 0; cursor: pointer; }
 .hist button .bar { width: 100%; min-height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }

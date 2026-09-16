@@ -596,6 +596,7 @@ const els = {
   facetTree: document.getElementById("facetTree"),
   sortBy: document.getElementById("sortBy"),
   groupBy: document.getElementById("groupBy"),
+  tagFilter: document.getElementById("tagFilter"),
   dateFrom: document.getElementById("dateFrom"),
   dateTo: document.getElementById("dateTo"),
   dayHistogram: document.getElementById("dayHistogram"),
@@ -1192,16 +1193,11 @@ function renderMetrics() {
 }
 
 function renderChips() {
-  // Split the flat chip list into a status group and a tag group so the
-  // row reads as two labeled sets instead of one long strip.
-  const parts = [];
-  let tagLabelShown = false;
-  parts.push('<span class="chip-label">필터</span>');
+  // Status/mark chips stay inline; tag filters live in the 정렬·표시
+  // panel's tag select so the chip row stays a single group.
+  const parts = ['<span class="chip-label">필터</span>'];
   for (const [value, label] of PRESET_CHIPS) {
-    if (value.startsWith("tag:") && !tagLabelShown) {
-      parts.push('<span class="chip-label">태그</span>');
-      tagLabelShown = true;
-    }
+    if (value.startsWith("tag:")) continue;
     parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`);
   }
   els.presetChips.innerHTML = parts.join("");
@@ -1220,6 +1216,7 @@ function renderChips() {
       render();
     });
   });
+  els.tagFilter.value = state.chip.startsWith("tag:") ? state.chip : "";
 }
 
 function render() {
@@ -1720,6 +1717,13 @@ els.prevPage.addEventListener("click", () => { state.currentPage -= 1; render();
 els.nextPage.addEventListener("click", () => { state.currentPage += 1; render(); });
 els.sortBy.addEventListener("change", () => { state.sortBy = els.sortBy.value; state.currentPage = 1; render(); });
 els.groupBy.addEventListener("change", () => { state.groupBy = els.groupBy.value; state.currentPage = 1; render(); });
+els.tagFilter.addEventListener("change", () => {
+  state.chip = els.tagFilter.value;
+  state.status = "";
+  els.status.value = "";
+  state.currentPage = 1;
+  render();
+});
 els.dateFrom.addEventListener("change", () => { state.dateFrom = els.dateFrom.value; state.currentPage = 1; render(); });
 els.dateTo.addEventListener("change", () => { state.dateTo = els.dateTo.value; state.currentPage = 1; render(); });
 document.getElementById("btnClearDates").addEventListener("click", () => {
