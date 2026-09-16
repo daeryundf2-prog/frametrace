@@ -26,7 +26,8 @@
     .badge { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 11px; border-radius: 980px; font-size: 12.5px; font-weight: 500; background: #e8e8ed; color: var(--muted); }
     .badge.ok { background: #e3f4ec; color: var(--ok); }
     .badge.bad { background: #fdeceb; color: var(--danger); }
-    .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 20px; max-width: 1180px; margin: 0 auto; padding: 26px 20px 60px; }
+    .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 20px; max-width: 1440px; margin: 0 auto; padding: 26px 24px 60px; min-height: calc(100vh - 58px); }
+    .shell > nav.rail { position: sticky; top: 84px; align-self: start; }
     .rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 84px; align-self: start; }
     .navstep { display: flex; gap: 12px; align-items: center; text-align: left; padding: 13px 14px; border: none; border-radius: 14px; background: var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; height: auto; transition: box-shadow .18s ease, transform .18s ease; }
     .navstep .num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e8e8ed; color: var(--muted); font-size: 13px; font-weight: 700; flex: 0 0 auto; transition: background .18s ease, color .18s ease; }
@@ -42,9 +43,11 @@
     .navstep.current:not(.sel) .num { box-shadow: 0 0 0 1.5px var(--accent); }
     .navstep.done .num { font-size: 0; background: var(--ok); }
     .navstep.done .num::after { content: "✓"; font-size: 14px; color: #fff; }
-    main { min-width: 0; }
+    main { min-width: 0; display: flex; flex-direction: column; }
     .view { display: none; }
-    .view.on { display: block; animation: fadein .22s ease; }
+    .view.on { display: block; animation: fadein .22s ease; flex: 1; }
+    .viewcols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; align-items: start; }
+    @media (max-width: 1000px) { .viewcols { grid-template-columns: 1fr; } }
     @keyframes fadein { from { opacity: 0; transform: translateY(6px); } }
     section.card { background: var(--panel); border: none; border-radius: var(--radius); box-shadow: var(--shadow); padding: 26px 28px; margin-bottom: 14px; }
     section.card h2 { font-size: 21px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
@@ -118,6 +121,11 @@
     .caselist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
     .casechip { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 500; background: var(--bg); border-radius: 980px; }
     .casechip:hover { background: #e2f0ee; }
+    .minihead { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .02em; text-transform: uppercase; margin: 0 0 8px; }
+    .stack { display: grid; gap: 8px; }
+    .stack button { width: 100%; text-align: left; justify-content: flex-start; }
+    .stack button.ghost { border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 0 14px; }
+    .stack button.ghost:hover { background: #e2f0ee; color: var(--accent); }
     details.adv { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
     details.adv summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); }
     details.adv summary:hover { color: var(--ink); }
@@ -197,8 +205,10 @@
   <section class="card view" id="progCard" data-view="2">
     <h2>분석 진행</h2>
     <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
-    <ol class="steptrack" id="track"></ol>
-    <pre class="log" id="log" aria-live="polite"></pre>
+    <div class="viewcols" style="grid-template-columns:300px minmax(0,1fr)">
+      <ol class="steptrack" id="track"></ol>
+      <pre class="log" id="log" aria-live="polite" style="margin:0;min-height:340px"></pre>
+    </div>
     <div class="row" style="margin-top:10px">
       <button id="btnCancel" style="display:none;background:#b42318;border-color:#b42318;color:#fff">분석 중단</button>
       <button id="btnNew" style="display:none">새 케이스 시작</button>
@@ -209,42 +219,52 @@
   <section class="card view" id="resultCard" data-view="3">
     <h2>검토 — 분석된 데이터 확인</h2>
     <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
-    <div class="row" style="margin-bottom:10px">
-      <button id="btnViewerWindow" class="primary">뷰어를 새 창으로 열기</button>
-      <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
-      <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
-      <span class="muted" id="recoverHint">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.</span>
-    </div>
-    <div class="linklist">
-      <a href="/review/evidence-viewer.html" target="_blank"><b>증거 뷰어 열기 (검토 화면)</b><span>썸네일 그리드 · 재생 · 검증 상태 · 판독 마크/태그</span></a>
-      <a href="/review/index.html" target="_blank"><b>색인 대시보드 열기</b><span>전체 색인 목록 · 해시 · 파서 평가</span></a>
+    <div class="viewcols">
+      <div>
+        <button id="btnViewerWindow" class="primary" style="width:100%;height:44px;font-size:15px;margin-bottom:10px">뷰어를 새 창으로 열기</button>
+        <div class="linklist">
+          <a href="/review/evidence-viewer.html" target="_blank"><b>증거 뷰어 열기 (검토 화면)</b><span>썸네일 그리드 · 재생 · 검증 상태 · 판독 마크/태그</span></a>
+          <a href="/review/index.html" target="_blank"><b>색인 대시보드 열기</b><span>전체 색인 목록 · 해시 · 파서 평가</span></a>
+        </div>
+      </div>
+      <div>
+        <div class="minihead">추가 분석</div>
+        <div class="stack">
+          <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
+          <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
+        </div>
+        <p class="muted" id="recoverHint" style="font-size:12px;margin-top:8px">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다. 카빙은 export된 raw 이미지가 있을 때만 동작합니다.</p>
+      </div>
     </div>
   </section>
 
   <section class="card view" id="finalCard" data-view="4">
     <h2>결과물 정리 — 보고서 · 패키지</h2>
     <p class="hint">검토가 끝나면 결과 보고서를 생성합니다. 보고서에는 발견된 원본 영상, 메타데이터, SHA-256 해시, 발견/분석 기법, 처리 체인이 정리됩니다. 최종 패키징은 색인된 원본 파일의 SHA-256을 다시 계산해 분석 이후 소스 변조 여부까지 검증합니다.</p>
-    <div class="row">
-      <button class="primary" id="btnFinalize">결과 보고서 생성 및 패키징</button>
-      <input type="file" id="marksFile" accept=".json" style="display:none">
-      <button id="btnImportMarks">마크 파일 반영 후 보고서 갱신</button>
-      <span class="muted" id="finalHint"></span>
-    </div>
-    <div class="linklist" id="finalLinks"></div>
-    <div class="pkg" id="pkgPath"></div>
-    <details class="adv">
-      <summary>고급 도구 — 상호교환·QA·케이스 비교</summary>
-      <div class="adv-body">
-        <div class="row">
+    <div class="viewcols">
+      <div>
+        <div class="minihead">보고서 · 패키지</div>
+        <div class="stack">
+          <button class="primary" id="btnFinalize" style="height:42px">결과 보고서 생성 및 패키징</button>
+          <input type="file" id="marksFile" accept=".json" style="display:none">
+          <button id="btnImportMarks">마크 파일 반영 후 보고서 갱신</button>
+        </div>
+        <p class="muted" id="finalHint" style="font-size:12px;margin-top:8px"></p>
+        <div class="linklist" id="finalLinks"></div>
+        <div class="pkg" id="pkgPath"></div>
+      </div>
+      <div>
+        <div class="minihead">고급 도구 — 상호교환·QA·케이스 비교</div>
+        <div class="stack">
           <button class="ghost" data-adv="dfxml">DFXML보내기</button>
           <button class="ghost" data-adv="timeline">타임라인 JSONL</button>
           <button class="ghost" data-adv="qa-consistency">색인 일관성 QA</button>
           <button class="ghost" data-adv="qa-defense">보고 방어 체크</button>
         </div>
         <div class="row" style="margin-top:10px">
-          <input type="text" id="advPath" placeholder="다른 케이스 폴더 또는 해시 목록 파일 경로" style="flex:1;min-width:220px">
+          <input type="text" id="advPath" placeholder="다른 케이스 폴더 또는 해시 목록 파일 경로" style="flex:1;min-width:0">
         </div>
-        <div class="row" style="margin-top:8px">
+        <div class="stack" style="margin-top:8px">
           <button class="ghost" data-adv="compare">케이스 비교</button>
           <button class="ghost" data-adv="merge">케이스 병합</button>
           <button class="ghost" data-adv="known-hash">기지원 해시 필터</button>
@@ -252,7 +272,7 @@
         <pre class="adv-out muted" id="advOut" hidden></pre>
         <div id="advLink"></div>
       </div>
-    </details>
+    </div>
   </section>
 </main>
 </div>
