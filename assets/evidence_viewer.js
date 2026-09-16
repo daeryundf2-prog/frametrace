@@ -822,7 +822,8 @@ function renderGrid(filtered) {
       if (key !== lastGroup) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
-        cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
+        const kindAttr = state.groupBy === "kind" ? ` data-gkind="${escapeHtml(record.kind || "")}"` : "";
+        cardsHtml.push(`<div class="group-header"${kindAttr} data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
         if (collapsed) return;
       }
     }
@@ -852,11 +853,12 @@ function renderCard(record) {
   const anomalyChip = record.hasAnomaly
     ? `<span class="badge anomaly" title="${escapeHtml(record.anomalies.map(item => item.kind).join(", "))}">${escapeHtml(t("header.anomaly"))}</span>`
     : "";
+  const kindChip = `<span class="kind-badge kind-${escapeHtml(record.kind || "video")}" title="출처">${escapeHtml(KIND_SHORT[record.kind] || record.kind || "?")}</span>`;
   const warnChip = (record.warnings || []).length
     ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>`
     : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
-    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
+    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
       <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}</div>
@@ -1320,6 +1322,12 @@ const KIND_LABELS = {
   carved: "카빙 후보",
   filesystem: "파일시스템 복구",
   candidate: "삭제 영상 후보 (복구 전)"
+};
+const KIND_SHORT = {
+  video: "원본",
+  carved: "카빙",
+  filesystem: "복구",
+  candidate: "복구 전"
 };
 
 function exportItem(record) {
@@ -1881,6 +1889,15 @@ document.getElementById("btnMoreFilters").addEventListener("click", () => {
   const extra = document.getElementById("filtersExtra");
   extra.hidden = !extra.hidden;
 });
+const btnGroupKind = document.getElementById("btnGroupKind");
+btnGroupKind.addEventListener("click", () => {
+  state.groupBy = state.groupBy === "kind" ? "none" : "kind";
+  els.groupBy.value = state.groupBy;
+  state.currentPage = 1;
+  render();
+});
+const syncGroupKindChip = () => btnGroupKind.classList.toggle("active", state.groupBy === "kind");
+els.groupBy.addEventListener("change", syncGroupKindChip);
 document.querySelectorAll(".menu-list").forEach(list => {
   list.addEventListener("click", e => {
     // Keep the document-level closer from seeing in-menu clicks; an

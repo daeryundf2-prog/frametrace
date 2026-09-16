@@ -123,7 +123,11 @@ body.theater .player { height: calc(100vh - 52px); }
 .mark-chip { display: inline-block; border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 800; color: #fff; background: var(--mark); margin-left: 4px; }
 .mark-chip.important { background: var(--danger); }
 .mark-chip.needs_verification { background: #8a5d14; }
-.group-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; background: #e3ebe8; color: #29433c; font-size: 11px; font-weight: 800; cursor: pointer; border-radius: 6px; }
+.group-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 12px; background: #e3ebe8; color: #29433c; font-size: 11px; font-weight: 800; cursor: pointer; border-radius: 6px; border-left: 4px solid #546e66; }
+.group-header[data-gkind="video"] { border-left-color: #0f7a5f; }
+.group-header[data-gkind="carved"] { border-left-color: #b45a1b; }
+.group-header[data-gkind="filesystem"] { border-left-color: #1c5d8f; }
+.group-header[data-gkind="candidate"] { border-left-color: #a03535; }
 .group-header .muted { font-weight: 600; }
 
 /* ---- selection bar / toast / modal ---- */
@@ -159,6 +163,13 @@ body.theater .player { grid-template-rows: 34px minmax(0, 1fr) 34px; }
 :fullscreen .media, ::backdrop { background: #0b0f0d; }
 
 .tag-chip { display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: 800; background: #1c5d8f; color: #fff; margin-right: 3px; }
+.chip-row-inner { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1 1 auto; min-width: 0; }
+.chip-toggle { margin-left: auto; }
+.kind-badge { position: absolute; top: 6px; right: 6px; border-radius: 5px; padding: 1px 6px; font-size: 10px; font-weight: 800; color: #fff; background: #546e66; }
+.kind-badge.kind-video { background: #0f7a5f; }
+.kind-badge.kind-carved { background: #b45a1b; }
+.kind-badge.kind-filesystem { background: #1c5d8f; }
+.kind-badge.kind-candidate { background: #a03535; }
 .tag-row { margin: 3px 0; }
 .tag-editor-wrap { padding: 6px 12px; border-top: 1px solid var(--line); }
 .tag-editor { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
