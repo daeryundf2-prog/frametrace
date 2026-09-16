@@ -1169,9 +1169,19 @@ function renderMetrics() {
 }
 
 function renderChips() {
-  els.presetChips.innerHTML = PRESET_CHIPS.map(([value, label]) =>
-    `<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`
-  ).join("");
+  // Split the flat chip list into a status group and a tag group so the
+  // row reads as two labeled sets instead of one long strip.
+  const parts = [];
+  let tagLabelShown = false;
+  parts.push('<span class="chip-label">필터</span>');
+  for (const [value, label] of PRESET_CHIPS) {
+    if (value.startsWith("tag:") && !tagLabelShown) {
+      parts.push('<span class="chip-label">태그</span>');
+      tagLabelShown = true;
+    }
+    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`);
+  }
+  els.presetChips.innerHTML = parts.join("");
   els.presetChips.querySelectorAll(".chip").forEach(chip => {
     chip.addEventListener("click", () => {
       const value = chip.dataset.chip;
@@ -1860,6 +1870,14 @@ document.getElementById("btnTagMenu").addEventListener("click", e => {
 document.getElementById("btnExportMenu").addEventListener("click", e => {
   e.stopPropagation();
   toggleMenu("exportMenuList");
+});
+document.getElementById("btnViewMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  toggleMenu("viewMenuList");
+});
+document.getElementById("btnMoreFilters").addEventListener("click", () => {
+  const extra = document.getElementById("filtersExtra");
+  extra.hidden = !extra.hidden;
 });
 document.querySelectorAll(".menu-list").forEach(list => {
   list.addEventListener("click", e => {
