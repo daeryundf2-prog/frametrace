@@ -1721,9 +1721,39 @@ fn api_proxy(request: &Request, state: &SharedState) -> String {
     if id.trim().is_empty() {
         return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
     }
+    // make-proxy resolves vid_* ids and indexed source paths. Carved /
+    // filesystem records carry non-indexed ids (carve_*, fls_*) — for
+    // those the viewer also sends the record's file path, which we only
+    // honor when it sits inside the approved media roots.
+    let selector = if id.starts_with("vid_") {
+        id.clone()
+    } else {
+        let alt = body_value(&request.body, "path").unwrap_or_default();
+        let candidate = PathBuf::from(alt.trim());
+        let roots = state_lock(state).media_roots.clone();
+        let allowed = candidate
+            .canonicalize()
+            .map(|canonical| {
+                roots
+                    .iter()
+                    .filter_map(|root| root.canonicalize().ok())
+                    .any(|root| path_is_under(&root, &canonical))
+            })
+            .unwrap_or(false);
+        if !allowed {
+            return "{\"ok\":false,\"error\":\"색인된 영상 또는 허용된 경로의 파일만 프록시로 재생할 수 있습니다.\"}"
+                .to_string();
+        }
+        candidate.to_string_lossy().to_string()
+    };
     let dir = case_dir.join("artifacts/proxies");
     let find_existing = |dir: &Path| -> Option<PathBuf> {
-        let prefix = format!("{}_proxy_", export_safe_name(&id));
+        // generate_proxy names outputs with video_export::sanitize_filename,
+        // not export_safe_name — match that or the cache lookup misses.
+        let prefix = format!(
+            "{}_proxy_",
+            crate::video_export::sanitize_filename(&selector)
+        );
         std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with(&prefix) && name.ends_with(".mp4") {
@@ -1748,7 +1778,7 @@ fn api_proxy(request: &Request, state: &SharedState) -> String {
             let args = vec![
                 "make-proxy".into(),
                 case_dir.to_string_lossy().to_string(),
-                id.clone(),
+                selector.clone(),
             ];
             if let Err(err) = run_step(&exe, &args, state) {
                 return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));

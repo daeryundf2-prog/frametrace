@@ -1751,7 +1751,9 @@ function updateRangeLabel() {
   const el = document.getElementById("rangeLabel");
   const record = selectedRecord();
   const range = rangeOf(record);
-  el.textContent = range ? `구간 ${range.in.toFixed(1)}s ~ ${range.out.toFixed(1)}s` : "";
+  el.textContent = range && (range.in != null || range.out != null)
+    ? `구간 ${range.in != null ? range.in.toFixed(1) + "s" : "—"} ~ ${range.out != null ? range.out.toFixed(1) + "s" : "—"}`
+    : "";
   const proxyBtn = document.getElementById("btnProxy");
   if (proxyBtn) proxyBtn.classList.toggle("on", !!(record && state.proxies[record.id]));
 }
@@ -1793,7 +1795,7 @@ document.getElementById("btnProxy").addEventListener("click", async () => {
     const res = await fetch("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ id: record.id })
+      body: JSON.stringify({ id: record.id, path: record.path || "" })
     });
     const data = await res.json();
     if (data.ok) {
