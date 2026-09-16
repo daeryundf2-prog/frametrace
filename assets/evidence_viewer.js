@@ -2211,6 +2211,13 @@ if (examinerInput) {
     storageSet(EXAMINER_KEY, state.examiner);
   });
 }
+// Embedded mode (inside the examiner workstation iframe): drop the
+// viewer's own chrome — case title, stat badges, locale toggle, view
+// menu — because the host already shows them. Grid/media keep full
+// functionality; ?embed=1 or an <iframe> ancestor enables it.
+if (new URLSearchParams(location.search).has("embed") || window.self !== window.top) {
+  document.body.classList.add("embed");
+}
 setupHeightSplitter();
 setupColumnSplitter();
 setupGridDelegation();

@@ -19,6 +19,17 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); display: grid; grid-template-rows: 52px minmax(0, 1fr) auto; height: 100vh; overflow: hidden; }
 header { background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 14px; padding: 0 16px; }
+/* Embedded in the workstation iframe: no duplicate header chrome,
+   tighter padding, and the layout hands all rows to the work area. */
+body.embed { grid-template-rows: minmax(0, 1fr) auto; }
+body.embed header { display: none; }
+body.embed .main { padding: 8px; }
+body.embed .browse { gap: 4px; }
+/* In the narrow iframe the facet tree costs a card column; the kind
+   select, chips, and host summary strip cover the same filtering. */
+body.embed .tree { display: none; }
+body.embed .midrow { grid-template-columns: minmax(0, 1fr); }
+body.embed .main { grid-template-columns: minmax(0, 58%) 10px minmax(0, 1fr); }
 h1 { font-size: 16px; margin: 0; }
 .case-line { color: var(--muted); font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
