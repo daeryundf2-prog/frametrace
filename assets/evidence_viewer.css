@@ -88,6 +88,8 @@ body.theater .vsplitter { display: none; }
 .media-toolbar select, .media-toolbar input { height: 24px; background: #16231f; color: #eaf3ef; border-color: #2c3a34; }
 .media-toolbar button { height: 24px; font-size: 11px; padding: 0 8px; background: #16231f; color: #eaf3ef; border-color: #2c3a34; white-space: nowrap; }
 .media-toolbar button:hover { border-color: var(--accent); }
+.media-toolbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.media-toolbar button.primary:hover { filter: brightness(1.1); }
 .media-toolbar input[type="range"] { width: 130px; }
 .mini-info { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: auto; flex: 1 1 auto; min-height: 120px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11px; font-weight: 800; text-transform: uppercase; color: #39433f; }
