@@ -34,8 +34,12 @@
     .navstep .nt small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
     .navstep:disabled { opacity: .55; cursor: default; }
     .navstep:not(:disabled):hover { box-shadow: 0 2px 10px rgba(0,0,0,.09); transform: translateY(-1px); }
-    .navstep.current { box-shadow: 0 0 0 1.5px var(--accent), 0 4px 14px rgba(15,124,113,.14); }
-    .navstep.current .num { background: var(--accent); color: #fff; }
+    /* .sel marks the screen the examiner is looking at; .current marks
+       the pipeline's live position — they can differ when the examiner
+       manually opens an earlier stage. */
+    .navstep.sel { box-shadow: 0 0 0 1.5px var(--accent), 0 4px 14px rgba(15,124,113,.14); }
+    .navstep.sel .num { background: var(--accent); color: #fff; }
+    .navstep.current:not(.sel) .num { box-shadow: 0 0 0 1.5px var(--accent); }
     .navstep.done .num { font-size: 0; background: var(--ok); }
     .navstep.done .num::after { content: "✓"; font-size: 14px; color: #fff; }
     main { min-width: 0; }

@@ -30,6 +30,28 @@ pub(crate) fn open_readonly_case_db(path: &Path) -> Result<Connection, String> {
 }
 
 pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
+    // Two connections can reach first initialization at once (e.g. the
+    // workstation status poller vs. a pipeline child). Without a write
+    // lock up front, a racer that read schema_meta while holding a
+    // SHARED lock hits SQLite's lock-upgrade deadlock — BUSY returned
+    // immediately, bypassing busy_timeout. BEGIN IMMEDIATE takes the
+    // RESERVED lock before ANY write, including the CREATE TABLE batch
+    // below, so losers simply wait on busy_timeout.
+    conn.execute_batch("BEGIN IMMEDIATE TRANSACTION")
+        .map_err(|err| format!("failed to begin SQLite schema transaction: {err}"))?;
+    let result = init_schema_inner(conn);
+    match result {
+        Ok(()) => conn
+            .execute_batch("COMMIT")
+            .map_err(|err| format!("failed to commit SQLite schema transaction: {err}")),
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+fn init_schema_inner(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS schema_meta (
@@ -138,25 +160,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|err| format!("failed to initialize SQLite schema: {err}"))?;
-
-    // Two connections can reach first initialization at once (e.g. the
-    // workstation status poller vs. a pipeline child). Without a write
-    // lock up front, a racer that read schema_meta while holding a
-    // SHARED lock hits SQLite's lock-upgrade deadlock — BUSY returned
-    // immediately, bypassing busy_timeout. BEGIN IMMEDIATE takes the
-    // RESERVED lock before the read, so losers simply wait.
-    conn.execute_batch("BEGIN IMMEDIATE TRANSACTION")
-        .map_err(|err| format!("failed to begin SQLite schema transaction: {err}"))?;
-    let migrated = init_schema_locked(conn);
-    match migrated {
-        Ok(()) => conn
-            .execute_batch("COMMIT")
-            .map_err(|err| format!("failed to commit SQLite schema transaction: {err}")),
-        Err(err) => {
-            let _ = conn.execute_batch("ROLLBACK");
-            Err(err)
-        }
-    }
+    init_schema_locked(conn)
 }
 
 fn init_schema_locked(conn: &Connection) -> Result<(), String> {
