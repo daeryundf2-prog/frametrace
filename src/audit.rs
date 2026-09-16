@@ -158,6 +158,22 @@ fn append_chained_locked(
         .map_err(|err| format!("failed to append chained audit log entry: {err}"))
 }
 
+/// Returns the sha256 of the last committed line — the chain head that the
+/// next appended entry will cite as `previous_entry_sha256`. Anchoring a
+/// deliverable to this value proves which audit state produced it.
+pub fn chain_head(path: &Path) -> Result<Option<String>, String> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|err| format!("failed to read audit log {}: {err}", path.display()))?;
+    Ok(text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| sha256::digest_bytes(line.as_bytes())))
+}
+
 pub fn verify_chained_jsonl(path: &Path) -> Result<AuditChainVerification, String> {
     let keys = crate::audit_key::verification_keys()?;
     let text = read_log_for_verification(path)?;

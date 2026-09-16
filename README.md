@@ -28,7 +28,7 @@ This first implementation is the local core prototype:
 - Core engine: Rust.
 - Video metadata and transcode boundary: FFmpeg / ffprobe.
 - Case DB: SQLite for the primary local index, with JSON/JSONL/TSV compatibility artifacts kept for review/export flows.
-- Recovery path: libewf CLI tools for E01 evidence import and Sleuth Kit `mmls`/`fls`/`icat` for file-system analysis today; custom carving parsers for DVR/CCTV formats (Dahua DAV next) per `docs/ROADMAP.md`.
+- Recovery path: libewf CLI tools for E01 evidence import and Sleuth Kit `mmls`/`fls`/`icat` for file-system analysis today; custom carving parsers for DVR/CCTV formats (Dahua DAV next) per `docs/ROADMAP-v3.md`.
 - Review UI: local web UI now, desktop webview later.
 
 The product should stay local-first. It should not require a server for evidence processing.
@@ -53,7 +53,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/validation-corpus.md` - corpus manifest structure and pass criteria.
 - `docs/FILESYSTEM_RECOVERY.md` - Sleuth Kit image inspection and inode recovery workflow.
 - `docs/PERFORMANCE_VALIDATION.md` - SQLite scale benchmark and large-media rules.
-- `docs/ROADMAP.md` - current roadmap: milestones, score targets, acceptance criteria, and open decisions.
+- `docs/ROADMAP-v3.md` - current roadmap: milestones, score targets, acceptance criteria, and open decisions (v1/v2 live under `docs/archive/`).
 - `docs/FORENSIC_HARDENING_PLAN.md` - gated cleanup, DB, provenance, reproducibility, report defensibility, and scale-validation roadmap.
 - `docs/WINDOWS_VALIDATION.md` - reproducible Windows validation commands and CI.
 - `docs/MVP_STATUS.md` - completed MVP scope and future boundaries.

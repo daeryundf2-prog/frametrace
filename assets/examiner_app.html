@@ -111,6 +111,14 @@
     .linklist a span { color: var(--muted); font-size: 13px; display: block; margin-top: 2px; }
     .pkg { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--bg); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: none; }
     .pkg.show { display: block; }
+    .caselist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+    .casechip { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 500; background: var(--bg); border-radius: 980px; }
+    .casechip:hover { background: #e2f0ee; }
+    details.adv { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
+    details.adv summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+    details.adv summary:hover { color: var(--ink); }
+    .adv-body { margin-top: 10px; }
+    .adv-out { font-family: var(--mono); font-size: 12px; background: var(--bg); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; margin-top: 10px; }
     .err { display: none; background: #fdeceb; color: var(--danger); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 12px; }
     .err.show { display: block; }
     .muted { color: var(--muted); }
@@ -178,6 +186,7 @@
       <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
     </div>
     <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.</p>
+    <div id="recentCaseRow" class="caselist" hidden></div>
     <div class="err" id="startErr"></div>
   </section>
 
@@ -199,6 +208,7 @@
     <div class="row" style="margin-bottom:10px">
       <button id="btnViewerWindow" class="primary">뷰어를 새 창으로 열기</button>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
+      <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
       <span class="muted" id="recoverHint">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.</span>
     </div>
     <div class="linklist">
@@ -218,6 +228,27 @@
     </div>
     <div class="linklist" id="finalLinks"></div>
     <div class="pkg" id="pkgPath"></div>
+    <details class="adv">
+      <summary>고급 도구 — 상호교환·QA·케이스 비교</summary>
+      <div class="adv-body">
+        <div class="row">
+          <button class="ghost" data-adv="dfxml">DFXML보내기</button>
+          <button class="ghost" data-adv="timeline">타임라인 JSONL</button>
+          <button class="ghost" data-adv="qa-consistency">색인 일관성 QA</button>
+          <button class="ghost" data-adv="qa-defense">보고 방어 체크</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <input type="text" id="advPath" placeholder="다른 케이스 폴더 또는 해시 목록 파일 경로" style="flex:1;min-width:220px">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="ghost" data-adv="compare">케이스 비교</button>
+          <button class="ghost" data-adv="merge">케이스 병합</button>
+          <button class="ghost" data-adv="known-hash">기지원 해시 필터</button>
+        </div>
+        <pre class="adv-out muted" id="advOut" hidden></pre>
+        <div id="advLink"></div>
+      </div>
+    </details>
   </section>
 </main>
 </div>
@@ -451,8 +482,8 @@ $("btnStart").addEventListener("click", async () => {
   setStep(3, 2);
 });
 
-$("btnOpenCase").addEventListener("click", async () => {
-  const dir = $("caseDir").value.trim();
+$("btnOpenCase").addEventListener("click", () => openCase($("caseDir").value.trim()));
+async function openCase(dir) {
   if (!dir) {
     $("startErr").classList.add("show");
     $("startErr").textContent = "열 기존 케이스 폴더 경로를 입력하십시오.";
@@ -473,7 +504,7 @@ $("btnOpenCase").addEventListener("click", async () => {
   pushRecent("recentCases", dir);
   savePrefs({ lastCase: dir });
   autoReviewed = false; // let the next poll jump to the review screen
-});
+}
 
 let cancelRequested = false;
 $("btnCancel").addEventListener("click", async () => {
@@ -546,6 +577,45 @@ $("marksFile").addEventListener("change", async () => {
   }
 });
 
+$("btnCarve").addEventListener("click", async () => {
+  if (!confirm("export된 raw 이미지에서 영상 시그니처 카빙을 실행합니다.\n이미지 크기에 따라 시간이 걸릴 수 있습니다. 계속하시겠습니까?")) return;
+  const btn = $("btnCarve");
+  btn.disabled = true;
+  $("recoverHint").textContent = "시그니처 카빙 실행 중… (이미지 크기에 따라 시간이 걸릴 수 있습니다)";
+  const res = await jpost("/api/carve", {});
+  btn.disabled = false;
+  if (!res.ok) {
+    $("recoverHint").textContent = "카빙 실패: " + (res.error || "");
+    return;
+  }
+  $("recoverHint").textContent = "카빙 완료 — 뷰어를 새로 열면 카빙 후보가 보입니다.";
+});
+
+document.querySelectorAll("[data-adv]").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const tool = btn.dataset.adv;
+    const needsPath = tool === "compare" || tool === "merge" || tool === "known-hash";
+    const extra = needsPath ? $("advPath").value.trim() : "";
+    if (needsPath && !extra) {
+      $("advOut").hidden = false;
+      $("advOut").textContent = "경로를 입력하십시오 — " +
+        (tool === "known-hash" ? "sha256 목록 파일" : "비교/병합할 케이스 폴더");
+      return;
+    }
+    if (tool === "merge" && !confirm("다른 케이스의 색인을 이 케이스에 병합합니다 (중복은 duplicate로 표시). 계속하시겠습니까?")) return;
+    btn.disabled = true;
+    $("advOut").hidden = false;
+    $("advOut").textContent = "실행 중…";
+    $("advLink").innerHTML = "";
+    const res = await jpost("/api/advanced", { tool, extra });
+    btn.disabled = false;
+    $("advOut").textContent = res.ok ? (res.output || "완료") : "실패: " + (res.error || "");
+    if (res.ok && res.url) {
+      $("advLink").innerHTML = `<a href="/case/${esc(res.url)}" target="_blank">산출물 열기: ${esc(res.url)}</a>`;
+    }
+  });
+});
+
 loadEnv();
 document.querySelectorAll("input[name='inputKind']").forEach(radio => radio.addEventListener("change", syncInputKind));
 
@@ -597,6 +667,28 @@ function renderRecent() {
   };
   fill("recentSources", prefs.recentSources);
   fill("recentCases", prefs.recentCases);
+  renderRecentCases();
+}
+
+// One-click reopen: remembered paths that still hold a case DB become chips.
+async function renderRecentCases() {
+  const row = $("recentCaseRow");
+  const paths = (loadPrefs().recentCases || []).slice(0, 6);
+  const checks = await Promise.all(paths.map(async p => {
+    try {
+      const res = await jget("/api/browse?path=" + encodeURIComponent(p));
+      return res.is_case ? p : null;
+    } catch { return null; }
+  }));
+  const valid = checks.filter(Boolean);
+  if (!valid.length) { row.hidden = true; row.innerHTML = ""; return; }
+  row.hidden = false;
+  row.innerHTML = `<span class="muted" style="font-size:13px">최근 케이스:</span>` +
+    valid.map(p => `<button type="button" class="casechip" data-path="${esc(p)}" title="${esc(p)}">${esc(p.split(/[\\/]/).filter(Boolean).pop() || p)}</button>`).join("");
+  row.querySelectorAll(".casechip").forEach(b => b.addEventListener("click", () => {
+    $("caseDir").value = b.dataset.path;
+    openCase(b.dataset.path);
+  }));
 }
 
 function setStatus(el, cls, msg) {
@@ -704,7 +796,8 @@ async function browseTo(path) {
     const li = document.createElement("li");
     li.className = "picker-item";
     li.tabIndex = 0;
-    li.innerHTML = `<span class="${e.dir ? "dir" : ""}">${esc(e.name)}${e.dir ? "/" : ""}</span>`;
+    li.innerHTML = `<span class="${e.dir ? "dir" : ""}">${esc(e.name)}${e.dir ? "/" : ""}</span>` +
+      (e.is_case ? `<span class="muted" style="font-size:12px"> · 케이스</span>` : "");
     const act = () => { if (e.dir) browseTo(e.path); else choose(e.path); };
     li.addEventListener("click", act);
     li.addEventListener("keydown", ev => { if (ev.key === "Enter") act(); });

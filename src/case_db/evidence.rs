@@ -87,6 +87,7 @@ pub struct ReviewMarkRow {
     pub marked_unix: u64,
     pub record_path: Option<String>,
     pub examiner: Option<String>,
+    pub note: Option<String>,
 }
 
 /// Upserts examiner review marks imported from the viewer's marks file.
@@ -100,13 +101,14 @@ pub fn upsert_review_marks(case_dir: &Path, marks: &[ReviewMarkRow]) -> Result<u
     for mark in marks {
         tx.execute(
             r#"
-            INSERT INTO review_marks (record_id, status, marked_unix, record_path, examiner)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO review_marks (record_id, status, marked_unix, record_path, examiner, note)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ON CONFLICT(record_id) DO UPDATE SET
                 status = excluded.status,
                 marked_unix = excluded.marked_unix,
                 record_path = COALESCE(excluded.record_path, review_marks.record_path),
-                examiner = COALESCE(excluded.examiner, review_marks.examiner)
+                examiner = COALESCE(excluded.examiner, review_marks.examiner),
+                note = COALESCE(excluded.note, review_marks.note)
             "#,
             params![
                 mark.record_id.as_str(),
@@ -114,6 +116,7 @@ pub fn upsert_review_marks(case_dir: &Path, marks: &[ReviewMarkRow]) -> Result<u
                 u64_to_i64(mark.marked_unix),
                 mark.record_path.as_deref(),
                 mark.examiner.as_deref(),
+                mark.note.as_deref(),
             ],
         )
         .map_err(|err| format!("failed to upsert review mark {}: {err}", mark.record_id))?;
@@ -132,8 +135,16 @@ pub fn load_review_marks(case_dir: &Path) -> Result<Vec<ReviewMarkRow>, String> 
     if !table_exists(&conn, "review_marks")? {
         return Ok(Vec::new());
     }
+    // Read-only connections skip init_schema, so a pre-v4 case db may not
+    // have the note column yet — fall back to NULLs instead of failing.
+    let has_note = table_has_column(&conn, "review_marks", "note")?;
+    let sql = if has_note {
+        "SELECT record_id, status, marked_unix, record_path, examiner, note FROM review_marks ORDER BY record_id"
+    } else {
+        "SELECT record_id, status, marked_unix, record_path, examiner, NULL FROM review_marks ORDER BY record_id"
+    };
     let mut stmt = conn
-        .prepare("SELECT record_id, status, marked_unix, record_path, examiner FROM review_marks ORDER BY record_id")
+        .prepare(sql)
         .map_err(|err| format!("failed to prepare review marks query: {err}"))?;
     let rows = stmt
         .query_map([], |row| {
@@ -143,6 +154,7 @@ pub fn load_review_marks(case_dir: &Path) -> Result<Vec<ReviewMarkRow>, String> 
                 marked_unix: i64_to_u64(row.get(2)?),
                 record_path: row.get(3)?,
                 examiner: row.get(4)?,
+                note: row.get(5)?,
             })
         })
         .map_err(|err| format!("failed to query review marks: {err}"))?;

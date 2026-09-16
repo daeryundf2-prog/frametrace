@@ -23,6 +23,10 @@ const EXT_PREFIX = BS + BS + "?" + BS;
 const EXT_UNC = EXT_PREFIX + "unc" + BS;
 const LAYOUT_KEY = "ft.viewer." + (manifest.case_id || "case") + ".layout.v2";
 const MARKS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".marks";
+const NOTES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".notes";
+const RANGES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".ranges";
+const PROXIES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".proxies";
+const EXAMINER_KEY = "ft.viewer." + (manifest.case_id || "case") + ".examiner";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
 const TAG_PRESETS = ["사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
 const TAGS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".tags";
@@ -292,11 +296,14 @@ function escapeHtml(value) {
 // server's Range-enabled /media endpoint instead. Opening the page directly
 // from disk keeps the original file:// URL.
 function mediaSrcFor(record) {
-  if (!record.fileUrl) return "";
   if (location.protocol === "http:" || location.protocol === "https:") {
+    // An examiner-requested review proxy wins over the original for playback.
+    const proxy = state.proxies?.[record.id];
+    if (proxy) return "/media?path=" + encodeURIComponent(proxy);
     if (record.path) return "/media?path=" + encodeURIComponent(record.path);
     return "";
   }
+  if (!record.fileUrl) return "";
   return record.fileUrl;
 }
 
@@ -514,6 +521,10 @@ const state = {
   selectedIds: new Set(),
   lastCheckedKey: null,
   marks: storageGet(MARKS_KEY, {}),
+  notes: storageGet(NOTES_KEY, {}),
+  ranges: storageGet(RANGES_KEY, {}),
+  proxies: storageGet(PROXIES_KEY, {}),
+  examiner: storageGet(EXAMINER_KEY, ""),
   tags: storageGet(TAGS_KEY, {}),
   locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
   layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
@@ -576,6 +587,7 @@ const PRESET_CHIPS = [
   ["kind:recovery", "삭제·복구 항목"],
   ["marked:any", "마크/태그된 항목"],
   ["anomaly", "이상 징후 후보"],
+  ["warning", "경고 있음"],
   ["status:validation-failed", "검증 실패"],
   ["status:candidate-unvalidated", "미검증 후보"],
   ["status:duplicate-candidate", "중복 후보"],
@@ -591,8 +603,9 @@ function filteredRecords() {
     if (state.recType && (record.recType || "unclassified") !== state.recType) return false;
     if (state.status && record.status !== state.status) return false;
     if (state.chip === "anomaly" && !record.hasAnomaly) return false;
+    if (state.chip === "warning" && !(record.warnings || []).length) return false;
     if (state.chip === "kind:recovery" && record.kind !== "candidate" && record.kind !== "filesystem") return false;
-    if (state.chip === "marked:any" && !state.marks[record.id] && !(state.tags[record.id] || []).length) return false;
+    if (state.chip === "marked:any" && !state.marks[record.id] && !(state.tags[record.id] || []).length && !(state.notes[record.id] || "").trim()) return false;
     if (state.dateFrom || state.dateTo) {
       if (!record.recDay) return false;
       if (state.dateFrom && record.recDay < state.dateFrom) return false;
@@ -909,6 +922,7 @@ function markLabel(status) {
   if (status === "reviewed") return "판독 완료";
   if (status === "important") return "중요";
   if (status === "needs_verification") return "검증 대기";
+  if (status === "noted") return "메모";
   return status;
 }
 
@@ -975,7 +989,7 @@ function renderDetails() {
   els.mediaTitle.textContent = record.originalName || record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
-  const mediaKey = `${record.id}:${record.fileUrl}`;
+  const mediaKey = `${record.id}:${record.fileUrl}:${state.proxies[record.id] || ""}`;
   if (mediaRenderedFor !== mediaKey) {
     const mediaSrc = mediaSrcFor(record);
     els.mediaStage.innerHTML = mediaSrc
@@ -989,6 +1003,7 @@ function renderDetails() {
     mediaRenderedFor = mediaKey;
   }
   applyVideoScale();
+  updateRangeLabel();
   const mark = markOf(record);
   const recordTags = tagListFor(record);
   document.getElementById("detailBadges").innerHTML = [
@@ -1025,7 +1040,15 @@ function renderDetails() {
   const oldEditor = document.querySelector(".tag-editor-wrap");
   if (oldEditor) oldEditor.remove();
   const metaEl = els.metaList;
-  metaEl.insertAdjacentHTML("afterend", `<div class="tag-editor-wrap">${tagEditorHtml}</div>`);
+  metaEl.insertAdjacentHTML("afterend", `<div class="tag-editor-wrap">${tagEditorHtml}
+    <textarea id="evidenceNote" class="note-input" rows="2" placeholder="검토 메모 — 이 증거에 대한 소견 (마크/태그와 함께 케이스에 반영됨)">${escapeHtml(state.notes[record.id] || "")}</textarea>
+  </div>`);
+  document.getElementById("evidenceNote").addEventListener("input", e => {
+    const value = e.target.value;
+    if (value.trim()) state.notes[record.id] = value;
+    else delete state.notes[record.id];
+    storageSet(NOTES_KEY, state.notes);
+  });
   document.querySelectorAll(".tag-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       toggleTag(record.id, btn.dataset.presetTag);
@@ -1484,6 +1507,7 @@ button.on{background:#3fa08e;border-color:#3fa08e;color:#08130f}
 <select id="rate">${rateOptions}</select>
 <button id="play">재생/일시정지</button>
 <button id="next">다음 ›</button>
+<button id="cap" title="현재 프레임을 케이스에 저장">프레임 캡처</button>
 <span class="muted">←/→ ±10초 · ↑/↓ 배속 · space 재생 · k/j 이전/다음</span>
 </div>
 <div class="bar">
@@ -1530,6 +1554,13 @@ rate.onchange=function(){v.playbackRate=Number(rate.value)};
 document.getElementById("play").onclick=function(){v.paused?v.play():v.pause()};
 document.querySelectorAll(".mk").forEach(function(b){b.onclick=function(){doMark(b.dataset.m)}});
 document.querySelectorAll(".tg").forEach(function(b){b.onclick=function(){doTag(b.dataset.tag)}});
+document.getElementById("cap").onclick=function(){
+if(!v.videoWidth){note("재생 중인 영상이 없습니다");return;}
+var c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;
+c.getContext("2d").drawImage(v,0,0);
+var du=c.toDataURL("image/jpeg",0.92);
+fetch("/api/capture-frame",{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({id:cur?cur.id:"unknown",image:du.slice(du.indexOf(",")+1),time:v.currentTime.toFixed(2)})}).then(function(r){return r.json()}).then(function(d){note(d.ok?"프레임 저장: "+d.path:"캡처 실패: "+(d.error||""))}).catch(function(){note("캡처 실패: 서버 연결 불가")});
+};
 v.addEventListener("ended",function(){nav(1,true);});
 document.addEventListener("keydown",function(e){
 if(e.target&&e.target.tagName==="SELECT")return;
@@ -1620,6 +1651,8 @@ document.addEventListener("keydown", event => {
     case "ArrowRight": skipVideo(10); break;
     case "[": rateStep(-1); break;
     case "]": rateStep(1); break;
+    case "i": setRangePoint("in"); break;
+    case "o": setRangePoint("out"); break;
     case "f": toggleFullscreen(); break;
     case "t": toggleTheater(); break;
     case "p": togglePip(); break;
@@ -1674,6 +1707,119 @@ document.getElementById("btnSkipBack").addEventListener("click", () => skipVideo
 document.getElementById("btnSkipFwd").addEventListener("click", () => skipVideo(10));
 document.getElementById("playRate").addEventListener("change", () => setRate(Number(els.playRate.value) || 1));
 document.getElementById("btnPopPlayer").addEventListener("click", openPlayerWindow);
+
+// Grab the decoded frame straight off the <video> element — no ffmpeg round
+// trip — and store it as a hashed case artifact (artifacts/captures/).
+async function captureCurrentFrame(videoEl, recordId) {
+  if (!videoEl || !videoEl.videoWidth) { toast("재생 중인 영상이 없습니다."); return; }
+  const canvas = document.createElement("canvas");
+  canvas.width = videoEl.videoWidth;
+  canvas.height = videoEl.videoHeight;
+  canvas.getContext("2d").drawImage(videoEl, 0, 0);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  try {
+    const res = await fetch("/api/capture-frame", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: recordId, image: b64, time: videoEl.currentTime.toFixed(2) })
+    });
+    const data = await res.json();
+    toast(data.ok ? `프레임 저장: ${data.path}` : "캡처 실패: " + (data.error || ""));
+  } catch {
+    toast("캡처 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+  }
+}
+document.getElementById("btnCaptureFrame").addEventListener("click", () => {
+  const record = selectedRecord();
+  captureCurrentFrame(currentVideo(), record ? record.id : "unknown");
+});
+
+// --- 구간(인/아웃) 마킹 + 클립보내기: 기록별로 localStorage에 유지됨 ---
+function rangeOf(record) { return record ? state.ranges[record.id] : null; }
+function updateRangeLabel() {
+  const el = document.getElementById("rangeLabel");
+  const record = selectedRecord();
+  const range = rangeOf(record);
+  el.textContent = range ? `구간 ${range.in.toFixed(1)}s ~ ${range.out.toFixed(1)}s` : "";
+  const proxyBtn = document.getElementById("btnProxy");
+  if (proxyBtn) proxyBtn.classList.toggle("on", !!(record && state.proxies[record.id]));
+}
+function setRangePoint(which) {
+  const video = currentVideo();
+  const record = selectedRecord();
+  if (!video || !record) { toast("재생 중인 증거를 먼저 선택하세요."); return; }
+  const t = video.currentTime;
+  const range = state.ranges[record.id] || { in: null, out: null };
+  if (which === "in") range.in = t; else range.out = t;
+  if (range.in != null && range.out != null && range.out <= range.in) {
+    toast("OUT 지점이 IN보다 앞입니다 — 다시 지정하세요.");
+    if (which === "in") range.in = null; else range.out = null;
+  }
+  if (range.in == null && range.out == null) delete state.ranges[record.id];
+  else state.ranges[record.id] = range;
+  storageSet(RANGES_KEY, state.ranges);
+  updateRangeLabel();
+}
+document.getElementById("btnSetIn").addEventListener("click", () => setRangePoint("in"));
+document.getElementById("btnSetOut").addEventListener("click", () => setRangePoint("out"));
+// Review proxy toggle: heavy originals (4K/HEVC) stutter on exam machines,
+// so the viewer can lazily ask the server for a low-bitrate proxy.
+document.getElementById("btnProxy").addEventListener("click", async () => {
+  const record = selectedRecord();
+  if (!record) { toast("재생할 증거를 먼저 선택하세요."); return; }
+  const btn = document.getElementById("btnProxy");
+  if (state.proxies[record.id]) {
+    delete state.proxies[record.id];
+    storageSet(PROXIES_KEY, state.proxies);
+    mediaRenderedFor = null;
+    render();
+    toast("원본 영상으로 재생합니다.");
+    return;
+  }
+  btn.disabled = true;
+  toast("프록시 생성 중… 원본 크기에 따라 수 분 걸릴 수 있습니다.");
+  try {
+    const res = await fetch("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: record.id })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      state.proxies[record.id] = data.path;
+      storageSet(PROXIES_KEY, state.proxies);
+      mediaRenderedFor = null;
+      render();
+      toast("프록시로 재생합니다 — 다시 누르면 원본으로 돌아갑니다.");
+    } else {
+      toast("프록시 실패: " + (data.error || ""));
+    }
+  } catch {
+    toast("프록시 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+  } finally {
+    btn.disabled = false;
+  }
+});
+document.getElementById("btnExportClip").addEventListener("click", async () => {
+  const record = selectedRecord();
+  const range = rangeOf(record);
+  if (!record || !range || range.in == null || range.out == null || range.out <= range.in) {
+    toast("먼저 IN/OUT 구간을 지정하세요 (i / o 키).");
+    return;
+  }
+  try {
+    const res = await fetch("/api/export-clip", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: record.id, path: record.path || "", start: range.in.toFixed(3), duration: (range.out - range.in).toFixed(3) })
+    });
+    const data = await res.json();
+    toast(data.ok ? `클립보내기 완료: ${data.path}` : "보내기 실패: " + (data.error || ""));
+  } catch {
+    toast("보내기 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+  }
+});
 document.getElementById("btnShortcuts").addEventListener("click", () => toggleShortcuts(true));
 document.getElementById("btnShortcutsClose").addEventListener("click", () => toggleShortcuts(false));
 document.getElementById("btnSelectFiltered").addEventListener("click", selectAllFiltered);
@@ -1710,17 +1856,54 @@ document.getElementById("btnDownloadSelection").addEventListener("click", () => 
     }))
   });
 });
-document.getElementById("btnDownloadMarks").addEventListener("click", () => {
-  const marks = Object.entries(state.marks).map(([id, mark]) => ({ id, status: mark.status, marked_unix: mark.marked_unix }));
-  if (!marks.length) { toast("저장된 판독 마크가 없습니다."); return; }
+function marksPayload() {
+  // Marks and free-text notes travel together: a record with only a note
+  // is exported with status "noted" so the case DB keeps the memo.
+  const ids = new Set(Object.keys(state.marks));
+  Object.keys(state.notes).forEach(id => { if ((state.notes[id] || "").trim()) ids.add(id); });
+  const marks = [...ids].map(id => {
+    const mark = state.marks[id];
+    const note = (state.notes[id] || "").trim();
+    return {
+      id,
+      status: mark ? mark.status : "noted",
+      marked_unix: mark ? mark.marked_unix : Math.floor(Date.now() / 1000),
+      ...(note ? { note } : {})
+    };
+  });
   const tagEntries = Object.entries(state.tags).map(([id, tags]) => ({ id, tags }));
-  downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, {
+  return {
     schema_version: 2,
     case_id: manifest.case_id || null,
+    examiner: (state.examiner || "").trim() || null,
     exported_unix: Math.floor(Date.now() / 1000),
     marks,
     tags: tagEntries
-  });
+  };
+}
+
+document.getElementById("btnDownloadMarks").addEventListener("click", () => {
+  const payload = marksPayload();
+  if (!payload.marks.length && !payload.tags.length) { toast("저장된 판독 마크가 없습니다."); return; }
+  downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, payload);
+});
+
+// Server-served viewers can push marks straight into the case DB instead of
+// the download → file-pick → import dance.
+document.getElementById("btnApplyMarks").addEventListener("click", async () => {
+  const payload = marksPayload();
+  if (!payload.marks.length && !payload.tags.length) { toast("저장된 판독 마크가 없습니다."); return; }
+  try {
+    const res = await fetch("/api/import-marks", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ marks_json: JSON.stringify(payload) })
+    });
+    const data = await res.json();
+    toast(data.ok ? "판독 마크가 케이스에 반영되고 보고서가 갱신되었습니다." : "반영 실패: " + (data.error || "알 수 없는 오류"));
+  } catch (err) {
+    toast("반영 실패: 서버에 연결할 수 없습니다.");
+  }
 });
 
 // --- 선별 결과 내보내기: 사람이 받는 형태 (CSV / 요약 리포트 / 자료 묶음) ---
@@ -1728,7 +1911,7 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 document.getElementById("btnDownloadCsv").addEventListener("click", () => {
   const selected = selectedRecords();
   if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
-  const header = ["id", "kind", "name", "status", "mark", "tags", "sha256", "size_bytes",
+  const header = ["id", "kind", "name", "status", "mark", "examiner_note", "tags", "sha256", "size_bytes",
     "recorded_time", "channel", "rec_type", "inode", "original_path", "source_path",
     "warnings", "note", "anomalies"];
   const rows = selected.map(record => [
@@ -1736,7 +1919,8 @@ document.getElementById("btnDownloadCsv").addEventListener("click", () => {
     KIND_LABELS[record.kind] || record.kind,
     record.name,
     record.status,
-    state.marks[record.id]?.status || "",
+    state.marks[record.id]?.status || ((state.notes[record.id] || "").trim() ? "noted" : ""),
+    (state.notes[record.id] || "").trim(),
     (state.tags[record.id] || []).join("; "),
     record.sha256,
     record.size ?? "",
@@ -1762,20 +1946,21 @@ document.getElementById("btnDownloadCsv").addEventListener("click", () => {
 document.getElementById("btnSummary").addEventListener("click", () => {
   let items = selectedRecords();
   if (!items.length) {
-    items = records.filter(record => state.marks[record.id] || (state.tags[record.id] || []).length);
+    items = records.filter(record => state.marks[record.id] || (state.tags[record.id] || []).length || (state.notes[record.id] || "").trim());
   }
   if (!items.length) { toast("선택하거나 마크된 항목이 없습니다."); return; }
   const e = escapeHtml;
   const fmtSize = value => Number.isFinite(value) ? `${(value / 1048576).toFixed(1)} MB` : "-";
   const rowHtml = items.map(record => {
     const mark = state.marks[record.id]?.status;
+    const memo = (state.notes[record.id] || "").trim();
     const warn = [...(record.warnings || []), ...(record.anomalies || []).map(item => item.kind)].join("; ");
     return `<tr><td>${e(record.id)}</td><td>${e(record.name)}</td><td>${e(KIND_LABELS[record.kind] || record.kind)}</td>` +
-      `<td>${e(record.status)}</td><td>${e(mark ? markLabel(mark) : "")}</td>` +
+      `<td>${e(record.status)}</td><td>${e(mark ? markLabel(mark) : (memo ? "메모" : ""))}</td>` +
       `<td>${e((state.tags[record.id] || []).join(", "))}</td>` +
       `<td class="mono">${e(record.sha256 && record.sha256 !== "-" ? record.sha256 : "")}</td>` +
       `<td>${fmtSize(record.size)}</td><td>${e(isoTime(record.recTime))}</td>` +
-      `<td>${e(warn)}${record.note && record.note !== "-" ? `<br>${e(record.note)}` : ""}</td>` +
+      `<td>${e(warn)}${record.note && record.note !== "-" ? `<br>${e(record.note)}` : ""}${memo ? `<br><b>소견:</b> ${e(memo)}` : ""}</td>` +
       `<td class="mono">${e(record.originalPath || record.path || "")}</td></tr>`;
   }).join("\n");
   const counts = { verified: 0, candidate: 0, failed: 0 };
@@ -1837,15 +2022,96 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
   }
 });
 
-// The viewer also runs standalone via file:// — the bundle export needs
-// the workstation server, so make that limitation visible up front.
+// --- 케이스 타임라인 패널: db/timeline.jsonl을 읽어 시간순 이벤트를 표시 ---
+async function loadTimeline(regenerate) {
+  const list = document.getElementById("timelineList");
+  const meta = document.getElementById("timelineMeta");
+  if (location.protocol === "file:") {
+    list.innerHTML = `<div class="timeline-row"><span class="desc">파일로 직접 연 뷰어에서는 타임라인을 불러올 수 없습니다 — 서버 뷰어를 사용하세요.</span></div>`;
+    return;
+  }
+  if (regenerate) {
+    meta.textContent = "타임라인 생성 중…";
+    try {
+      const res = await fetch("/api/advanced", {
+        method: "POST", headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({ tool: "timeline" })
+      });
+      const data = await res.json();
+      if (!data.ok) { meta.textContent = "생성 실패: " + (data.error || ""); return; }
+    } catch { meta.textContent = "생성 실패: 서버 연결 불가"; return; }
+  }
+  try {
+    const res = await fetch("/case/db/timeline.jsonl");
+    if (!res.ok) {
+      meta.textContent = "타임라인이 아직 없습니다 — '타임라인 생성/갱신'을 누르세요.";
+      list.innerHTML = "";
+      return;
+    }
+    const text = await res.text();
+    const events = text.split("\n").filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const byPath = new Map(records.map(r => [r.path, r.id]));
+    meta.textContent = `${events.length}개 이벤트 · 후보급 (기록된 메타데이터 기반)`;
+    const cap = 400;
+    list.innerHTML = events.slice(0, cap).map(ev => {
+      const recId = byPath.get(ev.path);
+      return `<div class="timeline-row" data-id="${escapeHtml(recId || "")}">
+        <span class="ts">${escapeHtml(isoTime(ev.ts_unix))}</span>
+        <span class="src">${escapeHtml(ev.source || "")}</span>
+        <span class="desc" title="${escapeHtml(ev.path || "")} ${escapeHtml(ev.detail || "")}">${escapeHtml(ev.kind || "")} — ${escapeHtml((ev.path || "").split(/[\\/]/).pop() || ev.path || "")}</span>
+      </div>`;
+    }).join("") + (events.length > cap ? `<div class="timeline-row"><span class="desc muted">… 나머지 ${events.length - cap}건 생략 (전체: db/timeline.jsonl)</span></div>` : "");
+    list.querySelectorAll(".timeline-row[data-id]").forEach(row => {
+      row.addEventListener("click", () => {
+        if (!row.dataset.id) return;
+        state.selectedIds.clear();
+        state.selectedIds.add(row.dataset.id);
+        state.activeId = row.dataset.id;
+        render();
+      });
+    });
+  } catch {
+    meta.textContent = "타임라인을 읽을 수 없습니다.";
+  }
+}
+document.getElementById("btnTimeline").addEventListener("click", () => {
+  const panel = document.getElementById("timelinePanel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) loadTimeline(false);
+});
+document.getElementById("btnTimelineClose").addEventListener("click", () => {
+  document.getElementById("timelinePanel").hidden = true;
+});
+document.getElementById("btnTimelineGen").addEventListener("click", () => loadTimeline(true));
+
+// The viewer also runs standalone via file:// — server-backed features need
+// the workstation server, and marks/tags live in a different localStorage
+// origin than the served viewer, so make those limits visible up front.
 if (location.protocol === "file:") {
   const btn = document.getElementById("btnExportSelected");
   btn.disabled = true;
   btn.title = "워크스테이션 서버(127.0.0.1:8477)로 뷰어를 열어야 사용할 수 있습니다.";
+  const apply = document.getElementById("btnApplyMarks");
+  apply.disabled = true;
+  apply.title = "서버 경유 뷰어에서만 케이스에 직접 반영할 수 있습니다 — '마크 내려받기'로 파일을 저장하세요.";
+  const cap = document.getElementById("btnCaptureFrame");
+  cap.disabled = true;
+  cap.title = "워크스테이션 서버로 연 뷰어에서만 사용할 수 있습니다.";
+  const clip = document.getElementById("btnExportClip");
+  clip.disabled = true;
+  clip.title = "워크스테이션 서버로 연 뷰어에서만 사용할 수 있습니다.";
+  toast("파일로 직접 연 뷰어입니다 — 영상 재생·자료 묶기·마크 반영은 서버(127.0.0.1:8477)로 연 뷰어에서 가능하고, 여기서 단 마크/태그는 서버 뷰어와 별도로 저장됩니다.");
 }
 
 state.pageSize = Number(els.pageSize.value) || 100;
+const examinerInput = document.getElementById("examinerName");
+if (examinerInput) {
+  examinerInput.value = state.examiner || "";
+  examinerInput.addEventListener("input", () => {
+    state.examiner = examinerInput.value;
+    storageSet(EXAMINER_KEY, state.examiner);
+  });
+}
 setupHeightSplitter();
 setupColumnSplitter();
 setupGridDelegation();

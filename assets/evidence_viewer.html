@@ -23,12 +23,22 @@ __CSS__
       <button id="btnTheater" type="button" title="Theater (t)" data-i18n="btn.theater">시어터</button>
       <button id="btnFullscreen" type="button" title="Fullscreen (f)" data-i18n="btn.fullscreen">전체화면</button>
       <button id="btnPip" type="button" title="Picture-in-picture (p)" data-i18n="btn.pip">PiP</button>
+      <button id="btnTimeline" type="button" title="케이스 이벤트를 시간순으로 봅니다">타임라인</button>
       <button id="btnShortcuts" type="button" title="Shortcuts (?)">?</button>
     </div>
   </header>
   <div class="main">
     <section class="browse">
       <div class="warn-banner" id="caseWarnings" hidden></div>
+      <div class="timeline-panel" id="timelinePanel" hidden>
+        <div class="timeline-head">
+          <b>케이스 타임라인</b>
+          <span class="muted" id="timelineMeta"></span>
+          <button id="btnTimelineGen" type="button" class="mini">타임라인 생성/갱신</button>
+          <button id="btnTimelineClose" type="button" class="mini">닫기</button>
+        </div>
+        <div class="timeline-list" id="timelineList"></div>
+      </div>
       <div class="filters">
         <input id="query" type="search" placeholder="경로, ID, 파서, 해시 검색" data-i18n-placeholder="search.placeholder">
         <select id="kind" title="출처" data-i18n-title="filter.kind">
@@ -109,6 +119,13 @@ __CSS__
             <option value="4">4×</option>
           </select>
           <button id="btnPopPlayer" type="button" title="현재 영상을 별도 창으로 엽니다">영상 새 창</button>
+          <button id="btnCaptureFrame" type="button" title="현재 재생 위치의 프레임을 케이스 artifacts/captures에 JPEG로 저장합니다 — 워크스테이션 서버 필요">프레임 캡처</button>
+          <span class="sep"></span>
+          <button id="btnSetIn" type="button" title="현재 위치를 구간 시작으로 (i)">[ IN</button>
+          <button id="btnSetOut" type="button" title="현재 위치를 구간 끝으로 (o)">OUT ]</button>
+          <span class="muted" id="rangeLabel"></span>
+          <button id="btnExportClip" type="button" title="IN~OUT 구간을 MP4 클립으로보냅니다 — 워크스테이션 서버 필요">구간보내기</button>
+          <button id="btnProxy" type="button" title="원본이 무거우면 검토용 저용량 프록시로 재생합니다 (없으면 생성 — 서버 필요)">프록시 재생</button>
           <span class="muted">크기</span>
           <select id="videoMode">
             <option value="fit">맞춤</option>
@@ -154,7 +171,9 @@ __CSS__
     <button id="btnCopyIds" type="button">ID 복사</button>
     <button id="btnCopyPaths" type="button">경로 복사</button>
     <button id="btnDownloadSelection" type="button">선택 목록 다운로드</button>
+    <input id="examinerName" type="text" placeholder="검토자" title="케이스에 반영될 검토자 이름" style="width:90px;height:26px;font-size:11px;">
     <button id="btnDownloadMarks" type="button">마크 내려받기</button>
+    <button id="btnApplyMarks" type="button" title="판독 마크·태그·메모를 케이스 DB에 반영하고 보고서를 갱신합니다 — 워크스테이션 서버 필요">케이스에 반영</button>
     <span class="sep"></span>
     <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다">선별 CSV</button>
     <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다">요약 리포트</button>
@@ -175,6 +194,7 @@ __CSS__
           <tr><td><code>ctrl+d</code></td><td>선택 해제</td></tr>
           <tr><td><code>←</code> / <code>→</code></td><td>영상 10초 뒤로 / 앞으로</td></tr>
           <tr><td><code>[</code> / <code>]</code></td><td>재생 속도 낮추기 / 높이기</td></tr>
+          <tr><td><code>i</code> / <code>o</code></td><td>구간 IN / OUT 지정</td></tr>
           <tr><td><code>f</code></td><td>영상 전체화면</td></tr>
           <tr><td><code>t</code></td><td>시어터 모드</td></tr>
           <tr><td><code>p</code></td><td>화면 속 화면</td></tr>

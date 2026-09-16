@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub(crate) const SCHEMA_VERSION: &str = "3";
+pub(crate) const SCHEMA_VERSION: &str = "4";
 
 pub fn case_db_path(case_dir: &Path) -> PathBuf {
     case_dir.join("db/case.db")
@@ -172,6 +172,7 @@ fn init_schema_locked(conn: &Connection) -> Result<(), String> {
         None => {
             apply_schema_v2_indexes(conn)?;
             apply_schema_v3_tables(conn)?;
+            apply_schema_v4_columns(conn)?;
             conn.execute(
                 "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('schema_version', ?1)",
                 [SCHEMA_VERSION],
@@ -181,17 +182,62 @@ fn init_schema_locked(conn: &Connection) -> Result<(), String> {
         Some("1") => {
             migrate_v1_to_v2(conn)?;
             migrate_v2_to_v3(conn)?;
+            migrate_v3_to_v4(conn)?;
         }
-        Some("2") => migrate_v2_to_v3(conn)?,
+        Some("2") => {
+            migrate_v2_to_v3(conn)?;
+            migrate_v3_to_v4(conn)?;
+        }
+        Some("3") => migrate_v3_to_v4(conn)?,
         Some(SCHEMA_VERSION) => {
             apply_schema_v2_indexes(conn)?;
             apply_schema_v3_tables(conn)?;
+            apply_schema_v4_columns(conn)?;
         }
         Some(version) => {
             return Err(format!("unsupported SQLite schema version: {version}"));
         }
     }
     Ok(())
+}
+
+fn migrate_v3_to_v4(conn: &Connection) -> Result<(), String> {
+    backup_database(conn, "3", "4")?;
+    apply_schema_v4_columns(conn)?;
+    conn.execute(
+        "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+        [SCHEMA_VERSION],
+    )
+    .map_err(|err| format!("failed to update SQLite schema version: {err}"))?;
+    Ok(())
+}
+
+fn apply_schema_v4_columns(conn: &Connection) -> Result<(), String> {
+    // v4: free-text examiner note per review mark.
+    if table_exists(conn, "review_marks")? && !table_has_column(conn, "review_marks", "note")? {
+        conn.execute_batch("ALTER TABLE review_marks ADD COLUMN note TEXT")
+            .map_err(|err| format!("failed to apply SQLite v4 note column: {err}"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn table_has_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|err| format!("failed to inspect SQLite table {table}: {err}"))?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|err| format!("failed to read SQLite table info for {table}: {err}"))?;
+    for name in names {
+        if name.map_err(|err| format!("failed to read column name: {err}"))? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn migrate_v2_to_v3(conn: &Connection) -> Result<(), String> {

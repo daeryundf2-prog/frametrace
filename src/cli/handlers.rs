@@ -621,10 +621,21 @@ pub fn make_report(case_dir: &Path, rehash: bool, redact_paths: bool) -> Result<
                 .iter()
                 .map(|mark| {
                     format!(
-                        "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}}}",
+                        "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}{}{}}}",
                         crate::util::json_escape(&mark.record_id),
                         crate::util::json_escape(&mark.status),
-                        mark.marked_unix
+                        mark.marked_unix,
+                        mark.examiner
+                            .as_deref()
+                            .map(|name| format!(
+                                ",\"examiner\":\"{}\"",
+                                crate::util::json_escape(name)
+                            ))
+                            .unwrap_or_default(),
+                        mark.note
+                            .as_deref()
+                            .map(|note| format!(",\"note\":\"{}\"", crate::util::json_escape(note)))
+                            .unwrap_or_default(),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -2002,7 +2013,8 @@ pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
                 status: entry.status.clone(),
                 marked_unix,
                 record_path: None,
-                examiner: None,
+                examiner: marks_file.examiner.clone(),
+                note: entry.note.clone(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -2021,10 +2033,18 @@ pub fn export_marks(case_dir: &Path, output: Option<&Path>) -> Result<(), String
         .iter()
         .map(|mark| {
             format!(
-                "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}}}",
+                "{{\"id\":\"{}\",\"status\":\"{}\",\"marked_unix\":{}{}{}}}",
                 crate::util::json_escape(&mark.record_id),
                 crate::util::json_escape(&mark.status),
-                mark.marked_unix
+                mark.marked_unix,
+                mark.examiner
+                    .as_deref()
+                    .map(|name| format!(",\"examiner\":\"{}\"", crate::util::json_escape(name)))
+                    .unwrap_or_default(),
+                mark.note
+                    .as_deref()
+                    .map(|note| format!(",\"note\":\"{}\"", crate::util::json_escape(note)))
+                    .unwrap_or_default(),
             )
         })
         .collect::<Vec<_>>()

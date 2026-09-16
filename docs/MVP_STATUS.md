@@ -137,6 +137,42 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
   auto-advance on `ended`), so marks/tags persist through the same
   localStorage path as the grid; it degrades to a warning banner when
   the opener closes.
+- Review annotations: per-evidence free-text notes plus an examiner name
+  field (schema v4 adds `review_marks.note`; older DBs migrate with a
+  timestamped backup and read-only loads fall back when the column is
+  absent). Notes/examiner flow through mark export/import, the case CSV,
+  the summary report, and the case report's marks table. A "경고 있음"
+  chip filters warning-bearing records.
+- Server-served viewers apply marks directly: `POST /api/import-marks`
+  upserts marks/tags/notes into the case DB and regenerates the report;
+  standalone `file://` viewers keep the download fallback and show a
+  storage-separation notice.
+- Selection exports anchor their audit state: each
+  `exports/selection-*/` bundle writes `manifest-audit.json` recording
+  the export-log chain head (`sha256` of the last log line, including
+  the export event itself) plus timestamp.
+- In-viewer capture and clip export: `POST /api/capture-frame` stores a
+  canvas JPEG under `artifacts/captures/` with SHA-256 + chained
+  `capture-log.jsonl` entry; IN/OUT buttons (`i`/`o`) mark a playback
+  range and `POST /api/export-clip` runs `export-video` into
+  `artifacts/clips/` — carved/filesystem records resolve through their
+  on-disk path after media-root containment validation.
+- On-demand review proxies: `POST /api/proxy` lazily runs `make-proxy`
+  and the viewer's "프록시 재생" toggle swaps the playback source to the
+  generated file (original stays the forensic source).
+- Timeline in the GUI: `POST /api/advanced {"tool":"timeline"}` runs the
+  candidate-grade timeline generator and the viewer's 타임라인 panel
+  renders `db/timeline.jsonl` with its recorded-metadata caveat.
+- GUI carving: the 검토 stage's "이미지 카빙" button runs bounded
+  `carve-file` over the case's exported raw image (requires the full E01
+  pipeline, not triage mode) and regenerates the review bundle.
+- Advanced tools are grouped in the results stage (DFXML, timeline,
+  consistency/defense QA, known-hash filter, case merge/compare) behind
+  `POST /api/advanced` with an allow-listed tool name and validated
+  extra-path argument.
+- Recent cases reopen in one click: remembered case paths that still
+  contain `db/case.db` render as chips on the input stage, and the
+  folder picker marks case directories.
 
 ## Scope Decisions (2026-09)
 

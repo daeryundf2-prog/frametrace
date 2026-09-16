@@ -4,7 +4,7 @@ use std::path::Path;
 pub const SELECTION_SCHEMA_VERSION: u32 = 1;
 pub const MARKS_SCHEMA_VERSION: u32 = 1;
 
-pub const MARK_STATUSES: &[&str] = &["reviewed", "important", "needs_verification"];
+pub const MARK_STATUSES: &[&str] = &["reviewed", "important", "needs_verification", "noted"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectionItem {
@@ -27,11 +27,13 @@ pub struct MarkEntry {
     pub id: String,
     pub status: String,
     pub marked_unix: Option<u64>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarksFile {
     pub case_id: Option<String>,
+    pub examiner: Option<String>,
     pub marks: Vec<MarkEntry>,
 }
 
@@ -129,6 +131,11 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
         .get("case_id")
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    let examiner = value
+        .get("examiner")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .filter(|name| !name.trim().is_empty());
     let marks_value = value
         .get("marks")
         .and_then(serde_json::Value::as_array)
@@ -170,12 +177,20 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
             id,
             status,
             marked_unix: item.get("marked_unix").and_then(serde_json::Value::as_u64),
+            note: item
+                .get("note")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
         });
     }
     if marks.is_empty() {
         return Err(format!("marks file {} has no marks", path.display()));
     }
-    Ok(MarksFile { case_id, marks })
+    Ok(MarksFile {
+        case_id,
+        examiner,
+        marks,
+    })
 }
 
 /// Effective action for a selection item when the file omits it.

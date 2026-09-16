@@ -438,7 +438,8 @@ const validationByPath = new Map(validationLog.map(item => [String(item.target_p
 const markLabel = status => ({{
   reviewed: "판독 완료",
   important: "중요",
-  needs_verification: "검증 대기"
+  needs_verification: "검증 대기",
+  noted: "메모"
 }})[status] || status || "-";
 
 function techniqueRows() {{
@@ -499,7 +500,7 @@ document.getElementById("techniques").innerHTML = techniqueRows().length ? `<tab
         <td>${{escapeHtml(row.meta)}}</td>
         <td><code>${{escapeHtml(row.hash)}}</code></td>
         <td>${{escapeHtml(status)}}<br><span class="muted">${{escapeHtml(reason)}}</span></td>
-        <td>${{mark ? escapeHtml(markLabel(mark.status)) : "-"}}</td>
+        <td>${{mark ? escapeHtml(markLabel(mark.status)) + (mark.note ? `<br><span class="muted">${{escapeHtml(mark.note)}}</span>` : "") + (mark.examiner ? `<br><span class="muted">검토자: ${{escapeHtml(mark.examiner)}}</span>` : "") : "-"}}</td>
       </tr>`;
     }}).join("")}}
   </tbody>

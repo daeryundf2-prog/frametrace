@@ -483,6 +483,11 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/cancel") => json(api_cancel(state)),
         ("POST", "/api/open-case") => json(api_open_case(request, state)),
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
+        ("POST", "/api/capture-frame") => json(api_capture_frame(request, state)),
+        ("POST", "/api/export-clip") => json(api_export_clip(request, state)),
+        ("POST", "/api/proxy") => json(api_proxy(request, state)),
+        ("POST", "/api/advanced") => json(api_advanced(request, state)),
+        ("POST", "/api/carve") => json(api_carve(state)),
         ("POST", "/api/open-folder") => {
             let path = body_value(&request.body, "path").unwrap_or_default();
             if !path.is_empty() {
@@ -616,7 +621,7 @@ fn browse_json(raw: &str, want_files: bool) -> String {
     if raw.is_empty() {
         let entries = drive_roots()
             .iter()
-            .map(|root| browse_entry_json(root, root, true))
+            .map(|root| browse_entry_json(root, root, true, false))
             .collect::<Vec<_>>()
             .join(",");
         return format!(
@@ -683,11 +688,16 @@ fn browse_json(raw: &str, want_files: bool) -> String {
     files.sort_by(by_name);
     let entries = dirs
         .iter()
-        .map(|(name, full)| browse_entry_json(name, full, true))
+        .map(|(name, full)| {
+            // A directory holding db/case.db is an openable case — the
+            // picker surfaces it as one-click openable.
+            let is_case = crate::case_db::case_db_path(Path::new(full)).is_file();
+            browse_entry_json(name, full, true, is_case)
+        })
         .chain(
             files
                 .iter()
-                .map(|(name, full)| browse_entry_json(name, full, false)),
+                .map(|(name, full)| browse_entry_json(name, full, false, false)),
         )
         .collect::<Vec<_>>()
         .join(",");
@@ -696,19 +706,22 @@ fn browse_json(raw: &str, want_files: bool) -> String {
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(|parent| format!("\"parent\":{},", json_string(&parent.display().to_string())))
         .unwrap_or_default();
+    let is_case = crate::case_db::case_db_path(&path).is_file();
     format!(
-        "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"path\":{},{parent}\"entries\":[{entries}],\"truncated\":{}}}",
+        "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"is_case\":{},\"path\":{},{parent}\"entries\":[{entries}],\"truncated\":{}}}",
+        json_bool(is_case),
         json_string(&display),
         json_bool(truncated),
     )
 }
 
-fn browse_entry_json(name: &str, path: &str, dir: bool) -> String {
+fn browse_entry_json(name: &str, path: &str, dir: bool, is_case: bool) -> String {
     format!(
-        "{{\"name\":{},\"path\":{},\"dir\":{}}}",
+        "{{\"name\":{},\"path\":{},\"dir\":{},\"is_case\":{}}}",
         json_string(name),
         json_string(path),
-        json_bool(dir)
+        json_bool(dir),
+        json_bool(is_case)
     )
 }
 
@@ -1515,6 +1528,336 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
     "{\"ok\":true,\"report_url\":\"case/reports/case-report.html\"}".to_string()
 }
 
+/// `POST /api/capture-frame`: store an examiner-captured video frame as a
+/// case artifact. The viewer sends the canvas JPEG base64; we verify the
+/// magic bytes, hash the capture, and chain an audit event so the frame is
+/// traceable back to the record and playback position.
+fn api_capture_frame(request: &Request, state: &SharedState) -> String {
+    let case_dir = {
+        let guard = state_lock(state);
+        guard.case_dir.clone()
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    let id = body_value(&request.body, "id").unwrap_or_default();
+    let image_b64 = body_value(&request.body, "image").unwrap_or_default();
+    if image_b64.is_empty() || image_b64.len() > MAX_BODY {
+        return "{\"ok\":false,\"error\":\"프레임 이미지가 비었거나 너무 큽니다.\"}".to_string();
+    }
+    let Some(bytes) = crate::audit_key::base64_decode(&image_b64) else {
+        return "{\"ok\":false,\"error\":\"이미지 디코딩에 실패했습니다.\"}".to_string();
+    };
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return "{\"ok\":false,\"error\":\"JPEG 프레임이 아닙니다.\"}".to_string();
+    }
+    let stamp = match crate::util::now_unix() {
+        Ok(stamp) => stamp,
+        Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+    };
+    let dir = case_dir.join("artifacts/captures");
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        return format!(
+            "{{\"ok\":false,\"error\":{}}}",
+            json_string(&err.to_string())
+        );
+    }
+    let target = crate::util::unique_available_path(&dir.join(format!(
+        "{}__{}.jpg",
+        export_safe_name(&id),
+        stamp
+    )));
+    if let Err(err) = std::fs::write(&target, &bytes) {
+        return format!(
+            "{{\"ok\":false,\"error\":{}}}",
+            json_string(&err.to_string())
+        );
+    }
+    let digest = audit::digest_file(&target).unwrap_or_default();
+    let rel = target
+        .strip_prefix(&case_dir)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| target.to_string_lossy().to_string());
+    let time = body_value(&request.body, "time").unwrap_or_default();
+    let _ = audit::append_chained_jsonl(
+        &case_dir.join("evidence/logs/capture-log.jsonl"),
+        &format!(
+            "{{\"event\":\"frame-capture\",\"record_id\":{},\"output\":{},\"sha256\":{},\"video_time_seconds\":{},\"unix\":{stamp}}}",
+            json_string(&id),
+            json_string(&rel),
+            json_string(&digest),
+            json_string(&time)
+        ),
+    );
+    format!(
+        "{{\"ok\":true,\"path\":{},\"sha256\":{}}}",
+        json_string(&rel),
+        json_string(&digest)
+    )
+}
+
+/// `POST /api/export-clip`: export the viewer's in/out range of one record
+/// through `export-video`, producing a deliverable clip under
+/// artifacts/clips/ with its own chained export-log entry.
+fn api_export_clip(request: &Request, state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
+    }
+    let id = body_value(&request.body, "id").unwrap_or_default();
+    let start = body_value(&request.body, "start")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(-1.0);
+    let duration = body_value(&request.body, "duration")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(-1.0);
+    // NaN/negative/parse failures are all rejected here.
+    if id.trim().is_empty()
+        || !start.is_finite()
+        || start < 0.0
+        || !duration.is_finite()
+        || duration <= 0.0
+    {
+        return "{\"ok\":false,\"error\":\"구간 값이 올바르지 않습니다 (id, start, duration).\"}"
+            .to_string();
+    }
+    // export-video resolves vid_* ids and indexed source paths. Carved /
+    // filesystem records carry non-indexed ids (carve_*, fls_*) — for
+    // those the viewer also sends the record's file path, which we only
+    // honor when it sits inside the approved media roots.
+    let selector = if id.starts_with("vid_") {
+        id.clone()
+    } else {
+        let alt = body_value(&request.body, "path").unwrap_or_default();
+        let candidate = PathBuf::from(alt.trim());
+        let roots = state_lock(state).media_roots.clone();
+        let allowed = candidate
+            .canonicalize()
+            .map(|canonical| {
+                roots
+                    .iter()
+                    .filter_map(|root| root.canonicalize().ok())
+                    .any(|root| path_is_under(&root, &canonical))
+            })
+            .unwrap_or(false);
+        if !allowed {
+            return "{\"ok\":false,\"error\":\"색인된 영상 또는 허용된 경로의 파일만 클립으로보낼 수 있습니다.\"}"
+                .to_string();
+        }
+        candidate.to_string_lossy().to_string()
+    };
+    let dir = case_dir.join("artifacts/clips");
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        return format!(
+            "{{\"ok\":false,\"error\":{}}}",
+            json_string(&err.to_string())
+        );
+    }
+    let output = crate::util::unique_available_path(&dir.join(format!(
+        "{}__{}s+{}s.mp4",
+        export_safe_name(&id),
+        start as u64,
+        duration as u64
+    )));
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    };
+    let case_text = case_dir.to_string_lossy().to_string();
+    let args = vec![
+        "export-video".into(),
+        case_text,
+        selector,
+        "--format".into(),
+        "mp4".into(),
+        "--start".into(),
+        format!("{start:.3}"),
+        "--duration".into(),
+        format!("{duration:.3}"),
+        "--output".into(),
+        output.to_string_lossy().to_string(),
+    ];
+    match run_step(&exe, &args, state) {
+        Ok(_) => {
+            let rel = output
+                .strip_prefix(&case_dir)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| output.to_string_lossy().to_string());
+            format!("{{\"ok\":true,\"path\":{}}}", json_string(&rel))
+        }
+        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+    }
+}
+
+/// `POST /api/proxy`: return (or lazily generate via `make-proxy`) the
+/// review proxy for an indexed video so the viewer can offer smooth
+/// playback of heavy originals without forcing a full proxy pass.
+fn api_proxy(request: &Request, state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
+    }
+    let id = body_value(&request.body, "id").unwrap_or_default();
+    if id.trim().is_empty() {
+        return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
+    }
+    let dir = case_dir.join("artifacts/proxies");
+    let find_existing = |dir: &Path| -> Option<PathBuf> {
+        let prefix = format!("{}_proxy_", export_safe_name(&id));
+        std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(&prefix) && name.ends_with(".mp4") {
+                Some(entry.path())
+            } else {
+                None
+            }
+        })
+    };
+    let proxy = match find_existing(&dir) {
+        Some(path) => path,
+        None => {
+            let exe = match std::env::current_exe() {
+                Ok(exe) => exe,
+                Err(err) => {
+                    return format!(
+                        "{{\"ok\":false,\"error\":{}}}",
+                        json_string(&err.to_string())
+                    );
+                }
+            };
+            let args = vec![
+                "make-proxy".into(),
+                case_dir.to_string_lossy().to_string(),
+                id.clone(),
+            ];
+            if let Err(err) = run_step(&exe, &args, state) {
+                return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+            }
+            match find_existing(&dir) {
+                Some(path) => path,
+                None => {
+                    return "{\"ok\":false,\"error\":\"프록시 생성 후 파일을 찾지 못했습니다.\"}"
+                        .to_string();
+                }
+            }
+        }
+    };
+    format!(
+        "{{\"ok\":true,\"path\":{}}}",
+        json_string(proxy.to_string_lossy().as_ref())
+    )
+}
+
+/// `POST /api/advanced`: run a CLI-only case tool from the workstation.
+/// `tool` is an allow-listed name; `extra` is an optional path argument
+/// (hash list for known-hash, peer case dir for merge/compare) that is
+/// validated to exist — never a free-form command line.
+fn api_advanced(request: &Request, state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
+    }
+    let tool = body_value(&request.body, "tool").unwrap_or_default();
+    let extra = body_value(&request.body, "extra").unwrap_or_default();
+    let case_text = case_dir.to_string_lossy().to_string();
+    let (args, output_rel): (Vec<String>, &str) = match tool.as_str() {
+        "dfxml" => (
+            vec!["export-dfxml".into(), case_text],
+            "reports/case-index.dfxml",
+        ),
+        "timeline" => (vec!["timeline".into(), case_text], "db/timeline.jsonl"),
+        "qa-consistency" => (
+            vec!["qa".into(), "consistency".into(), case_text],
+            "reports/qa/consistency-report.html",
+        ),
+        "qa-defense" => (
+            vec!["qa".into(), "report-defense".into(), case_text],
+            "reports/qa/report-defense-checklist.md",
+        ),
+        "known-hash" => {
+            if extra.trim().is_empty() || !PathBuf::from(&extra).is_file() {
+                return "{\"ok\":false,\"error\":\"sha256 해시 목록 파일 경로를 지정하십시오 (한 줄에 하나, 또는 'sha256,설명').\"}".to_string();
+            }
+            (
+                vec!["known-hash-filter".into(), case_text, extra],
+                "reports/known-hash-filter.json",
+            )
+        }
+        "compare" | "merge" => {
+            if extra.trim().is_empty() || !crate::case_db::case_db_path(Path::new(&extra)).is_file()
+            {
+                return "{\"ok\":false,\"error\":\"비교/병합할 다른 케이스 폴더를 지정하십시오 (db/case.db 포함).\"}".to_string();
+            }
+            let sub = if tool == "compare" {
+                "compare-cases"
+            } else {
+                "merge-cases"
+            };
+            (
+                vec![sub.into(), case_text, extra],
+                "reports/case-compare.json",
+            )
+        }
+        _ => {
+            return "{\"ok\":false,\"error\":\"지원하지 않는 도구입니다.\"}".to_string();
+        }
+    };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    };
+    match run_step(&exe, &args, state) {
+        Ok(out) => {
+            let url = if case_dir.join(output_rel).is_file() {
+                output_rel.to_string()
+            } else {
+                String::new()
+            };
+            let tail: Vec<&str> = out.lines().rev().take(6).collect();
+            let mut tail = tail;
+            tail.reverse();
+            format!(
+                "{{\"ok\":true,\"url\":{},\"output\":{}}}",
+                json_string(&url),
+                json_string(&tail.join("\n"))
+            )
+        }
+        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+    }
+}
+
 /// `POST /api/verify-audit`: verify every chained audit log under
 /// `case_dir/evidence/logs/*.jsonl` in-process and report per-log and
 /// overall integrity (keyed vs structural-only vs failed).
@@ -1808,6 +2151,79 @@ fn api_recover_deleted(state: &SharedState) -> String {
     }
 }
 
+/// `POST /api/carve`: run bounded signature carving over the case's
+/// exported raw image (evidence/images/evidence.raw), then regenerate the
+/// review bundle so carved candidates show up in the viewer. Requires the
+/// full E01 pipeline (direct triage never exports a raw image).
+fn api_carve(state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"작업이 진행 중입니다.\"}".to_string();
+    }
+    let raw = case_dir.join("evidence/images/evidence.raw");
+    if !raw.is_file() {
+        return "{\"ok\":false,\"error\":\"카빙할 raw 이미지가 없습니다 — E01을 '빠른 검토' 없이 분석(전체 export)하면 사용할 수 있습니다.\"}".to_string();
+    }
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    };
+    {
+        let mut guard = state_lock(state);
+        guard.phase = "finalizing";
+        guard.busy = true;
+        guard.error = None;
+        guard
+            .logs
+            .push(format!("시그니처 카빙 실행 중… ({})", raw.display()));
+    }
+    let case_text = case_dir.to_string_lossy().to_string();
+    let carve = run_step(
+        &exe,
+        &[
+            "carve-file".into(),
+            case_text.clone(),
+            raw.to_string_lossy().to_string(),
+        ],
+        state,
+    );
+    let review = if carve.is_ok() {
+        run_step(&exe, &["make-review".into(), case_text.clone()], state)
+    } else {
+        carve.clone()
+    };
+    let mut guard = state_lock(state);
+    match (carve, review) {
+        (Ok(carve_out), Ok(_)) => {
+            guard.phase = "review-ready";
+            guard.busy = false;
+            guard.logs.push(carve_out.clone());
+            guard
+                .logs
+                .push("카빙 완료 — 뷰어를 새로 열면 카빙 후보가 보입니다.".into());
+            "{\"ok\":true}".to_string()
+        }
+        (carve, review) => {
+            let error = carve.err().or_else(|| review.err()).unwrap_or_default();
+            guard.phase = "review-ready";
+            guard.busy = false;
+            guard.error = Some(error.clone());
+            format!("{{\"ok\":false,\"error\":{}}}", json_string(&error))
+        }
+    }
+}
+
 /// Copies reviewer-selected evidence into an organized handoff folder:
 /// `case/exports/selection-<unix>/` holds the files plus a hash manifest
 /// (CSV + JSONL + README) — the material package an examiner hands to a
@@ -1955,12 +2371,35 @@ fn api_export_selected(request: &Request, state: &SharedState) -> String {
         };
         jsonl_rows.push(row.to_string());
     }
+    let audit_log = case_dir.join("evidence/logs/export-log.jsonl");
+    let _ = audit::append_chained_jsonl(
+        &audit_log,
+        &format!(
+            "{{\"event\":\"selection-export\",\"export_dir\":{},\"items\":{},\"copied\":{copied},\"skipped\":{skipped},\"unix\":{stamp}}}",
+            json_string(&export_dir.to_string_lossy()),
+            items.len()
+        ),
+    );
     let write = |name: &str, contents: String| -> Result<(), String> {
         std::fs::write(export_dir.join(name), contents)
             .map_err(|err| format!("manifest write failed for {name}: {err}"))
     };
+    let head = audit::chain_head(&audit_log)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let result = write("manifest.csv", format!("\u{feff}{}\n", csv_rows.join("\n")))
         .and_then(|_| write("manifest.jsonl", jsonl_rows.join("\n") + "\n"))
+        .and_then(|_| {
+            write(
+                "manifest-audit.json",
+                format!(
+                    "{{\"audit_log\":{},\"chain_head_sha256\":{},\"unix\":{stamp}}}\n",
+                    json_string("evidence/logs/export-log.jsonl"),
+                    json_string(&head)
+                ),
+            )
+        })
         .and_then(|_| {
             write(
                 "README.txt",
@@ -1972,6 +2411,9 @@ fn api_export_selected(request: &Request, state: &SharedState) -> String {
                      sha256_source와 동일하면 복사가 정확히 이루어진 것입니다.\n\
                      - manifest.csv: Excel로 여는 항목별 메타데이터 (UTF-8 BOM).\n\
                      - manifest.jsonl: 같은 내용의 기계 판독용 JSONL.\n\
+                     - manifest-audit.json: 이 묶음을 만든 감사 체인 상태\n  \
+                     (chain_head_sha256가 케이스 export-log의 마지막 줄 해시와\n  \
+                     일치하면 해당 시점 감사 기록에서 생성된 묶음입니다).\n\
                      - 복구 전 후보처럼 파일이 없는 항목은 복사되지 않고\n  \
                      manifest에 skipped 사유가 기록됩니다.\n",
                     items.len()
@@ -1981,14 +2423,6 @@ fn api_export_selected(request: &Request, state: &SharedState) -> String {
     if let Err(err) = result {
         return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
     }
-    let _ = audit::append_chained_jsonl(
-        &case_dir.join("evidence/logs/export-log.jsonl"),
-        &format!(
-            "{{\"event\":\"selection-export\",\"export_dir\":{},\"items\":{},\"copied\":{copied},\"skipped\":{skipped},\"unix\":{stamp}}}",
-            json_string(&export_dir.to_string_lossy()),
-            items.len()
-        ),
-    );
     format!(
         "{{\"ok\":true,\"export_dir\":{},\"copied\":{copied},\"skipped\":{skipped}}}",
         json_string(&export_dir.to_string_lossy())
@@ -2448,6 +2882,73 @@ mod tests {
             body_value(body, "marks_json").as_deref(),
             Some(r#"{"marks":[{"t":1}]}"#)
         );
+    }
+
+    /// Every API response is hand-assembled via `format!` — the safety
+    /// invariant is that all dynamic values pass `json_string`. This test
+    /// feeds hostile characters (quotes, backslashes, newlines, unicode)
+    /// through reachable response paths and asserts each still parses as
+    /// valid JSON via serde_json.
+    #[test]
+    fn api_responses_stay_valid_json_with_hostile_strings() {
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        let post = |path: &str, body: &str| Request {
+            method: "POST".into(),
+            path: path.into(),
+            query: String::new(),
+            body: body.into(),
+            range: None,
+            origin: None,
+            host: None,
+        };
+        let parse = |label: &str, json: &str| -> serde_json::Value {
+            serde_json::from_str(json)
+                .unwrap_or_else(|err| panic!("{label} produced invalid JSON: {err}\n{json}"))
+        };
+
+        // Idle status + error paths with no case loaded.
+        parse("api_status", &api_status(&state));
+        parse("api_carve", &api_carve(&state));
+        parse("api_recover_deleted", &api_recover_deleted(&state));
+        parse(
+            "api_export_selected",
+            &api_export_selected(&post("/api/export-selected", "{}"), &state),
+        );
+        parse(
+            "api_advanced(unknown)",
+            &api_advanced(&post("/api/advanced", r#"{"tool":"nope"}"#), &state),
+        );
+        parse(
+            "api_advanced(hostile extra)",
+            &api_advanced(
+                &post(
+                    "/api/advanced",
+                    r#"{"tool":"known-hash","extra":"C:\\evil \"quoted\" \\path"}"#,
+                ),
+                &state,
+            ),
+        );
+        parse(
+            "api_export_clip",
+            &api_export_clip(
+                &post("/api/export-clip", r#"{"id":"v\"1","start":0,"end":1}"#),
+                &state,
+            ),
+        );
+        parse(
+            "api_proxy",
+            &api_proxy(&post("/api/proxy", r#"{"id":"v\"1"}"#), &state),
+        );
+
+        // Logs/errors containing quotes and newlines still serialize.
+        {
+            let mut guard = state_lock(&state);
+            guard.logs.push("line \"one\"\nline \\ two".into());
+            guard.error = Some("error: \"bad\" \\ path".into());
+        }
+        let value = parse("api_status(hostile)", &api_status(&state));
+        assert_eq!(value["error"].as_str().unwrap(), "error: \"bad\" \\ path");
+        parse("api_cancel", &api_cancel(&state));
     }
 
     #[test]
