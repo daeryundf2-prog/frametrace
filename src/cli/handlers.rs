@@ -2424,6 +2424,30 @@ fn default_host() -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
+/// Screen one file with the deepfake-lens sidecar and emit its JSON report.
+///
+/// The report keeps deepfake-lens's own framing: scores are review
+/// priorities, not authenticity verdicts.
+pub fn deepfake_screen(file: &Path, json_out: Option<&Path>) -> Result<(), String> {
+    let summary = crate::deepfake::screen(file);
+    if !summary.ok {
+        return Err(format!(
+            "deepfake-lens screening failed: {}",
+            summary.error.unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+    let raw = summary.raw_json.clone().unwrap_or_else(|| "{}".to_string());
+    match json_out {
+        Some(out) => {
+            write_text_atomic(out, &raw)
+                .map_err(|err| format!("failed to write {}: {err}", out.display()))?;
+            println!("deepfake report written: {}", out.display());
+        }
+        None => println!("{raw}"),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

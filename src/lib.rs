@@ -9,6 +9,7 @@ pub mod case_merge;
 pub mod checkpoint;
 pub mod cli;
 pub mod dav;
+pub mod deepfake;
 pub mod detector;
 pub mod dfxml;
 pub mod diskspace;

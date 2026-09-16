@@ -365,6 +365,15 @@ pub enum Commands {
         #[arg(long, default_value_t = 10000)]
         rows: usize,
     },
+    /// Screen a file for synthetic-media signals via the deepfake-lens
+    /// sidecar (`deepfake-lens forensic <file> --format json`). Scores are
+    /// review-priority signals, not authenticity verdicts.
+    DeepfakeScreen {
+        file: PathBuf,
+        /// Write the full JSON report to this path instead of stdout
+        #[arg(long)]
+        json_out: Option<PathBuf>,
+    },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
     /// Run forensic QA validation checks
@@ -764,6 +773,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = BenchmarkOptions { rows };
             benchmark_db(&output_dir, options)
         }
+        Commands::DeepfakeScreen { file, json_out } => deepfake_screen(&file, json_out.as_deref()),
         Commands::Inspect { case_dir } => inspect(&case_dir),
         Commands::Qa { command } => run_qa(command),
     }
