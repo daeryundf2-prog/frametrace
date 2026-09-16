@@ -2214,10 +2214,13 @@ if (examinerInput) {
 // Embedded mode (inside the examiner workstation iframe): drop the
 // viewer's own chrome — case title, stat badges, locale toggle, view
 // menu — because the host already shows them. Grid/media keep full
-// functionality; ?embed=1 or an <iframe> ancestor enables it.
-if (new URLSearchParams(location.search).has("embed") || window.self !== window.top) {
-  document.body.classList.add("embed");
-}
+// functionality. The host flips it off over postMessage when the
+// iframe goes fullscreen, so the full UI returns there.
+const setEmbed = on => document.body.classList.toggle("embed", on);
+setEmbed(new URLSearchParams(location.search).has("embed") || window.self !== window.top);
+window.addEventListener("message", event => {
+  if (event.data && event.data.type === "ft-embed") setEmbed(!!event.data.embed);
+});
 setupHeightSplitter();
 setupColumnSplitter();
 setupGridDelegation();

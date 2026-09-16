@@ -236,13 +236,15 @@
     <h2>검토 — 분석된 데이터 확인</h2>
     <div class="statstrip" id="caseStats"><span class="muted" style="font-size:12px">뷰어 로딩 중…</span></div>
     <div class="row reviewbar">
-      <button id="btnViewerWindow" class="primary">⧉ 뷰어 새 창</button>
+      <button id="btnViewerFull" class="primary" title="아래 뷰어를 전체화면으로 확대 — 헤더·보기 메뉴까지 모두 표시됩니다">⤢ 뷰어 전체화면</button>
+      <button id="btnViewerWindow" title="별도 창으로 열기 — 듀얼 모니터에 적합">⧉ 새 창</button>
       <a href="/review/index.html" target="_blank" class="btnlink">색인 대시보드</a>
       <span class="vsep"></span>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
       <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
+      <span class="muted" style="font-size:11px;margin-left:auto;align-self:center">깊은 검토는 전체화면·새 창 권장</span>
     </div>
-    <iframe id="reviewFrame" title="증거 뷰어"></iframe>
+    <iframe id="reviewFrame" title="증거 뷰어" allow="fullscreen"></iframe>
     <p class="muted" id="recoverHint" style="font-size:11px;margin:6px 0 0">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다. 카빙은 export된 raw 이미지가 있을 때만 동작합니다.</p>
   </section>
 
@@ -591,6 +593,15 @@ function refreshCaseStats() {
 }
 reviewFrame.addEventListener("load", () => setTimeout(refreshCaseStats, 400));
 setInterval(() => { if (reviewFrameLoaded && $("resultCard").classList.contains("on")) refreshCaseStats(); }, 2500);
+
+$("btnViewerFull").addEventListener("click", () => {
+  reviewFrame.requestFullscreen ? reviewFrame.requestFullscreen() : window.open("/review/evidence-viewer.html", "_blank");
+});
+// Fullscreen restores the viewer's full chrome; inline stays compact.
+document.addEventListener("fullscreenchange", () => {
+  const full = document.fullscreenElement === reviewFrame;
+  try { reviewFrame.contentWindow.postMessage({ type: "ft-embed", embed: !full }, "*"); } catch (e) {}
+});
 
 async function ensureReportFrame() {
   const wrap = $("reportWrap"), frame = $("reportFrame");
