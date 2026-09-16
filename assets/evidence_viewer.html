@@ -155,29 +155,45 @@ __CSS__
   </div>
   <div class="selection-bar" id="selectionBar">
     <strong id="selectionCount">0개 선택</strong>
-    <button id="btnSelectFiltered" type="button" title="Ctrl+A">필터 전체 선택</button>
-    <button id="btnClearSelection" type="button" title="Ctrl+D">선택 해제</button>
+    <button id="btnSelectFiltered" type="button" title="Ctrl+A">전체 선택</button>
+    <button id="btnClearSelection" type="button" title="Ctrl+D">해제</button>
     <span class="sep"></span>
-    <button id="btnMarkReviewed" type="button">판독 완료</button>
-    <button id="btnMarkImportant" type="button">중요</button>
-    <button id="btnMarkVerify" type="button">검증 대기</button>
-    <button id="btnMarkClear" type="button">마크 해제</button>
+    <span class="grp-label">판독</span>
+    <div class="seg">
+      <button id="btnMarkReviewed" type="button" title="1">판독 완료</button>
+      <button id="btnMarkImportant" type="button" title="2">중요</button>
+      <button id="btnMarkVerify" type="button" title="3">검증 대기</button>
+      <button id="btnMarkClear" type="button" title="0">해제</button>
+    </div>
+    <div class="menu">
+      <button id="btnTagMenu" type="button" aria-haspopup="true">태그 ▾</button>
+      <div class="menu-list" id="tagMenuList" hidden>
+        <button id="btnTagAccident" type="button" data-keep>사고</button>
+        <button id="btnTagSpeed" type="button" data-keep>과속</button>
+        <button id="btnTagSignal" type="button" data-keep>신호위반</button>
+        <button id="btnTagLane" type="button" data-keep>차선변경</button>
+        <button id="btnTagPed" type="button" data-keep>보행자</button>
+        <button id="btnTagDui" type="button" data-keep>음주의심</button>
+        <button id="btnTagClear" type="button">태그 해제</button>
+      </div>
+    </div>
     <span class="sep"></span>
-    <button id="btnTagAccident" type="button">사고</button>
-    <button id="btnTagSpeed" type="button">과속</button>
-    <button id="btnTagSignal" type="button">신호위반</button>
-    <button id="btnTagClear" type="button">태그 해제</button>
-    <span class="sep"></span>
-    <button id="btnCopyIds" type="button">ID 복사</button>
-    <button id="btnCopyPaths" type="button">경로 복사</button>
-    <button id="btnDownloadSelection" type="button">선택 목록 다운로드</button>
-    <input id="examinerName" type="text" placeholder="검토자" title="케이스에 반영될 검토자 이름" style="width:90px;height:26px;font-size:11px;">
-    <button id="btnDownloadMarks" type="button">마크 내려받기</button>
-    <button id="btnApplyMarks" type="button" title="판독 마크·태그·메모를 케이스 DB에 반영하고 보고서를 갱신합니다 — 워크스테이션 서버 필요">케이스에 반영</button>
-    <span class="sep"></span>
-    <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다">선별 CSV</button>
-    <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다">요약 리포트</button>
-    <button id="btnExportSelected" type="button" title="선택 항목을 케이스 exports 폴더에 해시 매니페스트와 함께 복사합니다 — 워크스테이션 서버 필요">선별 자료 묶기</button>
+    <input id="examinerName" type="text" placeholder="검토자" title="케이스에 반영될 검토자 이름" style="width:84px;height:26px;font-size:11px;">
+    <button id="btnApplyMarks" type="button" class="primary" title="판독 마크·태그·메모를 케이스 DB에 반영하고 보고서를 갱신합니다 — 워크스테이션 서버 필요">케이스에 반영</button>
+    <div class="menu">
+      <button id="btnExportMenu" type="button" aria-haspopup="true">보내기·복사 ▾</button>
+      <div class="menu-list" id="exportMenuList" hidden>
+        <button id="btnExportSelected" type="button" title="선택 항목을 케이스 exports 폴더에 해시 매니페스트와 함께 복사합니다 — 워크스테이션 서버 필요">선별 자료 묶기</button>
+        <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다">선별 CSV</button>
+        <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다">요약 리포트</button>
+        <hr>
+        <button id="btnDownloadMarks" type="button">마크 내려받기</button>
+        <button id="btnDownloadSelection" type="button">선택 목록 다운로드</button>
+        <hr>
+        <button id="btnCopyIds" type="button">ID 복사</button>
+        <button id="btnCopyPaths" type="button">경로 복사</button>
+      </div>
+    </div>
   </div>
   <div id="toastHost"></div>
   <div id="shortcutsModal" class="modal-backdrop" hidden>

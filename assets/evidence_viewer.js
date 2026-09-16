@@ -1839,7 +1839,44 @@ document.getElementById("btnCopyPaths").addEventListener("click", () => {
 document.getElementById("btnTagAccident").addEventListener("click", () => applyTag("사고"));
 document.getElementById("btnTagSpeed").addEventListener("click", () => applyTag("과속"));
 document.getElementById("btnTagSignal").addEventListener("click", () => applyTag("신호위반"));
+document.getElementById("btnTagLane").addEventListener("click", () => applyTag("차선변경"));
+document.getElementById("btnTagPed").addEventListener("click", () => applyTag("보행자"));
+document.getElementById("btnTagDui").addEventListener("click", () => applyTag("음주의심"));
 document.getElementById("btnTagClear").addEventListener("click", () => clearTags());
+
+// Selection-bar menus: toggle on the anchor button, close on outside
+// click / Escape / a menu item without data-keep (tag items stay open so
+// several tags can be applied to one selection).
+function toggleMenu(listId) {
+  const list = document.getElementById(listId);
+  const willOpen = list.hidden;
+  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+  list.hidden = !willOpen;
+}
+document.getElementById("btnTagMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  toggleMenu("tagMenuList");
+});
+document.getElementById("btnExportMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  toggleMenu("exportMenuList");
+});
+document.querySelectorAll(".menu-list").forEach(list => {
+  list.addEventListener("click", e => {
+    // Keep the document-level closer from seeing in-menu clicks; an
+    // action item without data-keep closes its own menu explicitly.
+    e.stopPropagation();
+    if (e.target.closest("button") && !e.target.closest("button").hasAttribute("data-keep")) {
+      list.hidden = true;
+    }
+  });
+});
+document.addEventListener("click", () => {
+  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+});
 document.getElementById("btnDownloadSelection").addEventListener("click", () => {
   const selected = selectedRecords();
   if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }

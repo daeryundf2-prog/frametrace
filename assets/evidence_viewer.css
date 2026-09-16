@@ -126,6 +126,20 @@ body.theater .player { height: calc(100vh - 52px); }
 .selection-bar .sep { width: 1px; height: 22px; background: var(--line); }
 .selection-bar strong { font-size: 13px; }
 .selection-bar button { height: 28px; font-size: 12px; }
+/* Grouped selection controls: label + segmented mark buttons + drop-up
+   menus keep the bar readable instead of a 19-button wall. */
+.selection-bar .grp-label { font-size: 11px; font-weight: 700; color: var(--muted); }
+.selection-bar .seg { display: inline-flex; }
+.selection-bar .seg button { border-radius: 0; margin-left: -1px; }
+.selection-bar .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.selection-bar .seg button:last-child { border-radius: 0 6px 6px 0; }
+.selection-bar .primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.selection-bar .menu { position: relative; display: inline-block; }
+.selection-bar .menu-list { position: absolute; bottom: calc(100% + 6px); left: 0; min-width: 168px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 4px; display: flex; flex-direction: column; gap: 0; z-index: 40; }
+.selection-bar .menu-list[hidden] { display: none; }
+.selection-bar .menu-list button { height: 30px; font-size: 12px; text-align: left; border: none; background: transparent; border-radius: 5px; padding: 0 10px; }
+.selection-bar .menu-list button:hover { background: #f0f4f2; }
+.selection-bar .menu-list hr { border: none; border-top: 1px solid var(--line); margin: 4px 6px; }
 #toastHost { position: fixed; top: 64px; right: 14px; z-index: 60; display: grid; gap: 8px; }
 .toast { background: #1f2724; color: #f2f7f5; border-radius: 7px; padding: 10px 14px; font-size: 13px; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); max-width: 420px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(15, 24, 21, .45); display: grid; place-items: center; }
