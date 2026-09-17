@@ -138,10 +138,66 @@ fn state_lock(state: &SharedState) -> MutexGuard<'_, JobState> {
     }
 }
 
+/// `<config>/frametrace/workstation-session.json` — remembers the last
+/// opened case so restarting the workstation returns to it instead of
+/// resetting to an empty stage 1 (and 404ing /review/*).
+fn session_file() -> Option<PathBuf> {
+    crate::audit_key::config_dir().map(|dir| dir.join("workstation-session.json"))
+}
+
+fn save_session(case_dir: &Path, source_path: Option<&Path>) {
+    let Some(file) = session_file() else { return };
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let source = source_path
+        .map(|p| format!(",\"source_path\":{}", json_string(&p.display().to_string())))
+        .unwrap_or_default();
+    let body = format!(
+        "{{\"case_dir\":{}{}}}",
+        json_string(&case_dir.display().to_string()),
+        source
+    );
+    let _ = std::fs::write(file, body);
+}
+
+/// Restore the last case binding from the session file. Returns the case
+/// dir plus any extra media root (folder-input source path) that still
+/// exists on disk.
+fn restore_session() -> Option<(PathBuf, Vec<PathBuf>)> {
+    let text = std::fs::read_to_string(session_file()?).ok()?;
+    let case_dir = PathBuf::from(body_value(&text, "case_dir")?);
+    if !case_dir.join("case.json").is_file() {
+        return None;
+    }
+    let mut roots = vec![case_dir.clone()];
+    if let Some(source) = body_value(&text, "source_path") {
+        let source = PathBuf::from(source);
+        if source.is_dir() && source != case_dir {
+            roots.push(source);
+        }
+    }
+    Some((case_dir, roots))
+}
+
 pub fn run(options: ServeOptions) -> Result<(), String> {
     let state: SharedState = Arc::new(Mutex::new(JobState::new()));
     if let Some(case_dir) = &options.case_dir {
-        state_lock(&state).case_dir = Some(case_dir.clone());
+        let mut guard = state_lock(&state);
+        guard.case_dir = Some(case_dir.clone());
+        guard.media_roots = vec![case_dir.clone()];
+    } else if let Some((case_dir, roots)) = restore_session() {
+        let mut guard = state_lock(&state);
+        guard.case_dir = Some(case_dir.clone());
+        guard.media_roots = roots;
+        if case_dir.join("review/index.html").is_file() {
+            guard.phase = "review-ready";
+            guard.steps = [StepStatus::Done; 5];
+            guard.logs.push(format!(
+                "이전 세션의 케이스를 복원했습니다: {}",
+                case_dir.display()
+            ));
+        }
     }
     let listener = match options.port {
         Some(port) => TcpListener::bind(("127.0.0.1", port))
@@ -924,6 +980,10 @@ fn api_start(request: &Request, state: &SharedState) -> String {
             InputKind::E01 | InputKind::E01Direct => vec![case_dir.clone()],
         };
     }
+    save_session(
+        &case_dir,
+        (input_kind == InputKind::Folder).then_some(source_path.as_path()),
+    );
     let worker_state = Arc::clone(state);
     let spawned = thread::Builder::new()
         .name("ft-pipeline".into())
@@ -1927,6 +1987,8 @@ fn api_open_case(request: &Request, state: &SharedState) -> String {
             .logs
             .push(format!("기존 케이스를 열었습니다: {}", case_dir.display()));
     }
+    drop(guard);
+    save_session(&case_dir, None);
     format!(
         "{{\"ok\":true,\"has_review\":{}}}",
         if has_review { "true" } else { "false" }
