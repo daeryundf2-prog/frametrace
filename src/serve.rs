@@ -1883,6 +1883,10 @@ fn api_advanced(request: &Request, state: &SharedState) -> String {
             "reports/case-index.dfxml",
         ),
         "timeline" => (vec!["timeline".into(), case_text], "db/timeline.jsonl"),
+        "deepfake" => (
+            vec!["deepfake-scan".into(), case_text],
+            "review/evidence-viewer.html",
+        ),
         "qa-consistency" => (
             vec!["qa".into(), "consistency".into(), case_text],
             "reports/qa/consistency-report.html",

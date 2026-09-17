@@ -180,7 +180,13 @@ pub fn scan_folder(
                         json_escape(screen_error.as_deref().unwrap_or("unknown"))
                     )
                 });
-                if let Err(err) = write_text_atomic(&artifact_dir.join(format!("{}.json", record.id)), &body) {
+                if let Err(err) = write_text_atomic(
+                    &artifact_dir.join(format!(
+                        "{}.json",
+                        crate::deepfake::artifact_name(&record.id)
+                    )),
+                    &body,
+                ) {
                     warnings.push(format!("deepfake artifact write failed for {}: {err}", record.id));
                 } else if let Some(error) = &screen_error {
                     warnings.push(format!("deepfake screening failed for {}: {error}", record.id));

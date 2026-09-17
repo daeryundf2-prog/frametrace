@@ -378,6 +378,15 @@ pub enum Commands {
         #[arg(long)]
         json_out: Option<PathBuf>,
     },
+    /// Screen every case record that lacks a deepfake artifact — covers
+    /// indexed videos plus carved and filesystem-recovered files from
+    /// E01 pipelines that never pass through scan-folder.
+    DeepfakeScan {
+        case_dir: PathBuf,
+        /// Re-screen records that already have an artifact
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
     /// Run forensic QA validation checks
@@ -780,6 +789,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             benchmark_db(&output_dir, options)
         }
         Commands::DeepfakeScreen { file, json_out } => deepfake_screen(&file, json_out.as_deref()),
+        Commands::DeepfakeScan { case_dir, force } => deepfake_scan(&case_dir, force),
         Commands::Inspect { case_dir } => inspect(&case_dir),
         Commands::Qa { command } => run_qa(command),
     }

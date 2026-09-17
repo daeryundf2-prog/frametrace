@@ -51,6 +51,16 @@ frametrace deepfake-screen <file> [--json-out out.json]
    (full forensic report, or `{"ok":false,"error":…}` on failure).
    Screening failures become scan warnings, never aborts; incremental
    rescans and checkpoint replay skip already-indexed files.
+
+   For E01/carve/recover pipelines that never pass through
+   `scan-folder`, `frametrace deepfake-scan <case> [--force]` screens
+   every record family — indexed videos, carved candidates
+   (`carve-log.jsonl`), filesystem-recovered files (`recover-inode`
+   events) — and writes the same per-id artifacts. Records that already
+   have an artifact are skipped unless `--force`. The workstation UI
+   exposes it as 고급 도구 → "딥페이크 스크리닝". Record ids are
+   sanitized into filenames (`inode:0:1304` → `inode_0_1304`); the
+   viewer applies the same mapping when looking up reports.
 2. **`VideoRecord` field**: add `pub deepfake: Option<DeepfakeSummary>`
    serialized as `deepfake_*` flattened keys (same pattern as
    `probe_summary_flat`). Touches the published JSONL contract — bump

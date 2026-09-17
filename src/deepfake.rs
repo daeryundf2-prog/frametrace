@@ -193,3 +193,163 @@ pub fn collect_reports(case_dir: &Path) -> serde_json::Value {
     }
     serde_json::Value::Object(map)
 }
+
+/// One screenable record inside a case: the viewer-facing record id plus
+/// the on-disk file to analyze.
+pub struct ScreenTarget {
+    pub id: String,
+    pub path: std::path::PathBuf,
+    pub origin: &'static str,
+}
+
+/// Artifact filenames derive from record ids, which can contain
+/// characters that are illegal on Windows (`inode:<offset>:<ino>`,
+/// `fls:<ino>`). Sanitize once — the viewer applies the same mapping
+/// when looking up reports in its data bundle.
+pub fn artifact_name(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if matches!(c, ':' | '\\' | '/') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Enumerates every screenable record in a case — indexed logical files,
+/// carved candidates, filesystem-recovered files — so a post-import pass
+/// covers E01/carve/recover pipelines that never pass through
+/// `scan-folder`.
+pub fn collect_targets(case_dir: &Path) -> Vec<ScreenTarget> {
+    let mut out = Vec::new();
+    collect_jsonl_targets(
+        &case_dir.join("db/videos.jsonl"),
+        "id",
+        "source_path",
+        "index",
+        &mut out,
+    );
+    collect_jsonl_targets(
+        &case_dir.join("artifacts/carved/carve-log.jsonl"),
+        "id",
+        "output_path",
+        "carve",
+        &mut out,
+    );
+    // Filesystem recovery records use the viewer's composite id
+    // (`inode:<partition_offset>:<inode>`) so the badge maps correctly.
+    if let Ok(text) = fs::read_to_string(case_dir.join("evidence/logs/tsk-audit.jsonl")) {
+        for line in text.lines() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+                continue;
+            };
+            if v.get("event").and_then(|e| e.as_str()) != Some("recover-inode") {
+                continue;
+            }
+            let Some(path) = v.get("output_path").and_then(|x| x.as_str()) else {
+                continue;
+            };
+            let offset = v.get("partition_offset").and_then(|x| x.as_u64()).unwrap_or(0);
+            let inode = v
+                .get("inode")
+                .and_then(|x| x.as_str())
+                .unwrap_or(path);
+            out.push(ScreenTarget {
+                id: format!("inode:{offset}:{inode}"),
+                path: std::path::PathBuf::from(path),
+                origin: "recover",
+            });
+        }
+    }
+    out
+}
+
+fn collect_jsonl_targets(
+    path: &Path,
+    id_key: &str,
+    path_key: &str,
+    origin: &'static str,
+    out: &mut Vec<ScreenTarget>,
+) {
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for line in text.lines() {
+        // A torn tail line (documented crash-survivability mode) is not
+        // valid JSON — skip it rather than aborting the pass.
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line.trim()) else {
+            continue;
+        };
+        let (Some(id), Some(file)) = (
+            v.get(id_key).and_then(|x| x.as_str()),
+            v.get(path_key).and_then(|x| x.as_str()),
+        ) else {
+            continue;
+        };
+        out.push(ScreenTarget {
+            id: id.to_string(),
+            path: std::path::PathBuf::from(file),
+            origin,
+        });
+    }
+}
+
+#[derive(Default)]
+pub struct ScreenCaseStats {
+    pub screened: usize,
+    pub skipped_existing: usize,
+    pub skipped_missing: usize,
+    pub failed: usize,
+}
+
+/// Screens every case record that lacks a deepfake artifact (or all of
+/// them with `force`), writing `artifacts/deepfake/<id>.json` per record.
+/// Individual failures never abort the pass — a case can contain a file
+/// deepfake-lens cannot parse.
+pub fn screen_case(
+    case_dir: &Path,
+    force: bool,
+    progress: &dyn Fn(usize, usize, &str),
+) -> Result<ScreenCaseStats, String> {
+    let targets = collect_targets(case_dir);
+    let artifact_dir = case_dir.join("artifacts/deepfake");
+    fs::create_dir_all(&artifact_dir)
+        .map_err(|err| format!("deepfake artifact dir failed: {err}"))?;
+    let total = targets.len();
+    let mut stats = ScreenCaseStats::default();
+    for (idx, target) in targets.into_iter().enumerate() {
+        progress(idx, total, &target.id);
+        let artifact = artifact_dir.join(format!("{}.json", artifact_name(&target.id)));
+        if artifact.is_file() && !force {
+            stats.skipped_existing += 1;
+            continue;
+        }
+        if !target.path.is_file() {
+            stats.skipped_missing += 1;
+            continue;
+        }
+        let screening = screen(&target.path);
+        let screen_error = screening.error.clone();
+        let body = screening.raw_json.clone().unwrap_or_else(|| {
+            format!(
+                "{{\"ok\":false,\"error\":\"{}\",\"origin\":\"{}\"}}",
+                crate::util::json_escape(screen_error.as_deref().unwrap_or("unknown")),
+                target.origin
+            )
+        });
+        match crate::util::write_text_atomic(&artifact, &body) {
+            Ok(()) => {
+                if screen_error.is_some() {
+                    stats.failed += 1;
+                } else {
+                    stats.screened += 1;
+                }
+            }
+            Err(_) => stats.failed += 1,
+        }
+    }
+    progress(total, total, "");
+    Ok(stats)
+}

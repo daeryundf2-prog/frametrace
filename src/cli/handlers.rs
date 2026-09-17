@@ -2451,6 +2451,46 @@ pub fn deepfake_screen(file: &Path, json_out: Option<&Path>) -> Result<(), Strin
     Ok(())
 }
 
+pub fn deepfake_scan(case_dir: &Path, force: bool) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(
+        case_dir,
+        "deepfake-scan",
+        case_dir,
+        None,
+        &format!("{{\"force\":{force}}}"),
+    )?;
+    let progress = |done: usize, total: usize, id: &str| {
+        if !id.is_empty() {
+            println!("deepfake screen {done}/{total}: {id}");
+        }
+    };
+    let stats = match crate::deepfake::screen_case(case_dir, force, &progress) {
+        Ok(stats) => stats,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        stats.screened.max(1) as u64,
+        "deepfake-scan completed",
+    )?;
+    println!("deepfake scan complete");
+    println!(
+        "screened: {} · already present: {} · file missing: {} · failed: {}",
+        stats.screened, stats.skipped_existing, stats.skipped_missing, stats.failed
+    );
+    println!(
+        "artifacts: {}",
+        case_dir.join("artifacts/deepfake").display()
+    );
+    println!("next: make-review {} — 뷰어에 '합성의심' 배지로 표시됩니다", case_dir.display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

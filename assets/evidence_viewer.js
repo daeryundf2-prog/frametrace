@@ -506,7 +506,9 @@ records.forEach(record => {
   record.recType = recTypeFor(record);
     record.originalName = originalNameFor(record);
   record.thumb = DATA.thumbs?.[record.id] || null;
-  record.dfl = DATA.deepfake?.[record.id] || null;
+  // Artifact filenames sanitize record ids (inode:<off>:<ino> →
+  // inode_<off>_<ino>) — mirror the same mapping for the lookup.
+  record.dfl = DATA.deepfake?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
   const fromId = anomaliesBySelector.get(record.id) || [];
   const fromValidation = Array.isArray(record.validation?.anomaly_flags)
     ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
