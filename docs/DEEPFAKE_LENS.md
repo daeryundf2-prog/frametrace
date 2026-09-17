@@ -55,10 +55,11 @@ frametrace deepfake-screen <file> [--json-out out.json]
    serialized as `deepfake_*` flattened keys (same pattern as
    `probe_summary_flat`). Touches the published JSONL contract — bump
    deliberately.
-3. **Viewer badge**: `evidence_viewer.js` card renderer already composes
-   chips (`kind-badge`, `badge warn`, …). Add a `badge dfl` chip driven
-   by `record.deepfake_band` (high→red, medium→amber) plus a detail
-   section listing `signal_titles` and `limitations`.
+3. **Viewer badge — implemented.** `make-review` embeds the artifact
+   map as `DATA.deepfake`; `evidence_viewer.js` renders a band-colored
+   `badge dfl` chip on each card and a "합성의심" row (score, top
+   signal titles, or the screening error) in the detail panel. The
+   badge title keeps the "검토 우선순위, 판정 아님" framing.
 
 Only non-video files (audio, images, documents, archives) currently sit
 outside `VideoRecord`; screen them through the same lane when the index

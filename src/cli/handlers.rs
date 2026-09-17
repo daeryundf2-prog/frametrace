@@ -516,6 +516,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
     let fls_entries = redact(&latest_fls_entries_jsonl(case_dir));
     let videos = collect_index_videos(&index_json);
     let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
+    let deepfake_reports = crate::deepfake::collect_reports(case_dir).to_string();
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
@@ -525,6 +526,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &anomaly_log,
         &fls_entries,
         &thumbs_json,
+        &deepfake_reports,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(

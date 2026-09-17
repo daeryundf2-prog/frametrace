@@ -43,6 +43,10 @@ h1 { font-size: 16px; margin: 0; }
 .badge.failed { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
 .badge.anomaly { background: #f7f0e4; border-color: #e2d0a8; color: var(--anomaly); font-weight: 700; }
 .badge.warn { background: #fdf3e3; border-color: #e4c88f; color: var(--warn); font-weight: 700; }
+.badge.dfl { font-weight: 700; }
+.badge.dfl.dfl-high { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
+.badge.dfl.dfl-medium { background: #fdf3e3; border-color: #e4c88f; color: var(--warn); }
+.badge.dfl.dfl-low { background: #eef3f6; border-color: #c6d4de; color: #4a6a80; }
 .warn-banner { background: #fdf3e3; border: 1px solid #e4c88f; border-radius: 6px; color: #7a5410; font-size: 12px; padding: 6px 10px; }
 .warn-banner b { margin-right: 6px; }
 .validation-item.warn { border-left: 3px solid var(--warn); }

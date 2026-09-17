@@ -498,6 +498,7 @@ records.forEach(record => {
   record.recType = recTypeFor(record);
     record.originalName = originalNameFor(record);
   record.thumb = DATA.thumbs?.[record.id] || null;
+  record.dfl = DATA.deepfake?.[record.id] || null;
   const fromId = anomaliesBySelector.get(record.id) || [];
   const fromValidation = Array.isArray(record.validation?.anomaly_flags)
     ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
@@ -879,11 +880,14 @@ function renderCard(record) {
   const warnChip = (record.warnings || []).length
     ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>`
     : "";
+  const dflChip = record.dfl && record.dfl.band
+    ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}" title="deepfake-lens 스크리닝 ${escapeHtml(String(record.dfl.score ?? ""))}점 — 검토 우선순위, 판정 아님">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>`
+    : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}</div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}${dflChip}</div>
       ${tagsHtml}
       <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
@@ -1034,6 +1038,7 @@ function renderDetails() {
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
     (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>` : "",
     record.hasAnomaly ? `<span class="badge anomaly">${escapeHtml(t("header.anomaly"))}</span>` : "",
+    record.dfl && record.dfl.band ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>` : "",
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
     ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
     record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
@@ -1044,7 +1049,10 @@ function renderDetails() {
     ["판독", mark ? markLabel(mark.status) : "미판독"],
     ["길이", fmtDuration(record.duration)],
     ["크기", fmtBytes(record.size)],
-    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"]
+    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
+    ["합성의심", record.dfl ? (record.dfl.band
+        ? `${record.dfl.band_label || record.dfl.band} (${record.dfl.score ?? "?"}점 — 검토 우선순위)${record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : ""}`
+        : (record.dfl.error ? `스크리닝 실패: ${record.dfl.error}` : "결과 없음")) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
     ["원본", `<code>${escapeHtml(record.originalName || record.name)}</code>`],

@@ -20,6 +20,7 @@
 
 use crate::tool_policy::resolve_tool_binary;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -162,4 +163,33 @@ pub fn screen_with_binary(binary: &str, path: &Path) -> DeepfakeSummary {
         raw_json: Some(raw),
         error: None,
     }
+}
+
+/// Collects every `artifacts/deepfake/<id>.json` report under a case into a
+/// `{video_id: report}` JSON object for the evidence-viewer data bundle.
+/// Missing/unreadable/invalid reports are skipped — a partial artifact must
+/// not blank the generated page.
+pub fn collect_reports(case_dir: &Path) -> serde_json::Value {
+    let dir = case_dir.join("artifacts/deepfake");
+    let mut map = serde_json::Map::new();
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return serde_json::Value::Object(map),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(report) = serde_json::from_str::<serde_json::Value>(&text) {
+            map.insert(id.to_string(), report);
+        }
+    }
+    serde_json::Value::Object(map)
 }
