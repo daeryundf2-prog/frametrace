@@ -28,7 +28,15 @@ const RANGES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".ranges";
 const PROXIES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".proxies";
 const EXAMINER_KEY = "ft.viewer." + (manifest.case_id || "case") + ".examiner";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
-const TAG_PRESETS = ["사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
+// Tag presets are the quick-apply taxonomy for the tag menu, the tag
+// filter, the detail editor, and the popup player. The defaults cover
+// any case type — accident, assault, fraud, missing-person, digital
+// evidence — with the traffic set kept at the end for dashcam cases.
+// Examiners can add/remove presets in the tag menu; the list is stored
+// globally (not per case) because an investigator's tag vocabulary is
+// personal, while applied tags stay per-case under TAGS_KEY.
+const DEFAULT_TAG_PRESETS = ["핵심증거", "현장", "관련인", "동선·위치", "시간대확인", "조작의심", "출처불명", "참고자료", "보존요청", "제외", "사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
+const TAG_PRESETS_KEY = "ft.viewer.tag_presets";
 const TAGS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".tags";
 const LOCALE_KEY = "ft.viewer." + (manifest.case_id || "case") + ".locale";
 
@@ -527,6 +535,7 @@ const state = {
   proxies: storageGet(PROXIES_KEY, {}),
   examiner: storageGet(EXAMINER_KEY, ""),
   tags: storageGet(TAGS_KEY, {}),
+  tagPresets: storageGet(TAG_PRESETS_KEY, null),
   locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
   layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
@@ -542,6 +551,10 @@ const state = {
   recType: "",
   collapsedGroups: new Set()
 };
+
+// null = never customized → seed from defaults; an empty array is a
+// deliberate "no presets" choice and must not reseed.
+if (!Array.isArray(state.tagPresets)) state.tagPresets = [...DEFAULT_TAG_PRESETS];
 
 // Same-origin hosts (e.g. the examiner workstation iframe) read live case
 // stats through this getter instead of re-parsing the embedded data.
@@ -617,7 +630,6 @@ const PRESET_CHIPS = [
   ["mark:important", "중요 마크"],
   ["mark:reviewed", "판독 완료"],
   ["mark:none", "판독 대기"],
-  ...TAG_PRESETS.map(tag => [`tag:${tag}`, tag])
 ];
 
 function filteredRecords() {
@@ -925,6 +937,20 @@ function renderHistogram(filtered) {
 
 function tagListFor(record) { return state.tags[record.id] || []; }
 
+function saveTagPresets() { storageSet(TAG_PRESETS_KEY, state.tagPresets); }
+function addTagPreset(tag) {
+  const name = String(tag || "").trim();
+  if (!name || state.tagPresets.includes(name)) return;
+  state.tagPresets.push(name);
+  saveTagPresets();
+}
+function removeTagPreset(tag) {
+  const idx = state.tagPresets.indexOf(tag);
+  if (idx < 0) return;
+  state.tagPresets.splice(idx, 1);
+  saveTagPresets();
+}
+
 function addTag(id, tag) {
   const list = state.tags[id] || [];
   if (!list.includes(tag)) list.push(tag);
@@ -1064,9 +1090,10 @@ function renderDetails() {
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
   // tag editor for the selected evidence
   const tagEditorHtml = `<div class="tag-editor">
-    ${TAG_PRESETS.map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
+    ${tagPresets().map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
     <input type="text" class="tag-input" id="customTagInput" placeholder="직접 입력" style="width:80px;height:24px;font-size:11px;">
-    <button type="button" class="mini" id="btnAddCustomTag">추가</button>
+    <button type="button" class="mini" id="btnAddCustomTag">적용</button>
+    <button type="button" class="mini" id="btnSaveCustomTag" title="입력한 태그를 프리셋 목록에도 등록 (태그 메뉴·필터에 표시)">프리셋 등록</button>
   </div>`;
   // replace existing tag editor if any
   const oldEditor = document.querySelector(".tag-editor-wrap");
@@ -1100,6 +1127,17 @@ function renderDetails() {
     };
     customBtn.addEventListener("click", addCustom);
     customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
+    const savePresetBtn = document.getElementById("btnSaveCustomTag");
+    if (savePresetBtn) {
+      savePresetBtn.addEventListener("click", () => {
+        const tag = customInput.value.trim();
+        if (!tag) return;
+        addTagPreset(tag);
+        customInput.value = "";
+        render();
+        toast(`'${tag}' 태그를 프리셋에 등록했습니다.`);
+      });
+    }
   }
   const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
   const anomalyRelated = (record.anomalies || []).map(item => `<div class="validation-item">
@@ -1224,6 +1262,13 @@ function renderChips() {
       render();
     });
   });
+  // Tag filter options follow the editable preset list plus any tags
+  // already applied in this case that aren't presets (custom tags).
+  const appliedTags = new Set();
+  Object.values(state.tags).forEach(list => (list || []).forEach(tag => appliedTags.add(tag)));
+  const filterTags = [...state.tagPresets, ...[...appliedTags].filter(tag => !state.tagPresets.includes(tag))];
+  els.tagFilter.innerHTML = `<option value="">태그: 전체</option>`
+    + filterTags.map(tag => `<option value="tag:${escapeHtml(tag)}">태그: ${escapeHtml(tag)}</option>`).join("");
   els.tagFilter.value = state.chip.startsWith("tag:") ? state.chip : "";
 }
 
@@ -1524,7 +1569,7 @@ function openPlayerWindow() {
   const e = escapeHtml;
   const rate = state.layout.rate || 1;
   const rateOptions = RATES.map(r => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("");
-  const tagButtons = TAG_PRESETS.map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
+  const tagButtons = tagPresets().map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
   win.document.open();
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <title>${e(record.name || record.id)} — FrameTrace Player</title>
@@ -1889,13 +1934,45 @@ document.getElementById("btnCopyPaths").addEventListener("click", () => {
   const paths = selectedRecords().map(record => record.path);
   if (paths.length) copyText(paths.join("\n"), "증거 경로");
 });
-document.getElementById("btnTagAccident").addEventListener("click", () => applyTag("사고"));
-document.getElementById("btnTagSpeed").addEventListener("click", () => applyTag("과속"));
-document.getElementById("btnTagSignal").addEventListener("click", () => applyTag("신호위반"));
-document.getElementById("btnTagLane").addEventListener("click", () => applyTag("차선변경"));
-document.getElementById("btnTagPed").addEventListener("click", () => applyTag("보행자"));
-document.getElementById("btnTagDui").addEventListener("click", () => applyTag("음주의심"));
-document.getElementById("btnTagClear").addEventListener("click", () => clearTags());
+// Tag menu: preset buttons are rebuilt from the editable preset list.
+// Each row applies the tag to the current selection; the trailing ×
+// removes the preset (applied tags on records are untouched). The
+// input registers a new preset — and, when a selection exists, applies
+// it right away.
+const tagMenuList = document.getElementById("tagMenuList");
+function rebuildTagMenu() {
+  tagMenuList.innerHTML = state.tagPresets.map(tag =>
+    `<div class="tag-menu-row"><button type="button" data-keep data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button><button type="button" class="tag-del" data-keep data-del-preset="${escapeHtml(tag)}" title="프리셋에서 삭제">×</button></div>`
+  ).join("")
+    + `<button type="button" data-tag-clear>태그 해제</button><hr>`
+    + `<div class="tag-add"><input type="text" id="tagPresetInput" placeholder="새 태그 등록" maxlength="24">`
+    + `<button type="button" data-keep data-tag-add>추가</button></div>`;
+}
+function addTagPresetFromMenu() {
+  const input = document.getElementById("tagPresetInput");
+  const name = (input?.value || "").trim();
+  if (!name) return;
+  const isNew = !state.tagPresets.includes(name);
+  addTagPreset(name);
+  rebuildTagMenu();
+  document.getElementById("tagPresetInput")?.focus();
+  if (targetIds().length) applyTag(name);
+  else if (isNew) toast(`'${name}' 태그를 프리셋에 추가했습니다.`);
+}
+tagMenuList.addEventListener("click", e => {
+  const del = e.target.closest("[data-del-preset]");
+  if (del) { removeTagPreset(del.dataset.delPreset); rebuildTagMenu(); return; }
+  if (e.target.closest("[data-tag-add]")) { addTagPresetFromMenu(); return; }
+  if (e.target.closest("[data-tag-clear]")) { clearTags(); return; }
+  const apply = e.target.closest("[data-tag]");
+  if (apply) applyTag(apply.dataset.tag);
+});
+tagMenuList.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.id === "tagPresetInput") {
+    e.preventDefault();
+    addTagPresetFromMenu();
+  }
+});
 
 // Selection-bar menus: toggle on the anchor button, close on outside
 // click / Escape / a menu item without data-keep (tag items stay open so
@@ -1908,6 +1985,7 @@ function toggleMenu(listId) {
 }
 document.getElementById("btnTagMenu").addEventListener("click", e => {
   e.stopPropagation();
+  rebuildTagMenu();
   toggleMenu("tagMenuList");
 });
 document.getElementById("btnExportMenu").addEventListener("click", e => {

@@ -85,12 +85,6 @@ __CSS__
         <button id="btnGroupKind" class="chip chip-toggle" type="button" title="출처(원본/카빙/복구/후보)별로 목록을 묶어 봅니다">출처별 묶기</button>
         <select id="tagFilter" title="태그로 필터" data-i18n-title="filter.tag">
           <option value="">태그: 전체</option>
-          <option value="tag:사고">태그: 사고</option>
-          <option value="tag:과속">태그: 과속</option>
-          <option value="tag:신호위반">태그: 신호위반</option>
-          <option value="tag:차선변경">태그: 차선변경</option>
-          <option value="tag:보행자">태그: 보행자</option>
-          <option value="tag:음주의심">태그: 음주의심</option>
         </select>
         <select id="pageSize">
           <option value="100" data-i18n="filter.page.100">100개씩</option>
@@ -187,15 +181,7 @@ __CSS__
     </div>
     <div class="menu">
       <button id="btnTagMenu" type="button" aria-haspopup="true">태그 ▾</button>
-      <div class="menu-list" id="tagMenuList" hidden>
-        <button id="btnTagAccident" type="button" data-keep>사고</button>
-        <button id="btnTagSpeed" type="button" data-keep>과속</button>
-        <button id="btnTagSignal" type="button" data-keep>신호위반</button>
-        <button id="btnTagLane" type="button" data-keep>차선변경</button>
-        <button id="btnTagPed" type="button" data-keep>보행자</button>
-        <button id="btnTagDui" type="button" data-keep>음주의심</button>
-        <button id="btnTagClear" type="button">태그 해제</button>
-      </div>
+      <div class="menu-list tag-menu" id="tagMenuList" hidden></div>
     </div>
     <span class="sep"></span>
     <input id="examinerName" type="text" placeholder="검토자" title="케이스에 반영될 검토자 이름" style="width:84px;height:26px;font-size:11px;">
