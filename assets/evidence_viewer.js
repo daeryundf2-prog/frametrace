@@ -2129,6 +2129,47 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
   }
 });
 
+// --- 원본 파일 다운로드: /media?path&download=1이 Content-Disposition으로
+// 저장을 유도. file:// 스탠드얼론에서는 서버가 없으므로 지원하지 않음 ---
+function downloadHref(record) {
+  if (location.protocol !== "http:" && location.protocol !== "https:") return "";
+  if (!record.path) return "";
+  return "/media?path=" + encodeURIComponent(record.path) + "&download=1";
+}
+function triggerDownload(record) {
+  const href = downloadHref(record);
+  if (!href) return false;
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = record.originalName || record.name || record.id;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return true;
+}
+document.getElementById("btnDownloadFile").addEventListener("click", () => {
+  const record = selectedRecord();
+  if (!record) { toast("먼저 증거를 선택하세요."); return; }
+  if (!triggerDownload(record)) {
+    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+  }
+});
+document.getElementById("btnDownloadFiles").addEventListener("click", () => {
+  const selected = selectedRecords();
+  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  let started = 0;
+  selected.forEach((record, index) => {
+    if (!downloadHref(record)) return;
+    started += 1;
+    setTimeout(() => triggerDownload(record), index * 450);
+  });
+  if (!started) {
+    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+  } else {
+    toast(`${started}개 파일 다운로드 시작 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다.`);
+  }
+});
+
 // --- 케이스 타임라인 패널: db/timeline.jsonl을 읽어 시간순 이벤트를 표시 ---
 async function loadTimeline(regenerate) {
   const list = document.getElementById("timelineList");

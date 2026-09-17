@@ -138,6 +138,7 @@ __CSS__
             <option value="4">4×</option>
           </select>
           <button id="btnPopPlayer" type="button" class="primary" title="현재 영상을 별도 창으로 엽니다 — 마크·태그·자동 넘김 지원">⧉ 영상 새 창</button>
+          <button id="btnDownloadFile" type="button" title="현재 영상의 원본 파일을 그대로 내려받습니다 — 워크스테이션 서버 필요">⤓ 저장</button>
           <button id="btnCaptureFrame" type="button" title="현재 재생 위치의 프레임을 케이스 artifacts/captures에 JPEG로 저장합니다 — 워크스테이션 서버 필요">프레임 캡처</button>
           <span class="sep"></span>
           <button id="btnSetIn" type="button" title="현재 위치를 구간 시작으로 (i)">[ IN</button>
@@ -202,6 +203,7 @@ __CSS__
     <div class="menu">
       <button id="btnExportMenu" type="button" aria-haspopup="true">보내기·복사 ▾</button>
       <div class="menu-list" id="exportMenuList" hidden>
+        <button id="btnDownloadFiles" type="button" title="선택한 원본 파일을 그대로 내려받습니다 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다. 워크스테이션 서버 필요">선택 파일 다운로드</button>
         <button id="btnExportSelected" type="button" title="선택 항목을 케이스 exports 폴더에 해시 매니페스트와 함께 복사합니다 — 워크스테이션 서버 필요">선별 자료 묶기</button>
         <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다">선별 CSV</button>
         <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다">요약 리포트</button>

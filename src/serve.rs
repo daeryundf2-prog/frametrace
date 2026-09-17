@@ -2636,6 +2636,27 @@ fn serve_media(
         if code == 206 { "Partial Content" } else { "OK" },
         mime_for(&canonical)
     );
+    // `?download=1` forces a browser save-as with the evidence filename
+    // instead of inline playback. Same approved-roots containment applies.
+    if query_value(&request.query, "download").is_some() {
+        let name = canonical
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("evidence.bin");
+        let safe: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        head.push_str(&format!(
+            "Content-Disposition: attachment; filename=\"{safe}\"\r\n"
+        ));
+    }
     if code == 206 {
         head.push_str(&format!("Content-Range: bytes {start}-{end}/{total}\r\n"));
     }
