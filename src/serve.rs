@@ -675,7 +675,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/export-clip") => json(api_export_clip(request, state)),
         ("POST", "/api/proxy") => json(api_proxy(request, state)),
         ("POST", "/api/advanced") => json(api_advanced(request, state)),
-        ("POST", "/api/carve") => json(api_carve(state)),
+        ("POST", "/api/carve") => json(api_carve(request, state)),
         ("POST", "/api/open-folder") => {
             let path = body_value(&request.body, "path").unwrap_or_default();
             if !path.is_empty() {
@@ -2409,7 +2409,7 @@ fn api_recover_deleted(state: &SharedState) -> String {
 /// exported raw image (evidence/images/evidence.raw), then regenerate the
 /// review bundle so carved candidates show up in the viewer. Requires the
 /// full E01 pipeline (direct triage never exports a raw image).
-fn api_carve(state: &SharedState) -> String {
+fn api_carve(request: &Request, state: &SharedState) -> String {
     let (case_dir, busy) = {
         let guard = state_lock(state);
         (guard.case_dir.clone(), guard.busy)
@@ -2443,15 +2443,15 @@ fn api_carve(state: &SharedState) -> String {
             .push(format!("시그니처 카빙 실행 중… ({})", raw.display()));
     }
     let case_text = case_dir.to_string_lossy().to_string();
-    let carve = run_step(
-        &exe,
-        &[
-            "carve-file".into(),
-            case_text.clone(),
-            raw.to_string_lossy().to_string(),
-        ],
-        state,
-    );
+    let mut args = vec![
+        "carve-file".into(),
+        case_text.clone(),
+        raw.to_string_lossy().to_string(),
+    ];
+    if query_value(&request.query, "reassemble").as_deref() == Some("1") {
+        args.push("--reassemble".into());
+    }
+    let carve = run_step(&exe, &args, state);
     let review = if carve.is_ok() {
         run_step(&exe, &["make-review".into(), case_text.clone()], state)
     } else {
@@ -3338,7 +3338,7 @@ mod tests {
 
         // Idle status + error paths with no case loaded.
         parse("api_status", &api_status(&state));
-        parse("api_carve", &api_carve(&state));
+        parse("api_carve", &api_carve(&post("/api/carve", "{}"), &state));
         parse("api_recover_deleted", &api_recover_deleted(&state));
         parse(
             "api_export_selected",

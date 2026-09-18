@@ -288,6 +288,7 @@
       <span class="vsep"></span>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
       <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
+      <label class="chk" title="조각난 영상의 재조립 가설 후보를 추가로 생성합니다 — TS 연속성 카운터 일치, MP4 moov 경계 기반. 검증 전 후보로만 표시됩니다" style="font-size:11px;align-self:center"><input type="checkbox" id="chkReassemble"> 조각 재조립 시도</label>
       <span class="muted" style="font-size:11px;margin-left:auto;align-self:center">깊은 검토는 전체화면·새 창 권장</span>
     </div>
     <iframe id="reviewFrame" title="증거 뷰어" allow="fullscreen"></iframe>
@@ -763,7 +764,8 @@ $("btnCarve").addEventListener("click", async () => {
   const btn = $("btnCarve");
   btn.disabled = true;
   $("recoverHint").textContent = "시그니처 카빙 실행 중… (이미지 크기에 따라 시간이 걸릴 수 있습니다)";
-  const res = await jpost("/api/carve", {});
+  const reassemble = $("chkReassemble") && $("chkReassemble").checked;
+  const res = await jpost(reassemble ? "/api/carve?reassemble=1" : "/api/carve", {});
   btn.disabled = false;
   if (!res.ok) {
     $("recoverHint").textContent = "카빙 실패: " + (res.error || "");

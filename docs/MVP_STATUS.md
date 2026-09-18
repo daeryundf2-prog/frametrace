@@ -42,7 +42,8 @@ FrameTrace is currently a Windows-first local forensic video workstation core. I
 - JPEG thumbnail generation.
 - Default export/proxy/thumbnail output names avoid collisions; explicit `--output` paths are not overwritten.
 - Derived export/proxy/thumbnail logs include output SHA-256, source-index SHA-256 when available, FFmpeg version, command arguments, and hash-chain fields.
-- Contiguous MP4/AVI/Dahua-DAV candidate carving from raw files or acquired image files.
+- Contiguous MP4/AVI/Dahua-DAV/MPEG-TS candidate carving from raw files or acquired image files, with structure-aware boundaries (MP4 box walk, RIFF declared size, TS 0x47-sync runs) that mark fragmentation gaps instead of absorbing foreign bytes.
+- Optional `carve-file --reassemble` (also exposed as a workstation checkbox): emits fragment-reassembly HYPOTHESES as additional unvalidated candidates — MPEG-TS continuity-counter joins (structural evidence) and MP4 bifragment gap-fills (moov/stsz-bounded tails, moov hunting in anonymous regions). Original fragments are preserved; joins never claim recovery without downstream decode validation.
 - Recovery artifact logs with source offsets, output hashes, carved output paths, duplicate-candidate marking, candidate-validation status, and hash-chain fields.
 - ffprobe validation command for indexed videos, carved candidates, direct artifact paths, and inode recoveries.
 - E01 provenance logs under `evidence/logs/e01-audit.jsonl`.

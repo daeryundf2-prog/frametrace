@@ -22,6 +22,11 @@ const CHECKPOINT_CHUNK_INTERVAL: usize = 64;
 pub struct CarveOptions {
     pub max_bytes: u64,
     pub max_candidates: usize,
+    /// Opt-in fragment reassembly pass. Off by default: joins are
+    /// hypotheses, not evidence — enabling emits additional
+    /// `reassembled-*` candidate artifacts alongside (never instead of)
+    /// the original fragments.
+    pub reassemble: bool,
 }
 
 impl Default for CarveOptions {
@@ -29,6 +34,7 @@ impl Default for CarveOptions {
         Self {
             max_bytes: DEFAULT_MAX_BYTES,
             max_candidates: DEFAULT_MAX_CANDIDATES,
+            reassemble: false,
         }
     }
 }
@@ -120,8 +126,12 @@ impl CarveResult {
         out.push_str("  \"options\": {\n");
         out.push_str(&format!("    \"max_bytes\": {},\n", self.options.max_bytes));
         out.push_str(&format!(
-            "    \"max_candidates\": {}\n",
+            "    \"max_candidates\": {},\n",
             self.options.max_candidates
+        ));
+        out.push_str(&format!(
+            "    \"reassemble\": {}\n",
+            self.options.reassemble
         ));
         out.push_str("  },\n");
         out.push_str("  \"warnings\": [\n");
@@ -325,6 +335,16 @@ pub fn carve_file(
         artifacts.push(artifact);
     }
 
+    if options.reassemble {
+        reassemble_fragments(
+            &source_path,
+            case_dir,
+            source_size,
+            &mut artifacts,
+            &mut warnings,
+        )?;
+    }
+
     let result = CarveResult {
         source_path,
         carved_unix: now_unix()?,
@@ -372,6 +392,7 @@ fn carve_fingerprint(
             .unwrap_or_else(|| "unknown".to_string()),
         &options.max_bytes.to_string(),
         &options.max_candidates.to_string(),
+        &options.reassemble.to_string(),
     ])
 }
 
@@ -758,6 +779,656 @@ fn ts_extent(source: &Path, start: u64, span: u64) -> (u64, String) {
     )
 }
 
+// --- Opt-in fragment reassembly -----------------------------------------
+//
+// Reassembly produces HYPOTHESES, never verdicts: every joined artifact
+// stays `candidate-unvalidated` and its note names the join method plus
+// the fragments/regions involved, so a later decode-validation step is
+// what arbitrates correctness. Two methods, ordered by how defensible
+// the join evidence is:
+//
+// 1. MPEG-TS continuity-counter joins (structural evidence). TS packets
+//    carry a per-PID 4-bit continuity counter that increments once per
+//    payload-bearing packet of that PID. When fragment B's first packets
+//    continue fragment A's per-PID counters exactly, the join rests on
+//    the same evidence the transport format itself uses — about as
+//    defensible as carving gets.
+// 2. MP4 bifragment joins (hypothesis only). A truncated MP4 whose moov
+//    box survived yields an exact tail length via stsz/stz2; when moov
+//    lies beyond the gap it can sometimes be located by scanning the
+//    anonymous (signature-less) regions for a plausible `moov` box.
+//    Both are emitted as candidates — the tool never claims the join is
+//    correct, and never deletes the original fragments.
+//
+// Joined artifacts are derived data: they are NOT checkpointed (a resume
+// replays the source fragments and deterministically re-derives them)
+// and they never consume the --max-candidates budget.
+
+const MAX_REASSEMBLED: usize = 32;
+const MAX_JOINS_PER_HEAD: usize = 4;
+const MIN_REGION_BYTES: u64 = 512;
+const TS_TAIL_PACKETS: u64 = 32;
+
+struct JoinSpec {
+    ranges: Vec<(u64, u64)>,
+    signature: &'static str,
+    extension: &'static str,
+    offset: u64,
+    note: String,
+}
+
+fn reassemble_fragments(
+    source: &Path,
+    case_dir: &Path,
+    source_size: u64,
+    artifacts: &mut Vec<CarvedArtifact>,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
+    let regions = anonymous_regions(artifacts, source_size);
+    let mut joins: Vec<JoinSpec> = Vec::new();
+    ts_cc_joins(source, artifacts, &mut joins, warnings);
+    mp4_bifragment_joins(source, artifacts, &regions, &mut joins, warnings);
+    if joins.len() > MAX_REASSEMBLED {
+        warnings.push(format!(
+            "reassembly emitted the first {} join hypotheses; {} more were discarded",
+            MAX_REASSEMBLED,
+            joins.len() - MAX_REASSEMBLED
+        ));
+        joins.truncate(MAX_REASSEMBLED);
+    }
+
+    let known_hashes: HashMap<String, String> = artifacts
+        .iter()
+        .map(|artifact| (artifact.sha256.clone(), artifact.id.clone()))
+        .collect();
+    let carve_dir = case_dir.join("artifacts/carved");
+    for (index, join) in joins.into_iter().enumerate() {
+        let id = format!("reasm_{:06}", index + 1);
+        let output_path =
+            unique_path(&carve_dir.join(format!("{}_{:012x}.{}", id, join.offset, join.extension)));
+        let total: u64 = join.ranges.iter().map(|(_, len)| len).sum();
+        crate::diskspace::ensure_available(&output_path, total, "carve-file --reassemble")?;
+        copy_ranges(source, &join.ranges, &output_path).map_err(|err| {
+            format!(
+                "failed to write reassembled {}: {err}",
+                output_path.display()
+            )
+        })?;
+        let sha256 = audit::digest_file(&output_path)?;
+        let duplicate_of = artifacts
+            .iter()
+            .find(|artifact| artifact.sha256 == sha256)
+            .map(|artifact| artifact.id.clone())
+            .or_else(|| known_hashes.get(&sha256).cloned());
+        let size_bytes = total;
+        artifacts.push(CarvedArtifact {
+            id,
+            source_path: source.to_path_buf(),
+            output_path,
+            offset: join.offset,
+            size_bytes,
+            signature: join.signature.to_string(),
+            extension: join.extension.to_string(),
+            sha256,
+            validation_status: if duplicate_of.is_some() {
+                "duplicate-candidate"
+            } else {
+                "candidate-unvalidated"
+            }
+            .to_string(),
+            validation_note: join.note,
+            duplicate_of,
+        });
+    }
+    Ok(())
+}
+
+/// Disk regions not claimed by any artifact's carved extent: before the
+/// first signature and between fragments. These are the only places a
+/// signature-less continuation fragment can physically live.
+fn anonymous_regions(artifacts: &[CarvedArtifact], source_size: u64) -> Vec<(u64, u64)> {
+    let mut claimed: Vec<(u64, u64)> = artifacts
+        .iter()
+        .map(|artifact| {
+            (
+                artifact.offset,
+                artifact.offset.saturating_add(artifact.size_bytes),
+            )
+        })
+        .collect();
+    claimed.sort();
+    let mut regions = Vec::new();
+    let mut cursor = 0u64;
+    for (start, end) in claimed {
+        if start > cursor && start - cursor >= MIN_REGION_BYTES {
+            regions.push((cursor, start - cursor));
+        }
+        cursor = cursor.max(end);
+    }
+    if source_size > cursor && source_size - cursor >= MIN_REGION_BYTES {
+        regions.push((cursor, source_size - cursor));
+    }
+    regions
+}
+
+/// Per-packet TS header decode: (pid, continuity counter, has_payload).
+/// afc==0 is reserved and yields None.
+fn ts_packet_header(packet: &[u8]) -> Option<(u16, u8, bool)> {
+    if packet.len() < 4 || packet[0] != 0x47 {
+        return None;
+    }
+    let pid = (u16::from(packet[1] & 0x1f) << 8) | u16::from(packet[2]);
+    let afc = (packet[3] >> 4) & 0x3;
+    if afc == 0 {
+        return None;
+    }
+    Some((pid, packet[3] & 0x0f, afc != 2))
+}
+
+/// Last continuity counter per PID over the fragment's tail packets.
+fn ts_tail_cc(source: &Path, offset: u64, len: u64) -> HashMap<u16, u8> {
+    let mut map = HashMap::new();
+    let packets = (len / 188).min(TS_TAIL_PACKETS);
+    let Ok(mut file) = File::open(source) else {
+        return map;
+    };
+    let tail = offset + len - packets * 188;
+    if file.seek(SeekFrom::Start(tail)).is_err() {
+        return map;
+    }
+    let mut buf = vec![0u8; (packets * 188) as usize];
+    if file.read_exact(&mut buf).is_err() {
+        return map;
+    }
+    for packet in buf.chunks_exact(188) {
+        if let Some((pid, cc, _)) = ts_packet_header(packet) {
+            map.insert(pid, cc);
+        }
+    }
+    map
+}
+
+/// First packet (cc, has_payload) per PID over the fragment's head.
+fn ts_head_cc(source: &Path, offset: u64, len: u64) -> HashMap<u16, (u8, bool)> {
+    let mut map = HashMap::new();
+    let packets = (len / 188).min(TS_TAIL_PACKETS);
+    let Ok(mut file) = File::open(source) else {
+        return map;
+    };
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return map;
+    }
+    let mut buf = vec![0u8; (packets * 188) as usize];
+    if file.read_exact(&mut buf).is_err() {
+        return map;
+    }
+    for packet in buf.chunks_exact(188) {
+        if let Some((pid, cc, has_payload)) = ts_packet_header(packet) {
+            map.entry(pid).or_insert((cc, has_payload));
+        }
+    }
+    map
+}
+
+/// Whether `head` continues `tail_map`'s per-PID counters. A payload
+/// packet must be last_cc+1 (mod 16); an adaptation-only packet repeats
+/// the counter. Requires ≥1 shared PID and zero contradictions — any
+/// mismatch rejects the join outright.
+fn ts_cc_continues(
+    tail_map: &HashMap<u16, u8>,
+    head: &HashMap<u16, (u8, bool)>,
+) -> Option<Vec<u16>> {
+    let mut shared = 0usize;
+    let mut matched = Vec::new();
+    for (pid, (cc, has_payload)) in head {
+        let Some(last) = tail_map.get(pid) else {
+            continue;
+        };
+        shared += 1;
+        let expected = if *has_payload {
+            (last + 1) & 0x0f
+        } else {
+            *last
+        };
+        if *cc != expected {
+            return None;
+        }
+        matched.push(*pid);
+    }
+    (shared > 0).then_some(matched)
+}
+
+/// Greedy disk-order chaining of TS fragments whose boundary counters
+/// interlock. Groups of ≥2 become one joined artifact each.
+fn ts_cc_joins(
+    source: &Path,
+    artifacts: &[CarvedArtifact],
+    joins: &mut Vec<JoinSpec>,
+    warnings: &mut Vec<String>,
+) {
+    let mut ts: Vec<&CarvedArtifact> = artifacts
+        .iter()
+        .filter(|artifact| artifact.signature == "mpegts-sync")
+        .collect();
+    ts.sort_by_key(|artifact| artifact.offset);
+    let mut group: Vec<&CarvedArtifact> = Vec::new();
+    let mut tail_map: HashMap<u16, u8> = HashMap::new();
+    let mut group_pids: Vec<u16> = Vec::new();
+    for artifact in ts {
+        let head = ts_head_cc(source, artifact.offset, artifact.size_bytes);
+        let matched = ts_cc_continues(&tail_map, &head);
+        if !group.is_empty() && matched.is_none() {
+            flush_ts_group(&group, &group_pids, joins, warnings);
+            group.clear();
+            group_pids.clear();
+        }
+        if let Some(pids) = matched {
+            group_pids.extend(pids);
+        }
+        group.push(artifact);
+        tail_map = ts_tail_cc(source, artifact.offset, artifact.size_bytes);
+    }
+    flush_ts_group(&group, &group_pids, joins, warnings);
+}
+
+fn flush_ts_group(
+    group: &[&CarvedArtifact],
+    pids: &[u16],
+    joins: &mut Vec<JoinSpec>,
+    warnings: &mut Vec<String>,
+) {
+    if group.len() < 2 {
+        return;
+    }
+    let members: Vec<String> = group
+        .iter()
+        .map(|artifact| format!("{}@{}", artifact.id, artifact.offset))
+        .collect();
+    let mut unique_pids: Vec<u16> = pids.to_vec();
+    unique_pids.sort_unstable();
+    unique_pids.dedup();
+    joins.push(JoinSpec {
+        ranges: group
+            .iter()
+            .map(|artifact| (artifact.offset, artifact.size_bytes))
+            .collect(),
+        signature: "reassembled-ts-cc",
+        extension: "ts",
+        offset: group[0].offset,
+        note: format!(
+            "REASSEMBLY HYPOTHESIS: {} MPEG-TS fragments ({}) joined — per-PID continuity counters interlock at every boundary (pids {:?}). Structural join evidence; still a candidate — validate playback before reporting.",
+            group.len(),
+            members.join(", "),
+            unique_pids
+        ),
+    });
+    warnings.push(format!(
+        "reassembled {} TS fragments into one join candidate (continuity-counter match)",
+        group.len()
+    ));
+}
+
+// --- MP4 bifragment joins -------------------------------------------------
+
+#[derive(Debug)]
+struct Mp4Box {
+    typ: [u8; 4],
+    offset: u64,
+    size: u64,
+    /// Offset of the box payload (after the 8/16-byte header).
+    payload: u64,
+    /// Declared size ran past `span` — box is truncated.
+    truncated: bool,
+}
+
+/// Top-level box walk over [start, start+span); stops at the first
+/// position that does not parse as a box. Truncated final boxes are
+/// included with `truncated: true`.
+fn mp4_top_boxes(source: &Path, start: u64, span: u64) -> Vec<Mp4Box> {
+    let mut boxes = Vec::new();
+    let Ok(mut file) = File::open(source) else {
+        return boxes;
+    };
+    let hard_end = start + span;
+    let mut cursor = start;
+    while cursor + 8 <= hard_end && boxes.len() < 65536 {
+        let mut hdr = [0u8; 8];
+        if file.seek(SeekFrom::Start(cursor)).is_err() || file.read_exact(&mut hdr).is_err() {
+            break;
+        }
+        let size32 = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
+        let typ: [u8; 4] = hdr[4..8].try_into().unwrap();
+        if !typ.iter().all(|b| (0x20..=0x7e).contains(b)) || (size32 < 8 && size32 > 1) {
+            break;
+        }
+        let (size, payload) = match size32 {
+            0 => (hard_end - cursor, cursor + 8),
+            1 => {
+                let mut large = [0u8; 8];
+                if file.read_exact(&mut large).is_err() {
+                    break;
+                }
+                (u64::from_be_bytes(large), cursor + 16)
+            }
+            s => (u64::from(s), cursor + 8),
+        };
+        if size < 8 {
+            break;
+        }
+        let truncated = cursor + size > hard_end;
+        boxes.push(Mp4Box {
+            typ,
+            offset: cursor - start,
+            size,
+            payload: payload - start,
+            truncated,
+        });
+        if truncated || size32 == 0 {
+            break;
+        }
+        cursor += size;
+    }
+    boxes
+}
+
+/// Sum of every stsz/stz2 sample table under `moov` — the exact payload
+/// byte count mdat must hold. Nested boxes are walked through the
+/// standard container chain (moov→trak→mdia→minf→stbl); unknown
+/// containers are skipped rather than aborting.
+fn mp4_sample_payload_bytes(source: &Path, frag_start: u64, moov: &Mp4Box) -> Option<u64> {
+    let moov_end = moov.offset + moov.size;
+    let mut total = 0u64;
+    // Stack of (cursor, end) container payload ranges; seed with moov's body.
+    let mut stack = vec![(frag_start + moov.payload, frag_start + moov_end)];
+    let Ok(mut file) = File::open(source) else {
+        return None;
+    };
+    let mut found = false;
+    while let Some((mut cursor, end)) = stack.pop() {
+        while cursor + 8 <= end {
+            let mut hdr = [0u8; 8];
+            if file.seek(SeekFrom::Start(cursor)).is_err() || file.read_exact(&mut hdr).is_err() {
+                break;
+            }
+            let size32 = u32::from_be_bytes(hdr[0..4].try_into().unwrap());
+            let typ = &hdr[4..8];
+            if !typ.iter().all(|b| (0x20..=0x7e).contains(b)) || (size32 < 8 && size32 > 1) {
+                break;
+            }
+            let (size, header) = match size32 {
+                0 => (end - cursor, 8u64),
+                1 => {
+                    let mut large = [0u8; 8];
+                    if file.read_exact(&mut large).is_err() {
+                        break;
+                    }
+                    (u64::from_be_bytes(large), 16u64)
+                }
+                s => (u64::from(s), 8u64),
+            };
+            if size < header || cursor + size > end {
+                break;
+            }
+            match typ {
+                b"trak" | b"mdia" | b"minf" | b"stbl" | b"edts" | b"dinf" | b"mvex" | b"moof"
+                | b"traf" => {
+                    stack.push((cursor + header, cursor + size));
+                }
+                b"stsz" => {
+                    let payload = cursor + header;
+                    let mut meta = [0u8; 12];
+                    if file.seek(SeekFrom::Start(payload)).is_err()
+                        || file.read_exact(&mut meta).is_err()
+                    {
+                        return None;
+                    }
+                    let sample_size = u32::from_be_bytes(meta[4..8].try_into().unwrap());
+                    let count = u32::from_be_bytes(meta[8..12].try_into().unwrap());
+                    if count > 8_000_000 {
+                        return None;
+                    }
+                    if sample_size != 0 {
+                        total += u64::from(sample_size) * u64::from(count);
+                    } else {
+                        let mut entries = vec![0u8; count as usize * 4];
+                        if file.read_exact(&mut entries).is_err() {
+                            return None;
+                        }
+                        for chunk in entries.chunks_exact(4) {
+                            total += u64::from(u32::from_be_bytes(chunk.try_into().unwrap()));
+                        }
+                    }
+                    found = true;
+                }
+                b"stz2" => {
+                    let payload = cursor + header;
+                    let mut meta = [0u8; 12];
+                    if file.seek(SeekFrom::Start(payload)).is_err()
+                        || file.read_exact(&mut meta).is_err()
+                    {
+                        return None;
+                    }
+                    let field = meta[7];
+                    let count = u32::from_be_bytes(meta[8..12].try_into().unwrap());
+                    if count > 16_000_000 {
+                        return None;
+                    }
+                    let packed = (u64::from(field) * u64::from(count)).div_ceil(8) as usize;
+                    let mut entries = vec![0u8; packed];
+                    if file.read_exact(&mut entries).is_err() {
+                        return None;
+                    }
+                    match field {
+                        4 => {
+                            for byte in &entries {
+                                total += u64::from(byte >> 4) + u64::from(byte & 0x0f);
+                            }
+                        }
+                        8 => {
+                            for byte in &entries {
+                                total += u64::from(*byte);
+                            }
+                        }
+                        16 => {
+                            for chunk in entries.chunks_exact(2) {
+                                total += u64::from(u16::from_be_bytes(chunk.try_into().unwrap()));
+                            }
+                        }
+                        _ => return None,
+                    }
+                    found = true;
+                }
+                _ => {}
+            }
+            cursor += size;
+        }
+    }
+    found.then_some(total)
+}
+
+/// Scan `region` for a plausible moov box: 'moov' 4cc at a position
+/// where the preceding u32 size is sane and the box interior starts
+/// with a printable-ASCII child type. Returns (rel_offset, box_size).
+fn find_moov_in_region(
+    source: &Path,
+    region_start: u64,
+    search_from: u64,
+    region_len: u64,
+) -> Option<(u64, u64)> {
+    let Ok(mut file) = File::open(source) else {
+        return None;
+    };
+    // moov for typical files is small and sits near the gap; a 16 MiB
+    // window bounds I/O while covering realistic bifragment layouts.
+    let window = region_len.saturating_sub(search_from).min(16 * 1024 * 1024);
+    let abs = region_start + search_from;
+    if file.seek(SeekFrom::Start(abs)).is_err() {
+        return None;
+    }
+    let mut buf = vec![0u8; window as usize];
+    let read = file.read(&mut buf).ok()? as u64;
+    // i is the 'moov' type offset; its u32 size sits at i-4, so 4 is the
+    // minimum scan index — a box may legitimately start the window.
+    let mut i = 4usize;
+    while i + 8 <= read as usize {
+        if &buf[i..i + 4] == b"moov" && i + 12 <= read as usize {
+            let size = u32::from_be_bytes(buf[i - 4..i].try_into().unwrap()) as u64;
+            if size >= 16 && i as u64 - 4 + size <= read {
+                // moov's payload opens with a child box: size(4)+type(4) —
+                // the TYPE is at +8, not +4 (that would be the child size).
+                let child_typ = &buf[i + 8..i + 12];
+                if child_typ.iter().all(|b| (0x20..=0x7e).contains(b)) {
+                    // Caller wants the offset from the REGION start, and
+                    // this window began `search_from` bytes into it.
+                    return Some((search_from + i as u64 - 4, size));
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// MP4 hypotheses. moov-present fragments get an stsz-bounded truth: a
+/// shorter true extent emits a refined (de-tailed) artifact, a longer
+/// one emits gap-fill joins from anonymous regions. moov-absent
+/// fragments truncated inside mdat get joins that hunt the missing moov
+/// inside a region — attribution always unverified.
+fn mp4_bifragment_joins(
+    source: &Path,
+    artifacts: &[CarvedArtifact],
+    regions: &[(u64, u64)],
+    joins: &mut Vec<JoinSpec>,
+    warnings: &mut Vec<String>,
+) {
+    for artifact in artifacts
+        .iter()
+        .filter(|artifact| artifact.signature == "mp4-ftyp")
+    {
+        let boxes = mp4_top_boxes(source, artifact.offset, artifact.size_bytes);
+        let moov = boxes.iter().find(|b| &b.typ == b"moov" && !b.truncated);
+        let mdat = boxes.iter().find(|b| &b.typ == b"mdat");
+        let Some(mdat) = mdat else { continue };
+        let mdat_end = mdat.offset + mdat.size;
+        match moov {
+            Some(moov) => match mp4_sample_payload_bytes(source, artifact.offset, moov) {
+                Some(total) => {
+                    let true_end = mdat.payload + total;
+                    if true_end < artifact.size_bytes && artifact.size_bytes - true_end >= 8 {
+                        joins.push(JoinSpec {
+                            ranges: vec![(artifact.offset, true_end)],
+                            signature: "mp4-stsz-refined",
+                            extension: "mp4",
+                            offset: artifact.offset,
+                            note: format!(
+                                "REASSEMBLY HYPOTHESIS: {} re-bounded by moov stsz — mdat payload ends at +{} but the carve ran to +{}; the trailing {} bytes are foreign data, not part of this file.",
+                                artifact.id,
+                                true_end,
+                                artifact.size_bytes,
+                                artifact.size_bytes - true_end
+                            ),
+                        });
+                    } else if true_end > artifact.size_bytes {
+                        let need = true_end - artifact.size_bytes;
+                        emit_mp4_gapfills(
+                            artifact, regions, need, None, joins, warnings,
+                            "moov stsz bounds the missing tail exactly",
+                        );
+                    }
+                }
+                None => warnings.push(format!(
+                    "{}: moov present but stsz/stz2 unreadable — mdat bound unknown; reassembly skipped",
+                    artifact.id
+                )),
+            },
+            None => {
+                // moov absent from the fragment. Either mdat is truncated
+                // (continuation holds payload then moov) or mdat completed
+                // and the gap cut the moov itself — the only honest anchor
+                // is hunting a plausible moov in an anonymous region.
+                let need = mdat_end.saturating_sub(artifact.size_bytes);
+                emit_mp4_gapfills(
+                    artifact, regions, need, Some(source), joins, warnings,
+                    "moov lies beyond the fragment; tail+moov attribution unverified",
+                );
+            }
+        }
+    }
+}
+
+/// Emit up to MAX_JOINS_PER_HEAD join hypotheses for a truncated head:
+/// head bytes + `need` continuation bytes from each anonymous region
+/// large enough. When `moov_hunt` is set, the join also scans past the
+/// payload bytes for a plausible moov box and extends the range to
+/// include it — otherwise the joined file could never validate anyway.
+fn emit_mp4_gapfills(
+    artifact: &CarvedArtifact,
+    regions: &[(u64, u64)],
+    need: u64,
+    moov_hunt: Option<&Path>,
+    joins: &mut Vec<JoinSpec>,
+    warnings: &mut Vec<String>,
+    basis: &str,
+) {
+    let mut emitted = 0usize;
+    for (region_off, region_len) in regions.iter().copied() {
+        if emitted >= MAX_JOINS_PER_HEAD {
+            break;
+        }
+        if region_len < need {
+            continue;
+        }
+        // The tail's placement inside the region matters: when a moov was
+        // found, its position anchors the layout — the `need` payload
+        // bytes are whatever immediately PRECEDES it, so foreign gap bytes
+        // earlier in the region are excluded. Without a moov anchor the
+        // only guess is a blind prefix of the region.
+        let mut tail_off = region_off;
+        let mut tail_len = need;
+        let mut moov_note = String::new();
+        if let Some(source) = moov_hunt {
+            match find_moov_in_region(source, region_off, need, region_len) {
+                Some((rel, size)) => {
+                    let payload_start = rel.saturating_sub(need);
+                    tail_off = region_off + payload_start;
+                    tail_len = rel + size - payload_start;
+                    moov_note = format!(
+                        "; plausible moov box located at region+{rel} ({size} bytes) — tail anchored to the {tail_len} bytes ending at the moov, not a blind region prefix"
+                    );
+                }
+                None => continue, // no moov → join cannot validate; skip
+            }
+        }
+        joins.push(JoinSpec {
+            ranges: vec![
+                (artifact.offset, artifact.size_bytes),
+                (tail_off, tail_len),
+            ],
+            signature: "reassembled-mp4-bifragment",
+            extension: "mp4",
+            offset: artifact.offset,
+            note: format!(
+                "REASSEMBLY HYPOTHESIS: {} (truncated at +{}) + {} bytes from anonymous region at disk offset {} ({}{}). Join NOT verified — validate with ffprobe/decode before any evidentiary claim.",
+                artifact.id,
+                artifact.size_bytes,
+                tail_len,
+                region_off,
+                basis,
+                moov_note
+            ),
+        });
+        emitted += 1;
+    }
+    if emitted > 0 {
+        warnings.push(format!(
+            "{}: emitted {} bifragment join hypothes{} (unverified candidates)",
+            artifact.id,
+            emitted,
+            if emitted == 1 { "is" } else { "es" }
+        ));
+    }
+}
+
 /// Chunked signature scan over any byte source, identical to the on-disk
 /// carve walk (1 MiB chunks, 752-byte overlap). `#[doc(hidden)]`: exposed so
 /// the fuzz harness can drive the scanner without touching the filesystem;
@@ -870,15 +1541,23 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
 }
 
 fn copy_range(source: &Path, offset: u64, size_bytes: u64, output: &Path) -> io::Result<()> {
+    copy_ranges(source, &[(offset, size_bytes)], output)
+}
+
+/// Concatenate several source ranges into one output file — the physical
+/// form of a reassembly hypothesis (head + continuation fragments).
+fn copy_ranges(source: &Path, ranges: &[(u64, u64)], output: &Path) -> io::Result<()> {
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut input = File::open(source)?;
-    input.seek(SeekFrom::Start(offset))?;
-    let mut reader = input.take(size_bytes);
     let output_file = File::create(output)?;
     let mut writer = BufWriter::new(output_file);
-    io::copy(&mut reader, &mut writer)?;
+    for (offset, size_bytes) in ranges {
+        input.seek(SeekFrom::Start(*offset))?;
+        let mut reader = (&mut input).take(*size_bytes);
+        io::copy(&mut reader, &mut writer)?;
+    }
     writer.flush()
 }
 
@@ -1027,6 +1706,7 @@ mod tests {
             let options = super::CarveOptions {
                 max_candidates: cap,
                 max_bytes: 32,
+                ..Default::default()
             };
             let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
             assert_eq!(result.candidate_limit_reached, cap <= 2);
@@ -1174,7 +1854,7 @@ mod tests {
 
     use super::{ResumeMode, RunCheckpoint, carve_file, carve_fingerprint, scan_progress_line};
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     fn resume_fixture(name: &str) -> (PathBuf, PathBuf, Vec<u8>) {
         let root = std::env::temp_dir().join(format!(
@@ -1288,6 +1968,351 @@ mod tests {
         assert_eq!(result.resumed_artifacts, 0);
         assert_eq!(result.resumed_scan_offset, 0);
         assert_eq!(result.artifacts.len(), 2);
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    // --- reassembly tests -------------------------------------------------
+
+    fn ts_packet(pid: u16, cc: u8, payload: bool) -> [u8; 188] {
+        let mut packet = [0u8; 188];
+        packet[0] = 0x47;
+        packet[1] = ((pid >> 8) & 0x1f) as u8;
+        packet[2] = (pid & 0xff) as u8;
+        packet[3] = (if payload { 0x10 } else { 0x20 }) | (cc & 0x0f);
+        packet
+    }
+
+    fn bx(typ: &[u8; 4], payload: Vec<u8>) -> Vec<u8> {
+        let mut v = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+        v.extend_from_slice(typ);
+        v.extend_from_slice(&payload);
+        v
+    }
+
+    fn moov_with_stsz(sample_size: u32, count: u32) -> Vec<u8> {
+        let mut stsz_payload = vec![0u8; 4];
+        stsz_payload.extend_from_slice(&sample_size.to_be_bytes());
+        stsz_payload.extend_from_slice(&count.to_be_bytes());
+        bx(
+            b"moov",
+            bx(
+                b"trak",
+                bx(b"mdia", bx(b"minf", bx(b"stbl", bx(b"stsz", stsz_payload)))),
+            ),
+        )
+    }
+
+    fn fake_artifact(
+        id: &str,
+        offset: u64,
+        size: u64,
+        signature: &str,
+        ext: &str,
+        source: &Path,
+    ) -> super::CarvedArtifact {
+        super::CarvedArtifact {
+            id: id.into(),
+            source_path: source.to_path_buf(),
+            output_path: source.to_path_buf(),
+            offset,
+            size_bytes: size,
+            signature: signature.into(),
+            extension: ext.into(),
+            sha256: String::new(),
+            validation_status: "candidate-unvalidated".into(),
+            validation_note: String::new(),
+            duplicate_of: None,
+        }
+    }
+
+    fn reasm_case(name: &str) -> (PathBuf, PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-reasm-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let case_dir = root.join("case");
+        fs::create_dir_all(case_dir.join("artifacts/carved")).unwrap();
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        (case_dir, root.join("image.raw"))
+    }
+
+    /// Two TS fragments whose per-PID continuity counters interlock at the
+    /// boundary produce one joined candidate — the only reassembly method
+    /// backed by the format's own structural evidence.
+    #[test]
+    fn reassemble_ts_cc_joins_interlocked_fragments() {
+        let (case_dir, source) = reasm_case("ts-join");
+        let mut data = Vec::new();
+        for i in 0..12u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        let a_len = data.len() as u64;
+        data.extend_from_slice(&[0xEEu8; 512]);
+        let b_off = data.len() as u64;
+        for i in 12..22u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        let b_len = data.len() as u64 - b_off;
+        data.extend_from_slice(&[0u8; 1024]);
+        fs::write(&source, &data).unwrap();
+
+        let mut artifacts = vec![
+            fake_artifact("carve_000001", 0, a_len, "mpegts-sync", "ts", &source),
+            fake_artifact("carve_000002", b_off, b_len, "mpegts-sync", "ts", &source),
+        ];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(artifacts.len(), 3);
+        let join = &artifacts[2];
+        assert_eq!(join.signature, "reassembled-ts-cc");
+        assert_eq!(join.size_bytes, a_len + b_len);
+        assert!(
+            join.validation_note.contains("continuity"),
+            "{}",
+            join.validation_note
+        );
+        assert!(
+            join.validation_note.contains("HYPOTHESIS"),
+            "{}",
+            join.validation_note
+        );
+        assert_eq!(
+            fs::metadata(&join.output_path).unwrap().len(),
+            a_len + b_len
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// A counter mismatch at the boundary rejects the join outright —
+    /// adjacent-but-unrelated runs must not be fused.
+    #[test]
+    fn reassemble_ts_cc_rejects_counter_mismatch() {
+        let (case_dir, source) = reasm_case("ts-mismatch");
+        let mut data = Vec::new();
+        for i in 0..12u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        let a_len = data.len() as u64;
+        data.extend_from_slice(&[0xEEu8; 512]);
+        let b_off = data.len() as u64;
+        for i in 14..24u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        let b_len = data.len() as u64 - b_off;
+        fs::write(&source, &data).unwrap();
+
+        let mut artifacts = vec![
+            fake_artifact("carve_000001", 0, a_len, "mpegts-sync", "ts", &source),
+            fake_artifact("carve_000002", b_off, b_len, "mpegts-sync", "ts", &source),
+        ];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+        assert_eq!(artifacts.len(), 2);
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// moov's stsz says the mdat payload is smaller than the declared box
+    /// — the carve absorbed foreign bytes, so a refined (de-tailed)
+    /// candidate is emitted with the excess explained.
+    #[test]
+    fn reassemble_mp4_stsz_refines_absorbed_tail() {
+        let (case_dir, source) = reasm_case("mp4-refine");
+        let mut data = Vec::new();
+        data.extend_from_slice(&bx(b"ftyp", b"isom\0\0\0\0isommp42".to_vec()));
+        let moov = moov_with_stsz(300, 1); // one 300-byte sample
+        data.extend_from_slice(&moov);
+        let mdat_payload = data.len() as u64 + 8;
+        data.extend_from_slice(&bx(b"mdat", vec![0xAA; 492])); // declared 500, real 300
+        let frag_len = data.len() as u64;
+        data.extend_from_slice(&[0u8; 1024]);
+        fs::write(&source, &data).unwrap();
+
+        let mut artifacts = vec![fake_artifact(
+            "carve_000001",
+            0,
+            frag_len,
+            "mp4-ftyp",
+            "mp4",
+            &source,
+        )];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(artifacts.len(), 2);
+        let refined = &artifacts[1];
+        assert_eq!(refined.signature, "mp4-stsz-refined");
+        assert_eq!(refined.size_bytes, mdat_payload + 300);
+        assert!(
+            refined.validation_note.contains("foreign data"),
+            "{}",
+            refined.validation_note
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// Head truncated inside mdat + moov-derived exact tail length → a
+    /// bifragment join hypothesis is emitted from the anonymous region.
+    #[test]
+    fn reassemble_mp4_gapfill_emits_bifragment_hypothesis() {
+        let (case_dir, source) = reasm_case("mp4-gapfill");
+        let mut data = Vec::new();
+        data.extend_from_slice(&bx(b"ftyp", b"isom\0\0\0\0isommp42".to_vec()));
+        let moov = moov_with_stsz(1000, 1); // needs 1000 payload bytes
+        data.extend_from_slice(&moov);
+        data.extend_from_slice(&(2000u32).to_be_bytes());
+        data.extend_from_slice(b"mdat");
+        data.extend_from_slice(&[0xBBu8; 400]); // only 400 of 1000 present
+        let head_len = data.len() as u64;
+        data.extend_from_slice(&[0xCCu8; 1500]); // anonymous region
+        fs::write(&source, &data).unwrap();
+
+        let mut artifacts = vec![fake_artifact(
+            "carve_000001",
+            0,
+            head_len,
+            "mp4-ftyp",
+            "mp4",
+            &source,
+        )];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert_eq!(artifacts.len(), 2);
+        let join = &artifacts[1];
+        assert_eq!(join.signature, "reassembled-mp4-bifragment");
+        assert_eq!(join.size_bytes, head_len + 600);
+        assert!(
+            join.validation_note.contains("NOT verified"),
+            "{}",
+            join.validation_note
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("bifragment")),
+            "{warnings:?}"
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// moov beyond the gap: the head holds ftyp+truncated-mdat only, so the
+    /// join hunts a plausible moov inside an anonymous region and extends
+    /// the tail to include it.
+    #[test]
+    fn reassemble_mp4_hunts_moov_beyond_gap() {
+        let (case_dir, source) = reasm_case("mp4-hunt");
+        let mut data = Vec::new();
+        data.extend_from_slice(&bx(b"ftyp", b"isom\0\0\0\0isommp42".to_vec()));
+        data.extend_from_slice(&(3000u32).to_be_bytes());
+        data.extend_from_slice(b"mdat");
+        data.extend_from_slice(&[0xAAu8; 1000]); // head ends here, mid-mdat
+        let head_len = data.len() as u64;
+        // Bifragment continuation: the remaining 1992 declared-mdat
+        // payload bytes, then the moov the gap cut off.
+        data.extend_from_slice(&[0xBBu8; 1992]);
+        let moov = moov_with_stsz(2992, 1);
+        let moov_rel = data.len() as u64 - head_len;
+        data.extend_from_slice(&moov);
+        data.extend_from_slice(&[0u8; 1024]);
+        fs::write(&source, &data).unwrap();
+
+        // The carved head covers only what the gap left: ftyp + mdat
+        // header + 1000 payload bytes (mdat declares 3000 → truncated).
+        let mut artifacts = vec![fake_artifact(
+            "carve_000001",
+            0,
+            head_len,
+            "mp4-ftyp",
+            "mp4",
+            &source,
+        )];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+
+        let join = artifacts
+            .iter()
+            .find(|a| a.signature == "reassembled-mp4-bifragment")
+            .expect("moov-hunt join emitted");
+        // tail = region[0 .. moov_rel + moov_size]
+        assert_eq!(join.size_bytes, head_len + moov_rel + moov.len() as u64);
+        assert!(
+            join.validation_note.contains("attribution unverified"),
+            "{}",
+            join.validation_note
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// Reassembly is strictly opt-in: a normal carve emits only fragments;
+    /// --reassemble adds join candidates on top of them.
+    #[test]
+    fn reassemble_is_opt_in_via_options() {
+        let (case_dir, source) = reasm_case("opt-in");
+        let mut data = Vec::new();
+        for i in 0..12u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        data.extend_from_slice(&[0xEEu8; 512]);
+        for i in 12..22u8 {
+            data.extend_from_slice(&ts_packet(0x100, i, true));
+        }
+        data.extend_from_slice(&[0u8; 2048]);
+        fs::write(&source, &data).unwrap();
+
+        let plain = carve_file(
+            &case_dir,
+            &source,
+            &super::CarveOptions::default(),
+            ResumeMode::Auto,
+            None,
+        )
+        .unwrap();
+        assert_eq!(plain.artifacts.len(), 2);
+        assert!(
+            !plain
+                .artifacts
+                .iter()
+                .any(|a| a.signature.starts_with("reassembled"))
+        );
+
+        let mut options = super::CarveOptions::default();
+        options.reassemble = true;
+        let joined = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+        assert_eq!(joined.artifacts.len(), 3);
+        assert_eq!(joined.artifacts[2].signature, "reassembled-ts-cc");
         let _ = fs::remove_dir_all(case_dir.parent().unwrap());
     }
 }

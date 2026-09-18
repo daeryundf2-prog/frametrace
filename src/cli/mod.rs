@@ -220,6 +220,11 @@ pub enum Commands {
         /// Discard any interrupted-run checkpoint and rescan/recarve
         #[arg(long, overrides_with = "resume")]
         no_resume: bool,
+        /// Also emit fragment-reassembly hypotheses (TS continuity-counter
+        /// joins, MP4 bifragment gap-fills) as additional unvalidated
+        /// candidate artifacts alongside the original fragments
+        #[arg(long)]
+        reassemble: bool,
     },
     /// List active/deleted files in a raw forensic image with Sleuth Kit mmls/fls
     InspectImage {
@@ -661,6 +666,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             max_candidates,
             resume,
             no_resume,
+            reassemble,
         } => {
             let mut options = CarveOptions::default();
             if let Some(mb) = max_bytes {
@@ -669,6 +675,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             if let Some(mc) = max_candidates {
                 options.max_candidates = mc;
             }
+            options.reassemble = reassemble;
             carve_file(
                 &case_dir,
                 &source_file,

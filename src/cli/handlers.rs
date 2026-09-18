@@ -2485,8 +2485,8 @@ fn e01_options_json(options: &E01Options) -> String {
 
 fn carve_options_json(options: &CarveOptions) -> String {
     format!(
-        "{{\"max_bytes\":{},\"max_candidates\":{}}}",
-        options.max_bytes, options.max_candidates
+        "{{\"max_bytes\":{},\"max_candidates\":{},\"reassemble\":{}}}",
+        options.max_bytes, options.max_candidates, options.reassemble
     )
 }
 
