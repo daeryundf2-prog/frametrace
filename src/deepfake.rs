@@ -353,3 +353,203 @@ pub fn screen_case(
     progress(total, total, "");
     Ok(stats)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_dir() -> PathBuf {
+        crate::util::unique_dir(Path::new("deepfake-test"))
+    }
+
+    /// A real executable masquerading as `deepfake-lens.exe` so
+    /// `resolve_tool_binary`'s allowlist passes while the process behavior
+    /// (garbage stdout / nonzero exit) drives the failure path under test.
+    fn fake_binary(source: &Path) -> Option<std::path::PathBuf> {
+        let dir = temp_dir();
+        let shim = dir.join("deepfake-lens.exe");
+        fs::copy(source, &shim).ok()?;
+        Some(shim)
+    }
+
+    #[cfg(windows)]
+    fn system_exe(name: &str) -> Option<std::path::PathBuf> {
+        let root = std::env::var_os("SystemRoot").map(PathBuf::from)?;
+        let path = root.join("System32").join(name);
+        path.is_file().then_some(path)
+    }
+
+    fn python_module_available() -> bool {
+        resolve_tool_binary("python", &["python", "python3", "py"])
+            .ok()
+            .and_then(|python| {
+                Command::new(python)
+                    .args(["-c", "import deepfake_lens"])
+                    .output()
+                    .ok()
+            })
+            .is_some_and(|output| output.status.success())
+    }
+
+    #[test]
+    fn refused_binary_name_falls_back_to_python_module() {
+        // A non-allowlisted binary name is never executed; the lane falls
+        // back to `python -m deepfake_lens.cli`. When that module is
+        // importable the screen still completes (missing input is a
+        // legitimate report); when it is not, the error must say both
+        // resolution stages failed.
+        let summary = screen_with_binary("not-an-allowed-tool", Path::new("x.png"));
+        if python_module_available() {
+            assert!(summary.ok, "python fallback should rescue the screen: {:?}", summary.error);
+        } else {
+            assert!(!summary.ok);
+            assert!(summary
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("fallback also unavailable"));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn non_json_stdout_is_reported_as_unparseable() {
+        // tree.com treats the first arg as a folder path, prints a usage
+        // error on stdout, yet exits 0 — the success exit + invalid JSON
+        // combination must surface as a clean parse error, not "exited".
+        let Some(host) = system_exe("tree.com") else {
+            return;
+        };
+        let Some(shim) = fake_binary(&host) else {
+            return;
+        };
+        let summary = screen_with_binary(shim.to_str().unwrap(), Path::new("x.png"));
+        assert!(!summary.ok);
+        assert!(summary
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("unparseable"));
+    }
+
+    #[test]
+    fn screen_case_skips_missing_files_and_survives_torn_index() {
+        let dir = temp_dir();
+        fs::create_dir_all(dir.join("db")).unwrap();
+        fs::write(
+            dir.join("db/videos.jsonl"),
+            "{\"id\":\"vid_1\",\"source_path\":\"/nonexistent/a.mp4\"}\n{torn\n",
+        )
+        .unwrap();
+        let stats = screen_case(&dir, false, &|_, _, _| {}).unwrap();
+        assert_eq!(stats.skipped_missing, 1);
+        assert_eq!(stats.screened, 0);
+        assert!(!dir.join("artifacts/deepfake/vid_1.json").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn screen_case_writes_error_artifact_on_screen_failure() {
+        // Route screen() at a shim that exits 0 with non-JSON output; the
+        // pass must record the failure and write an error artifact rather
+        // than aborting.
+        let Some(host) = system_exe("tree.com") else {
+            return;
+        };
+        let Some(shim) = fake_binary(&host) else {
+            return;
+        };
+        let dir = temp_dir();
+        fs::create_dir_all(dir.join("db")).unwrap();
+        let target = dir.join("clip.mp4");
+        fs::write(&target, b"not a real video").unwrap();
+        fs::write(
+            dir.join("db/videos.jsonl"),
+            &format!("{{\"id\":\"vid_1\",\"source_path\":\"{}\"}}\n", crate::util::json_escape(&target.to_string_lossy())),
+        )
+        .unwrap();
+        unsafe {
+            std::env::set_var("FRAMETRACE_DEEPFAKE_LENS", &shim);
+        }
+        let stats = screen_case(&dir, false, &|_, _, _| {}).unwrap();
+        unsafe {
+            std::env::remove_var("FRAMETRACE_DEEPFAKE_LENS");
+        }
+        assert_eq!(stats.failed, 1);
+        let artifact = fs::read_to_string(dir.join("artifacts/deepfake/vid_1.json")).unwrap();
+        assert!(artifact.contains("\"ok\":false"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn nonzero_exit_reports_stderr() {
+        // Python invoked as `deepfake-lens.exe forensic <x> --format json`
+        // treats "forensic" as a script path and exits nonzero.
+        let python = resolve_tool_binary("python", &["python", "python3", "py"])
+            .map(PathBuf::from);
+        let Ok(python) = python else {
+            return;
+        };
+        let Some(shim) = fake_binary(&python) else {
+            return;
+        };
+        let summary = screen_with_binary(shim.to_str().unwrap(), Path::new("x.png"));
+        assert!(!summary.ok);
+        assert!(summary
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("exited"));
+    }
+
+    #[test]
+    fn artifact_name_sanitizes_windows_illegal_chars() {
+        assert_eq!(artifact_name("inode:2048:1304"), "inode_2048_1304");
+        assert_eq!(artifact_name("fls:1304"), "fls_1304");
+        assert_eq!(artifact_name("a\\b/c"), "a_b_c");
+        assert_eq!(artifact_name("vid_000001"), "vid_000001");
+    }
+
+    #[test]
+    fn collect_reports_skips_broken_artifacts() {
+        let dir = temp_dir();
+        let artifacts = dir.join("artifacts/deepfake");
+        fs::create_dir_all(&artifacts).unwrap();
+        fs::write(artifacts.join("ok_1.json"), "{\"score\":50}").unwrap();
+        fs::write(artifacts.join("bad_1.json"), "not json {").unwrap();
+        fs::write(artifacts.join("note.txt"), "ignored").unwrap();
+        let map = collect_reports(&dir);
+        assert!(map.get("ok_1").is_some());
+        assert!(map.get("bad_1").is_none());
+        assert_eq!(map.as_object().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn collect_targets_reads_index_carve_and_recover() {
+        let dir = temp_dir();
+        fs::create_dir_all(dir.join("db")).unwrap();
+        fs::write(
+            dir.join("db/videos.jsonl"),
+            "{\"id\":\"vid_1\",\"source_path\":\"/tmp/a.mp4\"}\n{torn\n",
+        )
+        .unwrap();
+        let carved = dir.join("artifacts/carved");
+        fs::create_dir_all(&carved).unwrap();
+        fs::write(
+            carved.join("carve-log.jsonl"),
+            "{\"id\":\"carve_1\",\"output_path\":\"/tmp/b.mp4\"}\n",
+        )
+        .unwrap();
+        let logs = dir.join("evidence/logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(
+            logs.join("tsk-audit.jsonl"),
+            "{\"event\":\"recover-inode\",\"output_path\":\"/tmp/c.mp4\",\"partition_offset\":2048,\"inode\":\"1304\"}\n",
+        )
+        .unwrap();
+        let targets = collect_targets(&dir);
+        let ids: Vec<&str> = targets.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, vec!["vid_1", "carve_1", "inode:2048:1304"]);
+    }
+}
