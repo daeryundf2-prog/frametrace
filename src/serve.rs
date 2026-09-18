@@ -75,6 +75,7 @@ struct PipelineJob {
     source_path: PathBuf,
     with_hash: bool,
     with_ffprobe: bool,
+    with_deepfake: bool,
     skip_e01_verify: bool,
     /// Triage mode: inspect-e01 --filesystem reads the segment set
     /// directly instead of exporting hundreds of GiB to raw first.
@@ -1076,6 +1077,7 @@ fn api_start(request: &Request, state: &SharedState) -> String {
     }
     let with_hash = body_value(&request.body, "with_hash").as_deref() == Some("true");
     let with_ffprobe = body_value(&request.body, "with_ffprobe").as_deref() == Some("true");
+    let with_deepfake = body_value(&request.body, "with_deepfake").as_deref() == Some("true");
     let skip_e01_verify = body_value(&request.body, "skip_e01_verify").as_deref() == Some("true");
     let case_dir = match body_value(&request.body, "case_dir") {
         Some(dir) if !dir.trim().is_empty() => PathBuf::from(dir.trim()),
@@ -1087,6 +1089,7 @@ fn api_start(request: &Request, state: &SharedState) -> String {
         source_path: source_path.clone(),
         with_hash,
         with_ffprobe,
+        with_deepfake,
         skip_e01_verify,
         e01_direct,
     };
@@ -1329,10 +1332,16 @@ fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob) {
     if job.with_hash {
         scan_args.push("--hash".into());
     }
+    if job.with_deepfake {
+        scan_args.push("--deepfake".into());
+    }
     match run_step(&exe, &scan_args, &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 3, StepStatus::Done);
+            if job.with_deepfake {
+                log(&state, "딥페이크 스크리닝은 색인된 파일에 적용되었습니다 — 이후 카빙/inode 복구로 추가된 파일은 고급 도구의 '딥페이크 스크리닝'으로 보강하십시오.".into());
+            }
         }
         Err(err) => {
             log(&state, format!("논리 색인 건너뜀: {err}"));
@@ -1374,6 +1383,7 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
     let source_path = job.source_path;
     let with_hash = job.with_hash;
     let with_ffprobe = job.with_ffprobe;
+    let with_deepfake = job.with_deepfake;
     let log = |state: &SharedState, line: String| state_lock(state).logs.push(line);
     let set_step = |state: &SharedState, index: usize, status: StepStatus| {
         state_lock(state).steps[index] = status;
@@ -1452,6 +1462,9 @@ fn run_folder_pipeline(state: SharedState, job: PipelineJob) {
     }
     if !with_ffprobe {
         scan_args.push("--no-ffprobe".into());
+    }
+    if with_deepfake {
+        scan_args.push("--deepfake".into());
     }
     match run_step(&exe, &scan_args, &state) {
         Ok(output) => {

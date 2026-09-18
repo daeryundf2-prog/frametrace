@@ -205,6 +205,8 @@ const I18N = {
     "warn.title": "경고",
     "dfl.badge": "합성의심 {band}",
     "dfl.title": "deepfake-lens 스크리닝 {score}점 — 검토 우선순위, 판정 아님",
+    "dfl.fail": "스크리닝 실패",
+    "dfl.failTitle": "deepfake-lens 스크리닝 실패: {error}",
     "hist.item": "{day} {count}건",
     "hist.empty": "시각 정보가 있는 증거가 없습니다 — 파일명 패턴 또는 수정시각에서 추출합니다.",
     "hist.range": "녹화 기간: {from} ~ {to} · 시각 확인 {known}/{total}건 (파일명·수정시각 추출)",
@@ -507,6 +509,8 @@ const I18N = {
     "warn.title": "Warnings",
     "dfl.badge": "Deepfake suspicion {band}",
     "dfl.title": "deepfake-lens score {score} — review priority, not a verdict",
+    "dfl.fail": "Screening failed",
+    "dfl.failTitle": "deepfake-lens screening failed: {error}",
     "hist.item": "{day} {count} items",
     "hist.empty": "No evidence with time info — extracted from filename patterns or mtimes.",
     "hist.range": "Recording span: {from} ~ {to} · time known for {known}/{total} (from filename/mtime)",
@@ -1443,7 +1447,9 @@ function renderCard(record) {
     : "";
   const dflChip = record.dfl && record.dfl.band
     ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}" title="${escapeHtml(tf("dfl.title", { score: record.dfl.score ?? "" }))}">${escapeHtml(tf("dfl.badge", { band: record.dfl.band_label || record.dfl.band }))}</span>`
-    : "";
+    : (record.dfl && record.dfl.error
+      ? `<span class="badge dfl dfl-low" title="${escapeHtml(tf("dfl.failTitle", { error: record.dfl.error }))}">${escapeHtml(t("dfl.fail"))}</span>`
+      : "");
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="${record.id === state.activeId ? 0 : -1}" role="option" aria-selected="${state.selectedIds.has(record.id)}">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">

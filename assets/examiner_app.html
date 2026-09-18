@@ -249,6 +249,7 @@
     <div class="checks">
       <label><input type="checkbox" id="withHash" checked> 파일별 SHA-256 해시 계산 (증거 대조용)</label>
       <label><input type="checkbox" id="withFfprobe" checked> ffprobe 재생성 검증 (코덱/길이 메타데이터)</label>
+      <label><input type="checkbox" id="withDeepfake"> 딥페이크 스크리닝 (deepfake-lens — 신경망 추론으로 느릴 수 있음; 결과는 검토 우선순위이지 판정이 아님)</label>
     </div>
     <div class="checks" id="verifyRow" style="display:none;">
       <label><input type="checkbox" id="skipE01Verify"> E01 해시 검증 생략 (ewfverify는 이미지 크기에 비례해 오래 걸립니다 — 최종 증거용은 생략 비권장)</label>
@@ -545,6 +546,7 @@ $("btnStart").addEventListener("click", async () => {
     case_dir: $("caseDir").value.trim(),
     with_hash: $("withHash").checked,
     with_ffprobe: $("withFfprobe").checked,
+    with_deepfake: $("withDeepfake").checked,
     skip_e01_verify: $("skipE01Verify").checked,
     e01_direct: inputKind() === "e01" && $("directE01").checked
   });
@@ -558,6 +560,7 @@ $("btnStart").addEventListener("click", async () => {
     inputKind: inputKind(),
     withHash: $("withHash").checked,
     withFfprobe: $("withFfprobe").checked,
+    withDeepfake: $("withDeepfake").checked,
     skipE01Verify: $("skipE01Verify").checked,
     directE01: $("directE01").checked,
     lastSource: $("sourcePath").value.trim(),
@@ -1043,7 +1046,7 @@ $("btnCopyLog").addEventListener("click", async () => {
     const radio = document.querySelector(`input[name='inputKind'][value='${prefs.inputKind}']`);
     if (radio && !radio.disabled) radio.checked = true;
   }
-  for (const [id, key] of [["withHash", "withHash"], ["withFfprobe", "withFfprobe"], ["skipE01Verify", "skipE01Verify"], ["directE01", "directE01"]]) {
+  for (const [id, key] of [["withHash", "withHash"], ["withFfprobe", "withFfprobe"], ["withDeepfake", "withDeepfake"], ["skipE01Verify", "skipE01Verify"], ["directE01", "directE01"]]) {
     if (typeof prefs[key] === "boolean") $(id).checked = prefs[key];
   }
   if (prefs.lastSource) $("sourcePath").value = prefs.lastSource;
