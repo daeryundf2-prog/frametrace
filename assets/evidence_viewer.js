@@ -94,7 +94,51 @@ const I18N = {
     "hist.title": "일자별 건수 — 클릭하면 그날로 필터",
     "media.size": "크기",
     "media.fit": "맞춤",
-    "panel.selected": "선택 증거"
+    "panel.selected": "선택 증거",
+    "menu.view": "보기 ▾",
+    "menu.tag": "태그 ▾",
+    "menu.export": "보내기·복사 ▾",
+    "menu.filters": "정렬·표시 ▾",
+    "menu.timeline": "타임라인",
+    "timeline.title": "케이스 타임라인",
+    "timeline.gen": "타임라인 생성/갱신",
+    "btn.close": "닫기",
+    "toolbar.skipBack": "« -10초",
+    "toolbar.skipFwd": "+10초 »",
+    "toolbar.popPlayer": "⧉ 영상 새 창",
+    "toolbar.download": "⤓ 저장",
+    "toolbar.capture": "프레임 캡처",
+    "toolbar.in": "[ IN",
+    "toolbar.out": "OUT ]",
+    "toolbar.clip": "구간보내기",
+    "toolbar.proxy": "프록시 재생",
+    "panel.inspector": "포렌식 인스펙터",
+    "panel.validation": "검증 로그",
+    "panel.source": "원본",
+    "panel.source.desc": "수정하지 않음",
+    "panel.recovered": "복구물",
+    "panel.recovered.desc": "검증 전까지 후보",
+    "sel.selectAll": "전체 선택",
+    "sel.clear": "해제",
+    "sel.groupMark": "판독",
+    "mark.reviewed": "판독 완료",
+    "mark.important": "중요",
+    "mark.verify": "검증 대기",
+    "mark.clear": "해제",
+    "sel.examiner": "검토자",
+    "sel.apply": "케이스에 반영",
+    "export.files": "선택 파일 다운로드",
+    "export.selected": "선별 자료 묶기",
+    "export.csv": "선별 CSV",
+    "export.summary": "요약 리포트",
+    "export.marks": "마크 내려받기",
+    "export.list": "선택 목록 다운로드",
+    "export.copyIds": "ID 복사",
+    "export.copyPaths": "경로 복사",
+    "filter.tag.all": "태그: 전체",
+    "shortcuts.title": "단축키",
+    "fs.exit": "✕ 닫기 — 워크스테이션으로",
+    "chip.groupKind": "출처별 묶기"
   },
   en: {
     "unit.count": "",
@@ -148,7 +192,51 @@ const I18N = {
     "hist.title": "Counts by day — click to filter",
     "media.size": "Size",
     "media.fit": "Fit",
-    "panel.selected": "Selected evidence"
+    "panel.selected": "Selected evidence",
+    "menu.view": "View ▾",
+    "menu.tag": "Tags ▾",
+    "menu.export": "Export & copy ▾",
+    "menu.filters": "Sort & display ▾",
+    "menu.timeline": "Timeline",
+    "timeline.title": "Case timeline",
+    "timeline.gen": "Generate/refresh timeline",
+    "btn.close": "Close",
+    "toolbar.skipBack": "« -10s",
+    "toolbar.skipFwd": "+10s »",
+    "toolbar.popPlayer": "⧉ Pop out player",
+    "toolbar.download": "⤓ Save",
+    "toolbar.capture": "Capture frame",
+    "toolbar.in": "[ IN",
+    "toolbar.out": "OUT ]",
+    "toolbar.clip": "Export clip",
+    "toolbar.proxy": "Play proxy",
+    "panel.inspector": "Forensic inspector",
+    "panel.validation": "Validation log",
+    "panel.source": "Source",
+    "panel.source.desc": "Never modified",
+    "panel.recovered": "Recovered",
+    "panel.recovered.desc": "Candidate until verified",
+    "sel.selectAll": "Select all",
+    "sel.clear": "Clear",
+    "sel.groupMark": "Mark",
+    "mark.reviewed": "Reviewed",
+    "mark.important": "Important",
+    "mark.verify": "Needs verification",
+    "mark.clear": "Unmark",
+    "sel.examiner": "Reviewer",
+    "sel.apply": "Apply to case",
+    "export.files": "Download selected files",
+    "export.selected": "Package selection",
+    "export.csv": "Selection CSV",
+    "export.summary": "Summary report",
+    "export.marks": "Download marks",
+    "export.list": "Download selection list",
+    "export.copyIds": "Copy IDs",
+    "export.copyPaths": "Copy paths",
+    "filter.tag.all": "Tag: all",
+    "shortcuts.title": "Shortcuts",
+    "fs.exit": "✕ Close — back to workstation",
+    "chip.groupKind": "Group by source"
   }
 };
 
@@ -1251,7 +1339,7 @@ function renderTree() {
   });
   els.facetTree.innerHTML = items.map(item => item.header !== undefined
     ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
-    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" tabindex="0" role="button"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
   ).join("");
   const pickers = items.filter(item => item.pick);
   const nodes = els.facetTree.querySelectorAll(".tree-item");
@@ -1261,6 +1349,9 @@ function renderTree() {
     if (!entry) return;
     idx += 1;
     node.addEventListener("click", () => entry.pick(node.dataset.pick));
+    node.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); entry.pick(node.dataset.pick); }
+    });
   });
 }
 
@@ -1745,11 +1836,24 @@ function toggleActiveSelection() {
   render();
 }
 
+let shortcutsLastFocus = null;
 function toggleShortcuts(open) {
   const modal = document.getElementById("shortcutsModal");
+  if (open && modal.hidden) shortcutsLastFocus = document.activeElement;
   modal.hidden = !open;
   if (open) document.getElementById("btnShortcutsClose")?.focus();
+  else if (shortcutsLastFocus) { shortcutsLastFocus.focus(); shortcutsLastFocus = null; }
 }
+document.getElementById("shortcutsModal").addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const focusables = [...e.currentTarget.querySelectorAll("button, input, select, a[href], [tabindex]")]
+    .filter(el => !el.disabled);
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 
 // Single-key triage: mark the active record and advance so an examiner
 // can clear a review queue without touching the mouse.
@@ -2034,11 +2138,20 @@ tagMenuList.addEventListener("keydown", e => {
 // Selection-bar menus: toggle on the anchor button, close on outside
 // click / Escape / a menu item without data-keep (tag items stay open so
 // several tags can be applied to one selection).
+const MENU_BUTTONS = { tagMenuList: "btnTagMenu", exportMenuList: "btnExportMenu", viewMenuList: "btnViewMenu" };
+function setMenuExpanded(listId, open) {
+  const btn = document.getElementById(MENU_BUTTONS[listId]);
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+function closeAllMenus() {
+  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; setMenuExpanded(l.id, false); });
+}
 function toggleMenu(listId) {
   const list = document.getElementById(listId);
   const willOpen = list.hidden;
-  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+  closeAllMenus();
   list.hidden = !willOpen;
+  setMenuExpanded(listId, !willOpen);
 }
 document.getElementById("btnTagMenu").addEventListener("click", e => {
   e.stopPropagation();
@@ -2053,9 +2166,10 @@ document.getElementById("btnViewMenu").addEventListener("click", e => {
   e.stopPropagation();
   toggleMenu("viewMenuList");
 });
-document.getElementById("btnMoreFilters").addEventListener("click", () => {
+document.getElementById("btnMoreFilters").addEventListener("click", e => {
   const extra = document.getElementById("filtersExtra");
   extra.hidden = !extra.hidden;
+  e.currentTarget.setAttribute("aria-expanded", extra.hidden ? "false" : "true");
 });
 const btnGroupKind = document.getElementById("btnGroupKind");
 btnGroupKind.addEventListener("click", () => {
@@ -2073,14 +2187,13 @@ document.querySelectorAll(".menu-list").forEach(list => {
     e.stopPropagation();
     if (e.target.closest("button") && !e.target.closest("button").hasAttribute("data-keep")) {
       list.hidden = true;
+      setMenuExpanded(list.id, false);
     }
   });
 });
-document.addEventListener("click", () => {
-  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
-});
+document.addEventListener("click", closeAllMenus);
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+  if (e.key === "Escape") closeAllMenus();
 });
 document.getElementById("btnDownloadSelection").addEventListener("click", () => {
   const selected = selectedRecords();

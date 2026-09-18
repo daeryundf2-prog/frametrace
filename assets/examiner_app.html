@@ -157,6 +157,9 @@
       .navstep { flex: 1 0 auto; }
       .navstep .nt small { display: none; }
     }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
   </style>
 </head>
 <body>
@@ -952,6 +955,15 @@ $("pickerCancel").addEventListener("click", closePicker);
 $("pickerClose").addEventListener("click", closePicker);
 $("pickerBackdrop").addEventListener("click", e => { if (e.target === $("pickerBackdrop")) closePicker(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pickerBackdrop").hidden) closePicker(); });
+$("pickerBackdrop").addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const focusables = [...$("pickerBackdrop").querySelectorAll("button, input, .picker-item[tabindex]")]
+    .filter(el => !el.disabled && el.style.display !== "none");
+  if (!focusables.length) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
 $("pickerSelect").addEventListener("click", () => { if (pickerCurrent) choose(pickerCurrent); });
 $("pickerUp").addEventListener("click", () => browseTo(pickerParent));
 $("pickerPath").addEventListener("keydown", e => { if (e.key === "Enter") browseTo($("pickerPath").value.trim()); });
