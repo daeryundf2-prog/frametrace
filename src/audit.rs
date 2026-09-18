@@ -662,7 +662,7 @@ mod tests {
         let path = dir.join("audit.jsonl");
         let key = test_key("default", 0x09);
 
-        append_chained_jsonl(&path, r#"{"kind":"unkeyed"}"#).unwrap();
+        append_chained_jsonl_keyed(&path, r#"{"kind":"unkeyed"}"#, None).unwrap();
         append_chained_jsonl_keyed(&path, r#"{"kind":"keyed"}"#, Some(&key)).unwrap();
 
         let verification = verify_chained_jsonl_keyed(&path, &[key]).unwrap();
@@ -708,7 +708,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("audit.jsonl");
-        append_chained_jsonl(&path, r#"{"kind":"one"}"#).unwrap();
+        append_chained_jsonl_keyed(&path, r#"{"kind":"one"}"#, None).unwrap();
         let verification = verify_chained_jsonl(&path).unwrap();
         assert_eq!(verification.integrity, AuditIntegrity::StructuralOnly);
         assert_eq!(verification.keyed_entries, 0);
