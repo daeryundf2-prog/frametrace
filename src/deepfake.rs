@@ -406,14 +406,20 @@ mod tests {
         // resolution stages failed.
         let summary = screen_with_binary("not-an-allowed-tool", Path::new("x.png"));
         if python_module_available() {
-            assert!(summary.ok, "python fallback should rescue the screen: {:?}", summary.error);
+            assert!(
+                summary.ok,
+                "python fallback should rescue the screen: {:?}",
+                summary.error
+            );
         } else {
             assert!(!summary.ok);
-            assert!(summary
-                .error
-                .as_deref()
-                .unwrap_or("")
-                .contains("fallback also unavailable"));
+            assert!(
+                summary
+                    .error
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("fallback also unavailable")
+            );
         }
     }
 
@@ -431,11 +437,13 @@ mod tests {
         };
         let summary = screen_with_binary(shim.to_str().unwrap(), Path::new("x.png"));
         assert!(!summary.ok);
-        assert!(summary
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("unparseable"));
+        assert!(
+            summary
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("unparseable")
+        );
     }
 
     #[test]
@@ -471,7 +479,10 @@ mod tests {
         fs::write(&target, b"not a real video").unwrap();
         fs::write(
             dir.join("db/videos.jsonl"),
-            &format!("{{\"id\":\"vid_1\",\"source_path\":\"{}\"}}\n", crate::util::json_escape(&target.to_string_lossy())),
+            &format!(
+                "{{\"id\":\"vid_1\",\"source_path\":\"{}\"}}\n",
+                crate::util::json_escape(&target.to_string_lossy())
+            ),
         )
         .unwrap();
         unsafe {
@@ -491,8 +502,7 @@ mod tests {
     fn nonzero_exit_reports_stderr() {
         // Python invoked as `deepfake-lens.exe forensic <x> --format json`
         // treats "forensic" as a script path and exits nonzero.
-        let python = resolve_tool_binary("python", &["python", "python3", "py"])
-            .map(PathBuf::from);
+        let python = resolve_tool_binary("python", &["python", "python3", "py"]).map(PathBuf::from);
         let Ok(python) = python else {
             return;
         };
@@ -501,11 +511,7 @@ mod tests {
         };
         let summary = screen_with_binary(shim.to_str().unwrap(), Path::new("x.png"));
         assert!(!summary.ok);
-        assert!(summary
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("exited"));
+        assert!(summary.error.as_deref().unwrap_or("").contains("exited"));
     }
 
     #[test]
