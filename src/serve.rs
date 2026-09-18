@@ -12,6 +12,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -20,6 +21,12 @@ const EXAMINER_PAGE: &str = include_str!("../assets/examiner_app.html");
 // Bounded so a malformed client cannot exhaust memory; export payloads
 // carry one small JSON record per selected item.
 const MAX_BODY: usize = 4 * 1024 * 1024;
+
+/// In-flight connection bound: the accept loop spawns one thread per
+/// connection, so an unbounded accept would let any local process exhaust
+/// memory/handles by opening thousands of idle sockets. Overflow
+/// connections get an immediate 503 instead of a thread.
+const MAX_CONNECTIONS: usize = 64;
 
 pub struct ServeOptions {
     pub case_dir: Option<PathBuf>,
@@ -109,6 +116,10 @@ struct JobState {
     /// a thread that stats the growing output file and stores its size
     /// here. `None` when the DB `jobs` row is the progress source.
     byte_progress: Option<(PathBuf, Option<u64>)>,
+    /// Optional shared-secret gate from FRAMETRACE_TOKEN. `None` keeps the
+    /// documented loopback-trust model; when set, every request must prove
+    /// the token via header, query, or the planted `ft_token` cookie.
+    token: Option<String>,
 }
 
 impl JobState {
@@ -125,6 +136,7 @@ impl JobState {
             busy: false,
             cancel_requested: false,
             byte_progress: None,
+            token: None,
         }
     }
 }
@@ -143,6 +155,22 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     if let Some(case_dir) = &options.case_dir {
         state_lock(&state).case_dir = Some(case_dir.clone());
     }
+    // FRAMETRACE_TOKEN opts into shared-secret auth on top of the loopback
+    // trust model — useful when untrusted processes share the exam machine.
+    // The token must be cookie-safe because a successful ?token= request
+    // plants it as the ft_token cookie for subsequent fetches.
+    let token = std::env::var("FRAMETRACE_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if let Some(token) = &token {
+        if !valid_token(token) {
+            return Err(
+                "FRAMETRACE_TOKEN must be 8+ chars of A-Z a-z 0-9 . _ - ~ (cookie-safe)".into(),
+            );
+        }
+        state_lock(&state).token = Some(token.clone());
+    }
     let listener = match options.port {
         Some(port) => TcpListener::bind(("127.0.0.1", port))
             .map_err(|err| format!("failed to bind 127.0.0.1:{port}: {err}"))?,
@@ -152,7 +180,10 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
         None => first_free_port().ok_or("사용 가능한 로컬 포트를 찾지 못했습니다")?,
     };
     let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
-    let url = format!("http://127.0.0.1:{port}/");
+    let url = match &token {
+        Some(token) => format!("http://127.0.0.1:{port}/?token={token}"),
+        None => format!("http://127.0.0.1:{port}/"),
+    };
     println!("FrameTrace examiner workstation is running.");
     println!("  {url}");
     println!("Close this window to stop the workstation.");
@@ -169,13 +200,22 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
 /// Accept loop shared by `run` and the integration tests (no browser side
 /// effects here).
 fn serve_on(listener: TcpListener, state: SharedState) {
+    let in_flight = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
+        let Ok(mut stream) = stream else { continue };
         let state = Arc::clone(&state);
+        let in_flight = Arc::clone(&in_flight);
+        if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            in_flight.fetch_sub(1, Ordering::SeqCst);
+            let _ = write_simple(&mut stream, 503, b"server busy - too many connections");
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+            continue;
+        }
         let _ = thread::Builder::new()
             .name("ft-http".into())
             .spawn(move || {
                 let _ = handle_connection(stream, state);
+                in_flight.fetch_sub(1, Ordering::SeqCst);
             });
     }
 }
@@ -217,12 +257,20 @@ struct Request {
     origin: Option<String>,
     /// Raw Host header, when present (DNS-rebinding gate).
     host: Option<String>,
+    /// Raw Cookie header (ft_token auth when FRAMETRACE_TOKEN is set).
+    cookie: Option<String>,
+    /// X-FrameTrace-Token header (explicit-token auth for scripts/curl).
+    token_header: Option<String>,
 }
 
 fn handle_connection(mut stream: TcpStream, state: SharedState) -> Result<(), String> {
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|err| format!("read timeout: {err}"))?;
+    // A peer that stops reading must not pin a worker thread forever.
+    stream
+        .set_write_timeout(Some(Duration::from_secs(60)))
+        .map_err(|err| format!("write timeout: {err}"))?;
     let request = read_request(&mut stream)?;
     if !request_is_localhost_trusted(&request) {
         let response = plain(403, b"cross-origin request rejected".to_vec());
@@ -233,12 +281,37 @@ fn handle_connection(mut stream: TcpStream, state: SharedState) -> Result<(), St
         let _ = stream.shutdown(std::net::Shutdown::Write);
         return Ok(());
     }
+    let token = state_lock(&state).token.clone();
+    let mut plant_cookie = false;
+    if let Some(token) = token.as_deref() {
+        match request_authorized(&request, token) {
+            AuthProof::Denied => {
+                let _ = stream.write_all(&plain(401, b"unauthorized".to_vec()));
+                let _ = stream.shutdown(std::net::Shutdown::Write);
+                return Ok(());
+            }
+            // A successful ?token= request plants the cookie so follow-up
+            // viewer fetches (which cannot add headers) stay authorized.
+            AuthProof::Query => plant_cookie = true,
+            AuthProof::Header | AuthProof::Cookie => {}
+        }
+    }
     if request.method == "GET" && request.path == "/media" {
         let result = serve_media(&mut stream, &request, &state);
         let _ = stream.shutdown(std::net::Shutdown::Write);
         return result;
     }
-    let response = route(&request, &state);
+    if request.method == "GET"
+        && (request.path.starts_with("/review/") || request.path.starts_with("/case/"))
+    {
+        let result = serve_case_file(&mut stream, &request, &state);
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        return result;
+    }
+    let mut response = route(&request, &state);
+    if plant_cookie && let Some(token) = token.as_deref() {
+        set_token_cookie(&mut response, token);
+    }
     stream
         .write_all(&response)
         .map_err(|err| format!("write failed: {err}"))?;
@@ -275,6 +348,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     let mut range = None;
     let mut origin = None;
     let mut host = None;
+    let mut cookie = None;
+    let mut token_header = None;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -291,6 +366,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
             origin = Some(value.to_string());
         } else if name.eq_ignore_ascii_case("host") {
             host = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("cookie") {
+            cookie = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("x-frametrace-token") {
+            token_header = Some(value.to_string());
         }
     }
     if content_length > MAX_BODY {
@@ -319,6 +398,8 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
         range,
         origin,
         host,
+        cookie,
+        token_header,
     })
 }
 
@@ -463,6 +544,56 @@ fn origin_authority_host(authority: &str) -> Option<String> {
     Some(host.to_ascii_lowercase())
 }
 
+/// Tokens are planted into a Cookie header, so they must only contain
+/// characters that survive cookie syntax unambiguously.
+fn valid_token(token: &str) -> bool {
+    token.len() >= 8
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'~'))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthProof {
+    Header,
+    Query,
+    Cookie,
+    Denied,
+}
+
+/// Checks the optional shared-secret gate. A valid `?token=` query value
+/// authenticates *and* asks the caller to plant the `ft_token` cookie —
+/// page-initiated fetches (video elements, fetch() without headers) can
+/// only carry cookies, not custom headers.
+fn request_authorized(request: &Request, token: &str) -> AuthProof {
+    if request.token_header.as_deref() == Some(token) {
+        return AuthProof::Header;
+    }
+    if query_value(&request.query, "token").as_deref() == Some(token) {
+        return AuthProof::Query;
+    }
+    let cookie_match = request.cookie.as_deref().is_some_and(|header| {
+        header.split(';').any(|pair| {
+            let mut parts = pair.trim().splitn(2, '=');
+            parts.next().map(str::trim) == Some("ft_token") && parts.next() == Some(token)
+        })
+    });
+    if cookie_match {
+        AuthProof::Cookie
+    } else {
+        AuthProof::Denied
+    }
+}
+
+/// Inserts the `ft_token` cookie into an already-rendered response, right
+/// after the status line.
+fn set_token_cookie(response: &mut Vec<u8>, token: &str) {
+    let header = format!("Set-Cookie: ft_token={token}; HttpOnly; SameSite=Strict; Path=/\r\n");
+    if let Some(pos) = response.windows(2).position(|w| w == b"\r\n") {
+        response.splice(pos + 2..pos + 2, header.into_bytes());
+    }
+}
+
 fn route(request: &Request, state: &SharedState) -> Vec<u8> {
     // GET responses are safe to read from any origin only when the Host
     // header is loopback; a rebinding domain pointing at this port is the
@@ -494,11 +625,6 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
                 open_in_explorer(Path::new(&path));
             }
             json("{\"ok\":true}".into())
-        }
-        (method, path)
-            if method == "GET" && (path.starts_with("/review/") || path.starts_with("/case/")) =>
-        {
-            serve_case_file(request, state)
         }
         _ => plain(404, b"not found".to_vec()),
     }
@@ -808,6 +934,9 @@ fn progress_json(
     let Some(case_dir) = case_dir else {
         return "null".to_string();
     };
+    if !case_dir.join("case.json").is_file() || !crate::case_db::case_db_path(case_dir).is_file() {
+        return byte_progress_json(byte_progress);
+    }
     let job = crate::case_db::latest_running_job(case_dir).ok().flatten();
     let Some(job) = job else {
         // Fallback: external-tool steps (e.g. ewfexport) don't touch the
@@ -1463,7 +1592,11 @@ fn build_selection_file(case_dir: &Path, output: &Path) -> Result<usize, String>
         })
         .collect::<Vec<_>>()
         .join(",");
-    let file = format!("{{\"schema_version\":1,\"items\":[{items}]}}");
+    let case_id = crate::selection::read_case_id(case_dir)?;
+    let file = format!(
+        "{{\"schema_version\":1,\"case_id\":{},\"items\":[{items}]}}",
+        json_string(&case_id)
+    );
     std::fs::write(output, file)
         .map_err(|err| format!("failed to write {}: {err}", output.display()))?;
     Ok(ids.len())
@@ -1489,6 +1622,18 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
         return "{\"ok\":false,\"error\":\"작업이 진행 중입니다.\"}".to_string();
     }
     let marks_path = case_dir.join("marks-imported.json");
+    let preflight =
+        crate::selection::parse_marks_text(&marks_body, &marks_path).and_then(|marks| {
+            crate::selection::enforce_case_binding(
+                &case_dir,
+                marks.case_id.as_deref(),
+                &marks_path,
+                crate::selection::ImportKind::Marks,
+            )
+        });
+    if let Err(err) = preflight {
+        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+    }
     if let Err(err) = std::fs::write(&marks_path, &marks_body) {
         return format!(
             "{{\"ok\":false,\"error\":{}}}",
@@ -2286,53 +2431,62 @@ fn api_export_selected(request: &Request, state: &SharedState) -> String {
             })
             .unwrap_or_default()
     };
+    // Copy + SHA-256 of every selected file is the expensive part of the
+    // batch and is fully independent per item, so it runs on a small worker
+    // pool; manifest assembly below stays serial and ordered.
+    let outcomes: Mutex<Vec<Option<ExportOutcome>>> =
+        Mutex::new((0..items.len()).map(|_| None).collect());
+    let next_index = AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(4)
+        .clamp(1, 4);
+    {
+        let items = &items;
+        let roots = &roots;
+        let export_dir = &export_dir;
+        let outcomes = &outcomes;
+        let next_index = &next_index;
+        let field = &field;
+        thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(move || {
+                    loop {
+                        let index = next_index.fetch_add(1, Ordering::SeqCst);
+                        let Some(item) = items.get(index) else {
+                            break;
+                        };
+                        let outcome = export_one(item, roots, export_dir, field);
+                        outcomes.lock().unwrap_or_else(|e| e.into_inner())[index] = Some(outcome);
+                    }
+                });
+            }
+        });
+    }
+    let outcomes = outcomes
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let mut csv_rows = vec![
         "id,exported_file,kind,status,mark,tags,sha256_source,sha256_copy,size_bytes,recorded_time,original_path,source_path,warnings,note".to_string(),
     ];
     let mut jsonl_rows: Vec<String> = Vec::new();
     let mut copied = 0usize;
     let mut skipped = 0usize;
-    for item in &items {
+    for (item, outcome) in items.iter().zip(outcomes.into_iter()) {
+        let Some(outcome) = outcome else {
+            continue;
+        };
         let id = field(item, "id");
         let path_text = field(item, "path");
-        let mut exported = String::new();
-        let mut copy_hash = String::new();
-        let mut size = String::new();
-        let mut skip_reason = String::new();
-        if path_text.is_empty() {
-            skip_reason = "no-file(pre-recovery candidate)".to_string();
-        } else {
-            match PathBuf::from(&path_text).canonicalize() {
-                Err(_) => skip_reason = "source-missing".to_string(),
-                Ok(canonical) if !roots.iter().any(|root| path_is_under(root, &canonical)) => {
-                    skip_reason = "outside-approved-roots".to_string();
-                }
-                Ok(canonical) => {
-                    let filename = canonical
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| field(item, "name"));
-                    let target = crate::util::unique_available_path(&export_dir.join(format!(
-                        "{}__{}",
-                        export_safe_name(&id),
-                        export_safe_name(&filename)
-                    )));
-                    match std::fs::copy(&canonical, &target) {
-                        Ok(_) => {
-                            exported = target
-                                .file_name()
-                                .map(|name| name.to_string_lossy().into_owned())
-                                .unwrap_or_default();
-                            copy_hash = audit::digest_file(&target).unwrap_or_default();
-                            size = std::fs::metadata(&target)
-                                .map(|meta| meta.len().to_string())
-                                .unwrap_or_default();
-                            copied += 1;
-                        }
-                        Err(err) => skip_reason = format!("copy-failed: {err}"),
-                    }
-                }
-            }
+        let ExportOutcome {
+            exported,
+            copy_hash,
+            size,
+            skip_reason,
+        } = outcome;
+        if skip_reason.is_empty() && !exported.is_empty() {
+            copied += 1;
         }
         if !skip_reason.is_empty() {
             skipped += 1;
@@ -2429,6 +2583,105 @@ fn api_export_selected(request: &Request, state: &SharedState) -> String {
     )
 }
 
+#[derive(Debug, Default)]
+struct ExportOutcome {
+    exported: String,
+    copy_hash: String,
+    size: String,
+    skip_reason: String,
+}
+
+/// Copies one selected item into the export directory and hashes the copy.
+/// Containment against the approved media roots is checked on the
+/// canonical path — the same rule the /media endpoint applies.
+fn export_one(
+    item: &serde_json::Value,
+    roots: &[PathBuf],
+    export_dir: &Path,
+    field: &dyn Fn(&serde_json::Value, &str) -> String,
+) -> ExportOutcome {
+    let mut outcome = ExportOutcome::default();
+    let id = field(item, "id");
+    let path_text = field(item, "path");
+    if path_text.is_empty() {
+        outcome.skip_reason = "no-file(pre-recovery candidate)".to_string();
+        return outcome;
+    }
+    let canonical = match PathBuf::from(&path_text).canonicalize() {
+        Ok(canonical) => canonical,
+        Err(_) => {
+            outcome.skip_reason = "source-missing".to_string();
+            return outcome;
+        }
+    };
+    if !roots.iter().any(|root| path_is_under(root, &canonical)) {
+        outcome.skip_reason = "outside-approved-roots".to_string();
+        return outcome;
+    }
+    let filename = canonical
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| field(item, "name"));
+    let base_name = format!("{}__{}", export_safe_name(&id), export_safe_name(&filename));
+    match copy_unique(&canonical, export_dir, &base_name) {
+        Ok(target) => {
+            outcome.exported = target
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            outcome.copy_hash = audit::digest_file(&target).unwrap_or_default();
+            outcome.size = std::fs::metadata(&target)
+                .map(|meta| meta.len().to_string())
+                .unwrap_or_default();
+        }
+        Err(err) => outcome.skip_reason = format!("copy-failed: {err}"),
+    }
+    outcome
+}
+
+/// Copies `source` to `dir/base_name`, atomically allocating a unique name
+/// with create_new: the batch runs on parallel workers, so a check-then-
+/// create helper would race when two items produce the same name.
+fn copy_unique(source: &Path, dir: &Path, base_name: &str) -> Result<PathBuf, String> {
+    let mut reader =
+        std::fs::File::open(source).map_err(|err| format!("open source failed: {err}"))?;
+    let base = Path::new(base_name);
+    let stem = base
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("item")
+        .to_string();
+    let ext = base
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| format!(".{ext}"))
+        .unwrap_or_default();
+    for attempt in 0..10_000u32 {
+        let candidate = if attempt == 0 {
+            dir.join(base_name)
+        } else {
+            dir.join(format!("{stem}-{attempt}{ext}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut target) => {
+                std::io::copy(&mut reader, &mut target)
+                    .map_err(|err| format!("copy failed: {err}"))?;
+                if let Ok(meta) = source.metadata() {
+                    let _ = target.set_permissions(meta.permissions());
+                }
+                return Ok(candidate);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(format!("create target failed: {err}")),
+        }
+    }
+    Err("could not allocate a unique export filename".to_string())
+}
+
 fn csv_row(fields: &[String]) -> String {
     fields
         .iter()
@@ -2508,10 +2761,18 @@ fn plain(code: u16, body: Vec<u8>) -> Vec<u8> {
     respond(code, "text/plain; charset=utf-8", body, "no-store", None)
 }
 
-fn serve_case_file(request: &Request, state: &SharedState) -> Vec<u8> {
+/// Serves a file under the case directory. Responses are streamed in 64 KiB
+/// chunks rather than read fully into memory — case artifacts (reports,
+/// exported bundles) can be large, and the buffered version multiplied
+/// memory use by the concurrent-request count.
+fn serve_case_file(
+    stream: &mut TcpStream,
+    request: &Request,
+    state: &SharedState,
+) -> Result<(), String> {
     let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
-        return plain(404, b"no case loaded".to_vec());
+        return write_simple(stream, 404, b"no case loaded");
     };
     let prefix = if request.path.starts_with("/review/") {
         "/review/"
@@ -2520,21 +2781,62 @@ fn serve_case_file(request: &Request, state: &SharedState) -> Vec<u8> {
     };
     let relative = request.path.trim_start_matches(prefix);
     if relative.is_empty() || relative.contains("..") {
-        return plain(403, b"invalid path".to_vec());
+        return write_simple(stream, 403, b"invalid path");
     }
     let full = if prefix == "/review/" {
         case_dir.join("review").join(relative)
     } else {
         case_dir.join(relative)
     };
-    match full.canonicalize() {
-        Ok(path) if path_is_under(&case_dir, &path) => match std::fs::read(&path) {
-            Ok(bytes) => respond(200, mime_for(&path), bytes, "private, max-age=60", None),
-            Err(_) => plain(404, b"file not found".to_vec()),
-        },
-        Ok(_) => plain(403, b"path outside case".to_vec()),
-        Err(_) => plain(404, b"file not found".to_vec()),
+    let path = match full.canonicalize() {
+        Ok(path) if path_is_under(&case_dir, &path) => path,
+        Ok(_) => return write_simple(stream, 403, b"path outside case"),
+        Err(_) => return write_simple(stream, 404, b"file not found"),
+    };
+    // Directories must not reach the streaming path: File::open succeeds
+    // on them and the read would fail mid-response.
+    let total = match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_file() => meta.len(),
+        _ => return write_simple(stream, 404, b"file not found"),
+    };
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(_) => return write_simple(stream, 404, b"file not found"),
+    };
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {total}\r\nCache-Control: private, max-age=60\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        mime_for(&path)
+    );
+    stream
+        .write_all(head.as_bytes())
+        .map_err(|err| format!("write failed: {err}"))?;
+    stream_body(stream, &mut file, total)
+}
+
+/// Writes exactly `remaining` bytes from `reader` to `stream` in bounded
+/// chunks — the shared transfer loop for media ranges and case files.
+fn stream_body(
+    stream: &mut TcpStream,
+    reader: &mut impl Read,
+    mut remaining: u64,
+) -> Result<(), String> {
+    let mut chunk = [0u8; 64 * 1024];
+    while remaining > 0 {
+        let want = remaining.min(chunk.len() as u64) as usize;
+        let read = reader
+            .read(&mut chunk[..want])
+            .map_err(|err| format!("file read failed: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        stream
+            .write_all(&chunk[..read])
+            .map_err(|err| format!("file write failed: {err}"))?;
+        remaining -= read as u64;
     }
+    stream
+        .flush()
+        .map_err(|err| format!("file write failed: {err}"))
 }
 
 fn path_is_under(root: &Path, candidate: &Path) -> bool {
@@ -2613,24 +2915,8 @@ fn serve_media(
     stream
         .write_all(head.as_bytes())
         .map_err(|err| format!("write failed: {err}"))?;
-    let mut remaining = length;
-    let mut chunk = [0u8; 64 * 1024];
     let mut reader = file;
-    while remaining > 0 {
-        let want = remaining.min(chunk.len() as u64) as usize;
-        let read = reader
-            .read(&mut chunk[..want])
-            .map_err(|err| format!("media read failed: {err}"))?;
-        if read == 0 {
-            break;
-        }
-        stream
-            .write_all(&chunk[..read])
-            .map_err(|err| format!("media write failed: {err}"))?;
-        remaining -= read as u64;
-    }
-    let _ = stream.flush();
-    Ok(())
+    stream_body(stream, &mut reader, length)
 }
 
 fn write_range_unsatisfiable(stream: &mut TcpStream, total: u64) -> Result<(), String> {
@@ -2692,9 +2978,11 @@ fn respond(
         200 => "OK",
         206 => "Partial Content",
         400 => "Bad Request",
+        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
         416 => "Range Not Satisfiable",
+        503 => "Service Unavailable",
         _ => "OK",
     };
     let mut head = format!(
@@ -2778,14 +3066,24 @@ mod tests {
     }
 
     #[test]
+    fn progress_query_does_not_create_an_uninitialized_case() {
+        let case_dir =
+            std::env::temp_dir().join(format!("ft-progress-uninitialized-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&case_dir);
+        assert_eq!(progress_json(Some(&case_dir), None), "null");
+        assert!(!case_dir.exists());
+    }
+
+    #[test]
     fn progress_json_reports_running_job_with_eta() {
         let case_dir =
             std::env::temp_dir().join(format!("ft-progress-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&case_dir);
         std::fs::create_dir_all(&case_dir).unwrap();
 
-        // No job row yet → null.
+        std::fs::write(case_dir.join("case.json"), b"{}").unwrap();
         assert_eq!(progress_json(Some(&case_dir), None), "null");
+        assert!(!crate::case_db::case_db_path(&case_dir).exists());
 
         let job = crate::case_db::start_job(
             &case_dir,
@@ -2900,6 +3198,8 @@ mod tests {
             range: None,
             origin: None,
             host: None,
+            cookie: None,
+            token_header: None,
         };
         let parse = |label: &str, json: &str| -> serde_json::Value {
             serde_json::from_str(json)
@@ -3009,6 +3309,52 @@ mod tests {
     }
 
     #[test]
+    fn case_binding_api_rejects_marks_before_writing() {
+        let base = std::env::temp_dir().join(format!("ft_marks_binding_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("case.json"), r#"{"case_id":"FT-current"}"#).unwrap();
+        let marks_path = base.join("marks-imported.json");
+        std::fs::write(&marks_path, b"preserve existing import").unwrap();
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        state_lock(&state).case_dir = Some(base.clone());
+        for (field, value, expected) in [
+            ("case_id", serde_json::json!("FT-other"), "case_id mismatch"),
+            ("case_id", serde_json::json!(123), "case_id"),
+            ("case_id", serde_json::json!(""), "case_id"),
+            ("schema_version", serde_json::json!(99), "schema_version"),
+        ] {
+            let mut marks = serde_json::json!({"schema_version": 1, "case_id": "FT-current", "marks": [{"id": "vid_1", "status": "important"}]});
+            marks[field] = value;
+            let request = Request {
+                method: "POST".into(),
+                path: "/api/import-marks".into(),
+                query: String::new(),
+                body: serde_json::json!({"marks_json": marks.to_string()}).to_string(),
+                range: None,
+                origin: None,
+                host: None,
+                cookie: None,
+                token_header: None,
+            };
+            let response: serde_json::Value =
+                serde_json::from_str(&api_import_marks(&request, &state)).unwrap();
+            assert_eq!(response["ok"], false);
+            assert!(
+                response["error"].as_str().unwrap().contains(expected),
+                "{response}"
+            );
+            assert_eq!(
+                std::fs::read(&marks_path).unwrap(),
+                b"preserve existing import"
+            );
+            assert_eq!(std::fs::read_dir(&base).unwrap().count(), 2);
+            assert!(state_lock(&state).logs.is_empty());
+        }
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn selection_file_only_takes_indexed_vid_ids() {
         let base = std::env::temp_dir().join(format!("ft_sel_case_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
@@ -3018,10 +3364,15 @@ mod tests {
             {"id":"vid_000002","ffprobe":{"streams":[{"id":"0x2","codec_type":"video"}]}}
         ]}"#;
         std::fs::write(base.join("db/video_index.json"), index).unwrap();
+        std::fs::write(base.join("case.json"), r#"{"case_id":"FT-actual"}"#).unwrap();
         let out = base.join("selection-all.json");
         let count = build_selection_file(&base, &out).unwrap();
         assert_eq!(count, 2);
         let content = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&content).unwrap()["case_id"],
+            "FT-actual"
+        );
         assert!(content.contains("\"selector\":\"vid_000001\""));
         assert!(content.contains("\"selector\":\"vid_000002\""));
         assert!(!content.contains("0x1"));
@@ -3042,10 +3393,15 @@ mod tests {
             {"id":"vid_000002"}
         ]}"#;
         std::fs::write(base.join("db/video_index.json"), index).unwrap();
+        std::fs::write(base.join("case.json"), r#"{"case_id":"FT-actual"}"#).unwrap();
         let out = base.join("selection-all.json");
         let count = build_selection_file(&base, &out).unwrap();
         assert_eq!(count, 2);
         let content = std::fs::read_to_string(&out).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&content).unwrap()["case_id"],
+            "FT-actual"
+        );
         assert!(content.contains("\"selector\":\"vid_000001\""));
         assert!(content.contains("\"selector\":\"vid_000002\""));
         assert!(!content.contains("vid_evil"));
@@ -3130,6 +3486,8 @@ mod tests {
             range: None,
             origin: None,
             host: None,
+            cookie: None,
+            token_header: None,
         };
         let out = api_export_selected(&request, &state);
         assert!(out.contains("\"ok\":true"), "{out}");
@@ -3174,6 +3532,8 @@ mod tests {
             range: None,
             origin: origin.map(str::to_string),
             host: host.map(str::to_string),
+            cookie: None,
+            token_header: None,
         };
         // Prefix-spoofed authorities that the old starts_with gate let
         // through: a loopback literal as a subdomain prefix, as userinfo,
@@ -3327,6 +3687,157 @@ mod tests {
             "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"source_path\":\"C:\\nope\\missing\"}",
         );
         assert!(traversal.contains("\"ok\":false"));
+    }
+
+    #[test]
+    fn token_auth_accepts_header_query_and_cookie() {
+        let base = |query: &str, cookie: Option<&str>, header: Option<&str>| Request {
+            method: "GET".into(),
+            path: "/api/status".into(),
+            query: query.into(),
+            body: String::new(),
+            range: None,
+            origin: None,
+            host: None,
+            cookie: cookie.map(str::to_string),
+            token_header: header.map(str::to_string),
+        };
+        let token = "abc12345-x";
+        assert_eq!(
+            request_authorized(&base("", None, Some(token)), token),
+            AuthProof::Header
+        );
+        assert_eq!(
+            request_authorized(&base("token=abc12345-x", None, None), token),
+            AuthProof::Query
+        );
+        assert_eq!(
+            request_authorized(
+                &base("", Some("other=1; ft_token=abc12345-x ;x=y"), None),
+                token
+            ),
+            AuthProof::Cookie
+        );
+        for request in [
+            base("", None, None),
+            base("", Some("ft_token=wrong"), None),
+            base("token=wrong", None, None),
+            base("", None, Some("wrong")),
+            // A cookie-name prefix must not authenticate.
+            base("", Some("ft_tokenx=abc12345-x"), None),
+            base("", Some("ft_token=abc12345-x,y=z"), None),
+        ] {
+            assert_eq!(request_authorized(&request, token), AuthProof::Denied);
+        }
+        assert!(valid_token("abcdefgh"));
+        assert!(!valid_token("short"));
+        assert!(!valid_token("has;semi"));
+        assert!(!valid_token("has space0"));
+    }
+
+    #[test]
+    fn token_gate_over_socket_plants_cookie() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        state_lock(&state).token = Some("testtoken-1".into());
+        thread::spawn(move || serve_on(listener, state));
+        let response = |request: &str| {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream.write_all(request.as_bytes()).unwrap();
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let read = stream.read(&mut chunk).unwrap();
+                if read == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+            String::from_utf8_lossy(&buffer).to_string()
+        };
+        // No credential at all -> 401, even for a plain GET.
+        let denied = response("GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        assert!(denied.contains("401"), "{denied}");
+        // Query token authenticates and plants the ft_token cookie.
+        let query =
+            response("GET /api/status?token=testtoken-1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        assert!(query.contains("200"), "{query}");
+        assert!(
+            query.contains("Set-Cookie: ft_token=testtoken-1; HttpOnly; SameSite=Strict"),
+            "{query}"
+        );
+        // The planted cookie then authorizes header-less follow-ups,
+        // including media requests (video elements cannot set headers).
+        let cookie = response(
+            "GET /media HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ft_token=testtoken-1\r\n\r\n",
+        );
+        assert!(cookie.contains("400"), "{cookie}");
+        // And the explicit header works for scripts.
+        let header = response(
+            "GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FrameTrace-Token: testtoken-1\r\n\r\n",
+        );
+        assert!(header.contains("200"), "{header}");
+        // A token that only prefixes the real one must not authenticate.
+        let prefix = response(
+            "GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ft_token=testtoken\r\n\r\n",
+        );
+        assert!(prefix.contains("401"), "{prefix}");
+    }
+
+    #[test]
+    fn case_files_stream_with_content_length() {
+        let case_dir = std::env::temp_dir().join(format!("ft-stream-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&case_dir);
+        std::fs::create_dir_all(case_dir.join("reports")).unwrap();
+        let payload = "x".repeat(150 * 1024); // larger than one 64 KiB chunk
+        std::fs::write(case_dir.join("reports/big.txt"), &payload).unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        state_lock(&state).case_dir = Some(case_dir.clone());
+        thread::spawn(move || serve_on(listener, state));
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream
+            .write_all(b"GET /case/reports/big.txt HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            let read = stream.read(&mut chunk).unwrap();
+            if read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+        let head_end = buffer
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .expect("response head");
+        let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+        assert!(head.contains("200 OK"), "{head}");
+        assert!(
+            head.contains(&format!("Content-Length: {}", payload.len())),
+            "{head}"
+        );
+        assert_eq!(buffer[head_end + 4..].len(), payload.len());
+        let _ = std::fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn export_copy_allocates_unique_names_atomically() {
+        let dir = std::env::temp_dir().join(format!("ft-copyuniq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.bin");
+        std::fs::write(&source, b"payload").unwrap();
+        let first = copy_unique(&source, &dir, "same__name.mp4").unwrap();
+        let second = copy_unique(&source, &dir, "same__name.mp4").unwrap();
+        assert_ne!(first, second);
+        assert!(first.ends_with("same__name.mp4"));
+        assert_eq!(std::fs::read(&first).unwrap(), b"payload");
+        assert_eq!(std::fs::read(&second).unwrap(), b"payload");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

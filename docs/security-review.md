@@ -34,11 +34,15 @@ Phase 2 review focused on local file handling, external command boundaries, repo
 
 ## Workstation Loopback Threat Model
 
-The examiner workstation (running `frametrace` with no arguments, `src/serve.rs`) binds `127.0.0.1` only and ships **no auth token by design choice**: it is a local-only tool, and any process already running as the examiner holds equivalent privileges over the case directory.
+The examiner workstation (running `frametrace` with no arguments, `src/serve.rs`) binds `127.0.0.1` only and ships **no auth token by default**: it is a local-only tool, and any process already running as the examiner holds equivalent privileges over the case directory.
+
+An opt-in shared-secret gate exists for machines where untrusted processes run alongside the examiner: setting `FRAMETRACE_TOKEN` (8+ chars of `A-Z a-z 0-9 . _ - ~`) makes every request prove the token via the `X-FrameTrace-Token` header, a `?token=` query parameter, or the `ft_token` cookie planted by a successful query-token request (`HttpOnly; SameSite=Strict`). The workstation prints and opens the tokenized URL; token-less requests get `401`.
 
 Consequences and the controls that exist:
 
-- **Any local process can invoke every API endpoint.** That includes `POST /api/open-folder`, which spawns the OS file explorer (`explorer.exe`/`xdg-open`) on an arbitrary path from the request body. This is an accepted trade-off for single-user local use.
+- **Any local process can invoke every API endpoint** in the default (token-less) mode. That includes `POST /api/open-folder`, which spawns the OS file explorer (`explorer.exe`/`xdg-open`) on an arbitrary path from the request body. This is an accepted trade-off for single-user local use; `FRAMETRACE_TOKEN` closes it when needed.
+- **Connection concurrency is capped** at 64 in-flight requests; overflow gets an immediate `503` so idle sockets cannot exhaust threads. Sockets carry a 30 s read timeout and a 60 s write timeout, request headers are capped at 64 KiB, and bodies at 4 MiB.
+- **`/review/` and `/case/` responses are streamed** in 64 KiB chunks instead of being buffered whole — large artifacts no longer multiply memory use by request count. `/media` was already Range-streamed and restricted to the approved evidence roots.
 - **Browser-originated requests are gated.** Every route (including `/media`) requires a loopback `Host` header (the DNS-rebinding gate) and, when present, an `Origin` whose authority parses to an exact loopback host (the cross-site form-POST gate). Requests with **no** `Origin` — curl, local scripts, the page the workstation itself opened — are trusted, because a local caller needs no browser to reach the port.
 - **Recommended mitigations for examiners:** run the workstation on a single-user analysis machine, avoid browsing untrusted sites in the same browser session while a case is loaded, and close the window (which stops the server) when review is done. Multi-user or remote access would require an auth token and a changed bind policy — loopback trust does not extend to other interfaces.
 
