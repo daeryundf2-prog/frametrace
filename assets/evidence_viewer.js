@@ -92,6 +92,25 @@ const I18N = {
     "filter.dateFrom": "기간 시작",
     "filter.dateTo": "기간 끝",
     "hist.title": "일자별 건수 — 클릭하면 그날로 필터",
+    "split.v": "드래그: 목록/뷰어 폭 조절 / 더블클릭: 기본값",
+    "split.h": "드래그: 영상 높이 조절 / 더블클릭: 기본값",
+    "media.rate": "재생 속도 ([ / ])",
+    "media.zoom": "확대/축소",
+    "sc.next": "다음 / 이전 증거",
+    "sc.toggle": "현재 증거 선택 토글",
+    "sc.preview": "현재 증거 미리보기",
+    "sc.mark": "현재 증거 판독 완료 / 중요 / 검증 대기 (다음으로 이동)",
+    "sc.unmark": "현재 증거 마크 해제",
+    "sc.selAll": "필터 결과 전체 선택",
+    "sc.clear": "선택 해제",
+    "sc.seek": "영상 10초 뒤로 / 앞으로",
+    "sc.rate": "재생 속도 낮추기 / 높이기",
+    "sc.range": "구간 IN / OUT 지정",
+    "sc.fs": "영상 전체화면",
+    "sc.theater": "시어터 모드",
+    "sc.pip": "화면 속 화면",
+    "sc.exit": "모드 종료",
+    "sc.rangeSel": "범위 선택",
     "media.size": "크기",
     "media.fit": "맞춤",
     "panel.selected": "선택 증거",
@@ -138,7 +157,191 @@ const I18N = {
     "filter.tag.all": "태그: 전체",
     "shortcuts.title": "단축키",
     "fs.exit": "✕ 닫기 — 워크스테이션으로",
-    "chip.groupKind": "출처별 묶기"
+    "chip.groupKind": "출처별 묶기",
+    "grid.label": "증거 목록",
+    "rectype.driving": "일반 (주행)",
+    "rectype.event": "충격 (이벤트)",
+    "rectype.parking": "주차",
+    "rectype.unclassified": "미분류",
+    "chan.front": "전방(F)",
+    "chan.rear": "후방(R)",
+    "chan.interior": "내부(I)",
+    "chan.rear2": "후방2(B)",
+    "misc.other": "기타",
+    "status.verified": "검증됨",
+    "status.confirmed": "ffprobe 확인",
+    "status.failed": "검증 실패",
+    "status.candidate": "미검증 후보",
+    "status.duplicate": "중복 후보",
+    "mark.noted": "메모",
+    "mark.cleared": "마크 해제",
+    "chip.all": "전체",
+    "chip.recovery": "삭제·복구 항목",
+    "chip.marked": "마크/태그된 항목",
+    "chip.anomaly": "이상 징후 후보",
+    "chip.warning": "경고 있음",
+    "chip.failed": "검증 실패",
+    "chip.candidate": "미검증 후보",
+    "chip.duplicate": "중복 후보",
+    "chip.markImportant": "중요 마크",
+    "chip.markReviewed": "판독 완료",
+    "chip.markNone": "판독 대기",
+    "filter.label": "필터",
+    "group.noTime": "시각 미상",
+    "group.noMark": "마크 없음",
+    "group.noChannel": "채널 미상",
+    "tree.all": "전체",
+    "tree.rectype": "녹화 유형",
+    "tree.kind": "출처",
+    "tree.date": "날짜",
+    "kind.short.video": "원본",
+    "kind.short.carved": "카빙",
+    "kind.short.filesystem": "복구",
+    "kind.short.candidate": "복구 전",
+    "metric.indexed": "{n}편 색인",
+    "sel.count": "{n}개 선택 · 마크 {m}",
+    "triage.line": "· 판독 {done}/{total} 완료 (중요 {imp} · 검증 대기 {pend})",
+    "warn.count": "경고 {n}",
+    "warn.title": "경고",
+    "dfl.badge": "합성의심 {band}",
+    "dfl.title": "deepfake-lens 스크리닝 {score}점 — 검토 우선순위, 판정 아님",
+    "hist.item": "{day} {count}건",
+    "hist.empty": "시각 정보가 있는 증거가 없습니다 — 파일명 패턴 또는 수정시각에서 추출합니다.",
+    "hist.range": "녹화 기간: {from} ~ {to} · 시각 확인 {known}/{total}건 (파일명·수정시각 추출)",
+    "hist.none": "녹화 시각을 추출한 증거가 없습니다 (파일명 패턴 또는 수정시각 필요)",
+    "detail.recTime": "촬영 시각",
+    "detail.est": "(추정)",
+    "detail.channel": "채널",
+    "detail.mark": "판독",
+    "detail.unmarked": "미판독",
+    "detail.len": "길이",
+    "detail.size": "크기",
+    "detail.anomaly": "이상 후보",
+    "detail.dfl": "합성의심",
+    "detail.dflScore": "{label} ({score}점 — 검토 우선순위)",
+    "detail.dflFail": "스크리닝 실패: {error}",
+    "detail.dflNone": "결과 없음",
+    "detail.original": "원본",
+    "detail.origPath": "원본 경로",
+    "detail.path": "저장 경로",
+    "detail.codec": "코덱",
+    "detail.offset": "오프셋",
+    "detail.unknown": "미상",
+    "tag.input": "직접 입력",
+    "tag.apply": "적용",
+    "tag.presetSave": "프리셋 등록",
+    "tag.presetSave.title": "입력한 태그를 프리셋 목록에도 등록 (태그 메뉴·필터에 표시)",
+    "note.placeholder": "검토 메모 — 이 증거에 대한 소견 (마크/태그와 함께 케이스에 반영됨)",
+    "validation.none": "검증 로그 없음",
+    "toast.selectTarget": "대상 증거를 먼저 선택하세요.",
+    "toast.selectFirst": "먼저 증거를 선택하세요.",
+    "toast.storageFail": "브라우저 저장소에 저장할 수 없습니다: {err}",
+    "toast.selectedAll": "필터 결과 {n}개를 선택했습니다.",
+    "toast.markApplied": "{n}개 증거에 '{status}'를 적용했습니다.",
+    "toast.tagApplied": "{n}개 증거에 '{tag}' 태그를 적용했습니다.",
+    "toast.tagCleared": "{n}개 증거의 태그를 해제했습니다.",
+    "toast.presetAdded": "'{tag}' 태그를 프리셋에 추가했습니다.",
+    "toast.downloadStart": "{name} 다운로드를 시작했습니다.",
+    "toast.copied": "{label}을(를) 클릭보드에 복사했습니다.",
+    "copy.ids": "증거 ID",
+    "copy.paths": "증거 경로",
+    "toast.copyFail": "복사에 실패했습니다: {err}",
+    "toast.fsExitFail": "전체화면 종료 실패: {err}",
+    "toast.fsEnterFail": "전체화면 진입 실패: {err}",
+    "toast.fsUnsupported": "이 브라우저는 전체화면을 지원하지 않습니다.",
+    "toast.noVideo": "재생 중인 영상이 없습니다.",
+    "toast.pipUnsupported": "이 브라우저는 화면 속 화면을 지원하지 않습니다.",
+    "toast.pipFail": "화면 속 화면 실패: {err}",
+    "toast.noRecord": "표시할 증거가 없습니다.",
+    "toast.popupBlocked": "팝업이 차단되었습니다 — 브라우저 설정에서 팝업을 허용하십시오.",
+    "toast.captureSaved": "프레임 저장: {path}",
+    "toast.captureFail": "캡처 실패: {err}",
+    "toast.captureOffline": "캡처 실패: 워크스테이션 서버에 연결할 수 없습니다.",
+    "toast.pickEvidence": "재생 중인 증거를 먼저 선택하세요.",
+    "toast.outBeforeIn": "OUT 지점이 IN보다 앞입니다 — 다시 지정하세요.",
+    "toast.playPick": "재생할 증거를 먼저 선택하세요.",
+    "toast.playOriginal": "원본 영상으로 재생합니다.",
+    "toast.proxyBuilding": "프록시 생성 중… 원본 크기에 따라 수 분 걸릴 수 있습니다.",
+    "toast.proxyPlaying": "프록시로 재생합니다 — 다시 누르면 원본으로 돌아갑니다.",
+    "toast.proxyFail": "프록시 실패: {err}",
+    "toast.proxyOffline": "프록시 실패: 워크스테이션 서버에 연결할 수 없습니다.",
+    "toast.noRange": "먼저 IN/OUT 구간을 지정하세요 (i / o 키).",
+    "toast.clipDone": "클립보내기 완료: {path}",
+    "toast.clipFail": "보내기 실패: {err}",
+    "toast.clipOffline": "보내기 실패: 워크스테이션 서버에 연결할 수 없습니다.",
+    "toast.noChanges": "반영할 판독 변경이 없습니다.",
+    "toast.applyDone": "판독 마크가 케이스에 반영되고 보고서가 갱신되었습니다.",
+    "toast.applyFail": "반영 실패: {err}",
+    "toast.applyOffline": "반영 실패: 서버에 연결할 수 없습니다.",
+    "toast.noItems": "선택하거나 마크된 항목이 없습니다.",
+    "toast.exportFail": "보내기 실패: {err}",
+    "toast.exportDone": "선별 자료 {copied}개 복사 완료 (제외 {skipped}) — {dir}",
+    "toast.offline": "워크스테이션 서버에 연결할 수 없습니다 — 서버 주소로 뷰어를 여십시오.",
+    "toast.fileOnly": "파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.",
+    "toast.downloads": "{n}개 파일 다운로드 시작 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다.",
+    "toast.standalone": "파일로 직접 연 뷰어입니다 — 영상 재생·자료 묶기·마크 반영은 서버(127.0.0.1:8477)로 연 뷰어에서 가능하고, 여기서 단 마크/태그는 서버 뷰어와 별도로 저장됩니다.",
+    "timeline.offline": "파일로 직접 연 뷰어에서는 타임라인을 불러올 수 없습니다 — 서버 뷰어를 사용하세요.",
+    "tagmenu.delPreset": "프리셋에서 삭제",
+    "tagmenu.clear": "태그 해제",
+    "tagmenu.new": "새 태그 등록",
+    "tagmenu.add": "추가",
+    "filter.tag.named": "태그: {tag}",
+    "report.title": "FrameTrace 판독 요약",
+    "report.meta": "케이스: {case} · 생성: {when} · 항목 {n}개",
+    "report.counts": "검증됨 {v} · 후보 {c} · 검증 실패 {f}",
+    "report.note": "이 문서는 검토자가 선별한 항목의 요약입니다. 원본 증거 무결성은 케이스 감사 로그와 SHA-256 값으로 대조하십시오. '후보' 표시 항목은 검증 전이므로 증거로 주장하기 전 추가 검증이 필요합니다.",
+    "report.th.name": "파일명",
+    "report.th.kind": "출처",
+    "report.th.status": "검증 상태",
+    "report.th.mark": "마크",
+    "report.th.tags": "태그",
+    "report.th.size": "크기",
+    "report.th.time": "녹화 시각",
+    "report.th.warn": "경고/메모",
+    "report.th.orig": "원본 경로",
+    "report.memo": "소견:",
+    "player.novid": "재생 가능한 파일이 없는 항목입니다 (복구 전 후보 등) — 다음으로 넘어가세요",
+    "player.prev": "‹ 이전",
+    "player.next": "다음 ›",
+    "player.play": "재생/일시정지",
+    "player.capTitle": "현재 프레임을 케이스에 저장",
+    "player.hint": "←/→ ±10초 · ↑/↓ 배속 · space 재생 · k/j 이전/다음",
+    "player.mark": "판독",
+    "player.tags": "태그",
+    "player.reviewed": "판독 완료(1)",
+    "player.important": "중요(2)",
+    "player.verify": "검증 대기(3)",
+    "player.clear": "해제(0)",
+    "player.dead": "메인 뷰어가 닫혔습니다 — 마크/태그/이동이 비활성화되었습니다.",
+    "player.none": "표시할 증거가 없습니다",
+    "player.last": "마지막 항목입니다",
+    "player.first": "첫 항목입니다",
+    "player.noVideo": "재생 중인 영상이 없습니다",
+    "player.saved": "프레임 저장: {path}",
+    "player.capFail": "캡처 실패: {err}",
+    "player.capOffline": "캡처 실패: 서버 연결 불가",
+    "player.warn": "경고 {n}",
+    "player.meta": "{id} · {status} · {idx}/{total}건",
+    "empty.index": "색인된 증거가 없습니다.",
+    "empty.play": "직접 재생 가능한 파일 URL이 없습니다.",
+    "range.label": "구간 {in} ~ {out}",
+    "cand.vendor": "삭제 영상 후보",
+    "cand.note": "복구 전 삭제 영상 후보 — recover-batch로 복구한 뒤 검증하십시오.",
+    "player.cap": "프레임 캡처",
+    "player.warnShort": "경고",
+    "player.savedPfx": "프레임 저장:",
+    "player.capFailPfx": "캡처 실패:",
+    "warn.inspect": "조사 경고 {n}건",
+    "timeline.building": "타임라인 생성 중…",
+    "timeline.fail": "생성 실패: {err}",
+    "timeline.failOffline": "생성 실패: 서버 연결 불가",
+    "timeline.none": "타임라인이 아직 없습니다 — '타임라인 생성/갱신'을 누르세요.",
+    "timeline.count": "{n}개 이벤트 · 후보급 (기록된 메타데이터 기반)",
+    "timeline.ellipsis": "… 나머지 {n}건 생략 (전체: db/timeline.jsonl)",
+    "timeline.unreadable": "타임라인을 읽을 수 없습니다.",
+    "offline.openServer": "워크스테이션 서버(127.0.0.1:8477)로 뷰어를 열어야 사용할 수 있습니다.",
+    "offline.applyTitle": "서버 경유 뷰어에서만 케이스에 직접 반영할 수 있습니다 — '마크 내려받기'로 파일을 저장하세요.",
+    "offline.serverOnly": "워크스테이션 서버로 연 뷰어에서만 사용할 수 있습니다."
   },
   en: {
     "unit.count": "",
@@ -190,6 +393,25 @@ const I18N = {
     "filter.dateFrom": "Date from",
     "filter.dateTo": "Date to",
     "hist.title": "Counts by day — click to filter",
+    "split.v": "Drag: adjust list/viewer width / double-click: reset",
+    "split.h": "Drag: adjust video height / double-click: reset",
+    "media.rate": "Playback speed ([ / ])",
+    "media.zoom": "Zoom",
+    "sc.next": "Next / previous evidence",
+    "sc.toggle": "Toggle current evidence selection",
+    "sc.preview": "Preview current evidence",
+    "sc.mark": "Mark current: reviewed / important / needs verification (advances)",
+    "sc.unmark": "Unmark current evidence",
+    "sc.selAll": "Select all filtered results",
+    "sc.clear": "Clear selection",
+    "sc.seek": "Seek video 10s back / forward",
+    "sc.rate": "Decrease / increase playback speed",
+    "sc.range": "Set IN / OUT range",
+    "sc.fs": "Video fullscreen",
+    "sc.theater": "Theater mode",
+    "sc.pip": "Picture-in-picture",
+    "sc.exit": "Exit mode",
+    "sc.rangeSel": "Range select",
     "media.size": "Size",
     "media.fit": "Fit",
     "panel.selected": "Selected evidence",
@@ -236,13 +458,206 @@ const I18N = {
     "filter.tag.all": "Tag: all",
     "shortcuts.title": "Shortcuts",
     "fs.exit": "✕ Close — back to workstation",
-    "chip.groupKind": "Group by source"
+    "chip.groupKind": "Group by source",
+    "grid.label": "Evidence list",
+    "rectype.driving": "Driving",
+    "rectype.event": "Event (impact)",
+    "rectype.parking": "Parking",
+    "rectype.unclassified": "Unclassified",
+    "chan.front": "Front (F)",
+    "chan.rear": "Rear (R)",
+    "chan.interior": "Interior (I)",
+    "chan.rear2": "Rear 2 (B)",
+    "misc.other": "Other",
+    "status.verified": "Verified",
+    "status.confirmed": "ffprobe confirmed",
+    "status.failed": "Validation failed",
+    "status.candidate": "Unvalidated candidate",
+    "status.duplicate": "Duplicate candidate",
+    "mark.noted": "Note",
+    "mark.cleared": "Unmark",
+    "chip.all": "All",
+    "chip.recovery": "Deleted/recovered items",
+    "chip.marked": "Marked/tagged items",
+    "chip.anomaly": "Anomaly candidates",
+    "chip.warning": "With warnings",
+    "chip.failed": "Validation failed",
+    "chip.candidate": "Unvalidated candidates",
+    "chip.duplicate": "Duplicate candidates",
+    "chip.markImportant": "Marked important",
+    "chip.markReviewed": "Reviewed",
+    "chip.markNone": "Awaiting review",
+    "filter.label": "Filters",
+    "group.noTime": "Unknown time",
+    "group.noMark": "No mark",
+    "group.noChannel": "Unknown channel",
+    "tree.all": "All",
+    "tree.rectype": "Recording type",
+    "tree.kind": "Source",
+    "tree.date": "Date",
+    "kind.short.video": "Source",
+    "kind.short.carved": "Carved",
+    "kind.short.filesystem": "Recovered",
+    "kind.short.candidate": "Pre-recovery",
+    "metric.indexed": "{n} indexed",
+    "sel.count": "{n} selected · {m} marked",
+    "triage.line": "· {done}/{total} reviewed (important {imp} · needs verification {pend})",
+    "warn.count": "{n} warnings",
+    "warn.title": "Warnings",
+    "dfl.badge": "Deepfake suspicion {band}",
+    "dfl.title": "deepfake-lens score {score} — review priority, not a verdict",
+    "hist.item": "{day} {count} items",
+    "hist.empty": "No evidence with time info — extracted from filename patterns or mtimes.",
+    "hist.range": "Recording span: {from} ~ {to} · time known for {known}/{total} (from filename/mtime)",
+    "hist.none": "No evidence has an extracted recording time (filename pattern or mtime required)",
+    "detail.recTime": "Recorded at",
+    "detail.est": "(est.)",
+    "detail.channel": "Channel",
+    "detail.mark": "Mark",
+    "detail.unmarked": "Unreviewed",
+    "detail.len": "Duration",
+    "detail.size": "Size",
+    "detail.anomaly": "Anomaly candidates",
+    "detail.dfl": "Deepfake suspicion",
+    "detail.dflScore": "{label} ({score} pts — review priority)",
+    "detail.dflFail": "Screening failed: {error}",
+    "detail.dflNone": "No result",
+    "detail.original": "Original",
+    "detail.origPath": "Original path",
+    "detail.path": "Stored path",
+    "detail.codec": "Codec",
+    "detail.offset": "Offset",
+    "detail.unknown": "Unknown",
+    "tag.input": "Custom",
+    "tag.apply": "Apply",
+    "tag.presetSave": "Save as preset",
+    "tag.presetSave.title": "Also register the typed tag in the preset list (shown in tag menu/filter)",
+    "note.placeholder": "Review note — findings on this evidence (applied to the case with marks/tags)",
+    "validation.none": "No validation log",
+    "toast.selectTarget": "Select a target evidence first.",
+    "toast.selectFirst": "Select evidence first.",
+    "toast.storageFail": "Cannot write to browser storage: {err}",
+    "toast.selectedAll": "Selected {n} filtered results.",
+    "toast.markApplied": "Applied '{status}' to {n} evidence items.",
+    "toast.tagApplied": "Applied tag '{tag}' to {n} evidence items.",
+    "toast.tagCleared": "Cleared tags on {n} evidence items.",
+    "toast.presetAdded": "Added tag '{tag}' to presets.",
+    "toast.downloadStart": "Started downloading {name}.",
+    "toast.copied": "Copied {label} to clipboard.",
+    "copy.ids": "evidence IDs",
+    "copy.paths": "evidence paths",
+    "toast.copyFail": "Copy failed: {err}",
+    "toast.fsExitFail": "Failed to exit fullscreen: {err}",
+    "toast.fsEnterFail": "Failed to enter fullscreen: {err}",
+    "toast.fsUnsupported": "This browser does not support fullscreen.",
+    "toast.noVideo": "No video is playing.",
+    "toast.pipUnsupported": "This browser does not support picture-in-picture.",
+    "toast.pipFail": "Picture-in-picture failed: {err}",
+    "toast.noRecord": "No evidence to show.",
+    "toast.popupBlocked": "Popup blocked — allow popups in browser settings.",
+    "toast.captureSaved": "Frame saved: {path}",
+    "toast.captureFail": "Capture failed: {err}",
+    "toast.captureOffline": "Capture failed: cannot reach the workstation server.",
+    "toast.pickEvidence": "Select the playing evidence first.",
+    "toast.outBeforeIn": "OUT precedes IN — set it again.",
+    "toast.playPick": "Select evidence to play first.",
+    "toast.playOriginal": "Playing the original video.",
+    "toast.proxyBuilding": "Building proxy… may take minutes depending on source size.",
+    "toast.proxyPlaying": "Playing proxy — press again to return to the original.",
+    "toast.proxyFail": "Proxy failed: {err}",
+    "toast.proxyOffline": "Proxy failed: cannot reach the workstation server.",
+    "toast.noRange": "Set an IN/OUT range first (i / o keys).",
+    "toast.clipDone": "Clip export done: {path}",
+    "toast.clipFail": "Export failed: {err}",
+    "toast.clipOffline": "Export failed: cannot reach the workstation server.",
+    "toast.noChanges": "No review changes to apply.",
+    "toast.applyDone": "Review marks applied to the case and the report refreshed.",
+    "toast.applyFail": "Apply failed: {err}",
+    "toast.applyOffline": "Apply failed: cannot reach the server.",
+    "toast.noItems": "No selected or marked items.",
+    "toast.exportFail": "Export failed: {err}",
+    "toast.exportDone": "Copied {copied} selected items (skipped {skipped}) — {dir}",
+    "toast.offline": "Cannot reach the workstation server — open the viewer via the server address.",
+    "toast.fileOnly": "File download requires a server-hosted viewer — open it from the workstation.",
+    "toast.downloads": "Started {n} file downloads — the browser may ask to allow multiple downloads.",
+    "toast.standalone": "Viewer opened directly from file — playback, packaging and mark apply need the server viewer (127.0.0.1:8477); marks/tags made here are stored separately.",
+    "timeline.offline": "Timeline is unavailable in a file-opened viewer — use the server viewer.",
+    "tagmenu.delPreset": "Remove from presets",
+    "tagmenu.clear": "Clear tags",
+    "tagmenu.new": "New tag",
+    "tagmenu.add": "Add",
+    "filter.tag.named": "Tag: {tag}",
+    "report.title": "FrameTrace review summary",
+    "report.meta": "Case: {case} · Generated: {when} · {n} items",
+    "report.counts": "Verified {v} · Candidates {c} · Validation failed {f}",
+    "report.note": "This document summarizes items selected by the reviewer. Verify original evidence integrity against the case audit log and SHA-256 values. Items marked 'candidate' are unvalidated and require further verification before being asserted as evidence.",
+    "report.th.name": "Filename",
+    "report.th.kind": "Source",
+    "report.th.status": "Validation status",
+    "report.th.mark": "Mark",
+    "report.th.tags": "Tags",
+    "report.th.size": "Size",
+    "report.th.time": "Recorded at",
+    "report.th.warn": "Warnings/notes",
+    "report.th.orig": "Original path",
+    "report.memo": "Note:",
+    "player.novid": "No playable file on this item (e.g. pre-recovery candidate) — skip to the next",
+    "player.prev": "‹ Prev",
+    "player.next": "Next ›",
+    "player.play": "Play/Pause",
+    "player.capTitle": "Save current frame to the case",
+    "player.hint": "←/→ ±10s · ↑/↓ rate · space play · k/j prev/next",
+    "player.mark": "Mark",
+    "player.tags": "Tags",
+    "player.reviewed": "Reviewed (1)",
+    "player.important": "Important (2)",
+    "player.verify": "Needs verification (3)",
+    "player.clear": "Clear (0)",
+    "player.dead": "Main viewer closed — marks/tags/navigation disabled.",
+    "player.none": "No evidence to show",
+    "player.last": "Last item",
+    "player.first": "First item",
+    "player.noVideo": "No video is playing",
+    "player.saved": "Frame saved: {path}",
+    "player.capFail": "Capture failed: {err}",
+    "player.capOffline": "Capture failed: cannot reach the server",
+    "player.warn": "{n} warnings",
+    "player.meta": "{id} · {status} · {idx}/{total}",
+    "empty.index": "No indexed evidence.",
+    "empty.play": "No directly playable file URL.",
+    "range.label": "Range {in} ~ {out}",
+    "cand.vendor": "Deleted video candidate",
+    "cand.note": "Pre-recovery deleted video candidate — recover with recover-batch, then validate.",
+    "player.cap": "Capture frame",
+    "player.warnShort": "warnings",
+    "player.savedPfx": "Frame saved:",
+    "player.capFailPfx": "Capture failed:",
+    "warn.inspect": "Inspection warnings: {n}",
+    "timeline.building": "Building timeline…",
+    "timeline.fail": "Build failed: {err}",
+    "timeline.failOffline": "Build failed: cannot reach the server",
+    "timeline.none": "No timeline yet — press 'Build/refresh timeline'.",
+    "timeline.count": "{n} events · candidate-grade (based on recorded metadata)",
+    "timeline.ellipsis": "… {n} more omitted (full list: db/timeline.jsonl)",
+    "timeline.unreadable": "Cannot read the timeline.",
+    "offline.openServer": "Open the viewer via the workstation server (127.0.0.1:8477) to use this.",
+    "offline.applyTitle": "Direct case apply is only available in the server-hosted viewer — use 'Download marks' to save a file.",
+    "offline.serverOnly": "Only available when the viewer is opened via the workstation server."
   }
 };
 
 function t(key) {
   const locale = state?.locale || storageGet(LOCALE_KEY, "ko") || "ko";
   return (I18N[locale] && I18N[locale][key]) || (I18N.ko[key]) || key;
+}
+
+// tf formats a locale string with {name} placeholders.
+function tf(key, subs) {
+  let s = t(key);
+  if (subs) for (const [name, value] of Object.entries(subs)) {
+    s = s.split("{" + name + "}").join(String(value));
+  }
+  return s;
 }
 
 function applyChromeI18n() {
@@ -255,6 +670,9 @@ function applyChromeI18n() {
   });
   document.querySelectorAll("[data-i18n-title]").forEach(el => {
     el.setAttribute("title", t(el.dataset.i18nTitle));
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach(el => {
+    el.setAttribute("aria-label", t(el.dataset.i18nAriaLabel));
   });
   const langBtn = document.getElementById("btnLang");
   if (langBtn) langBtn.textContent = state.locale === "ko" ? "EN" : "KO";
@@ -311,7 +729,7 @@ function recTypeFor(record) {
 }
 
 function recTypeLabel(recType) {
-  return { driving: "일반 (주행)", event: "충격 (이벤트)", parking: "주차", unclassified: "미분류" }[recType] || "미분류";
+  return ({ driving: t("rectype.driving"), event: t("rectype.event"), parking: t("rectype.parking"), unclassified: t("rectype.unclassified") })[recType] || t("rectype.unclassified");
 }
 
 function channelFor(record) {
@@ -319,18 +737,18 @@ function channelFor(record) {
   let match = name.match(/[_\-. ]([FRIB])(?:[_.\- ]|[a-z0-9]*$)/i);
   if (match) {
     const code = match[1].toUpperCase();
-    return { F: "전방(F)", R: "후방(R)", I: "내부(I)", B: "후방2(B)" }[code] || code;
+    return ({ F: t("chan.front"), R: t("chan.rear"), I: t("chan.interior"), B: t("chan.rear2") })[code] || code;
   }
-  if (/front/i.test(name)) return "전방(F)";
-  if (/rear/i.test(name)) return "후방(R)";
-  if (/interior|inside/i.test(name)) return "내부(I)";
+  if (/front/i.test(name)) return t("chan.front");
+  if (/rear/i.test(name)) return t("chan.rear");
+  if (/interior|inside/i.test(name)) return t("chan.interior");
   return null;
 }
 
 function prefixFor(record) {
   const name = String(record.originalPath || record.name || "");
   const match = name.match(/[A-Za-z가-힣_\-]+/);
-  return match ? match[0].replace(/[_\-]+$/, "") || "기타" : "기타";
+  return match ? match[0].replace(/[_\-]+$/, "") || t("misc.other") : t("misc.other");
 }
 
 function originalNameFor(record) {
@@ -437,11 +855,11 @@ function fmtDuration(value) {
 }
 
 function statusLabel(status) {
-  if (status === "ffprobe-video-stream-confirmed") return "검증됨";
-  if (status === "ffprobe-confirmed") return "ffprobe 확인";
-  if (status === "validation-failed") return "검증 실패";
-  if (status === "candidate-unvalidated") return "미검증 후보";
-  if (status === "duplicate-candidate") return "중복 후보";
+  if (status === "ffprobe-video-stream-confirmed") return t("status.verified");
+  if (status === "ffprobe-confirmed") return t("status.confirmed");
+  if (status === "validation-failed") return t("status.failed");
+  if (status === "candidate-unvalidated") return t("status.candidate");
+  if (status === "duplicate-candidate") return t("status.duplicate");
   return status;
 }
 
@@ -474,7 +892,7 @@ function storageSet(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch (error) {
-    toast("브라우저 저장소에 저장할 수 없습니다: " + error.message);
+    toast(tf("toast.storageFail", { err: error.message }));
     return false;
   }
 }
@@ -543,13 +961,13 @@ const records = [
         path: "",
         fileUrl: "",
         parser: "fls listing",
-        vendor: "삭제 영상 후보",
+        vendor: t("cand.vendor"),
         status: "candidate-unvalidated",
         sha256: "-",
         duration: null,
         codec: "-",
         size: null,
-        note: "복구 전 삭제 영상 후보 — recover-batch로 복구한 뒤 검증하십시오.",
+        note: t("cand.note"),
         indexStatus: "recovery-pending",
         modifiedUnix: null,
         inode: entry.inode,
@@ -747,17 +1165,17 @@ const els = {
 };
 
 const PRESET_CHIPS = [
-  ["", "전체"],
-  ["kind:recovery", "삭제·복구 항목"],
-  ["marked:any", "마크/태그된 항목"],
-  ["anomaly", "이상 징후 후보"],
-  ["warning", "경고 있음"],
-  ["status:validation-failed", "검증 실패"],
-  ["status:candidate-unvalidated", "미검증 후보"],
-  ["status:duplicate-candidate", "중복 후보"],
-  ["mark:important", "중요 마크"],
-  ["mark:reviewed", "판독 완료"],
-  ["mark:none", "판독 대기"],
+  ["", "chip.all"],
+  ["kind:recovery", "chip.recovery"],
+  ["marked:any", "chip.marked"],
+  ["anomaly", "chip.anomaly"],
+  ["warning", "chip.warning"],
+  ["status:validation-failed", "chip.failed"],
+  ["status:candidate-unvalidated", "chip.candidate"],
+  ["status:duplicate-candidate", "chip.duplicate"],
+  ["mark:important", "chip.markImportant"],
+  ["mark:reviewed", "chip.markReviewed"],
+  ["mark:none", "chip.markNone"],
 ];
 
 function filteredRecords() {
@@ -811,13 +1229,13 @@ function filteredRecords() {
 
 function groupKeyFor(record) {
   switch (state.groupBy) {
-    case "day": return record.recDay || "시각 미상";
-    case "kind": return { video: "원본 (논리 파일)", carved: "카빍 후보", filesystem: "파일시스템 복구", candidate: "삭제 영상 후보 (복구 전)" }[record.kind] || record.kind;
+    case "day": return record.recDay || t("group.noTime");
+    case "kind": return ({ video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate") })[record.kind] || record.kind;
     case "recType": return recTypeLabel(record.recType);
     case "status": return statusLabel(record.status);
-    case "mark": return markOf(record) ? markLabel(markOf(record).status) : "마크 없음";
+    case "mark": return markOf(record) ? markLabel(markOf(record).status) : t("group.noMark");
     case "prefix": return record.prefix;
-    case "channel": return record.channel || "채널 미상";
+    case "channel": return record.channel || t("group.noChannel");
     default: return "";
   }
 }
@@ -964,7 +1382,7 @@ function renderGrid(filtered) {
     else if (status === "needs_verification") pending += 1;
   });
   if (els.triageStatus) {
-    els.triageStatus.textContent = `· 판독 ${reviewed}/${records.length} 완료 (중요 ${important} · 검증 대기 ${pending})`;
+    els.triageStatus.textContent = tf("triage.line", { done: reviewed, total: records.length, imp: important, pend: pending });
   }
   els.prevPage.disabled = state.currentPage <= 1;
   els.nextPage.disabled = state.currentPage >= pageCount;
@@ -986,7 +1404,7 @@ function renderGrid(filtered) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
         const kindAttr = state.groupBy === "kind" ? ` data-gkind="${escapeHtml(record.kind || "")}"` : "";
-        cardsHtml.push(`<div class="group-header"${kindAttr} data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
+        cardsHtml.push(`<div class="group-header"${kindAttr} data-group="${escapeHtml(key)}" tabindex="0" role="button"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
         if (collapsed) return;
       }
       if (state.collapsedGroups.has(key)) return;
@@ -1017,14 +1435,14 @@ function renderCard(record) {
   const anomalyChip = record.hasAnomaly
     ? `<span class="badge anomaly" title="${escapeHtml(record.anomalies.map(item => item.kind).join(", "))}">${escapeHtml(t("header.anomaly"))}</span>`
     : "";
-  const kindChip = `<span class="kind-badge kind-${escapeHtml(record.kind || "video")}" title="출처">${escapeHtml(KIND_SHORT[record.kind] || record.kind || "?")}</span>`;
+  const kindChip = `<span class="kind-badge kind-${escapeHtml(record.kind || "video")}" title="${t("tree.kind")}">${escapeHtml(KIND_SHORT[record.kind] || record.kind || "?")}</span>`;
   const warnChip = (record.warnings || []).length
-    ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>`
+    ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">${tf("warn.count", { n: record.warnings.length })}</span>`
     : "";
   const dflChip = record.dfl && record.dfl.band
-    ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}" title="deepfake-lens 스크리닝 ${escapeHtml(String(record.dfl.score ?? ""))}점 — 검토 우선순위, 판정 아님">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>`
+    ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}" title="${escapeHtml(tf("dfl.title", { score: record.dfl.score ?? "" }))}">${escapeHtml(tf("dfl.badge", { band: record.dfl.band_label || record.dfl.band }))}</span>`
     : "";
-  return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
+  return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="${record.id === state.activeId ? 0 : -1}" role="option" aria-selected="${state.selectedIds.has(record.id)}">
     <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
@@ -1043,11 +1461,11 @@ function renderHistogram(filtered) {
   const top = [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-16);
   const max = Math.max(1, ...top.map(entry => entry[1]));
   els.dayHistogram.innerHTML = top.map(([day, count]) => `
-    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(day)}: ${count}건" aria-label="${escapeHtml(day)} ${count}건">
+    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(tf("hist.item", { day, count }))}" aria-label="${escapeHtml(tf("hist.item", { day, count }))}">
       <span class="bar" style="height:${Math.round((count * 40) / max)}px"></span>
       <span class="lbl">${escapeHtml(day.slice(5))}</span>
     </button>`).join("")
-    || `<span class="muted">시각 정보가 있는 증거가 없습니다 — 파일명 패턴 또는 수정시각에서 추출합니다.</span>`;
+    || `<span class="muted">${t("hist.empty")}</span>`;
   els.dayHistogram.querySelectorAll("button[data-day]").forEach(button => {
     button.addEventListener("click", () => {
       state.dateFrom = button.dataset.day;
@@ -1060,8 +1478,8 @@ function renderHistogram(filtered) {
   });
   const known = records.filter(record => record.recDay).map(record => record.recDay).sort();
   els.periodLabel.textContent = known.length
-    ? "녹화 기간: " + known[0] + " ~ " + known[known.length - 1] + " · 시각 확인 " + known.length + "/" + records.length + "건 (파일명·수정시각 추출)"
-    : "녹화 시각을 추출한 증거가 없습니다 (파일명 패턴 또는 수정시각 필요)";
+    ? tf("hist.range", { from: known[0], to: known[known.length - 1], known: known.length, total: records.length })
+    : t("hist.none");
 }
 
 function tagListFor(record) { return state.tags[record.id] || []; }
@@ -1104,10 +1522,10 @@ function toggleTag(id, tag) {
 }
 
 function markLabel(status) {
-  if (status === "reviewed") return "판독 완료";
-  if (status === "important") return "중요";
-  if (status === "needs_verification") return "검증 대기";
-  if (status === "noted") return "메모";
+  if (status === "reviewed") return t("mark.reviewed");
+  if (status === "important") return t("mark.important");
+  if (status === "needs_verification") return t("mark.verify");
+  if (status === "noted") return t("mark.noted");
   return status;
 }
 
@@ -1130,7 +1548,7 @@ function selectRange(fromId, toId, checked) {
 function selectAllFiltered() {
   filteredRecords().forEach(record => state.selectedIds.add(record.id));
   render();
-  toast(`필터 결과 ${state.selectedIds.size}개를 선택했습니다.`);
+  toast(tf("toast.selectedAll", { n: state.selectedIds.size }));
 }
 
 function clearSelection() {
@@ -1145,7 +1563,7 @@ function targetIds() {
 
 function applyMark(status) {
   const ids = targetIds();
-  if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
+  if (!ids.length) { toast(t("toast.selectTarget")); return; }
   const stamped = Math.floor(Date.now() / 1000);
   ids.forEach(id => {
     if (status === null) { delete state.marks[id]; state.notes[id] = ""; }
@@ -1156,7 +1574,7 @@ function applyMark(status) {
   });
   storageSet(MARKS_KEY, state.marks);
   render();
-  toast(`${ids.length}개 증거에 '${status === null ? "마크 해제" : markLabel(status)}'를 적용했습니다.`);
+  toast(tf("toast.markApplied", { n: ids.length, status: status === null ? t("mark.cleared") : markLabel(status) }));
 }
 
 let mediaRenderedFor = null;
@@ -1164,7 +1582,7 @@ let mediaRenderedFor = null;
 function renderDetails() {
   const record = selectedRecord();
   if (!record) {
-    els.mediaStage.innerHTML = `<div class="fallback">색인된 증거가 없습니다.</div>`;
+    els.mediaStage.innerHTML = `<div class="fallback">${t("empty.index")}</div>`;
     els.mediaTitle.textContent = "-";
     els.mediaStatus.textContent = "-";
     els.summaryList.innerHTML = "";
@@ -1182,7 +1600,7 @@ function renderDetails() {
     const mediaSrc = mediaSrcFor(record);
     els.mediaStage.innerHTML = mediaSrc
       ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
-      : `<div class="fallback">직접 재생 가능한 파일 URL이 없습니다.</div>`;
+      : `<div class="fallback">${t("empty.play")}</div>`;
     const newVideo = els.mediaStage.querySelector("video");
     if (newVideo) {
       newVideo.playbackRate = state.layout.rate || 1;
@@ -1196,45 +1614,45 @@ function renderDetails() {
   const recordTags = tagListFor(record);
   document.getElementById("detailBadges").innerHTML = [
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
-    (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>` : "",
+    (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">${tf("warn.count", { n: record.warnings.length })}</span>` : "",
     record.hasAnomaly ? `<span class="badge anomaly">${escapeHtml(t("header.anomaly"))}</span>` : "",
-    record.dfl && record.dfl.band ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>` : "",
+    record.dfl && record.dfl.band ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}">${escapeHtml(tf("dfl.badge", { band: record.dfl.band_label || record.dfl.band }))}</span>` : "",
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
     ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
     record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
   ].join(" ");
   els.summaryList.innerHTML = [
-    ["촬영 시각", record.recTime ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : " (추정)") : "미상"],
-    ["채널", record.channel || "-"],
-    ["판독", mark ? markLabel(mark.status) : "미판독"],
-    ["길이", fmtDuration(record.duration)],
-    ["크기", fmtBytes(record.size)],
-    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
-    ["합성의심", record.dfl ? (record.dfl.band
-        ? `${record.dfl.band_label || record.dfl.band} (${record.dfl.score ?? "?"}점 — 검토 우선순위)${record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : ""}`
-        : (record.dfl.error ? `스크리닝 실패: ${record.dfl.error}` : "결과 없음")) : "-"]
+    [t("detail.recTime"), record.recTime ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : " " + t("detail.est")) : t("detail.unknown")],
+    [t("detail.channel"), record.channel || "-"],
+    [t("detail.mark"), mark ? markLabel(mark.status) : t("detail.unmarked")],
+    [t("detail.len"), fmtDuration(record.duration)],
+    [t("detail.size"), fmtBytes(record.size)],
+    [t("detail.anomaly"), record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
+    [t("detail.dfl"), record.dfl ? (record.dfl.band
+        ? tf("detail.dflScore", { label: record.dfl.band_label || record.dfl.band, score: record.dfl.score ?? "?" }) + (record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : "")
+        : (record.dfl.error ? tf("detail.dflFail", { error: record.dfl.error }) : t("detail.dflNone"))) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
-    ["원본", `<code>${escapeHtml(record.originalName || record.name)}</code>`],
-    ["원본 경로", record.originalPath ? `<code>${escapeHtml(record.originalPath)}</code>` : "-"],
-    ["저장 경로", `<code>${escapeHtml(record.path)}</code>`],
-    ["코덱", escapeHtml(record.codec)],
+    [t("detail.original"), `<code>${escapeHtml(record.originalName || record.name)}</code>`],
+    [t("detail.origPath"), record.originalPath ? `<code>${escapeHtml(record.originalPath)}</code>` : "-"],
+    [t("detail.path"), `<code>${escapeHtml(record.path)}</code>`],
+    [t("detail.codec"), escapeHtml(record.codec)],
     ["SHA-256", `<code>${escapeHtml(record.sha256)}</code>`],
-    ["오프셋", record.offset != null ? String(record.offset) : "-"]
+    [t("detail.offset"), record.offset != null ? String(record.offset) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
   // tag editor for the selected evidence
   const tagEditorHtml = `<div class="tag-editor">
     ${tagPresets().map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
-    <input type="text" class="tag-input" id="customTagInput" placeholder="직접 입력" style="width:80px;height:24px;font-size:11px;">
-    <button type="button" class="mini" id="btnAddCustomTag">적용</button>
-    <button type="button" class="mini" id="btnSaveCustomTag" title="입력한 태그를 프리셋 목록에도 등록 (태그 메뉴·필터에 표시)">프리셋 등록</button>
+    <input type="text" class="tag-input" id="customTagInput" placeholder="${t("tag.input")}" style="width:80px;height:24px;font-size:11px;">
+    <button type="button" class="mini" id="btnAddCustomTag">${t("tag.apply")}</button>
+    <button type="button" class="mini" id="btnSaveCustomTag" title="${t("tag.presetSave.title")}">${t("tag.presetSave")}</button>
   </div>`;
   // replace existing tag editor if any
   const oldEditor = document.querySelector(".tag-editor-wrap");
   if (oldEditor) oldEditor.remove();
   const metaEl = els.metaList;
   metaEl.insertAdjacentHTML("afterend", `<div class="tag-editor-wrap">${tagEditorHtml}
-    <textarea id="evidenceNote" class="note-input" rows="2" placeholder="검토 메모 — 이 증거에 대한 소견 (마크/태그와 함께 케이스에 반영됨)">${escapeHtml(state.notes[record.id] || "")}</textarea>
+    <textarea id="evidenceNote" class="note-input" rows="2" placeholder="${t("note.placeholder")}">${escapeHtml(state.notes[record.id] || "")}</textarea>
   </div>`);
   document.getElementById("evidenceNote").addEventListener("input", e => {
     const value = e.target.value;
@@ -1270,7 +1688,7 @@ function renderDetails() {
         addTagPreset(tag);
         customInput.value = "";
         render();
-        toast(`'${tag}' 태그를 프리셋에 등록했습니다.`);
+        toast(tf("toast.presetAdded", { tag }));
       });
     }
   }
@@ -1281,7 +1699,7 @@ function renderDetails() {
     <code>candidate-finding</code>
   </div>`);
   const warningItems = (record.warnings || []).map(warning => `<div class="validation-item warn">
-    <strong>경고</strong>
+    <strong>${t("warn.title")}</strong>
     <div class="muted">${escapeHtml(warning)}</div>
     <code>recovery-warning</code>
   </div>`);
@@ -1293,7 +1711,7 @@ function renderDetails() {
     <code>${escapeHtml(item.target_sha256 || "-")}</code>
   </div>`),
     ...anomalyRelated
-  ].join("") || `<div class="validation-item">검증 로그 없음</div>`;
+  ].join("") || `<div class="validation-item">${t("validation.none")}</div>`;
 }
 
 function renderTree() {
@@ -1306,30 +1724,30 @@ function renderTree() {
     kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
     if (record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
   });
-  const kindLabels = { video: "원본 (논리 파일)", carved: "카빙 후보", filesystem: "파일시스템 복구", candidate: "삭제 영상 후보 (복구 전)" };
+  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate") };
   const items = [];
   const addItems = (title, entries, activeKey, onPick) => {
     items.push({ header: title });
-    items.push({ label: "전체", count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
+    items.push({ label: t("tree.all"), count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
     [...entries.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([key, count]) => {
       items.push({ label: key, count, key, pick: () => onPick(key), active: key === activeKey });
     });
   };
-  addItems("녹화 유형", new Map([...typeCounts.entries()].map(([k, c]) => [recTypeLabel(k), c])),
+  addItems(t("tree.rectype"), new Map([...typeCounts.entries()].map(([k, c]) => [recTypeLabel(k), c])),
     state.recType ? recTypeLabel(state.recType) : "", label => {
       const match = [...typeCounts.entries()].find(([k]) => recTypeLabel(k) === label);
       state.recType = match ? match[0] : "";
       state.currentPage = 1;
       render();
     });
-  addItems("출처", new Map([...kindCounts.entries()].map(([k, c]) => [kindLabels[k] || k, c])),
+  addItems(t("tree.kind"), new Map([...kindCounts.entries()].map(([k, c]) => [kindLabels[k] || k, c])),
     kindLabels[state.kind] || "", label => {
       state.kind = Object.entries(kindLabels).find(([, kindLabel]) => kindLabel === label)?.[0] || "";
       els.kind.value = state.kind;
       state.currentPage = 1;
       render();
     });
-  addItems("날짜", dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
+  addItems(t("tree.date"), dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
     state.dateFrom = day;
     state.dateTo = day;
     els.dateFrom.value = day;
@@ -1357,7 +1775,7 @@ function renderTree() {
 
 function renderMetrics() {
   els.caseLine.textContent = `${manifest.case_id || "case"} · ${manifest.title || "Untitled"} · ${scan.source_path || "-"}`;
-  els.metricVideos.textContent = `${videos.length}편 색인`;
+  els.metricVideos.textContent = tf("metric.indexed", { n: videos.length });
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
@@ -1365,11 +1783,11 @@ function renderMetrics() {
     els.metricAnomaly.textContent = String(records.filter(record => record.hasAnomaly).length);
   }
   const markCount = Object.keys(state.marks).length;
-  els.selectionCount.textContent = `${state.selectedIds.size}개 선택 · 마크 ${markCount}`;
+  els.selectionCount.textContent = tf("sel.count", { n: state.selectedIds.size, m: markCount });
   if (els.caseWarnings) {
     if (inspectionWarnings.length) {
       els.caseWarnings.hidden = false;
-      els.caseWarnings.innerHTML = `<b>조사 경고 ${inspectionWarnings.length}건</b>${inspectionWarnings.map(escapeHtml).join(" · ")}`;
+      els.caseWarnings.innerHTML = `<b>${tf("warn.inspect", { n: inspectionWarnings.length })}</b>${inspectionWarnings.map(escapeHtml).join(" · ")}`;
     } else {
       els.caseWarnings.hidden = true;
     }
@@ -1379,10 +1797,10 @@ function renderMetrics() {
 function renderChips() {
   // Status/mark chips stay inline; tag filters live in the 정렬·표시
   // panel's tag select so the chip row stays a single group.
-  const parts = ['<span class="chip-label">필터</span>'];
+  const parts = [`<span class="chip-label">${t("filter.label")}</span>`];
   for (const [value, label] of PRESET_CHIPS) {
     if (value.startsWith("tag:")) continue;
-    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`);
+    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(t(label))}</button>`);
   }
   els.presetChips.innerHTML = parts.join("");
   els.presetChips.querySelectorAll(".chip").forEach(chip => {
@@ -1405,8 +1823,8 @@ function renderChips() {
   const appliedTags = new Set();
   Object.values(state.tags).forEach(list => (list || []).forEach(tag => appliedTags.add(tag)));
   const filterTags = [...state.tagPresets, ...[...appliedTags].filter(tag => !state.tagPresets.includes(tag))];
-  els.tagFilter.innerHTML = `<option value="">태그: 전체</option>`
-    + filterTags.map(tag => `<option value="tag:${escapeHtml(tag)}">태그: ${escapeHtml(tag)}</option>`).join("");
+  els.tagFilter.innerHTML = `<option value="">${t("filter.tag.all")}</option>`
+    + filterTags.map(tag => `<option value="tag:${escapeHtml(tag)}">${escapeHtml(tf("filter.tag.named", { tag }))}</option>`).join("");
   els.tagFilter.value = state.chip.startsWith("tag:") ? state.chip : "";
 }
 
@@ -1442,11 +1860,41 @@ function setupGridDelegation() {
     render();
   });
   els.recordGrid.addEventListener("keydown", event => {
-    if (event.key !== "Enter") return;
+    if (event.target.closest("input")) return;
+    const header = event.target.closest(".group-header");
+    if (header && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = header.dataset.group;
+      if (state.collapsedGroups.has(key)) state.collapsedGroups.delete(key);
+      else state.collapsedGroups.add(key);
+      renderGrid(filteredRecords());
+      return;
+    }
     const card = event.target.closest(".card");
-    if (!card || event.target.closest("input")) return;
-    state.activeId = card.dataset.id;
-    render();
+    if (!card) return;
+    if (event.key === "Enter") {
+      event.stopPropagation();
+      state.activeId = card.dataset.id;
+      render();
+      return;
+    }
+    if (event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.selectedIds.has(card.dataset.id)) state.selectedIds.delete(card.dataset.id);
+      else state.selectedIds.add(card.dataset.id);
+      render();
+      return;
+    }
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+    if (step) {
+      event.preventDefault();
+      event.stopPropagation();
+      state.activeId = card.dataset.id;
+      moveActive(step);
+      els.recordGrid.querySelector(`.card[data-id="${CSS.escape(state.activeId)}"]`)?.focus();
+    }
   });
   els.recordGrid.addEventListener("click", event => {
     const box = event.target.closest("input[type='checkbox']");
@@ -1473,7 +1921,7 @@ function setupGridDelegation() {
 
 function applyTag(tag) {
   const ids = targetIds();
-  if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
+  if (!ids.length) { toast(t("toast.selectTarget")); return; }
   ids.forEach(id => {
     const list = state.tags[id] || [];
     if (!list.includes(tag)) list.push(tag);
@@ -1482,16 +1930,16 @@ function applyTag(tag) {
   });
   storageSet(TAGS_KEY, state.tags);
   render();
-  toast(`${ids.length}개 증거에 '${tag}' 태그를 적용했습니다.`);
+  toast(tf("toast.tagApplied", { n: ids.length, tag }));
 }
 
 function clearTags() {
   const ids = targetIds();
-  if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
+  if (!ids.length) { toast(t("toast.selectTarget")); return; }
   ids.forEach(id => { delete state.tags[id]; touchAnnotation(id); });
   storageSet(TAGS_KEY, state.tags);
   render();
-  toast(`${ids.length}개 증거의 태그를 해제했습니다.`);
+  toast(tf("toast.tagCleared", { n: ids.length }));
 }
 
 function downloadJSON(filename, payload) {
@@ -1503,7 +1951,7 @@ function downloadJSON(filename, payload) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 5000);
-  toast(`${filename} 다운로드를 시작했습니다.`);
+  toast(tf("toast.downloadStart", { name: filename }));
 }
 
 function downloadText(filename, text, mime) {
@@ -1515,7 +1963,7 @@ function downloadText(filename, text, mime) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 5000);
-  toast(`${filename} 다운로드를 시작했습니다.`);
+  toast(tf("toast.downloadStart", { name: filename }));
 }
 
 function csvCell(value) {
@@ -1528,16 +1976,16 @@ function isoTime(unix) {
 }
 
 const KIND_LABELS = {
-  video: "원본 (논리 파일)",
-  carved: "카빙 후보",
-  filesystem: "파일시스템 복구",
-  candidate: "삭제 영상 후보 (복구 전)"
+  video: t("filter.kind.video"),
+  carved: t("filter.kind.carved"),
+  filesystem: t("filter.kind.filesystem"),
+  candidate: t("filter.kind.candidate")
 };
 const KIND_SHORT = {
-  video: "원본",
-  carved: "카빙",
-  filesystem: "복구",
-  candidate: "복구 전"
+  video: t("kind.short.video"),
+  carved: t("kind.short.carved"),
+  filesystem: t("kind.short.filesystem"),
+  candidate: t("kind.short.candidate")
 };
 
 function exportItem(record) {
@@ -1562,7 +2010,7 @@ function selectedRecords() {
 }
 
 function copyText(text, label) {
-  const done = () => toast(`${label}을(를) 클립보드에 복사했습니다.`);
+  const done = () => toast(tf("toast.copied", { label }));
   const fallback = () => {
     const area = document.createElement("textarea");
     area.value = text;
@@ -1572,7 +2020,7 @@ function copyText(text, label) {
       document.execCommand("copy");
       done();
     } catch (error) {
-      toast("복사에 실패했습니다: " + error.message);
+      toast(tf("toast.copyFail", { err: error.message }));
     }
     area.remove();
   };
@@ -1592,29 +2040,29 @@ function toggleTheater() {
 function toggleFullscreen() {
   const stage = document.getElementById("mediaStage");
   if (document.fullscreenElement) {
-    document.exitFullscreen().catch(error => toast("전체화면 종료 실패: " + error.message));
+    document.exitFullscreen().catch(error => toast(tf("toast.fsExitFail", { err: error.message })));
     return;
   }
   if (stage.requestFullscreen) {
-    stage.requestFullscreen().catch(error => toast("전체화면 진입 실패: " + error.message));
+    stage.requestFullscreen().catch(error => toast(tf("toast.fsEnterFail", { err: error.message })));
   } else {
-    toast("이 브라우저는 전체화면을 지원하지 않습니다.");
+    toast(t("toast.fsUnsupported"));
   }
 }
 
 async function togglePip() {
   const video = els.mediaStage.querySelector("video");
-  if (!video) { toast("재생 중인 영상이 없습니다."); return; }
+  if (!video) { toast(t("toast.noVideo")); return; }
   try {
     if (document.pictureInPictureElement) {
       await document.exitPictureInPicture();
     } else if (video.requestPictureInPicture) {
       await video.requestPictureInPicture();
     } else {
-      toast("이 브라우저는 화면 속 화면을 지원하지 않습니다.");
+      toast(t("toast.pipUnsupported"));
     }
   } catch (error) {
-    toast("화면 속 화면 실패: " + error.message);
+    toast(tf("toast.pipFail", { err: error.message }));
   }
 }
 
@@ -1702,15 +2150,15 @@ window.__ftBridge = {
 // navigation all route back through __ftBridge.
 function openPlayerWindow() {
   const record = selectedRecord();
-  if (!record) { toast("표시할 증거가 없습니다."); return; }
+  if (!record) { toast(t("toast.noRecord")); return; }
   const win = window.open("", "frametrace-player", "popup=yes,width=1100,height=880");
-  if (!win) { toast("팝업이 차단되었습니다 — 브라우저 설정에서 팝업을 허용하십시오."); return; }
+  if (!win) { toast(t("toast.popupBlocked")); return; }
   const e = escapeHtml;
   const rate = state.layout.rate || 1;
   const rateOptions = RATES.map(r => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("");
   const tagButtons = tagPresets().map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
   win.document.open();
-  win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
+  win.document.write(`<!doctype html><html lang="${state.locale}"><head><meta charset="utf-8">
 <title>${e(record.name || record.id)} — FrameTrace Player</title>
 <style>
 body{margin:0;background:#101815;color:#dfe8e4;font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;height:100vh}
@@ -1727,24 +2175,24 @@ button.on{background:#3fa08e;border-color:#3fa08e;color:#08130f}
 #note{color:#d9b45b;font-size:12px}
 </style></head><body>
 <header><strong id="title"></strong><span class="id" id="meta"></span><span id="note"></span></header>
-<div id="stage"><video id="vv" controls autoplay></video><div id="novid" hidden>재생 가능한 파일이 없는 항목입니다 (복구 전 후보 등) — 다음으로 넘어가세요</div></div>
+<div id="stage"><video id="vv" controls autoplay></video><div id="novid" hidden>${t("player.novid")}</div></div>
 <div class="bar">
-<button id="prev">‹ 이전</button>
-<button id="b10">« -10초</button><button id="b1">-1초</button>
-<button id="f1">+1초</button><button id="f10">+10초 »</button>
+<button id="prev">${t("player.prev")}</button>
+<button id="b10">« -10s</button><button id="b1">-1s</button>
+<button id="f1">+1s</button><button id="f10">+10s »</button>
 <select id="rate">${rateOptions}</select>
-<button id="play">재생/일시정지</button>
-<button id="next">다음 ›</button>
-<button id="cap" title="현재 프레임을 케이스에 저장">프레임 캡처</button>
-<span class="muted">←/→ ±10초 · ↑/↓ 배속 · space 재생 · k/j 이전/다음</span>
+<button id="play">${t("player.play")}</button>
+<button id="next">${t("player.next")}</button>
+<button id="cap" title="${t("player.capTitle")}">${t("player.cap")}</button>
+<span class="muted">${t("player.hint")}</span>
 </div>
 <div class="bar">
-<span class="muted">판독</span>
-<button class="mk" data-m="reviewed">판독 완료(1)</button>
-<button class="mk" data-m="important">중요(2)</button>
-<button class="mk" data-m="needs_verification">검증 대기(3)</button>
-<button class="mk" data-m="">해제(0)</button>
-<span class="muted">태그</span>${tagButtons}
+<span class="muted">${t("player.mark")}</span>
+<button class="mk" data-m="reviewed">${t("player.reviewed")}</button>
+<button class="mk" data-m="important">${t("player.important")}</button>
+<button class="mk" data-m="needs_verification">${t("player.verify")}</button>
+<button class="mk" data-m="">${t("player.clear")}</button>
+<span class="muted">${t("player.tags")}</span>${tagButtons}
 </div>
 <script>
 var v=document.getElementById("vv");
@@ -1755,19 +2203,19 @@ v.playbackRate=${rate};
 function B(){return (window.opener&&!window.opener.closed&&window.opener.__ftBridge)||null;}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]});}
 function note(t){document.getElementById("note").textContent=t||"";}
-function dead(){note("메인 뷰어가 닫혔습니다 — 마크/태그/이동이 비활성화되었습니다.");}
+function dead(){note(${JSON.stringify(t("player.dead"))});}
 function applyDesc(d,autoplay){
-if(!d){document.getElementById("title").textContent="표시할 증거가 없습니다";return;}
+if(!d){document.getElementById("title").textContent=${JSON.stringify(t("player.none"))};return;}
 cur=d;
 document.getElementById("title").textContent=d.name;
-document.getElementById("meta").textContent=d.id+" · "+d.statusLabel+" · "+(d.index||"-")+"/"+d.total+"건"+(d.mark?" · 마크:"+d.mark:"")+(d.warnings.length?" · 경고 "+d.warnings.length:"");
+document.getElementById("meta").textContent=d.id+" · "+d.statusLabel+" · "+(d.index||"-")+"/"+d.total+(d.mark?" · "+${JSON.stringify(t("player.mark"))}+":"+d.mark:"")+(d.warnings.length?" · "+${JSON.stringify(t("player.warnShort"))}+" "+d.warnings.length:"");
 document.title=d.name+" — FrameTrace Player";
 if(d.src){document.getElementById("novid").hidden=true;if(v.getAttribute("src")!==d.src){v.setAttribute("src",d.src);v.load();}v.playbackRate=Number(rate.value);if(autoplay!==false)v.play().catch(function(){});}
 else{document.getElementById("novid").hidden=false;v.removeAttribute("src");v.load();}
 document.querySelectorAll(".mk").forEach(function(b){b.classList.toggle("on",b.dataset.m===d.mark);});
 document.querySelectorAll(".tg").forEach(function(b){b.classList.toggle("on",d.tags.indexOf(b.dataset.tag)>=0);});
 }
-function nav(step,autoplay){var b=B();if(!b){dead();return;}var r=b.navigate(step);applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?"마지막 항목입니다":"첫 항목입니다");else note("");}
+function nav(step,autoplay){var b=B();if(!b){dead();return;}var r=b.navigate(step);applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?${JSON.stringify(t("player.last"))}:${JSON.stringify(t("player.first"))});else note("");}
 function doMark(m){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.mark(m||null),true);}
 function doTag(t){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.toggleTag(t),false);}
 function skip(d){v.currentTime=Math.max(0,Math.min(v.duration||1e9,v.currentTime+d));}
@@ -1783,11 +2231,11 @@ document.getElementById("play").onclick=function(){v.paused?v.play():v.pause()};
 document.querySelectorAll(".mk").forEach(function(b){b.onclick=function(){doMark(b.dataset.m)}});
 document.querySelectorAll(".tg").forEach(function(b){b.onclick=function(){doTag(b.dataset.tag)}});
 document.getElementById("cap").onclick=function(){
-if(!v.videoWidth){note("재생 중인 영상이 없습니다");return;}
+if(!v.videoWidth){note(${JSON.stringify(t("player.noVideo"))});return;}
 var c=document.createElement("canvas");c.width=v.videoWidth;c.height=v.videoHeight;
 c.getContext("2d").drawImage(v,0,0);
 var du=c.toDataURL("image/jpeg",0.92);
-fetch("/api/capture-frame",{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({id:cur?cur.id:"unknown",image:du.slice(du.indexOf(",")+1),time:v.currentTime.toFixed(2)})}).then(function(r){return r.json()}).then(function(d){note(d.ok?"프레임 저장: "+d.path:"캡처 실패: "+(d.error||""))}).catch(function(){note("캡처 실패: 서버 연결 불가")});
+fetch("/api/capture-frame",{method:"POST",headers:{"Content-Type":"text/plain"},body:JSON.stringify({id:cur?cur.id:"unknown",image:du.slice(du.indexOf(",")+1),time:v.currentTime.toFixed(2)})}).then(function(r){return r.json()}).then(function(d){note(d.ok?${JSON.stringify(t("player.savedPfx"))}+" "+d.path:${JSON.stringify(t("player.capFailPfx"))}+" "+(d.error||""))}).catch(function(){note(${JSON.stringify(t("player.capOffline"))})});
 };
 v.addEventListener("ended",function(){nav(1,true);});
 document.addEventListener("keydown",function(e){
@@ -1822,9 +2270,9 @@ function moveActive(step) {
     return;
   }
   // Same page: avoid rebuilding up to 1000 cards on every j/k.
-  els.recordGrid.querySelectorAll(".card.active").forEach(el => el.classList.remove("active"));
+  els.recordGrid.querySelectorAll(".card.active").forEach(el => { el.classList.remove("active"); el.tabIndex = -1; });
   const card = els.recordGrid.querySelector(`.card[data-id="${CSS.escape(state.activeId)}"]`);
-  card?.classList.add("active");
+  if (card) { card.classList.add("active"); card.tabIndex = 0; }
   card?.scrollIntoView({ block: "nearest" });
   renderDetails();
 }
@@ -1965,7 +2413,7 @@ document.getElementById("btnPopPlayer").addEventListener("click", openPlayerWind
 // Grab the decoded frame straight off the <video> element — no ffmpeg round
 // trip — and store it as a hashed case artifact (artifacts/captures/).
 async function captureCurrentFrame(videoEl, recordId) {
-  if (!videoEl || !videoEl.videoWidth) { toast("재생 중인 영상이 없습니다."); return; }
+  if (!videoEl || !videoEl.videoWidth) { toast(t("toast.noVideo")); return; }
   const canvas = document.createElement("canvas");
   canvas.width = videoEl.videoWidth;
   canvas.height = videoEl.videoHeight;
@@ -1979,9 +2427,9 @@ async function captureCurrentFrame(videoEl, recordId) {
       body: JSON.stringify({ id: recordId, image: b64, time: videoEl.currentTime.toFixed(2) })
     });
     const data = await res.json();
-    toast(data.ok ? `프레임 저장: ${data.path}` : "캡처 실패: " + (data.error || ""));
+    toast(data.ok ? tf("toast.captureSaved", { path: data.path }) : tf("toast.captureFail", { err: data.error || "" }));
   } catch {
-    toast("캡처 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+    toast(t("toast.captureOffline"));
   }
 }
 document.getElementById("btnCaptureFrame").addEventListener("click", () => {
@@ -1997,7 +2445,7 @@ function updateRangeLabel() {
   const range = rangeOf(record);
   const point = value => Number.isFinite(value) ? `${value.toFixed(1)}s` : "—";
   el.textContent = range && (Number.isFinite(range.in) || Number.isFinite(range.out))
-    ? `구간 ${point(range.in)} ~ ${point(range.out)}`
+    ? tf("range.label", { in: point(range.in), out: point(range.out) })
     : "";
   const proxyBtn = document.getElementById("btnProxy");
   if (proxyBtn) proxyBtn.classList.toggle("on", !!(record && state.proxies[record.id]));
@@ -2005,12 +2453,12 @@ function updateRangeLabel() {
 function setRangePoint(which) {
   const video = currentVideo();
   const record = selectedRecord();
-  if (!video || !record) { toast("재생 중인 증거를 먼저 선택하세요."); return; }
+  if (!video || !record) { toast(t("toast.pickEvidence")); return; }
   const t = video.currentTime;
   const range = state.ranges[record.id] || { in: null, out: null };
   if (which === "in") range.in = t; else range.out = t;
   if (Number.isFinite(range.in) && Number.isFinite(range.out) && range.out <= range.in) {
-    toast("OUT 지점이 IN보다 앞입니다 — 다시 지정하세요.");
+    toast(t("toast.outBeforeIn"));
     if (which === "in") range.in = null; else range.out = null;
   }
   if (range.in == null && range.out == null) delete state.ranges[record.id];
@@ -2024,18 +2472,18 @@ document.getElementById("btnSetOut").addEventListener("click", () => setRangePoi
 // so the viewer can lazily ask the server for a low-bitrate proxy.
 document.getElementById("btnProxy").addEventListener("click", async () => {
   const record = selectedRecord();
-  if (!record) { toast("재생할 증거를 먼저 선택하세요."); return; }
+  if (!record) { toast(t("toast.playPick")); return; }
   const btn = document.getElementById("btnProxy");
   if (state.proxies[record.id]) {
     delete state.proxies[record.id];
     storageSet(PROXIES_KEY, state.proxies);
     mediaRenderedFor = null;
     render();
-    toast("원본 영상으로 재생합니다.");
+    toast(t("toast.playOriginal"));
     return;
   }
   btn.disabled = true;
-  toast("프록시 생성 중… 원본 크기에 따라 수 분 걸릴 수 있습니다.");
+  toast(t("toast.proxyBuilding"));
   try {
     const res = await fetch("/api/proxy", {
       method: "POST",
@@ -2048,12 +2496,12 @@ document.getElementById("btnProxy").addEventListener("click", async () => {
       storageSet(PROXIES_KEY, state.proxies);
       mediaRenderedFor = null;
       render();
-      toast("프록시로 재생합니다 — 다시 누르면 원본으로 돌아갑니다.");
+      toast(t("toast.proxyPlaying"));
     } else {
-      toast("프록시 실패: " + (data.error || ""));
+      toast(tf("toast.proxyFail", { err: data.error || "" }));
     }
   } catch {
-    toast("프록시 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+    toast(t("toast.proxyOffline"));
   } finally {
     btn.disabled = false;
   }
@@ -2062,7 +2510,7 @@ document.getElementById("btnExportClip").addEventListener("click", async () => {
   const record = selectedRecord();
   const range = rangeOf(record);
   if (!record || !range || !Number.isFinite(range.in) || !Number.isFinite(range.out) || range.out <= range.in) {
-    toast("먼저 IN/OUT 구간을 지정하세요 (i / o 키).");
+    toast(t("toast.noRange"));
     return;
   }
   try {
@@ -2072,9 +2520,9 @@ document.getElementById("btnExportClip").addEventListener("click", async () => {
       body: JSON.stringify({ id: record.id, path: record.path || "", start: range.in.toFixed(3), duration: (range.out - range.in).toFixed(3) })
     });
     const data = await res.json();
-    toast(data.ok ? `클립보내기 완료: ${data.path}` : "보내기 실패: " + (data.error || ""));
+    toast(data.ok ? tf("toast.clipDone", { path: data.path }) : tf("toast.clipFail", { err: data.error || "" }));
   } catch {
-    toast("보내기 실패: 워크스테이션 서버에 연결할 수 없습니다.");
+    toast(t("toast.clipOffline"));
   }
 });
 document.getElementById("btnShortcuts").addEventListener("click", () => toggleShortcuts(true));
@@ -2087,13 +2535,13 @@ document.getElementById("btnMarkVerify").addEventListener("click", () => applyMa
 document.getElementById("btnMarkClear").addEventListener("click", () => applyMark(null));
 document.getElementById("btnCopyIds").addEventListener("click", () => {
   const ids = targetIds();
-  if (ids.length) copyText(ids.join("\n"), "증거 ID");
+  if (ids.length) copyText(ids.join("\n"), t("copy.ids"));
 });
 document.getElementById("btnCopyPaths").addEventListener("click", () => {
   const ids = new Set(targetIds());
   const paths = records.filter(record => ids.has(record.id)).map(record => record.path);
-  if (paths.length) copyText(paths.join("\n"), "증거 경로");
-  else toast("대상 증거를 먼저 선택하세요.");
+  if (paths.length) copyText(paths.join("\n"), t("copy.paths"));
+  else toast(t("toast.selectTarget"));
 });
 // Tag menu: preset buttons are rebuilt from the editable preset list.
 // Each row applies the tag to the current selection; the trailing ×
@@ -2103,11 +2551,11 @@ document.getElementById("btnCopyPaths").addEventListener("click", () => {
 const tagMenuList = document.getElementById("tagMenuList");
 function rebuildTagMenu() {
   tagMenuList.innerHTML = state.tagPresets.map(tag =>
-    `<div class="tag-menu-row"><button type="button" data-keep data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button><button type="button" class="tag-del" data-keep data-del-preset="${escapeHtml(tag)}" title="프리셋에서 삭제">×</button></div>`
+    `<div class="tag-menu-row"><button type="button" data-keep data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button><button type="button" class="tag-del" data-keep data-del-preset="${escapeHtml(tag)}" title="${t("tagmenu.delPreset")}">×</button></div>`
   ).join("")
-    + `<button type="button" data-tag-clear>태그 해제</button><hr>`
-    + `<div class="tag-add"><input type="text" id="tagPresetInput" placeholder="새 태그 등록" maxlength="24">`
-    + `<button type="button" data-keep data-tag-add>추가</button></div>`;
+    + `<button type="button" data-tag-clear>${t("tagmenu.clear")}</button><hr>`
+    + `<div class="tag-add"><input type="text" id="tagPresetInput" placeholder="${t("tagmenu.new")}" maxlength="24">`
+    + `<button type="button" data-keep data-tag-add>${t("tagmenu.add")}</button></div>`;
 }
 function addTagPresetFromMenu() {
   const input = document.getElementById("tagPresetInput");
@@ -2118,7 +2566,7 @@ function addTagPresetFromMenu() {
   rebuildTagMenu();
   document.getElementById("tagPresetInput")?.focus();
   if (targetIds().length) applyTag(name);
-  else if (isNew) toast(`'${name}' 태그를 프리셋에 추가했습니다.`);
+  else if (isNew) toast(tf("toast.presetAdded", { tag: name }));
 }
 tagMenuList.addEventListener("click", e => {
   const del = e.target.closest("[data-del-preset]");
@@ -2197,7 +2645,7 @@ document.addEventListener("keydown", e => {
 });
 document.getElementById("btnDownloadSelection").addEventListener("click", () => {
   const selected = selectedRecords();
-  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  if (!selected.length) { toast(t("toast.selectFirst")); return; }
   downloadJSON(`frametrace-selection-${manifest.case_id || "case"}-${Date.now()}.json`, {
     schema_version: 1,
     case_id: manifest.case_id || null,
@@ -2242,7 +2690,7 @@ function marksPayload() {
 
 document.getElementById("btnDownloadMarks").addEventListener("click", () => {
   const payload = marksPayload();
-  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast("반영할 판독 변경이 없습니다."); return; }
+  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast(t("toast.noChanges")); return; }
   downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, payload);
 });
 
@@ -2250,7 +2698,7 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 // the download → file-pick → import dance.
 document.getElementById("btnApplyMarks").addEventListener("click", async () => {
   const payload = marksPayload();
-  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast("반영할 판독 변경이 없습니다."); return; }
+  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast(t("toast.noChanges")); return; }
   try {
     const res = await fetch("/api/import-marks", {
       method: "POST",
@@ -2258,9 +2706,9 @@ document.getElementById("btnApplyMarks").addEventListener("click", async () => {
       body: JSON.stringify({ marks_json: JSON.stringify(payload) })
     });
     const data = await res.json();
-    toast(data.ok ? "판독 마크가 케이스에 반영되고 보고서가 갱신되었습니다." : "반영 실패: " + (data.error || "알 수 없는 오류"));
+    toast(data.ok ? t("toast.applyDone") : tf("toast.applyFail", { err: data.error || "?" }));
   } catch (err) {
-    toast("반영 실패: 서버에 연결할 수 없습니다.");
+    toast(t("toast.applyOffline"));
   }
 });
 
@@ -2268,7 +2716,7 @@ document.getElementById("btnApplyMarks").addEventListener("click", async () => {
 
 document.getElementById("btnDownloadCsv").addEventListener("click", () => {
   const selected = selectedRecords();
-  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  if (!selected.length) { toast(t("toast.selectFirst")); return; }
   const header = ["id", "kind", "name", "status", "mark", "examiner_note", "tags", "sha256", "size_bytes",
     "recorded_time", "channel", "rec_type", "inode", "original_path", "source_path",
     "warnings", "note", "anomalies"];
@@ -2306,7 +2754,7 @@ document.getElementById("btnSummary").addEventListener("click", () => {
   if (!items.length) {
     items = records.filter(record => state.marks[record.id] || (state.tags[record.id] || []).length || (state.notes[record.id] || "").trim());
   }
-  if (!items.length) { toast("선택하거나 마크된 항목이 없습니다."); return; }
+  if (!items.length) { toast(t("toast.noItems")); return; }
   const e = escapeHtml;
   const fmtSize = value => Number.isFinite(value) ? `${(value / 1048576).toFixed(1)} MB` : "-";
   const rowHtml = items.map(record => {
@@ -2314,11 +2762,11 @@ document.getElementById("btnSummary").addEventListener("click", () => {
     const memo = (state.notes[record.id] || "").trim();
     const warn = [...(record.warnings || []), ...(record.anomalies || []).map(item => item.kind)].join("; ");
     return `<tr><td>${e(record.id)}</td><td>${e(record.name)}</td><td>${e(KIND_LABELS[record.kind] || record.kind)}</td>` +
-      `<td>${e(record.status)}</td><td>${e(mark ? markLabel(mark) : (memo ? "메모" : ""))}</td>` +
+      `<td>${e(record.status)}</td><td>${e(mark ? markLabel(mark) : (memo ? t("mark.noted") : ""))}</td>` +
       `<td>${e((state.tags[record.id] || []).join(", "))}</td>` +
       `<td class="mono">${e(record.sha256 && record.sha256 !== "-" ? record.sha256 : "")}</td>` +
       `<td>${fmtSize(record.size)}</td><td>${e(isoTime(record.recTime))}</td>` +
-      `<td>${e(warn)}${record.note && record.note !== "-" ? `<br>${e(record.note)}` : ""}${memo ? `<br><b>소견:</b> ${e(memo)}` : ""}</td>` +
+      `<td>${e(warn)}${record.note && record.note !== "-" ? `<br>${e(record.note)}` : ""}${memo ? `<br><b>${t("report.memo")}</b> ${e(memo)}` : ""}</td>` +
       `<td class="mono">${e(record.originalPath || record.path || "")}</td></tr>`;
   }).join("\n");
   const counts = { verified: 0, candidate: 0, failed: 0 };
@@ -2327,8 +2775,8 @@ document.getElementById("btnSummary").addEventListener("click", () => {
     else if (record.status === "ffprobe-video-stream-confirmed") counts.verified += 1;
     else counts.candidate += 1;
   });
-  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
-<title>FrameTrace 판독 요약 — ${e(manifest.case_id || "case")}</title>
+  const html = `<!doctype html><html lang="${state.locale}"><head><meta charset="utf-8">
+<title>${t("report.title")} — ${e(manifest.case_id || "case")}</title>
 <style>
 body{font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;margin:32px;color:#1f2724}
 h1{font-size:20px} .meta{color:#68736f;font-size:13px;margin-bottom:4px}
@@ -2337,13 +2785,12 @@ table{border-collapse:collapse;width:100%;font-size:12px}
 th,td{border:1px solid #d8dedb;padding:6px 8px;text-align:left;vertical-align:top}
 th{background:#f2f5f4} .mono{font-family:Consolas,monospace;font-size:11px;word-break:break-all}
 </style></head><body>
-<h1>FrameTrace 판독 요약</h1>
-<div class="meta">케이스: ${e(manifest.case_id || "-")} · 생성: ${e(new Date().toLocaleString("ko"))} · 항목 ${items.length}개</div>
-<div class="meta">검증됨 ${counts.verified} · 후보 ${counts.candidate} · 검증 실패 ${counts.failed}</div>
-<div class="note">이 문서는 검토자가 선별한 항목의 요약입니다. 원본 증거 무결성은 케이스 감사 로그와
-SHA-256 값으로 대조하십시오. '후보' 표시 항목은 검증 전이므로 증거로 주장하기 전 추가 검증이 필요합니다.</div>
-<table><thead><tr><th>ID</th><th>파일명</th><th>출처</th><th>검증 상태</th><th>마크</th><th>태그</th>
-<th>SHA-256</th><th>크기</th><th>녹화 시각</th><th>경고/메모</th><th>원본 경로</th></tr></thead>
+<h1>${t("report.title")}</h1>
+<div class="meta">${tf("report.meta", { case: manifest.case_id || "-", when: new Date().toLocaleString(), n: items.length })}</div>
+<div class="meta">${tf("report.counts", { v: counts.verified, c: counts.candidate, f: counts.failed })}</div>
+<div class="note">${t("report.note")}</div>
+<table><thead><tr><th>ID</th><th>${t("report.th.name")}</th><th>${t("report.th.kind")}</th><th>${t("report.th.status")}</th><th>${t("report.th.mark")}</th><th>${t("report.th.tags")}</th>
+<th>SHA-256</th><th>${t("report.th.size")}</th><th>${t("report.th.time")}</th><th>${t("report.th.warn")}</th><th>${t("report.th.orig")}</th></tr></thead>
 <tbody>
 ${rowHtml}
 </tbody></table>
@@ -2354,7 +2801,7 @@ ${rowHtml}
 // 서버 측 자료 묶음 — 선택 파일을 exports/selection-*/ 에 해시 매니페스트와 함께 복사.
 document.getElementById("btnExportSelected").addEventListener("click", async () => {
   const selected = selectedRecords();
-  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  if (!selected.length) { toast(t("toast.selectFirst")); return; }
   const btn = document.getElementById("btnExportSelected");
   btn.disabled = true;
   try {
@@ -2364,17 +2811,17 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
       body: JSON.stringify({ items: selected.map(exportItem) })
     }).then(reply => reply.json());
     if (!res.ok) {
-      toast("내보내기 실패: " + (res.error || ""));
+      toast(tf("toast.exportFail", { err: res.error || "" }));
       return;
     }
-    toast(`선별 자료 ${res.copied}개 복사 완료 (제외 ${res.skipped}) — ${res.export_dir}`);
+    toast(tf("toast.exportDone", { copied: res.copied, skipped: res.skipped, dir: res.export_dir }));
     fetch("/api/open-folder", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: res.export_dir })
     }).catch(() => {});
   } catch (err) {
-    toast("워크스테이션 서버에 연결할 수 없습니다 — 서버 주소로 뷰어를 여십시오.");
+    toast(t("toast.offline"));
   } finally {
     btn.disabled = false;
   }
@@ -2400,14 +2847,14 @@ function triggerDownload(record) {
 }
 document.getElementById("btnDownloadFile").addEventListener("click", () => {
   const record = selectedRecord();
-  if (!record) { toast("먼저 증거를 선택하세요."); return; }
+  if (!record) { toast(t("toast.selectFirst")); return; }
   if (!triggerDownload(record)) {
-    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+    toast(t("toast.fileOnly"));
   }
 });
 document.getElementById("btnDownloadFiles").addEventListener("click", () => {
   const selected = selectedRecords();
-  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  if (!selected.length) { toast(t("toast.selectFirst")); return; }
   let started = 0;
   selected.forEach((record, index) => {
     if (!downloadHref(record)) return;
@@ -2415,9 +2862,9 @@ document.getElementById("btnDownloadFiles").addEventListener("click", () => {
     setTimeout(() => triggerDownload(record), index * 450);
   });
   if (!started) {
-    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+    toast(t("toast.fileOnly"));
   } else {
-    toast(`${started}개 파일 다운로드 시작 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다.`);
+    toast(tf("toast.downloads", { n: started }));
   }
 });
 
@@ -2426,31 +2873,31 @@ async function loadTimeline(regenerate) {
   const list = document.getElementById("timelineList");
   const meta = document.getElementById("timelineMeta");
   if (location.protocol === "file:") {
-    list.innerHTML = `<div class="timeline-row"><span class="desc">파일로 직접 연 뷰어에서는 타임라인을 불러올 수 없습니다 — 서버 뷰어를 사용하세요.</span></div>`;
+    list.innerHTML = `<div class="timeline-row"><span class="desc">${t("timeline.offline")}</span></div>`;
     return;
   }
   if (regenerate) {
-    meta.textContent = "타임라인 생성 중…";
+    meta.textContent = t("timeline.building");
     try {
       const res = await fetch("/api/advanced", {
         method: "POST", headers: { "Content-Type": "text/plain" },
         body: JSON.stringify({ tool: "timeline" })
       });
       const data = await res.json();
-      if (!data.ok) { meta.textContent = "생성 실패: " + (data.error || ""); return; }
-    } catch { meta.textContent = "생성 실패: 서버 연결 불가"; return; }
+      if (!data.ok) { meta.textContent = tf("timeline.fail", { err: data.error || "" }); return; }
+    } catch { meta.textContent = t("timeline.failOffline"); return; }
   }
   try {
     const res = await fetch("/case/db/timeline.jsonl");
     if (!res.ok) {
-      meta.textContent = "타임라인이 아직 없습니다 — '타임라인 생성/갱신'을 누르세요.";
+      meta.textContent = t("timeline.none");
       list.innerHTML = "";
       return;
     }
     const text = await res.text();
     const events = text.split("\n").filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
     const byPath = new Map(records.map(r => [r.path, r.id]));
-    meta.textContent = `${events.length}개 이벤트 · 후보급 (기록된 메타데이터 기반)`;
+    meta.textContent = tf("timeline.count", { n: events.length });
     const cap = 400;
     list.innerHTML = events.slice(0, cap).map(ev => {
       const recId = byPath.get(ev.path);
@@ -2459,7 +2906,7 @@ async function loadTimeline(regenerate) {
         <span class="src">${escapeHtml(ev.source || "")}</span>
         <span class="desc" title="${escapeHtml(ev.path || "")} ${escapeHtml(ev.detail || "")}">${escapeHtml(ev.kind || "")} — ${escapeHtml((ev.path || "").split(/[\\/]/).pop() || ev.path || "")}</span>
       </div>`;
-    }).join("") + (events.length > cap ? `<div class="timeline-row"><span class="desc muted">… 나머지 ${events.length - cap}건 생략 (전체: db/timeline.jsonl)</span></div>` : "");
+    }).join("") + (events.length > cap ? `<div class="timeline-row"><span class="desc muted">${tf("timeline.ellipsis", { n: events.length - cap })}</span></div>` : "");
     list.querySelectorAll(".timeline-row[data-id]").forEach(row => {
       row.addEventListener("click", () => {
         if (!row.dataset.id) return;
@@ -2470,7 +2917,7 @@ async function loadTimeline(regenerate) {
       });
     });
   } catch {
-    meta.textContent = "타임라인을 읽을 수 없습니다.";
+    meta.textContent = t("timeline.unreadable");
   }
 }
 document.getElementById("btnTimeline").addEventListener("click", () => {
@@ -2489,17 +2936,17 @@ document.getElementById("btnTimelineGen").addEventListener("click", () => loadTi
 if (location.protocol === "file:") {
   const btn = document.getElementById("btnExportSelected");
   btn.disabled = true;
-  btn.title = "워크스테이션 서버(127.0.0.1:8477)로 뷰어를 열어야 사용할 수 있습니다.";
+  btn.title = t("offline.openServer");
   const apply = document.getElementById("btnApplyMarks");
   apply.disabled = true;
-  apply.title = "서버 경유 뷰어에서만 케이스에 직접 반영할 수 있습니다 — '마크 내려받기'로 파일을 저장하세요.";
+  apply.title = t("offline.applyTitle");
   const cap = document.getElementById("btnCaptureFrame");
   cap.disabled = true;
-  cap.title = "워크스테이션 서버로 연 뷰어에서만 사용할 수 있습니다.";
+  cap.title = t("offline.serverOnly");
   const clip = document.getElementById("btnExportClip");
   clip.disabled = true;
-  clip.title = "워크스테이션 서버로 연 뷰어에서만 사용할 수 있습니다.";
-  toast("파일로 직접 연 뷰어입니다 — 영상 재생·자료 묶기·마크 반영은 서버(127.0.0.1:8477)로 연 뷰어에서 가능하고, 여기서 단 마크/태그는 서버 뷰어와 별도로 저장됩니다.");
+  clip.title = t("offline.serverOnly");
+  toast(t("toast.standalone"));
 }
 
 state.pageSize = Number(els.pageSize.value) || 100;

@@ -221,7 +221,9 @@ async function unitTests() {
   const fn = name => source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))?.[0];
   const label = { textContent: '' };
   const state = { activeId: 'a', ranges: { a: { in: 1, out: null } }, proxies: {} };
-  const context = { state, document: { getElementById: id => id === 'rangeLabel' ? label : null }, selectedRecord: () => ({ id: 'a' }) };
+  const t = key => ({ 'range.label': '구간 {in} ~ {out}' })[key] || key;
+  const tf = (key, subs) => Object.entries(subs || {}).reduce((s, [k, v]) => s.split('{' + k + '}').join(String(v)), t(key));
+  const context = { state, document: { getElementById: id => id === 'rangeLabel' ? label : null }, selectedRecord: () => ({ id: 'a' }), t, tf };
   runInNewContext(fn('rangeOf')?.split('\n')[0] + '\n' + fn('updateRangeLabel') + '\nupdateRangeLabel();', context);
   assert.equal(label.textContent, '구간 1.0s ~ —');
   state.ranges.a = { in: null, out: 3 };
@@ -231,7 +233,7 @@ async function unitTests() {
   const records = ['a', 'b', 'c'].map(id => ({ id }));
   const els = Object.fromEntries(['resultCount', 'pageStatus', 'prevPage', 'nextPage', 'recordGrid'].map(id => [id, {}]));
   Object.assign(state, { marks: {}, selectedIds: new Set(), pageSize: 100, currentPage: 1, groupBy: 'none', collapsedGroups: new Set() });
-  const grid = { state, records, els, t: x => x, escapeHtml: x => x, groupKeyFor: () => 'group', renderCard: r => `<card>${r.id}</card>` };
+  const grid = { state, records, els, t: x => x, tf, escapeHtml: x => x, groupKeyFor: () => 'group', renderCard: r => `<card>${r.id}</card>` };
   const selectedSource = source.match(/^function selectedRecord\(\).*$/m)[0];
   assert.equal(runInNewContext(selectedSource + '\nselectedRecord();', grid), records[0]);
   runInNewContext(fn('renderGrid') + '\nrenderGrid([]);', grid);

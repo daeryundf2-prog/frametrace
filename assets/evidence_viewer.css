@@ -229,3 +229,55 @@ body.theater .player { grid-template-rows: 34px minmax(0, 1fr) 34px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ---- dark theme: same teal-on-charcoal palette as the video stage ---- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #101514;
+    --panel: #1a211e;
+    --ink: #dfe8e4;
+    --muted: #8fa79e;
+    --line: #2c3a34;
+    --accent: #3fa08e;
+    --danger: #d97f72;
+    --warn: #d9a44a;
+    --ok: #5cb878;
+    --candidate: #a898e0;
+    --anomaly: #d9a44a;
+    --mark: #5b9bd5;
+  }
+  header { background: var(--panel); }
+  .badge { background: #232c28; }
+  .badge.ok { background: #16382c; border-color: #2a5245; }
+  .badge.candidate { background: #2a2640; border-color: #453d68; }
+  .badge.failed { background: #3d2422; border-color: #5c3733; }
+  .badge.anomaly { background: #3a2e1a; border-color: #5c4a28; }
+  .badge.warn { background: #3a2e1a; border-color: #5c4a28; }
+  .badge.dfl.dfl-low { background: #1e2b33; border-color: #2e4552; color: #7fa3b8; }
+  .warn-banner { background: #3a2e1a; border-color: #5c4a28; color: #d9b45b; }
+  button { background: #232c28; border-color: #3a4f48; }
+  button:disabled { color: #5a6b64; background: #1a211e; border-color: #2c3a34; }
+  input, select { background: #161d1a; border-color: #3a4f48; }
+  mark { background: #6b5a1e; color: #ffe9a8; }
+  .browse .filters-extra { background: #1a211e; }
+  .chip { background: #232c28; border-color: #3a4f48; }
+  .vsplitter::before, .hsplitter::before { background: #3a4f48; }
+  .tree-item:hover { background: #222b27; }
+  .tree-item.active { background: #1d332d; }
+  .validation-item { background: #232c28; }
+  .panel-title { color: #9fb3ac; }
+  .group-header { background: #26302c; color: #b8ccc4; }
+  .selection-bar { background: var(--panel); }
+  .menu-list { background: #232c28; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .menu-list button:hover { background: #2c3833; }
+  .tag-add input { background: #161d1a; }
+  .modal { background: #232c28; }
+  .modal td { border-bottom-color: #2c3a34; }
+  .tag-btn { background: #232c28; border-color: #3a4f48; }
+  .timeline-panel { background: var(--panel); }
+  .timeline-row:hover { background: #222b27; }
+  .channel-badge { background: #26344a; color: #a8c4e0; }
+  .note-input { background: #161d1a; color: var(--ink); }
+  .thumb .ph { color: #6b7f78; }
+}

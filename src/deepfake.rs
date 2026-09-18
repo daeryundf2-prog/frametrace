@@ -371,6 +371,7 @@ mod tests {
     /// A real executable masquerading as `deepfake-lens.exe` so
     /// `resolve_tool_binary`'s allowlist passes while the process behavior
     /// (garbage stdout / nonzero exit) drives the failure path under test.
+    #[cfg(windows)]
     fn fake_binary(source: &Path) -> Option<std::path::PathBuf> {
         let dir = temp_dir();
         let shim = dir.join("deepfake-lens.exe");

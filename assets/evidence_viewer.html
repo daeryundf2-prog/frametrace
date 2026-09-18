@@ -103,17 +103,17 @@ __CSS__
       <div class="histline"><span class="muted period" id="periodLabel"></span><div class="hist" id="dayHistogram" title="일자별 건수 — 클릭하면 그날로 필터" data-i18n-title="hist.title"></div></div>
       <div class="midrow">
         <aside class="tree" id="facetTree"></aside>
-        <div class="grid" id="recordGrid"></div>
+        <div class="grid" id="recordGrid" role="listbox" aria-label="증거 목록" data-i18n-aria-label="grid.label" aria-multiselectable="true"></div>
       </div>
       <div class="pager">
         <span class="muted" id="resultCount"></span>
-        <span class="muted" id="triageStatus"></span>
+        <span class="muted" id="triageStatus" aria-live="polite"></span>
         <button id="prevPage" data-i18n="page.prev">이전</button>
-        <span class="muted" id="pageStatus"></span>
+        <span class="muted" id="pageStatus" aria-live="polite"></span>
         <button id="nextPage" data-i18n="page.next">다음</button>
       </div>
     </section>
-    <div class="vsplitter" id="vsplitter" title="드래그: 목록/뷰어 폭 조절 / 더블클릭: 기본값"></div>
+    <div class="vsplitter" id="vsplitter" title="드래그: 목록/뷰어 폭 조절 / 더블클릭: 기본값" data-i18n-title="split.v"></div>
     <section class="media">
       <div class="player">
         <div class="media-title"><strong id="mediaTitle">-</strong><span id="mediaStatus" class="badge">-</span></div>
@@ -121,7 +121,7 @@ __CSS__
         <div class="media-toolbar">
           <button id="btnSkipBack" type="button" title="10초 뒤로 (←)" data-i18n="toolbar.skipBack">« -10초</button>
           <button id="btnSkipFwd" type="button" title="10초 앞으로 (→)" data-i18n="toolbar.skipFwd">+10초 »</button>
-          <select id="playRate" title="재생 속도 ([ / ])">
+          <select id="playRate" title="재생 속도 ([ / ])" data-i18n-title="media.rate">
             <option value="0.25">0.25×</option>
             <option value="0.5">0.5×</option>
             <option value="0.75">0.75×</option>
@@ -142,16 +142,16 @@ __CSS__
           <button id="btnProxy" type="button" title="원본이 무거우면 검토용 저용량 프록시로 재생합니다 (없으면 생성 — 서버 필요)" data-i18n="toolbar.proxy">프록시 재생</button>
           <span class="muted" data-i18n="media.size">크기</span>
           <select id="videoMode">
-            <option value="fit">맞춤</option>
+            <option value="fit" data-i18n="media.fit">맞춤</option>
             <option value="50">50%</option>
             <option value="100">100%</option>
             <option value="200">200%</option>
           </select>
-          <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소">
+          <input id="videoZoom" type="range" min="30" max="300" value="100" step="5" title="확대/축소" data-i18n-title="media.zoom">
           <span class="muted" id="metricVideos"></span>
         </div>
       </div>
-      <div class="hsplitter" id="hsplitter" title="드래그: 영상 높이 조절 / 더블클릭: 기본값"></div>
+      <div class="hsplitter" id="hsplitter" title="드래그: 영상 높이 조절 / 더블클릭: 기본값" data-i18n-title="split.h"></div>
       <aside class="mini-info">
         <div class="panel-title" data-i18n="panel.selected">선택 증거</div>
         <div id="detailBadges"></div>
@@ -168,7 +168,7 @@ __CSS__
     </section>
   </div>
   <div class="selection-bar" id="selectionBar">
-    <strong id="selectionCount">0개 선택</strong>
+    <strong id="selectionCount" aria-live="polite">0개 선택</strong>
     <button id="btnSelectFiltered" type="button" title="Ctrl+A" data-i18n="sel.selectAll">전체 선택</button>
     <button id="btnClearSelection" type="button" title="Ctrl+D" data-i18n="sel.clear">해제</button>
     <span class="sep"></span>
@@ -205,24 +205,24 @@ __CSS__
   <div id="toastHost" role="status" aria-live="polite"></div>
   <div id="shortcutsModal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
-      <div class="panel-title"><span id="shortcutsTitle" data-i18n="shortcuts.title">단축키</span> <button id="btnShortcutsClose" class="mini" type="button">닫기</button></div>
+      <div class="panel-title"><span id="shortcutsTitle" data-i18n="shortcuts.title">단축키</span> <button id="btnShortcutsClose" class="mini" type="button" data-i18n="btn.close">닫기</button></div>
       <table>
         <tbody>
-          <tr><td><code>j</code> / <code>k</code></td><td>다음 / 이전 증거</td></tr>
-          <tr><td><code>space</code></td><td>현재 증거 선택 토글</td></tr>
-          <tr><td><code>enter</code></td><td>현재 증거 미리보기</td></tr>
-          <tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td>현재 증거 판독 완료 / 중요 / 검증 대기 (다음으로 이동)</td></tr>
-          <tr><td><code>0</code></td><td>현재 증거 마크 해제</td></tr>
-          <tr><td><code>ctrl+a</code></td><td>필터 결과 전체 선택</td></tr>
-          <tr><td><code>ctrl+d</code></td><td>선택 해제</td></tr>
-          <tr><td><code>←</code> / <code>→</code></td><td>영상 10초 뒤로 / 앞으로</td></tr>
-          <tr><td><code>[</code> / <code>]</code></td><td>재생 속도 낮추기 / 높이기</td></tr>
-          <tr><td><code>i</code> / <code>o</code></td><td>구간 IN / OUT 지정</td></tr>
-          <tr><td><code>f</code></td><td>영상 전체화면</td></tr>
-          <tr><td><code>t</code></td><td>시어터 모드</td></tr>
-          <tr><td><code>p</code></td><td>화면 속 화면</td></tr>
-          <tr><td><code>esc</code></td><td>모드 종료</td></tr>
-          <tr><td><code>shift+클릭</code></td><td>범위 선택</td></tr>
+          <tr><td><code>j</code> / <code>k</code></td><td data-i18n="sc.next">다음 / 이전 증거</td></tr>
+          <tr><td><code>space</code></td><td data-i18n="sc.toggle">현재 증거 선택 토글</td></tr>
+          <tr><td><code>enter</code></td><td data-i18n="sc.preview">현재 증거 미리보기</td></tr>
+          <tr><td><code>1</code> / <code>2</code> / <code>3</code></td><td data-i18n="sc.mark">현재 증거 판독 완료 / 중요 / 검증 대기 (다음으로 이동)</td></tr>
+          <tr><td><code>0</code></td><td data-i18n="sc.unmark">현재 증거 마크 해제</td></tr>
+          <tr><td><code>ctrl+a</code></td><td data-i18n="sc.selAll">필터 결과 전체 선택</td></tr>
+          <tr><td><code>ctrl+d</code></td><td data-i18n="sc.clear">선택 해제</td></tr>
+          <tr><td><code>←</code> / <code>→</code></td><td data-i18n="sc.seek">영상 10초 뒤로 / 앞으로</td></tr>
+          <tr><td><code>[</code> / <code>]</code></td><td data-i18n="sc.rate">재생 속도 낮추기 / 높이기</td></tr>
+          <tr><td><code>i</code> / <code>o</code></td><td data-i18n="sc.range">구간 IN / OUT 지정</td></tr>
+          <tr><td><code>f</code></td><td data-i18n="sc.fs">영상 전체화면</td></tr>
+          <tr><td><code>t</code></td><td data-i18n="sc.theater">시어터 모드</td></tr>
+          <tr><td><code>p</code></td><td data-i18n="sc.pip">화면 속 화면</td></tr>
+          <tr><td><code>esc</code></td><td data-i18n="sc.exit">모드 종료</td></tr>
+          <tr><td><code>shift+클릭</code></td><td data-i18n="sc.rangeSel">범위 선택</td></tr>
         </tbody>
       </table>
     </div>

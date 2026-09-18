@@ -160,6 +160,48 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101314; --panel: #1c2120; --ink: #e6e6e9; --muted: #98989e;
+        --line: #33383a; --line-strong: #4a4f52; --accent: #3fa08e; --accent-ink: #57b8a6;
+        --danger: #ff6961; --warn: #d9a44a; --ok: #5cb878; --candidate: #a898e0;
+        --shadow: 0 4px 16px rgba(0,0,0,.3), 0 12px 32px rgba(0,0,0,.35);
+        color-scheme: dark;
+      }
+      header { background: rgba(28,33,32,.8); border-bottom-color: rgba(255,255,255,.08); }
+      .badge { background: #2a2f2e; }
+      .badge.ok { background: #16382c; }
+      .badge.bad { background: #3d2422; }
+      .navstep { box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+      .navstep .num { background: #2a2f2e; }
+      .navstep:not(:disabled):hover { box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+      .navstep.sel { box-shadow: 0 0 0 1.5px var(--accent), 0 4px 14px rgba(63,160,142,.2); }
+      input[type="text"] { background: #161d1a; }
+      input[type="text"]:focus { box-shadow: 0 0 0 4px rgba(63,160,142,.25); }
+      .picker-pathrow input { background: #161d1a; }
+      .picker-item:hover, .picker-item:focus-visible { background: #1d332d; }
+      .modal-head button { background: #2a2f2e; color: var(--ink); }
+      .seg { background: #2a2f2e; }
+      .seg label:has(input:checked) { background: #3a4441; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+      button { background: #2a2f2e; }
+      button:hover:not(:disabled) { background: #3a4441; }
+      button.ghost:hover:not(:disabled) { background: rgba(63,160,142,.14); }
+      button.primary:disabled, button:disabled { background: #2a2f2e; color: #5a5f62; }
+      button:focus-visible, .picker-item:focus-visible, .navstep:focus-visible { box-shadow: 0 0 0 4px rgba(63,160,142,.35); }
+      ol.steptrack li .dot { background: #4a4f52; }
+      ol.steptrack li.running { background: #1d332d; }
+      .bar { background: #2a2f2e; }
+      .linklist a:hover { background: #1d332d; }
+      .casechip:hover { background: #1d332d; }
+      .stack button.ghost:hover { background: #1d332d; }
+      #reportFrame, #reviewFrame { background: var(--panel); }
+      .stat.k-video i { color: #5cb878; }
+      .stat.k-carved i { color: #d9a44a; }
+      .stat.k-filesystem i { color: #7aa7f0; }
+      .stat.k-candidate i { color: #d97f72; }
+      .err { background: #3d2422; }
+      .modal-backdrop { background: rgba(0,0,0,.55); }
+    }
   </style>
 </head>
 <body>
