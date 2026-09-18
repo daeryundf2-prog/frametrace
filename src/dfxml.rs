@@ -183,6 +183,23 @@ mod tests {
         dir
     }
 
+    // Windows exposes a non-functional `python3` Store stub alongside the
+    // real `python` interpreter, so probe candidates instead of assuming
+    // the `python3` name exists everywhere.
+    fn run_python(script: &str, arg: &Path) -> std::process::Output {
+        for name in ["python3", "python"] {
+            match std::process::Command::new(name)
+                .args(["-c", script])
+                .arg(arg)
+                .output()
+            {
+                Ok(out) if out.status.success() => return out,
+                Ok(_) | Err(_) => continue,
+            }
+        }
+        panic!("a working python interpreter is required for this test");
+    }
+
     #[test]
     fn emits_well_formed_dfxml_document() {
         let case_dir = temp_case(
@@ -198,16 +215,7 @@ mod tests {
         assert_eq!(result.hashed_count, 1);
 
         let text = read_to_string(&output).unwrap();
-        let parsed = std::process::Command::new("python3")
-            .args(["-c", "import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); ns = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; assert r.tag == '{' + ns['d'] + '}dfxml'; assert [e.text for e in r.findall('d:fileobject/f:id', ns)] == ['vid_1', 'vid_2']"])
-            .arg(&output)
-            .output()
-            .expect("python3 standard XML parser is required for this test");
-        assert!(
-            parsed.status.success(),
-            "{}",
-            String::from_utf8_lossy(&parsed.stderr)
-        );
+        run_python("import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); ns = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; assert r.tag == '{' + ns['d'] + '}dfxml'; assert [e.text for e in r.findall('d:fileobject/f:id', ns)] == ['vid_1', 'vid_2']", &output);
         assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(text.contains("<dfxml "));
         assert!(text.trim_end().ends_with("</dfxml>"));
@@ -257,16 +265,7 @@ mod tests {
         let case_dir = temp_case("controls", &row.to_string());
         let output = case_dir.join("reports/case-index.dfxml");
         export_dfxml(&case_dir, &output).unwrap();
-        let parsed = std::process::Command::new("python3")
-            .args(["-c", "import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); n = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; o = r.find('d:fileobject', n); assert o.find('f:id', n).text == 'vid_\\ufffd&<>'; assert o.find('d:filename', n).text == '/ev/a' + '\\ufffd' * 4 + '&<>\\t\\n\\n한글.mp4'; assert o.find('d:hashdigest', n).text == 'aa\\ufffd11'"])
-            .arg(&output)
-            .output()
-            .expect("python3 standard XML parser is required for this test");
-        assert!(
-            parsed.status.success(),
-            "{}",
-            String::from_utf8_lossy(&parsed.stderr)
-        );
+        run_python("import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); n = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; o = r.find('d:fileobject', n); assert o.find('f:id', n).text == 'vid_\\ufffd&<>'; assert o.find('d:filename', n).text == '/ev/a' + '\\ufffd' * 4 + '&<>\\t\\n\\n한글.mp4'; assert o.find('d:hashdigest', n).text == 'aa\\ufffd11'", &output);
         let _ = fs::remove_dir_all(&case_dir);
     }
 

@@ -84,7 +84,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
 
     let checksum_text = files
         .iter()
-        .map(|file| format!("{}  {}\n", file.sha256, file.relative_path.display()))
+        .map(|file| format!("{}  {}\n", file.sha256, rel_manifest_path(&file.relative_path)))
         .collect::<String>();
     let checksum_path = output_dir.join("manifest.sha256");
     write_text(&checksum_path, &checksum_text)
@@ -267,6 +267,13 @@ fn excluded_package_path(path: &Path, output_dir: &Path) -> bool {
         )
 }
 
+// Manifest paths must be portable: a package written on Windows and
+// verified on Linux has to carry identical relative paths, so always
+// serialize with '/' separators rather than the host Path separator.
+fn rel_manifest_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 fn is_report_file(rel: &Path) -> bool {
     if rel.starts_with("reports") || rel.starts_with("qa") {
         matches!(
@@ -407,7 +414,7 @@ fn package_manifest_json(
     for (index, file) in files.iter().enumerate() {
         out.push_str(&format!(
             "    {{\"relative_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\"}}",
-            json_escape(&file.relative_path.to_string_lossy()),
+            json_escape(&rel_manifest_path(&file.relative_path)),
             file.size_bytes,
             json_escape(&file.sha256)
         ));
