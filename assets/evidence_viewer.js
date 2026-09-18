@@ -301,6 +301,7 @@ const I18N = {
     "report.th.orig": "원본 경로",
     "report.memo": "소견:",
     "player.novid": "재생 가능한 파일이 없는 항목입니다 (복구 전 후보 등) — 다음으로 넘어가세요",
+    "player.list": "증거 목록",
     "player.prev": "‹ 이전",
     "player.next": "다음 ›",
     "player.play": "재생/일시정지",
@@ -602,6 +603,7 @@ const I18N = {
     "report.th.orig": "Original path",
     "report.memo": "Note:",
     "player.novid": "No playable file on this item (e.g. pre-recovery candidate) — skip to the next",
+    "player.list": "Evidence list",
     "player.prev": "‹ Prev",
     "player.next": "Next ›",
     "player.play": "Play/Pause",
@@ -2143,6 +2145,18 @@ window.__ftBridge = {
     }
     return playerDescriptor();
   },
+  // Filtered list for the popup's quick-jump sidebar — mirrors the main
+  // grid order so popup position always matches what the examiner sees.
+  list() {
+    return filteredRecords().map((r, i) => ({
+      id: r.id,
+      name: r.originalName || r.name || r.id,
+      index: i + 1,
+      mark: state.marks[r.id]?.status || "",
+      markLabel: state.marks[r.id]?.status ? markLabel(state.marks[r.id].status) : "",
+      hasVideo: !!mediaSrcFor(r),
+    }));
+  },
 };
 
 // A minimal dedicated player window — the examiner can park the clip on
@@ -2164,9 +2178,21 @@ function openPlayerWindow() {
 body{margin:0;background:#101815;color:#dfe8e4;font-family:ui-sans-serif,system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;height:100vh}
 header{padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #24332e;flex-wrap:wrap}
 header .id{color:#8fa79e;font-family:monospace;font-size:11px}
+#wrap{flex:1;min-height:0;display:flex}
+#left{flex:1;min-width:0;display:flex;flex-direction:column}
 #stage{flex:1;min-height:0;display:grid;place-items:center;background:#000;position:relative}
 video{width:100%;height:100%;object-fit:contain}
 #novid{position:absolute;color:#8fa79e;font-size:13px;background:rgba(0,0,0,.6);padding:8px 14px;border-radius:6px}
+#list{width:230px;flex:0 0 auto;overflow-y:auto;border-left:1px solid #24332e;font-size:12px}
+.li{padding:6px 10px;cursor:pointer;border-bottom:1px solid #1c2825;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.li:hover{background:#1b2b26}
+.li:focus-visible{outline:2px solid #3fa08e;outline-offset:-2px}
+.li.on{background:#3fa08e;color:#08130f;font-weight:700}
+.li.novid{color:#5a6b64}
+.li .idx{color:#8fa79e;margin-right:4px;font-family:monospace;font-size:11px}
+.li.on .idx{color:#0a1c18}
+.li .mk{float:right;color:#d9b45b}
+.li.on .mk{color:#08130f}
 .bar{display:flex;gap:8px;align-items:center;padding:6px 14px;border-top:1px solid #24332e;font-size:13px;flex-wrap:wrap}
 button,select{font:inherit;height:28px;border:1px solid #3a4f48;border-radius:5px;background:#1b2b26;color:#dfe8e4;padding:0 10px;cursor:pointer;font-size:12px}
 button:hover,select:hover{border-color:#3fa08e}
@@ -2175,6 +2201,7 @@ button.on{background:#3fa08e;border-color:#3fa08e;color:#08130f}
 #note{color:#d9b45b;font-size:12px}
 </style></head><body>
 <header><strong id="title"></strong><span class="id" id="meta"></span><span id="note"></span></header>
+<div id="wrap"><div id="left">
 <div id="stage"><video id="vv" controls autoplay></video><div id="novid" hidden>${t("player.novid")}</div></div>
 <div class="bar">
 <button id="prev">${t("player.prev")}</button>
@@ -2194,6 +2221,7 @@ button.on{background:#3fa08e;border-color:#3fa08e;color:#08130f}
 <button class="mk" data-m="">${t("player.clear")}</button>
 <span class="muted">${t("player.tags")}</span>${tagButtons}
 </div>
+</div><div id="list" role="listbox" aria-label="${t("player.list")}"></div></div>
 <script>
 var v=document.getElementById("vv");
 var RATES=[${RATES.join(",")}];
@@ -2214,7 +2242,19 @@ if(d.src){document.getElementById("novid").hidden=true;if(v.getAttribute("src")!
 else{document.getElementById("novid").hidden=false;v.removeAttribute("src");v.load();}
 document.querySelectorAll(".mk").forEach(function(b){b.classList.toggle("on",b.dataset.m===d.mark);});
 document.querySelectorAll(".tg").forEach(function(b){b.classList.toggle("on",d.tags.indexOf(b.dataset.tag)>=0);});
+renderList();
 }
+var listEl=document.getElementById("list");
+function renderList(){
+var b=B();if(!b){listEl.innerHTML="";return;}
+var items=b.list();
+listEl.innerHTML=items.map(function(it){
+return '<div class="li'+(it.id===(cur&&cur.id)?" on":"")+(it.hasVideo?"":" novid")+'" data-id="'+esc(it.id)+'" tabindex="0" role="option" aria-selected="'+(it.id===(cur&&cur.id))+'"><span class="idx">'+it.index+'</span>'+esc(it.name)+(it.markLabel?'<span class="mk">'+esc(it.markLabel)+'</span>':'')+'</div>';
+}).join("");
+var on=listEl.querySelector(".li.on");if(on)on.scrollIntoView({block:"nearest"});
+}
+listEl.addEventListener("click",function(e){var it=e.target.closest(".li");if(!it)return;var b=B();if(!b){dead();return;}applyDesc(b.focus(it.dataset.id),true);});
+listEl.addEventListener("keydown",function(e){if(e.key!=="Enter"&&e.key!==" ")return;var it=e.target.closest(".li");if(!it)return;e.preventDefault();var b=B();if(!b){dead();return;}applyDesc(b.focus(it.dataset.id),true);});
 function nav(step,autoplay){var b=B();if(!b){dead();return;}var r=b.navigate(step);applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?${JSON.stringify(t("player.last"))}:${JSON.stringify(t("player.first"))});else note("");}
 function doMark(m){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.mark(m||null),true);}
 function doTag(t){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.toggleTag(t),false);}
@@ -2240,6 +2280,9 @@ fetch("/api/capture-frame",{method:"POST",headers:{"Content-Type":"text/plain"},
 v.addEventListener("ended",function(){nav(1,true);});
 document.addEventListener("keydown",function(e){
 if(e.target&&e.target.tagName==="SELECT")return;
+if(e.target&&e.target.closest&&e.target.closest("#list")){
+if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();var items=listEl.querySelectorAll(".li");var idx=Array.prototype.indexOf.call(items,e.target);var n=items[idx+(e.key==="ArrowDown"?1:-1)];if(n)n.focus();}
+return;}
 if(e.key==="ArrowLeft")skip(-10);else if(e.key==="ArrowRight")skip(10);
 else if(e.key==="ArrowUp"){e.preventDefault();stepRate(1);}
 else if(e.key==="ArrowDown"){e.preventDefault();stepRate(-1);}
