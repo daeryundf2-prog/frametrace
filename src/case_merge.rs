@@ -52,7 +52,16 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
     let case_root = case_dir
         .canonicalize()
         .map_err(|err| format!("failed to canonicalize case directory: {err}"))?;
-    let mut existing_lines = read_index_lines(case_dir, false)?;
+    let mut existing_lines = load_target_lines(case_dir)?;
+    let mut positions_by_path: HashMap<String, usize> = existing_lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let value: serde_json::Value =
+                serde_json::from_str(line).expect("validated target record");
+            (string_field(&value, "source_path"), i)
+        })
+        .collect();
 
     // sha256 -> first record id, for duplicate marking. Unhashed records
     // never deduplicate (nothing trustworthy to compare on).
@@ -96,8 +105,7 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
         sources.push((source_root, source_lines));
     }
 
-    let mut new_lines: Vec<String> = Vec::new();
-    let mut new_rows: Vec<IndexedVideoRow> = Vec::new();
+    let mut audit_lines = Vec::new();
     let mut summaries = Vec::new();
     let generated_unix = now_unix()?;
 
@@ -109,6 +117,29 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
                 continue;
             };
             let original_id = string_field(&value, "id");
+            let source_path = string_field(&value, "source_path");
+            if original_id.is_empty() || source_path.is_empty() {
+                continue;
+            }
+            if let Some(&position) = positions_by_path.get(&source_path) {
+                let mut kept: serde_json::Value =
+                    serde_json::from_str(&existing_lines[position])
+                        .map_err(|err| format!("invalid merged record: {err}"))?;
+                let provenance = serde_json::json!({"source_case": source_root, "record": value});
+                let entries = kept
+                    .as_object_mut()
+                    .expect("record object")
+                    .entry("merge_provenance")
+                    .or_insert_with(|| serde_json::json!([]))
+                    .as_array_mut()
+                    .ok_or("invalid merge_provenance: expected array")?;
+                if !entries.contains(&provenance) {
+                    entries.push(provenance);
+                }
+                existing_lines[position] = kept.to_string();
+                duplicates += 1;
+                continue;
+            }
             let new_id = format!("vid_{next_number:06}");
             next_number += 1;
             let duplicate_of = value
@@ -145,10 +176,8 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
                     &format!("\"{}\"", json_escape(duplicate_of)),
                 );
             }
-            let parsed: serde_json::Value = serde_json::from_str(&merged_line)
-                .map_err(|err| format!("merged record failed to reparse: {err}"))?;
-            new_rows.push(row_from_value(&parsed, &merged_line));
-            new_lines.push(merged_line);
+            positions_by_path.insert(source_path, existing_lines.len());
+            existing_lines.push(merged_line);
             merged += 1;
         }
         summaries.push(MergeSourceSummary {
@@ -164,12 +193,11 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
             merged,
             duplicates,
         );
-        audit::append_chained_jsonl(&case_dir.join("evidence/logs/case-merge-log.jsonl"), &line)?;
+        audit_lines.push(line);
     }
 
     // Deterministic ordering: existing records keep their (lower) id order
     // and merged records follow in argument/line order under fresh ids.
-    existing_lines.extend(new_lines.iter().cloned());
     let mut all = existing_lines;
     all.sort_by_key(|line| line_id(line));
 
@@ -187,7 +215,18 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<Merg
     write_text_atomic(&case_dir.join("db/video_paths.tsv"), &tsv)
         .map_err(|err| format!("failed to write merged video path index: {err}"))?;
     write_merged_index_json(case_dir, &all, generated_unix)?;
-    upsert_indexed_rows(case_dir, &new_rows, generated_unix)?;
+    let rows = all
+        .iter()
+        .map(|line| {
+            serde_json::from_str(line)
+                .map(|value| row_from_value(&value, line))
+                .map_err(|err| format!("invalid merged record: {err}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    upsert_indexed_rows(case_dir, &rows, generated_unix)?;
+    for line in audit_lines {
+        audit::append_chained_jsonl(&case_dir.join("evidence/logs/case-merge-log.jsonl"), &line)?;
+    }
 
     let duplicate_total = summaries.iter().map(|s| s.duplicate_records).sum();
     let merged_total = summaries.iter().map(|s| s.merged_records).sum();
@@ -219,6 +258,46 @@ fn read_index_lines(case_dir: &Path, required: bool) -> Result<Vec<String>, Stri
         Err(err) => return Err(format!("failed to read {}: {err}", path.display())),
     };
     Ok(json_record_lines(&text))
+}
+
+pub(crate) fn load_target_lines(case_dir: &Path) -> Result<Vec<String>, String> {
+    let target_lines = read_index_lines(case_dir, false)?;
+    let stored_lines = crate::case_db::load_video_record_lines(case_dir)?;
+    let mut records_by_path = HashMap::new();
+    let mut paths_by_id = HashMap::new();
+    let mut lines = Vec::new();
+    for line in stored_lines.into_iter().chain(target_lines) {
+        let value: serde_json::Value = serde_json::from_str(&line)
+            .map_err(|err| format!("invalid target index record: {err}"))?;
+        let id = string_field(&value, "id");
+        let path = string_field(&value, "source_path");
+        if id.is_empty() || path.is_empty() {
+            return Err("merge refuses target records without id/source_path".into());
+        }
+        if let Some(prior) = paths_by_id.insert(id.clone(), path.clone())
+            && prior != path
+        {
+            return Err(format!(
+                "merge refuses conflicting target id {id}; repair stores and marks first"
+            ));
+        }
+        if let Some(prior) = records_by_path.get(&path) {
+            if string_field(prior, "id") != id {
+                return Err(format!(
+                    "merge refuses conflicting target path {path}; repair stores and marks first"
+                ));
+            }
+            if prior != &value {
+                return Err(format!(
+                    "merge refuses conflicting target record {id} at {path}; repair stores first"
+                ));
+            }
+        } else {
+            records_by_path.insert(path, value);
+            lines.push(line);
+        }
+    }
+    Ok(lines)
 }
 
 fn line_id(line: &str) -> String {
@@ -440,17 +519,13 @@ mod tests {
             Some(source.canonicalize().unwrap().to_string_lossy().as_ref())
         );
 
-        // Index + SQLite were updated too. SQLite receives only the merged
-        // rows — the target's own records land there when they are scanned;
-        // this fixture wrote videos.jsonl directly, so only the two merged
-        // rows are present.
         let index = read_to_string(&target.join("db/video_index.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&index).unwrap();
         assert_eq!(parsed["video_count"].as_u64(), Some(3));
         assert_eq!(parsed["videos"].as_array().unwrap().len(), 3);
         let ids = crate::case_db::load_video_ids(&target).unwrap();
-        assert_eq!(ids.len(), 2);
-        assert!(ids.iter().all(|row| row.id != "vid_000001"));
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().any(|row| row.id == "vid_000001"));
 
         // One audit entry per source, chain intact.
         let verification =
@@ -460,6 +535,169 @@ mod tests {
 
         let _ = fs::remove_dir_all(&target);
         let _ = fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn overlapping_paths_twice_preserve_ids_marks_and_store_rows() {
+        let original = row("vid_000007", "/ev/shared.mp4", 10, Some("aa"));
+        let target = temp_case("overlap-t", Some(&original));
+        let parsed = serde_json::from_str(&original).unwrap();
+        upsert_indexed_rows(&target, &[row_from_value(&parsed, original.trim())], 1).unwrap();
+        crate::case_db::upsert_review_marks(
+            &target,
+            &[crate::case_db::ReviewMarkRow {
+                record_id: "vid_000007".into(),
+                status: "relevant".into(),
+                marked_unix: 1,
+                record_path: Some("/ev/shared.mp4".into()),
+                examiner: None,
+                note: Some("keep".into()),
+            }],
+        )
+        .unwrap();
+        let source = temp_case(
+            "overlap-s",
+            Some(&format!(
+                "{}{}",
+                row("vid_000001", "/ev/shared.mp4", 20, Some("bb")),
+                row("vid_000002", "/ev/new.mp4", 30, Some("cc")),
+            )),
+        );
+        for _ in 0..2 {
+            let result = merge_cases(&target, std::slice::from_ref(&source)).unwrap();
+            let rows = jsonl_ids(&target);
+            let ids = crate::case_db::load_video_ids(&target).unwrap();
+            assert_eq!(rows.len(), ids.len());
+            assert_eq!(result.total_records, 2);
+            for id in &ids {
+                let record = rows.iter().find(|r| r["id"] == id.id).unwrap();
+                assert_eq!(record["source_path"], id.source_path);
+            }
+            let shared = rows
+                .iter()
+                .find(|r| r["source_path"] == "/ev/shared.mp4")
+                .unwrap();
+            assert_eq!(shared["id"], "vid_000007");
+            assert_eq!(shared["sha256"], "aa");
+            assert!(
+                shared["merge_provenance"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p["record"]["id"] == "vid_000001")
+            );
+            let marks = crate::case_db::load_review_marks(&target).unwrap();
+            assert_eq!(marks[0].record_id, "vid_000007");
+            assert_eq!(marks[0].note.as_deref(), Some("keep"));
+            assert!(ids.iter().any(|id| id.id == marks[0].record_id));
+            crate::qa::consistency_report(&target, &target.join("qa")).unwrap();
+            let conn = crate::case_db::open_readonly_case_db(&target.join("db/case.db")).unwrap();
+            for record in rows {
+                let stored: String = conn
+                    .query_row(
+                        "SELECT record_json FROM videos WHERE id = ?1",
+                        [record["id"].as_str().unwrap()],
+                        |r| r.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&stored).unwrap(),
+                    record
+                );
+            }
+            assert_eq!(
+                read_to_string(&target.join("db/video_paths.tsv"))
+                    .unwrap()
+                    .lines()
+                    .count(),
+                3
+            );
+        }
+        let _ = fs::remove_dir_all(target);
+        let _ = fs::remove_dir_all(source);
+    }
+
+    fn snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = std::collections::BTreeMap::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files.insert(path.clone(), Vec::new());
+                files.extend(snapshot(&path));
+            } else {
+                files.insert(path.clone(), fs::read(path).unwrap());
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn conflicting_target_records_leave_everything_unchanged() {
+        for field in ["sha256", "source_profile"] {
+            let original = row("vid_000007", "/ev/shared.mp4", 10, Some("aa"));
+            let target = temp_case(&format!("conflict-{field}-t"), Some(&original));
+            let mut parsed: serde_json::Value = serde_json::from_str(&original).unwrap();
+            parsed[field] = if field == "sha256" {
+                serde_json::json!("bb")
+            } else {
+                serde_json::json!({"vendor": "different metadata"})
+            };
+            upsert_indexed_rows(&target, &[row_from_value(&parsed, &parsed.to_string())], 1)
+                .unwrap();
+            crate::case_db::upsert_review_marks(
+                &target,
+                &[crate::case_db::ReviewMarkRow {
+                    record_id: "vid_000007".into(),
+                    status: "relevant".into(),
+                    marked_unix: 1,
+                    record_path: Some("/ev/shared.mp4".into()),
+                    examiner: None,
+                    note: Some("keep".into()),
+                }],
+            )
+            .unwrap();
+            fs::write(target.join("db/video_index.json"), b"{\"preserve\":true}").unwrap();
+            fs::write(target.join("db/video_paths.tsv"), b"preserve\n").unwrap();
+            let source = temp_case(
+                &format!("conflict-{field}-s"),
+                Some(&row("vid_000001", "/ev/new.mp4", 20, None)),
+            );
+            let before = snapshot(&target);
+            let source_before = snapshot(&source);
+            let err = merge_cases(&target, std::slice::from_ref(&source)).unwrap_err();
+            assert!(err.contains("conflicting target record"), "{err}");
+            assert_eq!(snapshot(&target), before);
+            assert_eq!(snapshot(&source), source_before);
+            let err = crate::cli::handlers::merge_cases(&target, std::slice::from_ref(&source))
+                .unwrap_err();
+            assert!(err.contains("conflicting target record"), "{err}");
+            assert_eq!(snapshot(&target), before);
+            assert_eq!(snapshot(&source), source_before);
+            assert!(!target.join("evidence/logs/case-merge-log.jsonl").exists());
+            let _ = fs::remove_dir_all(target);
+            let _ = fs::remove_dir_all(source);
+        }
+    }
+
+    #[test]
+    fn equivalent_target_records_ignore_object_order() {
+        let original = row("vid_000007", "/ev/shared.mp4", 10, Some("aa"));
+        let target = temp_case("ordered-t", Some(&original));
+        let mut parsed: serde_json::Value = serde_json::from_str(&original).unwrap();
+        parsed.as_object_mut().unwrap().sort_keys();
+        parsed["source_profile"]
+            .as_object_mut()
+            .unwrap()
+            .sort_keys();
+        assert_ne!(original.trim(), parsed.to_string());
+        upsert_indexed_rows(&target, &[row_from_value(&parsed, &parsed.to_string())], 1).unwrap();
+        let source = temp_case("ordered-s", Some(&original));
+        let result = merge_cases(&target, std::slice::from_ref(&source)).unwrap();
+        assert_eq!(result.total_records, 1);
+        assert_eq!(result.duplicate_records, 1);
+        assert_eq!(result.merged_records, 0);
+        let _ = fs::remove_dir_all(target);
+        let _ = fs::remove_dir_all(source);
     }
 
     #[test]
@@ -491,6 +729,35 @@ mod tests {
 
         let _ = fs::remove_dir_all(&target);
         let _ = fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn failed_store_writes_never_append_merge_success_audit() {
+        for blocked in [
+            "db/videos.jsonl",
+            "db/video_paths.tsv",
+            "db/video_index.json",
+            "db/case.db",
+        ] {
+            let name = blocked.replace('/', "-");
+            let target = temp_case(&format!("failure-{name}-t"), None);
+            let source = temp_case(
+                &format!("failure-{name}-s"),
+                Some(&row("vid_000001", "/ev/a.mp4", 10, None)),
+            );
+            fs::create_dir(target.join(blocked)).unwrap();
+            assert!(merge_cases(&target, std::slice::from_ref(&source)).is_err());
+            assert!(!target.join("evidence/logs/case-merge-log.jsonl").exists());
+            if blocked != "db/videos.jsonl" {
+                assert_eq!(
+                    jsonl_ids(&target).len(),
+                    1,
+                    "earlier atomic file writes remain after a later store failure"
+                );
+            }
+            let _ = fs::remove_dir_all(target);
+            let _ = fs::remove_dir_all(source);
+        }
     }
 
     #[test]

@@ -193,7 +193,7 @@ fn key_file_path() -> Option<PathBuf> {
 }
 
 /// `<config>/frametrace/` — XDG on Unix, `%APPDATA%` on Windows.
-fn config_dir() -> Option<PathBuf> {
+pub(crate) fn config_dir() -> Option<PathBuf> {
     #[cfg(unix)]
     {
         if let Ok(base) = std::env::var("XDG_CONFIG_HOME")

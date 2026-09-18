@@ -302,7 +302,7 @@ async function unitTests() {
   // setTimeout must not actually schedule: poll() re-arms itself forever and
   // would keep the --unit process alive after the assertions finish.
   const noopTimeout = () => 0;
-  const ex = { window: {}, document: dom, location: { protocol: 'http:' }, localStorage: { getItem: () => null, setItem() {} }, fetch: async () => { throw new Error('down'); }, console, confirm: () => true, setTimeout: noopTimeout, clearTimeout };
+  const ex = { window: {}, document: dom, location: { protocol: 'http:' }, localStorage: { getItem: () => null, setItem() {} }, fetch: async () => { throw new Error('down'); }, console, confirm: () => true, setTimeout: noopTimeout, clearTimeout, setInterval: () => 0, clearInterval, addEventListener() {} };
   ex.window = ex;
   runInNewContext(exScript, ex);
   const openFail = async () => {

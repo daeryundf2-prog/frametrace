@@ -150,10 +150,66 @@ fn state_lock(state: &SharedState) -> MutexGuard<'_, JobState> {
     }
 }
 
+/// `<config>/frametrace/workstation-session.json` — remembers the last
+/// opened case so restarting the workstation returns to it instead of
+/// resetting to an empty stage 1 (and 404ing /review/*).
+fn session_file() -> Option<PathBuf> {
+    crate::audit_key::config_dir().map(|dir| dir.join("workstation-session.json"))
+}
+
+fn save_session(case_dir: &Path, source_path: Option<&Path>) {
+    let Some(file) = session_file() else { return };
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let source = source_path
+        .map(|p| format!(",\"source_path\":{}", json_string(&p.display().to_string())))
+        .unwrap_or_default();
+    let body = format!(
+        "{{\"case_dir\":{}{}}}",
+        json_string(&case_dir.display().to_string()),
+        source
+    );
+    let _ = std::fs::write(file, body);
+}
+
+/// Restore the last case binding from the session file. Returns the case
+/// dir plus any extra media root (folder-input source path) that still
+/// exists on disk.
+fn restore_session() -> Option<(PathBuf, Vec<PathBuf>)> {
+    let text = std::fs::read_to_string(session_file()?).ok()?;
+    let case_dir = PathBuf::from(body_value(&text, "case_dir")?);
+    if !case_dir.join("case.json").is_file() {
+        return None;
+    }
+    let mut roots = vec![case_dir.clone()];
+    if let Some(source) = body_value(&text, "source_path") {
+        let source = PathBuf::from(source);
+        if source.is_dir() && source != case_dir {
+            roots.push(source);
+        }
+    }
+    Some((case_dir, roots))
+}
+
 pub fn run(options: ServeOptions) -> Result<(), String> {
     let state: SharedState = Arc::new(Mutex::new(JobState::new()));
     if let Some(case_dir) = &options.case_dir {
-        state_lock(&state).case_dir = Some(case_dir.clone());
+        let mut guard = state_lock(&state);
+        guard.case_dir = Some(case_dir.clone());
+        guard.media_roots = vec![case_dir.clone()];
+    } else if let Some((case_dir, roots)) = restore_session() {
+        let mut guard = state_lock(&state);
+        guard.case_dir = Some(case_dir.clone());
+        guard.media_roots = roots;
+        if case_dir.join("review/index.html").is_file() {
+            guard.phase = "review-ready";
+            guard.steps = [StepStatus::Done; 5];
+            guard.logs.push(format!(
+                "이전 세션의 케이스를 복원했습니다: {}",
+                case_dir.display()
+            ));
+        }
     }
     // FRAMETRACE_TOKEN opts into shared-secret auth on top of the loopback
     // trust model — useful when untrusted processes share the exam machine.
@@ -1053,6 +1109,10 @@ fn api_start(request: &Request, state: &SharedState) -> String {
             InputKind::E01 | InputKind::E01Direct => vec![case_dir.clone()],
         };
     }
+    save_session(
+        &case_dir,
+        (input_kind == InputKind::Folder).then_some(source_path.as_path()),
+    );
     let worker_state = Arc::clone(state);
     let spawned = thread::Builder::new()
         .name("ft-pipeline".into())
@@ -1866,9 +1926,39 @@ fn api_proxy(request: &Request, state: &SharedState) -> String {
     if id.trim().is_empty() {
         return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
     }
+    // make-proxy resolves vid_* ids and indexed source paths. Carved /
+    // filesystem records carry non-indexed ids (carve_*, fls_*) — for
+    // those the viewer also sends the record's file path, which we only
+    // honor when it sits inside the approved media roots.
+    let selector = if id.starts_with("vid_") {
+        id.clone()
+    } else {
+        let alt = body_value(&request.body, "path").unwrap_or_default();
+        let candidate = PathBuf::from(alt.trim());
+        let roots = state_lock(state).media_roots.clone();
+        let allowed = candidate
+            .canonicalize()
+            .map(|canonical| {
+                roots
+                    .iter()
+                    .filter_map(|root| root.canonicalize().ok())
+                    .any(|root| path_is_under(&root, &canonical))
+            })
+            .unwrap_or(false);
+        if !allowed {
+            return "{\"ok\":false,\"error\":\"색인된 영상 또는 허용된 경로의 파일만 프록시로 재생할 수 있습니다.\"}"
+                .to_string();
+        }
+        candidate.to_string_lossy().to_string()
+    };
     let dir = case_dir.join("artifacts/proxies");
     let find_existing = |dir: &Path| -> Option<PathBuf> {
-        let prefix = format!("{}_proxy_", export_safe_name(&id));
+        // generate_proxy names outputs with video_export::sanitize_filename,
+        // not export_safe_name — match that or the cache lookup misses.
+        let prefix = format!(
+            "{}_proxy_",
+            crate::video_export::sanitize_filename(&selector)
+        );
         std::fs::read_dir(dir).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with(&prefix) && name.ends_with(".mp4") {
@@ -1893,7 +1983,7 @@ fn api_proxy(request: &Request, state: &SharedState) -> String {
             let args = vec![
                 "make-proxy".into(),
                 case_dir.to_string_lossy().to_string(),
-                id.clone(),
+                selector.clone(),
             ];
             if let Err(err) = run_step(&exe, &args, state) {
                 return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
@@ -1938,6 +2028,10 @@ fn api_advanced(request: &Request, state: &SharedState) -> String {
             "reports/case-index.dfxml",
         ),
         "timeline" => (vec!["timeline".into(), case_text], "db/timeline.jsonl"),
+        "deepfake" => (
+            vec!["deepfake-scan".into(), case_text],
+            "review/evidence-viewer.html",
+        ),
         "qa-consistency" => (
             vec!["qa".into(), "consistency".into(), case_text],
             "reports/qa/consistency-report.html",
@@ -2042,6 +2136,8 @@ fn api_open_case(request: &Request, state: &SharedState) -> String {
             .logs
             .push(format!("기존 케이스를 열었습니다: {}", case_dir.display()));
     }
+    drop(guard);
+    save_session(&case_dir, None);
     format!(
         "{{\"ok\":true,\"has_review\":{}}}",
         if has_review { "true" } else { "false" }
@@ -2908,6 +3004,27 @@ fn serve_media(
         if code == 206 { "Partial Content" } else { "OK" },
         mime_for(&canonical)
     );
+    // `?download=1` forces a browser save-as with the evidence filename
+    // instead of inline playback. Same approved-roots containment applies.
+    if query_value(&request.query, "download").is_some() {
+        let name = canonical
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("evidence.bin");
+        let safe: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        head.push_str(&format!(
+            "Content-Disposition: attachment; filename=\"{safe}\"\r\n"
+        ));
+    }
     if code == 206 {
         head.push_str(&format!("Content-Range: bytes {start}-{end}/{total}\r\n"));
     }

@@ -11,7 +11,9 @@ use crate::report;
 use crate::scan;
 use crate::tool_policy::require_case_output_path;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
-use crate::util::{create_case_layout, json_escape, now_unix, read_to_string, write_text};
+use crate::util::{
+    create_case_layout, json_escape, now_unix, read_to_string, write_text, write_text_atomic,
+};
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
@@ -561,6 +563,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         "tags": crate::case_db::load_review_tags(case_dir).unwrap_or_default(),
     }))
     .map_err(|err| err.to_string())?;
+    let deepfake_reports = crate::deepfake::collect_reports(case_dir).to_string();
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
@@ -571,6 +574,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &fls_entries,
         &thumbs_json,
         &annotations_json,
+        &deepfake_reports,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(
@@ -2525,14 +2529,15 @@ fn validation_options_json(options: &ValidationOptions) -> String {
 
 fn scan_options_json(options: &ScanOptions) -> String {
     format!(
-        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{},\"incremental\":{}}}",
+        "{{\"hash_files\":{},\"use_ffprobe\":{},\"max_depth\":{},\"incremental\":{},\"deepfake_screen\":{}}}",
         options.hash_files,
         options.use_ffprobe,
         options
             .max_depth
             .map(|value| value.to_string())
             .unwrap_or_else(|| "null".to_string()),
-        options.incremental
+        options.incremental,
+        options.deepfake_screen
     )
 }
 
@@ -2548,6 +2553,73 @@ fn default_host() -> Option<String> {
         .ok()
         .or_else(|| env::var("HOSTNAME").ok())
         .filter(|value| !value.trim().is_empty())
+}
+
+/// Screen one file with the deepfake-lens sidecar and emit its JSON report.
+///
+/// The report keeps deepfake-lens's own framing: scores are review
+/// priorities, not authenticity verdicts.
+pub fn deepfake_screen(file: &Path, json_out: Option<&Path>) -> Result<(), String> {
+    let summary = crate::deepfake::screen(file);
+    if !summary.ok {
+        return Err(format!(
+            "deepfake-lens screening failed: {}",
+            summary.error.unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+    let raw = summary.raw_json.clone().unwrap_or_else(|| "{}".to_string());
+    match json_out {
+        Some(out) => {
+            write_text_atomic(out, &raw)
+                .map_err(|err| format!("failed to write {}: {err}", out.display()))?;
+            println!("deepfake report written: {}", out.display());
+        }
+        None => println!("{raw}"),
+    }
+    Ok(())
+}
+
+pub fn deepfake_scan(case_dir: &Path, force: bool) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(
+        case_dir,
+        "deepfake-scan",
+        case_dir,
+        None,
+        &format!("{{\"force\":{force}}}"),
+    )?;
+    let progress = |done: usize, total: usize, id: &str| {
+        if !id.is_empty() {
+            println!("deepfake screen {done}/{total}: {id}");
+        }
+    };
+    let stats = match crate::deepfake::screen_case(case_dir, force, &progress) {
+        Ok(stats) => stats,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        stats.screened.max(1) as u64,
+        "deepfake-scan completed",
+    )?;
+    println!("deepfake scan complete");
+    println!(
+        "screened: {} · already present: {} · file missing: {} · failed: {}",
+        stats.screened, stats.skipped_existing, stats.skipped_missing, stats.failed
+    );
+    println!(
+        "artifacts: {}",
+        case_dir.join("artifacts/deepfake").display()
+    );
+    println!(
+        "next: make-review {} — 뷰어에 '합성의심' 배지로 표시됩니다",
+        case_dir.display()
+    );
+    Ok(())
 }
 
 #[cfg(test)]

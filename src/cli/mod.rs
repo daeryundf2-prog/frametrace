@@ -69,6 +69,10 @@ pub enum Commands {
         /// Discard any interrupted-run checkpoint and process every file
         #[arg(long, overrides_with = "resume")]
         no_resume: bool,
+        /// Screen each file through the deepfake-lens sidecar and write
+        /// artifacts/deepfake/<id>.json (slow on CPU-only machines)
+        #[arg(long)]
+        deepfake: bool,
     },
     /// Register an evidence source in the SQLite case database
     RegisterSource {
@@ -365,6 +369,24 @@ pub enum Commands {
         #[arg(long, default_value_t = 10000)]
         rows: usize,
     },
+    /// Screen a file for synthetic-media signals via the deepfake-lens
+    /// sidecar (`deepfake-lens forensic <file> --format json`). Scores are
+    /// review-priority signals, not authenticity verdicts.
+    DeepfakeScreen {
+        file: PathBuf,
+        /// Write the full JSON report to this path instead of stdout
+        #[arg(long)]
+        json_out: Option<PathBuf>,
+    },
+    /// Screen every case record that lacks a deepfake artifact — covers
+    /// indexed videos plus carved and filesystem-recovered files from
+    /// E01 pipelines that never pass through scan-folder.
+    DeepfakeScan {
+        case_dir: PathBuf,
+        /// Re-screen records that already have an artifact
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
     /// Run forensic QA validation checks
@@ -478,12 +500,14 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             incremental,
             resume,
             no_resume,
+            deepfake,
         } => {
             let options = ScanOptions {
                 hash_files: hash,
                 use_ffprobe: !no_ffprobe,
                 max_depth,
                 incremental,
+                deepfake_screen: deepfake,
             };
             scan_folder(
                 &case_dir,
@@ -764,6 +788,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             let options = BenchmarkOptions { rows };
             benchmark_db(&output_dir, options)
         }
+        Commands::DeepfakeScreen { file, json_out } => deepfake_screen(&file, json_out.as_deref()),
+        Commands::DeepfakeScan { case_dir, force } => deepfake_scan(&case_dir, force),
         Commands::Inspect { case_dir } => inspect(&case_dir),
         Commands::Qa { command } => run_qa(command),
     }

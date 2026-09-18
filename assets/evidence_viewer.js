@@ -29,7 +29,15 @@ const RANGES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".ranges";
 const PROXIES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".proxies";
 const EXAMINER_KEY = "ft.viewer." + (manifest.case_id || "case") + ".examiner";
 const MARK_STATUSES = ["reviewed", "important", "needs_verification"];
-const TAG_PRESETS = ["사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
+// Tag presets are the quick-apply taxonomy for the tag menu, the tag
+// filter, the detail editor, and the popup player. The defaults cover
+// any case type — accident, assault, fraud, missing-person, digital
+// evidence — with the traffic set kept at the end for dashcam cases.
+// Examiners can add/remove presets in the tag menu; the list is stored
+// globally (not per case) because an investigator's tag vocabulary is
+// personal, while applied tags stay per-case under TAGS_KEY.
+const DEFAULT_TAG_PRESETS = ["핵심증거", "현장", "관련인", "동선·위치", "시간대확인", "조작의심", "출처불명", "참고자료", "보존요청", "제외", "사고", "과속", "신호위반", "차선변경", "보행자", "음주의심"];
+const TAG_PRESETS_KEY = "ft.viewer.tag_presets";
 const TAGS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".tags";
 const LOCALE_KEY = "ft.viewer." + (manifest.case_id || "case") + ".locale";
 
@@ -499,6 +507,9 @@ records.forEach(record => {
   record.recType = recTypeFor(record);
     record.originalName = originalNameFor(record);
   record.thumb = DATA.thumbs?.[record.id] || null;
+  // Artifact filenames sanitize record ids (inode:<off>:<ino> →
+  // inode_<off>_<ino>) — mirror the same mapping for the lookup.
+  record.dfl = DATA.deepfake?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
   const fromId = anomaliesBySelector.get(record.id) || [];
   const fromValidation = Array.isArray(record.validation?.anomaly_flags)
     ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
@@ -530,6 +541,7 @@ const state = {
   proxies: storageGet(PROXIES_KEY, {}),
   examiner: storageGet(EXAMINER_KEY, ""),
   tags: storageGet(TAGS_KEY, {}),
+  tagPresets: storageGet(TAG_PRESETS_KEY, null),
   locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
   layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
@@ -580,6 +592,31 @@ function hydrateAnnotations(annotations) {
 
 hydrateAnnotations(DATA.annotations || { marks: [], tags: [] });
 
+// null = never customized → seed from defaults; an empty array is a
+// deliberate "no presets" choice and must not reseed.
+if (!Array.isArray(state.tagPresets)) state.tagPresets = [...DEFAULT_TAG_PRESETS];
+
+// Same-origin hosts (e.g. the examiner workstation iframe) read live case
+// stats through this getter instead of re-parsing the embedded data.
+window.__frametraceSummary = () => {
+  const byKind = {};
+  const byStatus = {};
+  let warned = 0;
+  records.forEach(r => {
+    byKind[r.kind || "video"] = (byKind[r.kind || "video"] || 0) + 1;
+    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    if ((r.warnings || []).length) warned += 1;
+  });
+  return {
+    total: records.length,
+    byKind,
+    byStatus,
+    warned,
+    marked: Object.keys(state.marks).length,
+    noted: records.filter(r => (state.notes[r.id] || "").trim()).length
+  };
+};
+
 const els = {
   caseLine: document.getElementById("caseLine"),
   resultCount: document.getElementById("resultCount"),
@@ -613,6 +650,7 @@ const els = {
   facetTree: document.getElementById("facetTree"),
   sortBy: document.getElementById("sortBy"),
   groupBy: document.getElementById("groupBy"),
+  tagFilter: document.getElementById("tagFilter"),
   dateFrom: document.getElementById("dateFrom"),
   dateTo: document.getElementById("dateTo"),
   dayHistogram: document.getElementById("dayHistogram"),
@@ -632,7 +670,6 @@ const PRESET_CHIPS = [
   ["mark:important", "중요 마크"],
   ["mark:reviewed", "판독 완료"],
   ["mark:none", "판독 대기"],
-  ...TAG_PRESETS.map(tag => [`tag:${tag}`, tag])
 ];
 
 function filteredRecords() {
@@ -860,7 +897,9 @@ function renderGrid(filtered) {
       if (key !== lastGroup) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
-        cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
+        const kindAttr = state.groupBy === "kind" ? ` data-gkind="${escapeHtml(record.kind || "")}"` : "";
+        cardsHtml.push(`<div class="group-header"${kindAttr} data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
+        if (collapsed) return;
       }
       if (state.collapsedGroups.has(key)) return;
     }
@@ -890,14 +929,18 @@ function renderCard(record) {
   const anomalyChip = record.hasAnomaly
     ? `<span class="badge anomaly" title="${escapeHtml(record.anomalies.map(item => item.kind).join(", "))}">${escapeHtml(t("header.anomaly"))}</span>`
     : "";
+  const kindChip = `<span class="kind-badge kind-${escapeHtml(record.kind || "video")}" title="출처">${escapeHtml(KIND_SHORT[record.kind] || record.kind || "?")}</span>`;
   const warnChip = (record.warnings || []).length
     ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>`
     : "";
+  const dflChip = record.dfl && record.dfl.band
+    ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}" title="deepfake-lens 스크리닝 ${escapeHtml(String(record.dfl.score ?? ""))}점 — 검토 우선순위, 판정 아님">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>`
+    : "";
   return `<div class="card ${record.id === state.activeId ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="0" role="button">
-    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}<span class="dur">${fmtDuration(record.duration)}</span></div>
+    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
     <div class="meta">
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}</div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}${dflChip}</div>
       ${tagsHtml}
       <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
     </div>
@@ -934,6 +977,20 @@ function renderHistogram(filtered) {
 }
 
 function tagListFor(record) { return state.tags[record.id] || []; }
+
+function saveTagPresets() { storageSet(TAG_PRESETS_KEY, state.tagPresets); }
+function addTagPreset(tag) {
+  const name = String(tag || "").trim();
+  if (!name || state.tagPresets.includes(name)) return;
+  state.tagPresets.push(name);
+  saveTagPresets();
+}
+function removeTagPreset(tag) {
+  const idx = state.tagPresets.indexOf(tag);
+  if (idx < 0) return;
+  state.tagPresets.splice(idx, 1);
+  saveTagPresets();
+}
 
 function addTag(id, tag) {
   const list = state.tags[id] || [];
@@ -1053,6 +1110,7 @@ function renderDetails() {
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
     (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">경고 ${record.warnings.length}</span>` : "",
     record.hasAnomaly ? `<span class="badge anomaly">${escapeHtml(t("header.anomaly"))}</span>` : "",
+    record.dfl && record.dfl.band ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}">합성의심 ${escapeHtml(record.dfl.band_label || record.dfl.band)}</span>` : "",
     mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "",
     ...recordTags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`),
     record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
@@ -1063,7 +1121,10 @@ function renderDetails() {
     ["판독", mark ? markLabel(mark.status) : "미판독"],
     ["길이", fmtDuration(record.duration)],
     ["크기", fmtBytes(record.size)],
-    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"]
+    ["이상 후보", record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
+    ["합성의심", record.dfl ? (record.dfl.band
+        ? `${record.dfl.band_label || record.dfl.band} (${record.dfl.score ?? "?"}점 — 검토 우선순위)${record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : ""}`
+        : (record.dfl.error ? `스크리닝 실패: ${record.dfl.error}` : "결과 없음")) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   els.metaList.innerHTML = [
     ["원본", `<code>${escapeHtml(record.originalName || record.name)}</code>`],
@@ -1075,9 +1136,10 @@ function renderDetails() {
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
   // tag editor for the selected evidence
   const tagEditorHtml = `<div class="tag-editor">
-    ${TAG_PRESETS.map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
+    ${tagPresets().map(preset => `<button type="button" class="tag-btn ${recordTags.includes(preset) ? "on" : ""}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
     <input type="text" class="tag-input" id="customTagInput" placeholder="직접 입력" style="width:80px;height:24px;font-size:11px;">
-    <button type="button" class="mini" id="btnAddCustomTag">추가</button>
+    <button type="button" class="mini" id="btnAddCustomTag">적용</button>
+    <button type="button" class="mini" id="btnSaveCustomTag" title="입력한 태그를 프리셋 목록에도 등록 (태그 메뉴·필터에 표시)">프리셋 등록</button>
   </div>`;
   // replace existing tag editor if any
   const oldEditor = document.querySelector(".tag-editor-wrap");
@@ -1112,6 +1174,17 @@ function renderDetails() {
     };
     customBtn.addEventListener("click", addCustom);
     customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
+    const savePresetBtn = document.getElementById("btnSaveCustomTag");
+    if (savePresetBtn) {
+      savePresetBtn.addEventListener("click", () => {
+        const tag = customInput.value.trim();
+        if (!tag) return;
+        addTagPreset(tag);
+        customInput.value = "";
+        render();
+        toast(`'${tag}' 태그를 프리셋에 등록했습니다.`);
+      });
+    }
   }
   const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
   const anomalyRelated = (record.anomalies || []).map(item => `<div class="validation-item">
@@ -1213,9 +1286,14 @@ function renderMetrics() {
 }
 
 function renderChips() {
-  els.presetChips.innerHTML = PRESET_CHIPS.map(([value, label]) =>
-    `<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`
-  ).join("");
+  // Status/mark chips stay inline; tag filters live in the 정렬·표시
+  // panel's tag select so the chip row stays a single group.
+  const parts = ['<span class="chip-label">필터</span>'];
+  for (const [value, label] of PRESET_CHIPS) {
+    if (value.startsWith("tag:")) continue;
+    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(label)}</button>`);
+  }
+  els.presetChips.innerHTML = parts.join("");
   els.presetChips.querySelectorAll(".chip").forEach(chip => {
     chip.addEventListener("click", () => {
       const value = chip.dataset.chip;
@@ -1231,6 +1309,14 @@ function renderChips() {
       render();
     });
   });
+  // Tag filter options follow the editable preset list plus any tags
+  // already applied in this case that aren't presets (custom tags).
+  const appliedTags = new Set();
+  Object.values(state.tags).forEach(list => (list || []).forEach(tag => appliedTags.add(tag)));
+  const filterTags = [...state.tagPresets, ...[...appliedTags].filter(tag => !state.tagPresets.includes(tag))];
+  els.tagFilter.innerHTML = `<option value="">태그: 전체</option>`
+    + filterTags.map(tag => `<option value="tag:${escapeHtml(tag)}">태그: ${escapeHtml(tag)}</option>`).join("");
+  els.tagFilter.value = state.chip.startsWith("tag:") ? state.chip : "";
 }
 
 function render() {
@@ -1355,6 +1441,12 @@ const KIND_LABELS = {
   carved: "카빙 후보",
   filesystem: "파일시스템 복구",
   candidate: "삭제 영상 후보 (복구 전)"
+};
+const KIND_SHORT = {
+  video: "원본",
+  carved: "카빙",
+  filesystem: "복구",
+  candidate: "복구 전"
 };
 
 function exportItem(record) {
@@ -1525,7 +1617,7 @@ function openPlayerWindow() {
   const e = escapeHtml;
   const rate = state.layout.rate || 1;
   const rateOptions = RATES.map(r => `<option value="${r}"${r === rate ? " selected" : ""}>${r}×</option>`).join("");
-  const tagButtons = TAG_PRESETS.map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
+  const tagButtons = tagPresets().map(tag => `<button class="tg" data-tag="${e(tag)}">${e(tag)}</button>`).join("");
   win.document.open();
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <title>${e(record.name || record.id)} — FrameTrace Player</title>
@@ -1732,6 +1824,13 @@ els.prevPage.addEventListener("click", () => { state.currentPage -= 1; render();
 els.nextPage.addEventListener("click", () => { state.currentPage += 1; render(); });
 els.sortBy.addEventListener("change", () => { state.sortBy = els.sortBy.value; state.currentPage = 1; render(); });
 els.groupBy.addEventListener("change", () => { state.groupBy = els.groupBy.value; state.currentPage = 1; render(); });
+els.tagFilter.addEventListener("change", () => {
+  state.chip = els.tagFilter.value;
+  state.status = "";
+  els.status.value = "";
+  state.currentPage = 1;
+  render();
+});
 els.dateFrom.addEventListener("change", () => { state.dateFrom = els.dateFrom.value; state.currentPage = 1; render(); });
 els.dateTo.addEventListener("change", () => { state.dateTo = els.dateTo.value; state.currentPage = 1; render(); });
 document.getElementById("btnClearDates").addEventListener("click", () => {
@@ -1793,7 +1892,9 @@ function updateRangeLabel() {
   const record = selectedRecord();
   const range = rangeOf(record);
   const point = value => Number.isFinite(value) ? `${value.toFixed(1)}s` : "—";
-  el.textContent = range ? `구간 ${point(range.in)} ~ ${point(range.out)}` : "";
+  el.textContent = range && (Number.isFinite(range.in) || Number.isFinite(range.out))
+    ? `구간 ${point(range.in)} ~ ${point(range.out)}`
+    : "";
   const proxyBtn = document.getElementById("btnProxy");
   if (proxyBtn) proxyBtn.classList.toggle("on", !!(record && state.proxies[record.id]));
 }
@@ -1835,7 +1936,7 @@ document.getElementById("btnProxy").addEventListener("click", async () => {
     const res = await fetch("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ id: record.id })
+      body: JSON.stringify({ id: record.id, path: record.path || "" })
     });
     const data = await res.json();
     if (data.ok) {
@@ -1890,10 +1991,97 @@ document.getElementById("btnCopyPaths").addEventListener("click", () => {
   if (paths.length) copyText(paths.join("\n"), "증거 경로");
   else toast("대상 증거를 먼저 선택하세요.");
 });
-document.getElementById("btnTagAccident").addEventListener("click", () => applyTag("사고"));
-document.getElementById("btnTagSpeed").addEventListener("click", () => applyTag("과속"));
-document.getElementById("btnTagSignal").addEventListener("click", () => applyTag("신호위반"));
-document.getElementById("btnTagClear").addEventListener("click", () => clearTags());
+// Tag menu: preset buttons are rebuilt from the editable preset list.
+// Each row applies the tag to the current selection; the trailing ×
+// removes the preset (applied tags on records are untouched). The
+// input registers a new preset — and, when a selection exists, applies
+// it right away.
+const tagMenuList = document.getElementById("tagMenuList");
+function rebuildTagMenu() {
+  tagMenuList.innerHTML = state.tagPresets.map(tag =>
+    `<div class="tag-menu-row"><button type="button" data-keep data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button><button type="button" class="tag-del" data-keep data-del-preset="${escapeHtml(tag)}" title="프리셋에서 삭제">×</button></div>`
+  ).join("")
+    + `<button type="button" data-tag-clear>태그 해제</button><hr>`
+    + `<div class="tag-add"><input type="text" id="tagPresetInput" placeholder="새 태그 등록" maxlength="24">`
+    + `<button type="button" data-keep data-tag-add>추가</button></div>`;
+}
+function addTagPresetFromMenu() {
+  const input = document.getElementById("tagPresetInput");
+  const name = (input?.value || "").trim();
+  if (!name) return;
+  const isNew = !state.tagPresets.includes(name);
+  addTagPreset(name);
+  rebuildTagMenu();
+  document.getElementById("tagPresetInput")?.focus();
+  if (targetIds().length) applyTag(name);
+  else if (isNew) toast(`'${name}' 태그를 프리셋에 추가했습니다.`);
+}
+tagMenuList.addEventListener("click", e => {
+  const del = e.target.closest("[data-del-preset]");
+  if (del) { removeTagPreset(del.dataset.delPreset); rebuildTagMenu(); return; }
+  if (e.target.closest("[data-tag-add]")) { addTagPresetFromMenu(); return; }
+  if (e.target.closest("[data-tag-clear]")) { clearTags(); return; }
+  const apply = e.target.closest("[data-tag]");
+  if (apply) applyTag(apply.dataset.tag);
+});
+tagMenuList.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.id === "tagPresetInput") {
+    e.preventDefault();
+    addTagPresetFromMenu();
+  }
+});
+
+// Selection-bar menus: toggle on the anchor button, close on outside
+// click / Escape / a menu item without data-keep (tag items stay open so
+// several tags can be applied to one selection).
+function toggleMenu(listId) {
+  const list = document.getElementById(listId);
+  const willOpen = list.hidden;
+  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+  list.hidden = !willOpen;
+}
+document.getElementById("btnTagMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  rebuildTagMenu();
+  toggleMenu("tagMenuList");
+});
+document.getElementById("btnExportMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  toggleMenu("exportMenuList");
+});
+document.getElementById("btnViewMenu").addEventListener("click", e => {
+  e.stopPropagation();
+  toggleMenu("viewMenuList");
+});
+document.getElementById("btnMoreFilters").addEventListener("click", () => {
+  const extra = document.getElementById("filtersExtra");
+  extra.hidden = !extra.hidden;
+});
+const btnGroupKind = document.getElementById("btnGroupKind");
+btnGroupKind.addEventListener("click", () => {
+  state.groupBy = state.groupBy === "kind" ? "none" : "kind";
+  els.groupBy.value = state.groupBy;
+  state.currentPage = 1;
+  render();
+});
+const syncGroupKindChip = () => btnGroupKind.classList.toggle("active", state.groupBy === "kind");
+els.groupBy.addEventListener("change", syncGroupKindChip);
+document.querySelectorAll(".menu-list").forEach(list => {
+  list.addEventListener("click", e => {
+    // Keep the document-level closer from seeing in-menu clicks; an
+    // action item without data-keep closes its own menu explicitly.
+    e.stopPropagation();
+    if (e.target.closest("button") && !e.target.closest("button").hasAttribute("data-keep")) {
+      list.hidden = true;
+    }
+  });
+});
+document.addEventListener("click", () => {
+  document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") document.querySelectorAll(".menu-list").forEach(l => { l.hidden = true; });
+});
 document.getElementById("btnDownloadSelection").addEventListener("click", () => {
   const selected = selectedRecords();
   if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
@@ -2079,6 +2267,47 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
   }
 });
 
+// --- 원본 파일 다운로드: /media?path&download=1이 Content-Disposition으로
+// 저장을 유도. file:// 스탠드얼론에서는 서버가 없으므로 지원하지 않음 ---
+function downloadHref(record) {
+  if (location.protocol !== "http:" && location.protocol !== "https:") return "";
+  if (!record.path) return "";
+  return "/media?path=" + encodeURIComponent(record.path) + "&download=1";
+}
+function triggerDownload(record) {
+  const href = downloadHref(record);
+  if (!href) return false;
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = record.originalName || record.name || record.id;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return true;
+}
+document.getElementById("btnDownloadFile").addEventListener("click", () => {
+  const record = selectedRecord();
+  if (!record) { toast("먼저 증거를 선택하세요."); return; }
+  if (!triggerDownload(record)) {
+    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+  }
+});
+document.getElementById("btnDownloadFiles").addEventListener("click", () => {
+  const selected = selectedRecords();
+  if (!selected.length) { toast("먼저 증거를 선택하세요."); return; }
+  let started = 0;
+  selected.forEach((record, index) => {
+    if (!downloadHref(record)) return;
+    started += 1;
+    setTimeout(() => triggerDownload(record), index * 450);
+  });
+  if (!started) {
+    toast("파일 다운로드는 서버로 연 뷰어에서만 지원됩니다 — 워크스테이션에서 뷰어를 여십시오.");
+  } else {
+    toast(`${started}개 파일 다운로드 시작 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다.`);
+  }
+});
+
 // --- 케이스 타임라인 패널: db/timeline.jsonl을 읽어 시간순 이벤트를 표시 ---
 async function loadTimeline(regenerate) {
   const list = document.getElementById("timelineList");
@@ -2167,6 +2396,25 @@ if (examinerInput) {
   examinerInput.addEventListener("input", () => {
     state.examiner = examinerInput.value;
     storageSet(EXAMINER_KEY, state.examiner);
+  });
+}
+// Embedded mode (inside the examiner workstation iframe): drop the
+// viewer's own chrome — case title, stat badges, locale toggle, view
+// menu — because the host already shows them. Grid/media keep full
+// functionality. The host flips it off over postMessage when the
+// iframe goes fullscreen, so the full UI returns there.
+const setEmbed = on => document.body.classList.toggle("embed", on);
+setEmbed(new URLSearchParams(location.search).has("embed") || window.self !== window.top);
+const exitFsBtn = document.getElementById("btnExitFs");
+window.addEventListener("message", event => {
+  if (!event.data || event.data.type !== "ft-embed") return;
+  setEmbed(!!event.data.embed);
+  // Framed + embed off = the host fullscreened us: show a way back.
+  if (exitFsBtn) exitFsBtn.hidden = event.data.embed || window.self === window.top;
+});
+if (exitFsBtn) {
+  exitFsBtn.addEventListener("click", () => {
+    try { window.parent.postMessage({ type: "ft-exit-fullscreen" }, "*"); } catch (e) {}
   });
 }
 setupHeightSplitter();

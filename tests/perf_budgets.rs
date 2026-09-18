@@ -154,6 +154,7 @@ fn scan_synthetic_tree_1k_files() {
         use_ffprobe: false,
         max_depth: None,
         incremental: false,
+        deepfake_screen: false,
     };
     let started = Instant::now();
     let result =

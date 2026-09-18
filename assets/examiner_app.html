@@ -26,7 +26,8 @@
     .badge { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 11px; border-radius: 980px; font-size: 12.5px; font-weight: 500; background: #e8e8ed; color: var(--muted); }
     .badge.ok { background: #e3f4ec; color: var(--ok); }
     .badge.bad { background: #fdeceb; color: var(--danger); }
-    .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 20px; max-width: 1180px; margin: 0 auto; padding: 26px 20px 60px; }
+    .shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 20px; max-width: 1440px; margin: 0 auto; padding: 26px 24px 60px; min-height: calc(100vh - 58px); }
+    .shell > nav.rail { position: sticky; top: 84px; align-self: start; }
     .rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 84px; align-self: start; }
     .navstep { display: flex; gap: 12px; align-items: center; text-align: left; padding: 13px 14px; border: none; border-radius: 14px; background: var(--panel); box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; height: auto; transition: box-shadow .18s ease, transform .18s ease; }
     .navstep .num { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e8e8ed; color: var(--muted); font-size: 13px; font-weight: 700; flex: 0 0 auto; transition: background .18s ease, color .18s ease; }
@@ -42,9 +43,11 @@
     .navstep.current:not(.sel) .num { box-shadow: 0 0 0 1.5px var(--accent); }
     .navstep.done .num { font-size: 0; background: var(--ok); }
     .navstep.done .num::after { content: "✓"; font-size: 14px; color: #fff; }
-    main { min-width: 0; }
+    main { min-width: 0; display: flex; flex-direction: column; }
     .view { display: none; }
-    .view.on { display: block; animation: fadein .22s ease; }
+    .view.on { display: block; animation: fadein .22s ease; flex: 1; }
+    .viewcols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 14px; align-items: start; }
+    @media (max-width: 1000px) { .viewcols { grid-template-columns: 1fr; } }
     @keyframes fadein { from { opacity: 0; transform: translateY(6px); } }
     section.card { background: var(--panel); border: none; border-radius: var(--radius); box-shadow: var(--shadow); padding: 26px 28px; margin-bottom: 14px; }
     section.card h2 { font-size: 21px; font-weight: 600; letter-spacing: -.02em; margin: 0 0 6px; }
@@ -118,6 +121,27 @@
     .caselist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
     .casechip { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 500; background: var(--bg); border-radius: 980px; }
     .casechip:hover { background: #e2f0ee; }
+    .minihead { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .02em; text-transform: uppercase; margin: 0 0 8px; }
+    #resultCard.on, #finalCard.on { display: flex; flex-direction: column; }
+    #finalCard .viewcols { flex: 0 0 auto; }
+    #reportWrap { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 14px; }
+    #reportFrame { flex: 1; min-height: 300px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+    .statstrip { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .stat { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--bg); border: 1px solid var(--line); color: var(--ink); }
+    .stat i { font-style: normal; color: var(--muted); font-weight: 500; margin-right: 4px; }
+    .stat.k-video i { color: #1a7f37; }
+    .stat.k-carved i { color: #b2560f; }
+    .stat.k-filesystem i { color: #1d4ed8; }
+    .stat.k-candidate i { color: #b91c1c; }
+    .reviewbar { margin-top: 10px; }
+    .btnlink { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink); font-size: 13px; text-decoration: none; }
+    .btnlink:hover { border-color: var(--accent); color: var(--accent); }
+    .vsep { width: 1px; align-self: stretch; background: var(--line); margin: 2px 4px; }
+    #reviewFrame { flex: 1; min-height: 420px; border: 1px solid var(--line); border-radius: 10px; margin-top: 12px; background: #fff; }
+    .stack { display: grid; gap: 8px; }
+    .stack button { width: 100%; text-align: left; justify-content: flex-start; }
+    .stack button.ghost { border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 0 14px; }
+    .stack button.ghost:hover { background: #e2f0ee; color: var(--accent); }
     details.adv { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 12px; }
     details.adv summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--muted); }
     details.adv summary:hover { color: var(--ink); }
@@ -197,8 +221,10 @@
   <section class="card view" id="progCard" data-view="2">
     <h2>분석 진행</h2>
     <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
-    <ol class="steptrack" id="track"></ol>
-    <pre class="log" id="log" aria-live="polite"></pre>
+    <div class="viewcols" style="grid-template-columns:300px minmax(0,1fr)">
+      <ol class="steptrack" id="track"></ol>
+      <pre class="log" id="log" aria-live="polite" style="margin:0;min-height:340px"></pre>
+    </div>
     <div class="row" style="margin-top:10px">
       <button id="btnCancel" style="display:none;background:#b42318;border-color:#b42318;color:#fff">분석 중단</button>
       <button id="btnNew" style="display:none">새 케이스 시작</button>
@@ -208,43 +234,48 @@
 
   <section class="card view" id="resultCard" data-view="3">
     <h2>검토 — 분석된 데이터 확인</h2>
-    <p class="hint">색인·검증이 끝났습니다. 뷰어에서 영상을 재생·확인하고 판독 마크와 태그를 지정하십시오.</p>
-    <div class="row" style="margin-bottom:10px">
-      <button id="btnViewerWindow" class="primary">뷰어를 새 창으로 열기</button>
+    <div class="statstrip" id="caseStats"><span class="muted" style="font-size:12px">뷰어 로딩 중…</span></div>
+    <div class="row reviewbar">
+      <button id="btnViewerFull" class="primary" title="아래 뷰어를 전체화면으로 확대 — 헤더·보기 메뉴까지 모두 표시됩니다">⤢ 뷰어 전체화면</button>
+      <button id="btnViewerWindow" title="별도 창으로 열기 — 듀얼 모니터에 적합">⧉ 새 창</button>
+      <a href="/review/index.html" target="_blank" class="btnlink">색인 대시보드</a>
+      <span class="vsep"></span>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
       <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
-      <span class="muted" id="recoverHint">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.</span>
+      <span class="muted" style="font-size:11px;margin-left:auto;align-self:center">깊은 검토는 전체화면·새 창 권장</span>
     </div>
-    <div class="linklist">
-      <a href="/review/evidence-viewer.html" target="_blank"><b>증거 뷰어 열기 (검토 화면)</b><span>썸네일 그리드 · 재생 · 검증 상태 · 판독 마크/태그</span></a>
-      <a href="/review/index.html" target="_blank"><b>색인 대시보드 열기</b><span>전체 색인 목록 · 해시 · 파서 평가</span></a>
-    </div>
+    <iframe id="reviewFrame" title="증거 뷰어" allow="fullscreen"></iframe>
+    <p class="muted" id="recoverHint" style="font-size:11px;margin:6px 0 0">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다. 카빙은 export된 raw 이미지가 있을 때만 동작합니다.</p>
   </section>
 
   <section class="card view" id="finalCard" data-view="4">
     <h2>결과물 정리 — 보고서 · 패키지</h2>
     <p class="hint">검토가 끝나면 결과 보고서를 생성합니다. 보고서에는 발견된 원본 영상, 메타데이터, SHA-256 해시, 발견/분석 기법, 처리 체인이 정리됩니다. 최종 패키징은 색인된 원본 파일의 SHA-256을 다시 계산해 분석 이후 소스 변조 여부까지 검증합니다.</p>
-    <div class="row">
-      <button class="primary" id="btnFinalize">결과 보고서 생성 및 패키징</button>
-      <input type="file" id="marksFile" accept=".json" style="display:none">
-      <button id="btnImportMarks">마크 파일 반영 후 보고서 갱신</button>
-      <span class="muted" id="finalHint"></span>
-    </div>
-    <div class="linklist" id="finalLinks"></div>
-    <div class="pkg" id="pkgPath"></div>
-    <details class="adv">
-      <summary>고급 도구 — 상호교환·QA·케이스 비교</summary>
-      <div class="adv-body">
-        <div class="row">
+    <div class="viewcols">
+      <div>
+        <div class="minihead">보고서 · 패키지</div>
+        <div class="stack">
+          <button class="primary" id="btnFinalize" style="height:42px">결과 보고서 생성 및 패키징</button>
+          <input type="file" id="marksFile" accept=".json" style="display:none">
+          <button id="btnImportMarks">마크 파일 반영 후 보고서 갱신</button>
+        </div>
+        <p class="muted" id="finalHint" style="font-size:12px;margin-top:8px"></p>
+        <div class="linklist" id="finalLinks"></div>
+        <div class="pkg" id="pkgPath"></div>
+      </div>
+      <div>
+        <div class="minihead">고급 도구 — 상호교환·QA·케이스 비교</div>
+        <div class="stack">
           <button class="ghost" data-adv="dfxml">DFXML보내기</button>
           <button class="ghost" data-adv="timeline">타임라인 JSONL</button>
           <button class="ghost" data-adv="qa-consistency">색인 일관성 QA</button>
           <button class="ghost" data-adv="qa-defense">보고 방어 체크</button>
+          <button class="ghost" data-adv="deepfake" title="케이스의 모든 파일(색인·카빙·복구)을 deepfake-lens로 스크리닝 — 결과는 뷰어의 '합성의심' 배지로 표시. 판정이 아니라 검토 우선순위입니다">딥페이크 스크리닝</button>
         </div>
         <div class="row" style="margin-top:10px">
-          <input type="text" id="advPath" placeholder="다른 케이스 폴더 또는 해시 목록 파일 경로" style="flex:1;min-width:220px">
+          <input type="text" id="advPath" placeholder="다른 케이스 폴더 또는 해시 목록 파일 경로" style="flex:1;min-width:0">
         </div>
-        <div class="row" style="margin-top:8px">
+        <div class="stack" style="margin-top:8px">
           <button class="ghost" data-adv="compare">케이스 비교</button>
           <button class="ghost" data-adv="merge">케이스 병합</button>
           <button class="ghost" data-adv="known-hash">기지원 해시 필터</button>
@@ -252,7 +283,11 @@
         <pre class="adv-out muted" id="advOut" hidden></pre>
         <div id="advLink"></div>
       </div>
-    </details>
+    </div>
+    <div id="reportWrap" hidden>
+      <div class="minihead" style="margin:0 0 6px">보고서 미리보기</div>
+      <iframe id="reportFrame" title="결과 보고서"></iframe>
+    </div>
   </section>
 </main>
 </div>
@@ -347,7 +382,11 @@ function showView(n) {
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.dataset.view === key));
   document.querySelectorAll(".navstep").forEach(b => b.classList.toggle("sel", b.dataset.view === key));
 }
-document.querySelectorAll(".navstep").forEach(b => b.addEventListener("click", () => showView(b.dataset.view)));
+document.querySelectorAll(".navstep").forEach(b => b.addEventListener("click", () => {
+  showView(b.dataset.view);
+  if (b.dataset.view === "4") ensureReportFrame();
+  if (b.dataset.view === "3" && reviewReady) ensureReviewFrame();
+}));
 // auto-navigation happens once per state so it never yanks the examiner
 // away from a screen they deliberately opened
 let jobSeen = false, reviewReady = false, autoProgress = false, autoReviewed = false;
@@ -421,7 +460,7 @@ async function poll() {
     if (running && !autoProgress) { autoProgress = true; showView(2); }
     if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
       if (!auditVerified) { auditVerified = true; verifyAudit(); }
-      if (!reviewReady) { reviewReady = true; $("s3").disabled = false; $("s4").disabled = false; }
+      if (!reviewReady) { reviewReady = true; $("s3").disabled = false; $("s4").disabled = false; ensureReviewFrame(); }
       if (!autoReviewed) { autoReviewed = true; showView(3); }
       setStep(st.phase === "running" ? 4 : 4, 3);
       $("finalHint").textContent = st.case_dir ? ("케이스: " + st.case_dir) : "";
@@ -434,6 +473,7 @@ async function poll() {
           $("finalLinks").innerHTML =
             `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>`;
         }
+        ensureReportFrame();
       }
     } else if (running) {
       setStep(3, 2);
@@ -555,6 +595,62 @@ $("directE01").addEventListener("change", syncDirectE01);
 // popup=yes + dimensions asks the browser for a real separate window
 // (not just another tab) — useful for dual-monitor review. The named
 // target re-focuses an already-open viewer instead of stacking copies.
+const reviewFrame = $("reviewFrame");
+let reviewFrameLoaded = false;
+function ensureReviewFrame() {
+  if (!reviewFrameLoaded) {
+    reviewFrameLoaded = true;
+    reviewFrame.src = "/review/evidence-viewer.html?embed=1";
+  }
+}
+function refreshCaseStats() {
+  const el = $("caseStats");
+  let s = null;
+  try {
+    const fn = reviewFrame.contentWindow && reviewFrame.contentWindow.__frametraceSummary;
+    if (typeof fn === "function") s = fn();
+  } catch (e) { /* not loaded yet */ }
+  if (!s) { el.innerHTML = `<span class="muted" style="font-size:12px">뷰어 로딩 중…</span>`; return; }
+  const kindLabel = { video: "원본", carved: "카빙", filesystem: "복구", candidate: "복구 전" };
+  const chips = [`<span class="stat"><i>전체</i>${s.total}</span>`];
+  ["video", "carved", "filesystem", "candidate"].forEach(k => {
+    if (s.byKind[k]) chips.push(`<span class="stat k-${k}"><i>${kindLabel[k]}</i>${s.byKind[k]}</span>`);
+  });
+  const failed = s.byStatus["validation-failed"] || 0;
+  if (failed) chips.push(`<span class="stat" style="border-color:#f0b6b6"><i style="color:#b91c1c">검증 실패</i>${failed}</span>`);
+  if (s.warned) chips.push(`<span class="stat" style="border-color:#f0cf9e"><i style="color:#b2560f">경고</i>${s.warned}</span>`);
+  chips.push(`<span class="stat"><i>마크</i>${s.marked}</span>`);
+  if (s.noted) chips.push(`<span class="stat"><i>메모</i>${s.noted}</span>`);
+  el.innerHTML = chips.join("");
+}
+reviewFrame.addEventListener("load", () => setTimeout(refreshCaseStats, 400));
+setInterval(() => { if (reviewFrameLoaded && $("resultCard").classList.contains("on")) refreshCaseStats(); }, 2500);
+
+$("btnViewerFull").addEventListener("click", () => {
+  reviewFrame.requestFullscreen ? reviewFrame.requestFullscreen() : window.open("/review/evidence-viewer.html", "_blank");
+});
+// Fullscreen restores the viewer's full chrome; inline stays compact.
+document.addEventListener("fullscreenchange", () => {
+  const full = document.fullscreenElement === reviewFrame;
+  try { reviewFrame.contentWindow.postMessage({ type: "ft-embed", embed: !full }, "*"); } catch (e) {}
+});
+window.addEventListener("message", e => {
+  if (e.data && e.data.type === "ft-exit-fullscreen" && document.fullscreenElement === reviewFrame) {
+    document.exitFullscreen();
+  }
+});
+
+async function ensureReportFrame() {
+  const wrap = $("reportWrap"), frame = $("reportFrame");
+  try {
+    const head = await fetch("/case/reports/case-report.html");
+    if (!head.ok) return;
+  } catch (e) { return; }
+  wrap.hidden = false;
+  if (!frame.src || frame.src === "about:blank") frame.src = "/case/reports/case-report.html";
+  else frame.contentWindow && frame.contentWindow.location.reload();
+}
+
 $("btnViewerWindow").addEventListener("click", () => {
   const win = window.open(
     "/review/evidence-viewer.html",
@@ -575,7 +671,8 @@ $("btnRecoverDeleted").addEventListener("click", async () => {
     $("recoverHint").textContent = "복구 실패: " + (res.error || "");
     return;
   }
-  $("recoverHint").textContent = "복구 완료 — 뷰어를 새로 열면 복구된 항목이 보입니다.";
+  $("recoverHint").textContent = "복구 완료 — 뷰어를 갱신합니다.";
+  if (reviewFrameLoaded) reviewFrame.src = reviewFrame.src;
 });
 
 $("btnFinalize").addEventListener("click", async () => {
@@ -595,6 +692,7 @@ $("btnFinalize").addEventListener("click", async () => {
     $("pkgPath").textContent = "패키지: " + res.package_dir;
   }
   setStep(4, 4);
+  ensureReportFrame();
   await jpost("/api/open-folder", { path: res.package_dir || "" });
 });
 
@@ -623,7 +721,8 @@ $("btnCarve").addEventListener("click", async () => {
     $("recoverHint").textContent = "카빙 실패: " + (res.error || "");
     return;
   }
-  $("recoverHint").textContent = "카빙 완료 — 뷰어를 새로 열면 카빙 후보가 보입니다.";
+  $("recoverHint").textContent = "카빙 완료 — 뷰어를 갱신합니다.";
+  if (reviewFrameLoaded) reviewFrame.src = reviewFrame.src;
 });
 
 document.querySelectorAll("[data-adv]").forEach(btn => {
