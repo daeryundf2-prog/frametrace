@@ -62,15 +62,6 @@ impl DavFrame {
         let second = self.date & 0x3F;
         (year, month, day, hour, minute, second)
     }
-
-    /// Milliseconds elapsed within the packed date's second, derived the
-    /// same way FFmpeg's `get_pts` interprets the timestamp counter. The
-    /// counter is free-running and wraps at 65535, so only the
-    /// sub-second remainder `[0, 1000)` is meaningful without adjacent
-    /// frames; gap math uses date seconds for the coarse span.
-    pub fn subsecond_ms(&self) -> u64 {
-        u64::from(self.timestamp_ms) % 1000
-    }
 }
 
 pub fn is_dav_header(bytes: &[u8]) -> bool {

@@ -107,6 +107,72 @@ mod tests {
         let _ = fs::remove_dir_all(case_dir);
     }
 
+    #[test]
+    fn source_reregistration_preserves_missing_custody_fields_and_accepts_updates() {
+        let case_dir = std::env::temp_dir().join(format!(
+            "frametrace-source-custody-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&case_dir);
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        for manual_id in [None, Some("manual-source".to_string())] {
+            let mut input = EvidenceSourceInput {
+                kind: "raw-image".to_string(),
+                path: PathBuf::from(if manual_id.is_some() {
+                    "/evidence/manual.raw"
+                } else {
+                    "/evidence/automatic.raw"
+                }),
+                source_id: manual_id,
+                write_protect: Some("hardware blocker".to_string()),
+                acquisition_tool: Some("ewfexport".to_string()),
+                evidence_hash: Some("a".repeat(64)),
+                notes: Some("intake notes".to_string()),
+                metadata_json: None,
+            };
+            let original = register_evidence_source(&case_dir, &input).unwrap();
+            input.source_id = None;
+            input.write_protect = None;
+            input.acquisition_tool = None;
+            input.evidence_hash = None;
+            input.notes = None;
+            let repeated = register_evidence_source(&case_dir, &input).unwrap();
+            assert_eq!(original.source_id, repeated.source_id);
+            let conn = super::open_case_db(&case_dir).unwrap();
+            let read_fields = || {
+                conn.query_row(
+                    "SELECT write_protect, acquisition_tool, evidence_hash, notes FROM evidence_sources WHERE source_id = ?1",
+                    [&original.source_id],
+                    |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?)),
+                ).unwrap()
+            };
+            assert_eq!(
+                read_fields(),
+                (
+                    Some("hardware blocker".to_string()),
+                    Some("ewfexport".to_string()),
+                    Some("a".repeat(64)),
+                    Some("intake notes".to_string())
+                )
+            );
+            input.write_protect = Some("read-only copy".to_string());
+            input.acquisition_tool = Some("verified acquisition".to_string());
+            input.evidence_hash = Some("b".repeat(64));
+            input.notes = Some("updated notes".to_string());
+            register_evidence_source(&case_dir, &input).unwrap();
+            assert_eq!(
+                read_fields(),
+                (
+                    input.write_protect,
+                    input.acquisition_tool,
+                    input.evidence_hash,
+                    input.notes
+                )
+            );
+        }
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
     fn video(id: &str, source_path: &str, sha256: Option<String>) -> VideoRecord {
         VideoRecord {
             id: id.to_string(),

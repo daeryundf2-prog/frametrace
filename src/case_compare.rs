@@ -8,7 +8,7 @@
 //! index row is a recorded claim, not re-verified content.
 
 use crate::audit;
-use crate::util::{json_escape, now_unix, read_to_string, write_text};
+use crate::util::{json_escape, now_unix, read_to_string};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -82,12 +82,13 @@ pub fn compare_cases(
         &only_b,
         &mismatches,
     );
-    write_text(output_path, &report).map_err(|err| {
-        format!(
-            "failed to write comparison report {}: {err}",
-            output_path.display()
-        )
-    })?;
+    crate::tool_policy::write_case_report(
+        case_dir,
+        output_path,
+        "reports/case-compare.json",
+        "case comparison",
+        &report,
+    )?;
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"compare-cases\",\"generated_unix\":{},\"label\":\"{}\",\"case_a\":\"{}\",\"case_b\":\"{}\",\"report_path\":\"{}\",\"both\":{},\"only_in_a\":{},\"only_in_b\":{},\"hash_mismatch_same_path\":{}}}",
         generated_unix,

@@ -28,6 +28,13 @@ pub struct MarkEntry {
     pub status: String,
     pub marked_unix: Option<u64>,
     pub note: Option<String>,
+    pub examiner: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TagEntry {
+    pub id: String,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +42,8 @@ pub struct MarksFile {
     pub case_id: Option<String>,
     pub examiner: Option<String>,
     pub marks: Vec<MarkEntry>,
+    pub tags: Vec<TagEntry>,
+    pub deleted_ids: Vec<String>,
 }
 
 /// Minimal JSON field/array accessors reused by other modules (e.g. reading
@@ -66,15 +75,130 @@ pub(crate) fn json_string_field(line: &str, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    Selection,
+    Marks,
+}
+
+impl ImportKind {
+    fn label(self) -> &'static str {
+        match self {
+            ImportKind::Selection => "selection",
+            ImportKind::Marks => "marks",
+        }
+    }
+}
+
+fn parse_case_id_field(
+    value: &serde_json::Value,
+    path: &Path,
+    kind: ImportKind,
+) -> Result<Option<String>, String> {
+    let label = kind.label();
+    let Some(raw) = value.get("case_id") else {
+        return Ok(None);
+    };
+    match raw {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::String(text) => {
+            if text.trim().is_empty() {
+                return Err(format!(
+                    "{label} file {} has an empty case_id (expected a case id or null)",
+                    path.display()
+                ));
+            }
+            Ok(Some(text.clone()))
+        }
+        other => Err(format!(
+            "{label} file {} has a non-string case_id ({other})",
+            path.display()
+        )),
+    }
+}
+
+fn parse_schema_version_field(
+    value: &serde_json::Value,
+    path: &Path,
+    kind: ImportKind,
+) -> Result<(), String> {
+    let Some(raw) = value.get("schema_version") else {
+        return Ok(());
+    };
+    let expected = match kind {
+        ImportKind::Selection => SELECTION_SCHEMA_VERSION,
+        ImportKind::Marks => MARKS_SCHEMA_VERSION,
+    };
+    let Some(actual) = raw.as_u64() else {
+        return Err(format!(
+            "{} file {} has a non-integer schema_version ({raw})",
+            kind.label(),
+            path.display()
+        ));
+    };
+    if actual != expected as u64 && !(kind == ImportKind::Marks && actual == 2) {
+        return Err(format!(
+            "{} file {} has unsupported schema_version {} (expected {})",
+            kind.label(),
+            path.display(),
+            actual,
+            expected
+        ));
+    }
+    Ok(())
+}
+
+pub fn read_case_id(case_dir: &Path) -> Result<String, String> {
+    let path = case_dir.join("case.json");
+    let text = read_to_string(&path)
+        .map_err(|err| format!("failed to read case manifest {}: {err}", path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|err| format!("failed to parse case manifest {}: {err}", path.display()))?;
+    manifest
+        .get("case_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            format!(
+                "case manifest {} requires a nonempty string case_id",
+                path.display()
+            )
+        })
+}
+
+pub fn enforce_case_binding(
+    case_dir: &Path,
+    case_id: Option<&str>,
+    path: &Path,
+    kind: ImportKind,
+) -> Result<(), String> {
+    let current_id = read_case_id(case_dir)?;
+    match case_id {
+        None => eprintln!(
+            "warning: case binding unavailable for {} file {}: missing or null case_id (legacy import)",
+            kind.label(),
+            path.display()
+        ),
+        Some(id) if id != current_id => {
+            return Err(format!(
+                "case_id mismatch: {} file {} is bound to case '{id}' but the target case is '{current_id}'",
+                kind.label(),
+                path.display()
+            ));
+        }
+        Some(_) => {}
+    }
+    Ok(())
+}
+
 pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read selection file {}: {err}", path.display()))?;
     let value: serde_json::Value = serde_json::from_str(&text)
         .map_err(|err| format!("failed to parse selection file {}: {err}", path.display()))?;
-    let case_id = value
-        .get("case_id")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
+    parse_schema_version_field(&value, path, ImportKind::Selection)?;
+    let case_id = parse_case_id_field(&value, path, ImportKind::Selection)?;
     let items_value = value
         .get("items")
         .and_then(serde_json::Value::as_array)
@@ -125,12 +249,14 @@ pub fn parse_selection_file(path: &Path) -> Result<SelectionFile, String> {
 pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
     let text = read_to_string(path)
         .map_err(|err| format!("failed to read marks file {}: {err}", path.display()))?;
-    let value: serde_json::Value = serde_json::from_str(&text)
+    parse_marks_text(&text, path)
+}
+
+pub(crate) fn parse_marks_text(text: &str, path: &Path) -> Result<MarksFile, String> {
+    let value: serde_json::Value = serde_json::from_str(text)
         .map_err(|err| format!("failed to parse marks file {}: {err}", path.display()))?;
-    let case_id = value
-        .get("case_id")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string);
+    parse_schema_version_field(&value, path, ImportKind::Marks)?;
+    let case_id = parse_case_id_field(&value, path, ImportKind::Marks)?;
     let examiner = value
         .get("examiner")
         .and_then(serde_json::Value::as_str)
@@ -153,6 +279,13 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
                 )
             })?
             .to_string();
+        if id.trim().is_empty() {
+            return Err(format!(
+                "marks entry {} in {} has an empty id",
+                index + 1,
+                path.display()
+            ));
+        }
         let status = item
             .get("status")
             .and_then(serde_json::Value::as_str)
@@ -176,6 +309,10 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
         marks.push(MarkEntry {
             id,
             status,
+            examiner: item
+                .get("examiner")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
             marked_unix: item.get("marked_unix").and_then(serde_json::Value::as_u64),
             note: item
                 .get("note")
@@ -183,13 +320,52 @@ pub fn parse_marks_file(path: &Path) -> Result<MarksFile, String> {
                 .map(str::to_string),
         });
     }
-    if marks.is_empty() {
+    let tags: Vec<TagEntry> = value
+        .get("tags")
+        .map(|raw| serde_json::from_value(raw.clone()))
+        .transpose()
+        .map_err(|err| format!("invalid tags: {err}"))?
+        .unwrap_or_default();
+    let deleted_ids: Vec<String> = value
+        .get("deleted_ids")
+        .map(|raw| serde_json::from_value(raw.clone()))
+        .transpose()
+        .map_err(|err| format!("invalid deleted_ids: {err}"))?
+        .unwrap_or_default();
+    if let Some(protocol) = value.get("protocol")
+        && protocol.as_str() != Some("patch-v1")
+    {
+        return Err("unsupported marks protocol".into());
+    }
+    if !deleted_ids.is_empty()
+        && value.get("protocol").and_then(serde_json::Value::as_str) != Some("patch-v1")
+    {
+        return Err("deleted_ids requires patch-v1 protocol".into());
+    }
+    let mut ids = std::collections::HashSet::new();
+    for id in marks.iter().map(|mark| &mark.id).chain(deleted_ids.iter()) {
+        if id.trim().is_empty() || !ids.insert(id) {
+            return Err("empty or duplicate mark/deletion id".into());
+        }
+    }
+    let mut tag_ids = std::collections::HashSet::new();
+    for tag in &tags {
+        if tag.id.trim().is_empty()
+            || !tag_ids.insert(&tag.id)
+            || tag.tags.iter().any(|text| text.trim().is_empty())
+        {
+            return Err("empty or duplicate tag id or empty tag".into());
+        }
+    }
+    if marks.is_empty() && tags.is_empty() && deleted_ids.is_empty() {
         return Err(format!("marks file {} has no marks", path.display()));
     }
     Ok(MarksFile {
         case_id,
         examiner,
         marks,
+        tags,
+        deleted_ids,
     })
 }
 
@@ -293,6 +469,97 @@ mod tests {
         fs::write(&path, r#"{"marks":[{"id":"x","status":"bogus"}]}"#).unwrap();
         let error = parse_marks_file(&path).unwrap_err();
         assert!(error.contains("unsupported status"), "unexpected: {error}");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn case_binding_rejects_invalid_import_metadata() {
+        let path = temp_path("invalid-binding");
+        for field in ["schema_version", "case_id"] {
+            let invalid = if field == "schema_version" {
+                vec![
+                    serde_json::json!(0),
+                    serde_json::json!(3),
+                    serde_json::json!(1.5),
+                    serde_json::json!("1"),
+                    serde_json::Value::Null,
+                    serde_json::json!(true),
+                ]
+            } else {
+                vec![
+                    serde_json::json!(""),
+                    serde_json::json!(" \t"),
+                    serde_json::json!(123),
+                    serde_json::json!(true),
+                    serde_json::json!([]),
+                    serde_json::json!({}),
+                ]
+            };
+            for value in invalid {
+                let mut payload = serde_json::json!({
+                    "schema_version": 1, "case_id": "FT-1",
+                    "items": [{"selector": "vid_000001"}],
+                    "marks": [{"id": "vid_000001", "status": "reviewed"}]
+                });
+                payload[field] = value;
+                fs::write(&path, payload.to_string()).unwrap();
+                assert!(parse_selection_file(&path).unwrap_err().contains(field));
+                assert!(parse_marks_file(&path).unwrap_err().contains(field));
+            }
+        }
+        fs::write(
+            &path,
+            r#"{"schema_version":2,"items":[{"selector":"vid_1"}]}"#,
+        )
+        .unwrap();
+        assert!(
+            parse_selection_file(&path)
+                .unwrap_err()
+                .contains("schema_version")
+        );
+        for id in ["", " \t"] {
+            fs::write(
+                &path,
+                serde_json::json!({"marks": [{"id": id, "status": "reviewed"}]}).to_string(),
+            )
+            .unwrap();
+            assert!(parse_marks_file(&path).unwrap_err().contains("empty id"));
+        }
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn case_binding_accepts_legacy_metadata_and_viewer_marks_v2() {
+        let path = temp_path("legacy-binding");
+        for version in [None, Some(1), Some(2)] {
+            for case_id in [
+                None,
+                Some(serde_json::Value::Null),
+                Some(serde_json::json!("FT-1")),
+            ] {
+                let mut payload = serde_json::json!({
+                    "items": [{"selector": "vid_000001"}],
+                    "marks": [{"id": "vid_000001", "status": "noted", "note": "memo"}]
+                });
+                if let Some(version) = version {
+                    payload["schema_version"] = serde_json::json!(version);
+                }
+                if let Some(case_id) = case_id {
+                    payload["case_id"] = case_id;
+                }
+                fs::write(&path, payload.to_string()).unwrap();
+                assert_eq!(
+                    parse_marks_file(&path).unwrap().case_id.as_deref(),
+                    payload["case_id"].as_str()
+                );
+                if version != Some(2) {
+                    assert_eq!(
+                        parse_selection_file(&path).unwrap().case_id.as_deref(),
+                        payload["case_id"].as_str()
+                    );
+                }
+            }
+        }
         let _ = fs::remove_file(path);
     }
 

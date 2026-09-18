@@ -434,7 +434,16 @@ document.getElementById("filesystem-recovery").innerHTML = filesystemLog.length 
 </table>` : "<p>파일시스템 조사 또는 inode 복구 기록이 없습니다.</p>";
 
 const marksById = new Map((Array.isArray(marks) ? marks : []).map(mark => [mark.id, mark]));
-const validationByPath = new Map(validationLog.map(item => [String(item.target_path || "").toLowerCase(), item]));
+function validationForRow(row) {{
+  const byExactPath = validationLog.filter(item => item.target_path === row.where);
+  const eligible = byExactPath.filter(item => /^[a-fA-F0-9]{{64}}$/.test(row.hash) &&
+    typeof item.target_sha256 === "string" && item.target_sha256.toLowerCase() === row.hash.toLowerCase());
+  if (eligible.length) {{
+    return eligible.sort((a, b) => (a.validated_unix ?? 0) - (b.validated_unix ?? 0)).at(-1);
+  }}
+  if (byExactPath.length) return {{validation_status: "validation-unbound", validation_note: "No validation is bound to the recorded evidence SHA-256; missing or different hashes cannot confirm these bytes."}};
+  return null;
+}}
 const markLabel = status => ({{
   reviewed: "판독 완료",
   important: "중요",
@@ -486,7 +495,7 @@ document.getElementById("techniques").innerHTML = techniqueRows().length ? `<tab
   </thead>
   <tbody>
     ${{techniqueRows().map(row => {{
-      const validation = validationByPath.get(String(row.where).toLowerCase()) || validationLog.find(item => item.selector === row.id);
+      const validation = validationForRow(row);
       const status = validation?.validation_status || (row.kind === "원본 (논리 파일)" ? "색인됨 (재생성 검증 전)" : "candidate-unvalidated");
       const reason = validation ? (validation.validation_note || validation.ffprobe_error || "-") : "재생성 검증 대기 — 판독자 재생 확인 필요";
       const mark = marksById.get(row.id);
@@ -624,6 +633,158 @@ mod tests {
                 .iter()
                 .any(|(name, value)| *name == "redacted" && *value == "1"),
         })
+    }
+
+    fn rendered_techniques(index: &str, validation: &str, carve: &str, filesystem: &str) -> String {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let html = render(&[
+            ("manifest", "{}"),
+            ("index", index),
+            ("validation", validation),
+            ("carve", carve),
+            ("filesystem", filesystem),
+            ("scan_runs", "[]"),
+            ("marks", "[]"),
+        ]);
+        let script = html
+            .split_once("<script>")
+            .unwrap()
+            .1
+            .split_once("</script>")
+            .unwrap()
+            .0;
+        let mut child = Command::new("node")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("node is required for report rendering tests");
+        let mut stdin = child.stdin.take().unwrap();
+        write!(stdin, "const elements = new Map(); const document = {{getElementById(id) {{ if (!elements.has(id)) elements.set(id, {{}}); return elements.get(id); }}}};\n{script}\nprocess.stdout.write(elements.get('techniques').innerHTML);").unwrap();
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    #[test]
+    fn old_validation_for_different_bytes_is_not_confirmed() {
+        let index = serde_json::json!({"videos": [{"id": "vid_1", "source_path": "/evidence/a.mp4", "sha256": "b".repeat(64)}]}).to_string();
+        let validation = serde_json::json!({"selector": "vid_1", "target_path": "/evidence/a.mp4", "target_sha256": "a".repeat(64), "validation_status": "ffprobe-video-stream-confirmed"}).to_string();
+        let rows = rendered_techniques(&index, &validation, "", "");
+        assert!(!rows.contains("ffprobe-video-stream-confirmed"));
+        assert!(rows.contains("validation-unbound"));
+    }
+
+    #[test]
+    fn validation_join_uses_latest_eligible_event_and_exact_paths() {
+        let sha = "a".repeat(64);
+        let index = serde_json::json!({"videos": [{"id": "vid_1", "source_path": "/evidence/A.mp4", "sha256": sha}]}).to_string();
+        let event = |path: &str, hash: Option<&str>, timestamp: u64, status: &str| {
+            serde_json::json!({"selector": "vid_1", "target_path": path, "target_sha256": hash, "validated_unix": timestamp, "validation_status": status}).to_string()
+        };
+        let log = [
+            event("/evidence/A.mp4", Some(&sha), 20, "validation-failed"),
+            event(
+                "/evidence/A.mp4",
+                Some(&sha),
+                10,
+                "ffprobe-video-stream-confirmed",
+            ),
+            event(
+                "/evidence/A.mp4",
+                Some(&"b".repeat(64)),
+                30,
+                "ffprobe-video-stream-confirmed",
+            ),
+            event(
+                "/evidence/A.mp4",
+                None,
+                40,
+                "ffprobe-video-stream-confirmed",
+            ),
+            event(
+                "/evidence/a.mp4",
+                Some(&sha),
+                50,
+                "ffprobe-video-stream-confirmed",
+            ),
+        ]
+        .join("\n");
+        let rows = rendered_techniques(&index, &log, "", "");
+        assert!(rows.contains("validation-failed"));
+        assert!(!rows.contains("ffprobe-video-stream-confirmed"));
+        let rows = rendered_techniques(
+            &index,
+            &event(
+                "/evidence/a.mp4",
+                Some(&sha),
+                50,
+                "ffprobe-video-stream-confirmed",
+            ),
+            "",
+            "",
+        );
+        assert!(!rows.contains("ffprobe-video-stream-confirmed"));
+        for hash in [None, Some(""), Some("not-a-hash")] {
+            let rows = rendered_techniques(
+                &index,
+                &event("/evidence/A.mp4", hash, 1, "ffprobe-video-stream-confirmed"),
+                "",
+                "",
+            );
+            assert!(rows.contains("validation-unbound"));
+        }
+        let unhashed_index = r#"{"videos":[{"id":"vid_1","source_path":"/evidence/A.mp4"}]}"#;
+        let rows = rendered_techniques(
+            unhashed_index,
+            &event(
+                "/evidence/A.mp4",
+                Some(&sha),
+                1,
+                "ffprobe-video-stream-confirmed",
+            ),
+            "",
+            "",
+        );
+        assert!(rows.contains("validation-unbound"));
+        let tie = [
+            event(
+                "/evidence/A.mp4",
+                Some(&sha.to_uppercase()),
+                20,
+                "ffprobe-video-stream-confirmed",
+            ),
+            event("/evidence/A.mp4", Some(&sha), 20, "validation-failed"),
+        ]
+        .join("\n");
+        assert!(rendered_techniques(&index, &tie, "", "").contains("validation-failed"));
+    }
+
+    #[test]
+    fn artifact_validation_requires_recorded_matching_hash() {
+        for hash in [
+            serde_json::Value::Null,
+            serde_json::json!("b".repeat(64)),
+            serde_json::json!("a".repeat(64)),
+        ] {
+            let carve =
+                serde_json::json!({"id":"carve_1", "output_path":"/case/carve.mp4", "sha256":hash})
+                    .to_string();
+            let recovered = serde_json::json!({"event":"recover-inode", "inode":"1", "output_path":"/case/recovered.mp4", "sha256":hash}).to_string();
+            let log = ["/case/carve.mp4", "/case/recovered.mp4"].map(|path| serde_json::json!({"target_path":path, "target_sha256":"a".repeat(64), "validation_status":"ffprobe-video-stream-confirmed"}).to_string()).join("\n");
+            let rows = rendered_techniques("{}", &log, &carve, &recovered);
+            assert_eq!(
+                rows.contains("ffprobe-video-stream-confirmed"),
+                hash == serde_json::json!("a".repeat(64))
+            );
+        }
     }
 
     #[test]

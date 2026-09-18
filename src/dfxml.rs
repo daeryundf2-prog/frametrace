@@ -10,7 +10,7 @@
 
 use crate::anomaly::{IndexedRow, read_indexed_rows};
 use crate::audit;
-use crate::util::{html_escape, json_escape, now_unix, write_text};
+use crate::util::{html_escape, json_escape, now_unix};
 use std::path::{Path, PathBuf};
 
 /// Candidate-grade label: index values are recorded claims, not verified.
@@ -32,12 +32,13 @@ pub fn export_dfxml(case_dir: &Path, output_path: &Path) -> Result<DfxmlExportRe
     let rows = read_indexed_rows(case_dir)?;
     let generated_unix = now_unix()?;
     let document = render_dfxml(&rows, generated_unix);
-    write_text(output_path, &document).map_err(|err| {
-        format!(
-            "failed to write DFXML export {}: {err}",
-            output_path.display()
-        )
-    })?;
+    crate::tool_policy::write_case_report(
+        case_dir,
+        output_path,
+        "reports/case-index.dfxml",
+        "DFXML export",
+        &document,
+    )?;
     let hashed_count = rows.iter().filter(|row| row.sha256.is_some()).count();
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"export-dfxml\",\"generated_unix\":{},\"label\":\"{}\",\"output_path\":\"{}\",\"object_count\":{},\"hashed_count\":{},\"detail\":\"fileobject entries reflect recorded index rows, not re-verified content\"}}",
@@ -59,10 +60,27 @@ pub fn export_dfxml(case_dir: &Path, output_path: &Path) -> Result<DfxmlExportRe
     })
 }
 
+fn xml_escape(value: &str) -> String {
+    html_escape(
+        &value
+            .chars()
+            .map(|ch| match ch {
+                '\t'
+                | '\n'
+                | '\r'
+                | '\u{20}'..='\u{d7ff}'
+                | '\u{e000}'..='\u{fffd}'
+                | '\u{10000}'..='\u{10ffff}' => ch,
+                _ => '\u{fffd}',
+            })
+            .collect::<String>(),
+    )
+}
+
 fn render_dfxml(rows: &[IndexedRow], generated_unix: u64) -> String {
     let mut out = String::new();
     out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    out.push_str("<dfxml xmlns=\"http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML\" xmloutputversion=\"1.0\">\n");
+    out.push_str("<dfxml xmlns=\"http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML\" xmlns:frametrace=\"urn:frametrace:dfxml:1\" xmloutputversion=\"1.0\">\n");
     out.push_str("  <metadata>\n");
     out.push_str(
         "    <dc:type xmlns:dc=\"http://purl.org/dc/elements/1.1/\">case video index</dc:type>\n",
@@ -71,7 +89,7 @@ fn render_dfxml(rows: &[IndexedRow], generated_unix: u64) -> String {
     out.push_str(&format!(
         "    <generated_unix>{generated_unix}</generated_unix>\n"
     ));
-    out.push_str("    <note>fileobject values are recorded index claims, not re-verified measurements</note>\n");
+    out.push_str("    <note>fileobject values are recorded index claims, not re-verified measurements; characters forbidden by XML 1.0 are replaced with U+FFFD</note>\n");
     out.push_str("  </metadata>\n");
     out.push_str("  <creator>\n");
     out.push_str(&format!(
@@ -87,7 +105,7 @@ fn render_dfxml(rows: &[IndexedRow], generated_unix: u64) -> String {
         out.push_str("  <fileobject>\n");
         out.push_str(&format!(
             "    <filename>{}</filename>\n",
-            html_escape(&row.source_path)
+            xml_escape(&row.source_path)
         ));
         if let Some(size) = row.size_bytes {
             out.push_str(&format!("    <filesize>{size}</filesize>\n"));
@@ -98,7 +116,7 @@ fn render_dfxml(rows: &[IndexedRow], generated_unix: u64) -> String {
         if let Some(sha256) = row.sha256.as_deref() {
             out.push_str(&format!(
                 "    <hashdigest type=\"sha256\">{}</hashdigest>\n",
-                html_escape(&sha256.to_ascii_lowercase())
+                xml_escape(&sha256.to_ascii_lowercase())
             ));
         }
         if !row.id.is_empty() {
@@ -106,7 +124,7 @@ fn render_dfxml(rows: &[IndexedRow], generated_unix: u64) -> String {
             // traceable back to videos.jsonl without claiming verification.
             out.push_str(&format!(
                 "    <frametrace:id>{}</frametrace:id>\n",
-                html_escape(&row.id)
+                xml_escape(&row.id)
             ));
         }
         out.push_str("  </fileobject>\n");
@@ -180,8 +198,16 @@ mod tests {
         assert_eq!(result.hashed_count, 1);
 
         let text = read_to_string(&output).unwrap();
-        // Structural well-formedness without an XML dependency: balanced
-        // fileobject elements, header/footer, and expected children.
+        let parsed = std::process::Command::new("python3")
+            .args(["-c", "import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); ns = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; assert r.tag == '{' + ns['d'] + '}dfxml'; assert [e.text for e in r.findall('d:fileobject/f:id', ns)] == ['vid_1', 'vid_2']"])
+            .arg(&output)
+            .output()
+            .expect("python3 standard XML parser is required for this test");
+        assert!(
+            parsed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&parsed.stderr)
+        );
         assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assert!(text.contains("<dfxml "));
         assert!(text.trim_end().ends_with("</dfxml>"));
@@ -218,6 +244,29 @@ mod tests {
         let text = read_to_string(&output).unwrap();
         assert!(text.contains("<filename>/ev/a&amp;b&lt;q&gt;.mp4</filename>"));
         assert!(!text.contains("a&b<q>"));
+        let _ = fs::remove_dir_all(&case_dir);
+    }
+
+    #[test]
+    fn xml_controls_are_replaced_and_namespace_parses() {
+        let row = serde_json::json!({
+            "id": "vid_\u{0}&<>",
+            "source_path": "/ev/a\u{1}\u{b}\u{fffe}\u{ffff}&<>\t\n\r한글.mp4",
+            "sha256": "AA\u{2}11",
+        });
+        let case_dir = temp_case("controls", &row.to_string());
+        let output = case_dir.join("reports/case-index.dfxml");
+        export_dfxml(&case_dir, &output).unwrap();
+        let parsed = std::process::Command::new("python3")
+            .args(["-c", "import sys, xml.etree.ElementTree as ET; r = ET.parse(sys.argv[1]).getroot(); n = {'d': 'http://www.forensicswiki.org/wiki/Category:Digital_Forensics_XML', 'f': 'urn:frametrace:dfxml:1'}; o = r.find('d:fileobject', n); assert o.find('f:id', n).text == 'vid_\\ufffd&<>'; assert o.find('d:filename', n).text == '/ev/a' + '\\ufffd' * 4 + '&<>\\t\\n\\n한글.mp4'; assert o.find('d:hashdigest', n).text == 'aa\\ufffd11'"])
+            .arg(&output)
+            .output()
+            .expect("python3 standard XML parser is required for this test");
+        assert!(
+            parsed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&parsed.stderr)
+        );
         let _ = fs::remove_dir_all(&case_dir);
     }
 

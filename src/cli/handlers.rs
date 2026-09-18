@@ -11,13 +11,12 @@ use crate::report;
 use crate::scan;
 use crate::tool_policy::require_case_output_path;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
-use crate::util::{
-    create_case_layout, json_escape, now_unix, read_to_string, write_text, write_text_atomic,
-};
+use crate::util::{create_case_layout, json_escape, now_unix, read_to_string, write_text};
 use crate::validation::{self, ValidationOptions};
 use crate::video_export::{self, ExportOptions};
 use std::env;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -54,12 +53,30 @@ pub struct BenchmarkOptions {
 }
 
 pub fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), String> {
-    create_case_layout(case_dir).map_err(|err| format!("failed to create case layout: {err}"))?;
-
+    let manifest_path = case_dir.join("case.json");
+    if fs::symlink_metadata(&manifest_path).is_ok() {
+        return Err(format!(
+            "case manifest already exists: {}",
+            manifest_path.display()
+        ));
+    }
+    if case_dir.is_dir()
+        && fs::read_dir(case_dir)
+            .map_err(|err| format!("failed to inspect case directory: {err}"))?
+            .next()
+            .transpose()
+            .map_err(|err| format!("failed to inspect case directory entry: {err}"))?
+            .is_some()
+    {
+        return Err("case directory already exists and is not empty".to_string());
+    }
     let created_unix = now_unix()?;
+    let mut random = [0u8; 16];
+    getrandom::fill(&mut random).map_err(|err| format!("failed to generate case id: {err}"))?;
+    let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     let manifest = CaseManifest {
         schema_version: 1,
-        case_id: format!("FT-{created_unix}"),
+        case_id: format!("FT-{created_unix}-{suffix}"),
         title: options
             .title
             .clone()
@@ -78,11 +95,34 @@ pub fn init_case(case_dir: &Path, options: &InitCaseOptions) -> Result<(), Strin
         notes: options.notes.clone(),
     };
 
-    write_text_atomic(&case_dir.join("case.json"), &manifest.to_json())
-        .map_err(|err| format!("failed to write case manifest: {err}"))?;
+    let manifest_json = manifest.to_json();
+    publish_case_manifest(case_dir, &manifest_json, |file, text| {
+        file.write_all(text.as_bytes())
+    })
+    .map_err(|err| {
+        format!("failed to publish new case manifest (existing files are never replaced): {err}")
+    })?;
 
     println!("case created: {}", case_dir.display());
     println!("case id: {}", manifest.case_id);
+    Ok(())
+}
+
+fn publish_case_manifest(
+    case_dir: &Path,
+    manifest_json: &str,
+    write: impl FnOnce(&mut fs::File, &str) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    fs::create_dir_all(case_dir)?;
+    let manifest_path = case_dir.join("case.json");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&manifest_path)?;
+    create_case_layout(case_dir)?;
+    write(&mut file, manifest_json)?;
+    file.sync_all()?;
+    crate::util::sync_parent_directory(&manifest_path);
     Ok(())
 }
 
@@ -516,6 +556,11 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
     let fls_entries = redact(&latest_fls_entries_jsonl(case_dir));
     let videos = collect_index_videos(&index_json);
     let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
+    let annotations_json = serde_json::to_string(&serde_json::json!({
+        "marks": crate::case_db::load_review_marks(case_dir).unwrap_or_default(),
+        "tags": crate::case_db::load_review_tags(case_dir).unwrap_or_default(),
+    }))
+    .map_err(|err| err.to_string())?;
     let evidence_viewer = html_report::render_evidence_viewer_html(
         &manifest_json,
         &index_json,
@@ -525,6 +570,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &anomaly_log,
         &fls_entries,
         &thumbs_json,
+        &annotations_json,
     );
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(
@@ -1138,6 +1184,12 @@ fn batch_output_path(
 pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let selection = crate::selection::parse_selection_file(selection_path)?;
+    crate::selection::enforce_case_binding(
+        case_dir,
+        selection.case_id.as_deref(),
+        selection_path,
+        crate::selection::ImportKind::Selection,
+    )?;
     let job = case_db::start_job(
         case_dir,
         "export-batch",
@@ -1343,6 +1395,12 @@ pub fn validate_batch(
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
     let selection = crate::selection::parse_selection_file(selection_path)?;
+    crate::selection::enforce_case_binding(
+        case_dir,
+        selection.case_id.as_deref(),
+        selection_path,
+        crate::selection::ImportKind::Selection,
+    )?;
     let job = case_db::start_job(
         case_dir,
         "validate-batch",
@@ -1386,6 +1444,20 @@ pub fn validate_batch(
                     .unwrap_or("")
                     .to_string()
             };
+            done.remove(&index);
+            computed.remove(&index);
+            if index >= selection.items.len()
+                || field("status") != "ok"
+                || field("selector") != selection.items[index].selector
+                || !validation::checkpoint_target_is_current(
+                    case_dir,
+                    &field("selector"),
+                    Path::new(&field("target_path")),
+                    &field("target_sha256"),
+                )
+            {
+                continue;
+            }
             done.insert(
                 index,
                 BatchOutcome {
@@ -1520,11 +1592,13 @@ pub fn validate_batch(
                     // on resume, done-before-append risks a replayed outcome
                     // with no log entry behind it.
                     checkpoint.append_line(&format!(
-                        "{{\"done\":{{\"index\":{},\"selector\":\"{}\",\"status\":\"{}\",\"detail\":\"{}\"}}}}",
+                        "{{\"done\":{{\"index\":{},\"selector\":\"{}\",\"status\":\"{}\",\"detail\":\"{}\",\"target_path\":\"{}\",\"target_sha256\":\"{}\"}}}}",
                         index,
                         json_escape(&outcome.selector),
                         outcome.status,
-                        json_escape(&outcome.detail)
+                        json_escape(&outcome.detail),
+                        json_escape(&result.target_path.to_string_lossy()),
+                        json_escape(&result.target_sha256)
                     ))?;
                     outcome
                 }
@@ -1617,6 +1691,7 @@ pub fn merge_cases(case_dir: &Path, source_case_dirs: &[PathBuf]) -> Result<(), 
     for source in source_case_dirs {
         ensure_case(source)?;
     }
+    crate::case_merge::load_target_lines(case_dir)?;
     let job = case_db::start_job(
         case_dir,
         "merge-cases",
@@ -1668,6 +1743,12 @@ pub fn compare_cases(
     ensure_case(case_dir)?;
     ensure_case(other_case_dir)?;
     let output_path = output.unwrap_or_else(|| case_dir.join("reports/case-compare.json"));
+    crate::tool_policy::require_case_report_path(
+        case_dir,
+        &output_path,
+        "reports/case-compare.json",
+        "case comparison",
+    )?;
     let job = case_db::start_job(case_dir, "compare-cases", other_case_dir, None, "{}")?;
     let result = match crate::case_compare::compare_cases(case_dir, other_case_dir, &output_path) {
         Ok(result) => result,
@@ -1711,6 +1792,12 @@ pub fn known_hash_filter(
 ) -> Result<(), String> {
     ensure_case(case_dir)?;
     let output_path = output.unwrap_or_else(|| case_dir.join("reports/known-hash-filter.json"));
+    crate::tool_policy::require_case_report_path(
+        case_dir,
+        &output_path,
+        "reports/known-hash-filter.json",
+        "known-hash filter",
+    )?;
     let job = case_db::start_job(case_dir, "known-hash-filter", hash_list, None, "{}")?;
     let result = match crate::known_hash::filter_known_hashes(case_dir, hash_list, &output_path) {
         Ok(result) => result,
@@ -1747,6 +1834,12 @@ pub fn known_hash_filter(
 pub fn export_dfxml(case_dir: &Path, output: Option<PathBuf>) -> Result<(), String> {
     ensure_case(case_dir)?;
     let output_path = output.unwrap_or_else(|| case_dir.join("reports/case-index.dfxml"));
+    crate::tool_policy::require_case_report_path(
+        case_dir,
+        &output_path,
+        "reports/case-index.dfxml",
+        "DFXML export",
+    )?;
     let job = case_db::start_job(case_dir, "export-dfxml", &output_path, None, "{}")?;
     let result = match crate::dfxml::export_dfxml(case_dir, &output_path) {
         Ok(result) => result,
@@ -1777,6 +1870,12 @@ pub fn export_dfxml(case_dir: &Path, output: Option<PathBuf>) -> Result<(), Stri
 pub fn timeline(case_dir: &Path, output: Option<PathBuf>) -> Result<(), String> {
     ensure_case(case_dir)?;
     let output_path = output.unwrap_or_else(|| case_dir.join("db/timeline.jsonl"));
+    crate::tool_policy::require_case_report_path(
+        case_dir,
+        &output_path,
+        "db/timeline.jsonl",
+        "timeline",
+    )?;
     let job = case_db::start_job(case_dir, "timeline", case_dir, None, "{}")?;
     let result = match crate::timeline::generate_timeline(case_dir, &output_path) {
         Ok(result) => result,
@@ -1901,10 +2000,14 @@ pub fn recover_batch(
         let selection_path = selection_path.ok_or_else(|| {
             "recover-batch needs a selection file or --deleted-videos".to_string()
         })?;
-        (
-            crate::selection::parse_selection_file(selection_path)?,
-            selection_path.display().to_string(),
-        )
+        let parsed = crate::selection::parse_selection_file(selection_path)?;
+        crate::selection::enforce_case_binding(
+            case_dir,
+            parsed.case_id.as_deref(),
+            selection_path,
+            crate::selection::ImportKind::Selection,
+        )?;
+        (parsed, selection_path.display().to_string())
     };
     let job = case_db::start_job(
         case_dir,
@@ -1998,6 +2101,12 @@ pub fn recover_batch(
 pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
     ensure_case(case_dir)?;
     let marks_file = crate::selection::parse_marks_file(marks_path)?;
+    crate::selection::enforce_case_binding(
+        case_dir,
+        marks_file.case_id.as_deref(),
+        marks_path,
+        crate::selection::ImportKind::Marks,
+    )?;
     let rows = marks_file
         .marks
         .iter()
@@ -2013,12 +2122,20 @@ pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
                 status: entry.status.clone(),
                 marked_unix,
                 record_path: None,
-                examiner: marks_file.examiner.clone(),
+                examiner: entry
+                    .examiner
+                    .clone()
+                    .or_else(|| marks_file.examiner.clone()),
                 note: entry.note.clone(),
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    let stored = case_db::upsert_review_marks(case_dir, &rows)?;
+    let stored = case_db::patch_review_annotations(
+        case_dir,
+        &rows,
+        &marks_file.tags,
+        &marks_file.deleted_ids,
+    )?;
     println!("marks imported");
     println!("source: {}", marks_path.display());
     println!("marks stored: {stored}");
@@ -2028,6 +2145,7 @@ pub fn import_marks(case_dir: &Path, marks_path: &Path) -> Result<(), String> {
 
 pub fn export_marks(case_dir: &Path, output: Option<&Path>) -> Result<(), String> {
     ensure_case(case_dir)?;
+    let case_id = crate::selection::read_case_id(case_dir)?;
     let marks = case_db::load_review_marks(case_dir)?;
     let entries = marks
         .iter()
@@ -2049,17 +2167,25 @@ pub fn export_marks(case_dir: &Path, output: Option<&Path>) -> Result<(), String
         })
         .collect::<Vec<_>>()
         .join(",\n    ");
+    let tags = serde_json::to_string(&case_db::load_review_tags(case_dir)?)
+        .map_err(|err| err.to_string())?;
     let text = format!(
-        "{{\n  \"schema_version\": 1,\n  \"case_id\": null,\n  \"exported_unix\": {},\n  \"marks\": [\n    {}\n  ]\n}}\n",
+        "{{\n  \"schema_version\": 2,\n  \"case_id\": \"{}\",\n  \"exported_unix\": {},\n  \"marks\": [\n    {}\n  ],\n  \"tags\": {}\n}}\n",
+        json_escape(&case_id),
         now_unix()?,
-        entries
+        entries,
+        tags
     );
     let output_path = output
         .map(|path| path.to_path_buf())
         .unwrap_or_else(|| case_dir.join("db/review-marks.json"));
-    require_case_output_path(case_dir, &output_path, "marks export")?;
-    write_text(&output_path, &text)
-        .map_err(|err| format!("failed to write marks export: {err}"))?;
+    crate::tool_policy::write_case_report(
+        case_dir,
+        &output_path,
+        "db/review-marks.json",
+        "marks export",
+        &text,
+    )?;
     println!("marks exported");
     println!("marks: {}", marks.len());
     println!("output: {}", output_path.display());
@@ -2429,6 +2555,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn manifest_write_failure_retains_partial_file_and_blocks_reinit() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-init-partial-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let err = publish_case_manifest(&root, "{\"case_id\":\"FT-test\"}", |file, _| {
+            file.write_all(b"{\"case_id\":")?;
+            Err(std::io::Error::other("injected write failure"))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("injected write failure"));
+        let manifest_path = root.join("case.json");
+        assert_eq!(fs::read(&manifest_path).unwrap(), b"{\"case_id\":");
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&fs::read(&manifest_path).unwrap())
+                .is_err()
+        );
+        assert!(init_case(&root, &InitCaseOptions::default()).is_err());
+        assert_eq!(fs::read(&manifest_path).unwrap(), b"{\"case_id\":");
+        assert!(!root.join(".case-test.tmp").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_publication_exclusively_creates_final_path() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-init-exclusive-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let manifest_path = root.join("case.json");
+        let text = "{\"case_id\":\"FT-test\"}";
+        publish_case_manifest(&root, text, |file, text| {
+            assert!(manifest_path.is_file());
+            assert!(!root.join(".case-test.tmp").exists());
+            file.write_all(text.as_bytes())
+        })
+        .unwrap();
+        let err = publish_case_manifest(&root, "replacement", |_, _| {
+            panic!("must not write an existing manifest")
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(manifest_path).unwrap(), text);
+        assert!(root.join("evidence/logs").is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn export_marks_output_stays_inside_the_case() {
         let base = std::env::temp_dir().join(format!(
             "frametrace-marks-export-test-{}",
@@ -2437,7 +2609,11 @@ mod tests {
         let case_dir = base.join("case");
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&case_dir).unwrap();
-        std::fs::write(case_dir.join("case.json"), "{}").unwrap();
+        std::fs::write(
+            case_dir.join("case.json"),
+            r#"{"case_id":"FT-marks-export"}"#,
+        )
+        .unwrap();
         // A sibling that shares the case directory's name prefix must not
         // pass containment — the check compares canonical parents, not
         // string prefixes, so `<case>-evil/out.json` resolves outside.
@@ -2477,7 +2653,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         let case_dir = base.join("case");
         std::fs::create_dir_all(case_dir.join("db")).unwrap();
-        std::fs::write(case_dir.join("case.json"), "{}").unwrap();
+        std::fs::write(case_dir.join("case.json"), r#"{"case_id":"FT-vbatch"}"#).unwrap();
         let target_a = base.join("one.mp4");
         let target_b = base.join("two.mp4");
         std::fs::write(&target_a, b"\0\0\0\x18ftypmp42one").unwrap();
@@ -2507,6 +2683,41 @@ mod tests {
     /// revalidating them — the resumed run appends log entries only for
     /// the remaining items.
     #[test]
+    fn validate_batch_changed_done_item_is_revalidated() {
+        let (case_dir, selection, target_a, _) = validate_batch_fixture("changed-done");
+        {
+            let mut checkpoint = RunCheckpoint::begin(
+                &case_dir.join("db/validate-batch-progress.jsonl"),
+                "validate-batch",
+                &validate_batch_fingerprint(&selection),
+                ResumeMode::Auto,
+            )
+            .unwrap();
+            checkpoint
+                .append_line(
+                    &serde_json::json!({"done": {
+                        "index": 0, "selector": target_a, "status": "ok", "detail": "old",
+                        "target_path": crate::util::canonicalize_display(&target_a).unwrap(),
+                        "target_sha256": audit::digest_file(&target_a).unwrap()
+                    }})
+                    .to_string(),
+                )
+                .unwrap();
+        }
+        std::fs::write(&target_a, b"changed media").unwrap();
+        let _ = validate_batch(&case_dir, &selection, ResumeMode::Auto);
+        let log =
+            std::fs::read_to_string(case_dir.join("evidence/logs/validation-log.jsonl")).unwrap();
+        assert_eq!(
+            log.lines().count(),
+            2,
+            "changed done item must be validated: {log}"
+        );
+        assert!(log.contains(&audit::digest_file(&target_a).unwrap()));
+        let _ = std::fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    #[test]
     fn validate_batch_resume_replays_done_items() {
         let (case_dir, selection, target_a, _target_b) = validate_batch_fixture("done");
         let checkpoint_path = case_dir.join("db/validate-batch-progress.jsonl");
@@ -2520,8 +2731,10 @@ mod tests {
             .unwrap();
             checkpoint
                 .append_line(&format!(
-                    "{{\"done\":{{\"index\":0,\"selector\":\"{}\",\"status\":\"ok\",\"detail\":\"ffprobe-video-stream-confirmed (abc)\"}}}}",
+                    "{{\"done\":{{\"index\":0,\"selector\":\"{}\",\"status\":\"ok\",\"detail\":\"ffprobe-video-stream-confirmed (abc)\",\"target_path\":\"{}\",\"target_sha256\":\"{}\"}}}}",
                     crate::util::json_escape(&target_a.to_string_lossy()),
+                    crate::util::json_escape(&crate::util::canonicalize_display(&target_a).unwrap().to_string_lossy()),
+                    audit::digest_file(&target_a).unwrap(),
                 ))
                 .unwrap();
         }
@@ -2554,7 +2767,7 @@ mod tests {
     /// the stored result and only retries the log append.
     #[test]
     fn validate_batch_resume_reuses_pending_computed_results() {
-        let (case_dir, selection, target_a, _target_b) = validate_batch_fixture("computed");
+        let (case_dir, selection, target_a, target_b) = validate_batch_fixture("computed");
         let checkpoint_path = case_dir.join("db/validate-batch-progress.jsonl");
         let result = crate::validation::compute_validation(
             &case_dir,
@@ -2577,7 +2790,12 @@ mod tests {
             // Item 1 fully completed before the crash.
             checkpoint
                 .append_line(
-                    "{\"done\":{\"index\":1,\"selector\":\"two.mp4\",\"status\":\"ok\",\"detail\":\"ok\"}}",
+                    &serde_json::json!({"done": {
+                        "index": 1, "selector": target_b, "status": "ok", "detail": "ok",
+                        "target_path": crate::util::canonicalize_display(&target_b).unwrap(),
+                        "target_sha256": audit::digest_file(&target_b).unwrap()
+                    }})
+                    .to_string(),
                 )
                 .unwrap();
         }

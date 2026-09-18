@@ -9,7 +9,7 @@
 //! rather than zeroed.
 
 use crate::audit;
-use crate::util::{json_escape, now_unix, read_to_string, write_text};
+use crate::util::{json_escape, now_unix, read_to_string};
 use std::path::{Path, PathBuf};
 
 /// Candidate-grade label: timestamps are recorded metadata, not truth.
@@ -57,8 +57,13 @@ pub fn generate_timeline(case_dir: &Path, output_path: &Path) -> Result<Timeline
         body.push_str(&event.to_json());
         body.push('\n');
     }
-    write_text(output_path, &body)
-        .map_err(|err| format!("failed to write timeline {}: {err}", output_path.display()))?;
+    crate::tool_policy::write_case_report(
+        case_dir,
+        output_path,
+        "db/timeline.jsonl",
+        "timeline",
+        &body,
+    )?;
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"timeline\",\"generated_unix\":{},\"label\":\"{}\",\"output_path\":\"{}\",\"event_count\":{},\"skipped_no_timestamp\":{},\"detail\":\"candidate-grade merge of index mtimes and stale marks, ffprobe creation_time tags, carve-run times, and audit-log entries\"}}",
         generated_unix,
@@ -653,25 +658,30 @@ mod tests {
         let case_dir = temp_case("self-output");
         fs::write(case_dir.join("case.json"), "{}").unwrap();
         let output = case_dir.join("evidence/logs/timeline.jsonl");
-        // First run creates the file inside evidence/logs; the second must
-        // not read its own previous output back in as audit events.
-        generate_timeline(&case_dir, &output).unwrap();
-        let second = generate_timeline(&case_dir, &output).unwrap();
-        let events = read_events(&output);
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, "{\"event\":\"timeline\",\"generated_unix\":42}\n").unwrap();
+        audit::append_chained_jsonl(
+            &case_dir.join("evidence/logs/timeline-log.jsonl"),
+            "{\"event\":\"timeline\",\"generated_unix\":43}",
+        )
+        .unwrap();
+        let (collected, _) = collect_events(&case_dir, &output).unwrap();
+        let events: Vec<serde_json::Value> = collected
+            .iter()
+            .map(|event| serde_json::from_str(&event.to_json()).unwrap())
+            .collect();
         assert!(
             events
                 .iter()
                 .all(|event| event["path"] != "evidence/logs/timeline.jsonl"),
             "timeline output must not feed back into itself"
         );
-        // timeline-log entries ARE ingested — exactly one prior run existed
-        // when the second collect ran.
         let audit_events = events
             .iter()
             .filter(|event| event["source"] == "audit-log")
             .count();
         assert_eq!(audit_events, 1);
-        assert_eq!(second.event_count, 1);
+        assert_eq!(collected.len(), 1);
         let _ = fs::remove_dir_all(&case_dir);
     }
 

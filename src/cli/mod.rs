@@ -841,13 +841,23 @@ fn run_qa(command: QaCommands) -> Result<(), String> {
             Ok(())
         }
         QaCommands::Anomalies { case_dir } => {
-            // The dedicated anomalies command keeps full live revalidation;
-            // only make-report defaults to the cheaper stored-hash lane.
             let result = crate::anomaly::scan_case(&case_dir, true)?;
             println!(
                 "anomaly scan complete: {} candidate finding(s)",
                 result.findings.len()
             );
+            println!(
+                "coverage: skipped_no_hash={} skipped_missing={} skipped_error={}",
+                result.coverage.skipped_no_hash,
+                result.coverage.skipped_missing,
+                result.coverage.skipped_error
+            );
+            if result.coverage.limited() {
+                println!(
+                    "coverage limitation: not every indexed file was revalidated; see the run entry in {}",
+                    result.log_path.display()
+                );
+            }
             println!("log: {}", result.log_path.display());
             for finding in &result.findings {
                 println!(

@@ -10,11 +10,7 @@ use std::path::{Path, PathBuf};
 
 pub const LABEL: &str = "candidate-finding";
 const GAP_SECS: u64 = 7 * 24 * 60 * 60;
-/// DAV frames normally arrive at 25-30fps (0.03-0.04s apart). A gap an order
-/// of magnitude larger suggests dropped frames or recorder pauses. The
-/// threshold is compared against the packed-date second span; the
-/// free-running ms counter only refines the sub-second remainder.
-const DAV_FRAME_GAP_SECS: f64 = 2.0;
+const DAV_FRAME_GAP_SECS: i64 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
@@ -37,24 +33,34 @@ pub struct IndexedRow {
     pub ffprobe_ok: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RehashCoverage {
+    pub skipped_no_hash: usize,
+    pub skipped_missing: usize,
+    pub skipped_error: usize,
+}
+
+impl RehashCoverage {
+    pub fn limited(&self) -> bool {
+        self.skipped_no_hash != 0 || self.skipped_missing != 0 || self.skipped_error != 0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AnomalyScanResult {
     pub findings: Vec<Finding>,
     pub log_path: PathBuf,
     pub scanned_unix: u64,
+    pub coverage: RehashCoverage,
 }
 
 /// Scan the case index for candidate anomalies and append a chained log.
-///
-/// `rehash` selects the integrity lane: `true` re-hashes every indexed file
-/// (full revalidation, slow on large cases); `false` trusts the stored index
-/// hashes and only flags records whose filesystem metadata drifted from what
-/// was indexed — cheap enough to run inside `make-report` by default.
 pub fn scan_case(case_dir: &Path, rehash: bool) -> Result<AnomalyScanResult, String> {
     let rows = read_indexed_rows(case_dir)?;
     let mut findings = Vec::new();
+    let mut coverage = RehashCoverage::default();
     if rehash {
-        findings.extend(hash_revalidation_findings(&rows));
+        findings.extend(hash_revalidation_findings(&rows, &mut coverage));
     } else {
         findings.extend(index_staleness_findings(&rows));
     }
@@ -85,22 +91,43 @@ pub fn scan_case(case_dir: &Path, rehash: bool) -> Result<AnomalyScanResult, Str
     }
     // Every scan records which integrity lane ran so a report generated from
     // stored hashes is never mistaken for a full revalidation pass.
+    let detail = if !rehash {
+        "stored index hashes only; pass --rehash for full revalidation".to_string()
+    } else {
+        format!(
+            "live re-hashing; coverage: {} of {} records rehashed, {} no stored hash, {} missing on disk, {} unreadable or unhashable{}",
+            rows.len()
+                - coverage.skipped_no_hash
+                - coverage.skipped_missing
+                - coverage.skipped_error,
+            rows.len(),
+            coverage.skipped_no_hash,
+            coverage.skipped_missing,
+            coverage.skipped_error,
+            if coverage.limited() {
+                "; coverage limitation: not every indexed file was revalidated"
+            } else {
+                ""
+            }
+        )
+    };
     let line = format!(
-        "{{\"schema_version\":1,\"event\":\"anomaly-scan-run\",\"scanned_unix\":{},\"hash_mode\":\"{}\",\"finding_count\":{},\"detail\":\"{}\"}}",
+        "{{\"schema_version\":1,\"event\":\"anomaly-scan-run\",\"scanned_unix\":{},\"hash_mode\":\"{}\",\"finding_count\":{},\"skipped_no_hash\":{},\"skipped_missing\":{},\"skipped_error\":{},\"coverage_limited\":{},\"detail\":\"{}\"}}",
         scanned_unix,
         if rehash { "rehash" } else { "stored" },
         findings.len(),
-        json_escape(if rehash {
-            "live re-hashing of every indexed file"
-        } else {
-            "stored index hashes only; pass --rehash for full revalidation"
-        }),
+        coverage.skipped_no_hash,
+        coverage.skipped_missing,
+        coverage.skipped_error,
+        coverage.limited() && rehash,
+        json_escape(&detail),
     );
     audit::append_chained_jsonl(&log_path, &line)?;
     Ok(AnomalyScanResult {
         findings,
         log_path,
         scanned_unix,
+        coverage,
     })
 }
 
@@ -135,17 +162,27 @@ pub fn hash_mismatch_finding(
     })
 }
 
-fn hash_revalidation_findings(rows: &[IndexedRow]) -> Vec<Finding> {
+fn hash_revalidation_findings(rows: &[IndexedRow], coverage: &mut RehashCoverage) -> Vec<Finding> {
     let mut out = Vec::new();
     for row in rows {
         let Some(indexed) = row.sha256.as_deref() else {
+            coverage.skipped_no_hash += 1;
             continue;
         };
         let path = Path::new(&row.source_path);
-        if !path.is_file() {
-            continue;
+        match std::fs::metadata(path) {
+            Ok(metadata) if metadata.is_file() => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                coverage.skipped_missing += 1;
+                continue;
+            }
+            _ => {
+                coverage.skipped_error += 1;
+                continue;
+            }
         }
         let Ok(live) = audit::digest_file(path) else {
+            coverage.skipped_error += 1;
             continue;
         };
         if !indexed.eq_ignore_ascii_case(&live) {
@@ -335,71 +372,88 @@ fn dav_frame_gap_findings(case_dir: &Path, rows: &[IndexedRow]) -> Vec<Finding> 
             continue; // unparseable DAV stays out of anomaly scope
         };
 
-        // Video-only, per-channel sequence with packed-date ordering.
-        let video: Vec<&crate::dav::DavFrame> = frames
-            .iter()
-            .filter(|frame| {
-                matches!(
-                    frame.stream_type,
-                    crate::dav::STREAM_VIDEO_P | crate::dav::STREAM_VIDEO_I
-                )
-            })
-            .collect();
-        for window in video.windows(2) {
-            let (prev, next) = (window[0], window[1]);
-            if prev.channel != next.channel {
-                continue;
-            }
-            if next.date_packed() < prev.date_packed() {
-                out.push(Finding {
-                    kind: "dav-frame-timestamp-regression",
-                    selector: row.id.clone(),
-                    source_path: row.source_path.clone(),
-                    detail: format!(
-                        "frame {} packed date {} moves backwards after {}",
-                        next.offset,
-                        next.date_packed(),
-                        prev.date_packed()
-                    ),
-                });
-            } else if next.date_packed() > prev.date_packed() {
-                // Coarse span from the 1-second-resolution packed dates; the
-                // wrapped ms counter refines the boundary. FFmpeg get_pts
-                // treats `timestamp` as a free-running 65535-wrap ms counter,
-                // never as wall-clock seconds, so it must not be summed into
-                // the date seconds.
-                let prev_secs = packed_date_seconds(prev);
-                let next_secs = packed_date_seconds(next);
-                let delta = (next_secs - prev_secs) as f64
-                    + (next.subsecond_ms() as f64)
-                        .mul_add(0.001, -(prev.subsecond_ms() as f64) * 0.001);
-                if delta > DAV_FRAME_GAP_SECS {
-                    out.push(Finding {
-                        kind: "dav-frame-gap",
-                        selector: row.id.clone(),
-                        source_path: row.source_path.clone(),
-                        detail: format!(
-                            "video frames at byte offsets {} -> {} span {delta:.3}s (threshold {DAV_FRAME_GAP_SECS}s); possible dropped frames or recorder pause",
-                            prev.offset, next.offset
-                        ),
-                    });
-                }
-            }
-        }
+        out.extend(dav_sequence_findings(row, &frames));
     }
     out
 }
 
-/// Total seconds encoded in the packed Dahua date (monotonic-in-practice
-/// civil time; exact calendar math is unnecessary for gap spans).
-fn packed_date_seconds(frame: &crate::dav::DavFrame) -> u64 {
+fn dav_sequence_findings(row: &IndexedRow, frames: &[crate::dav::DavFrame]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let mut predecessors = std::collections::HashMap::<u16, (u64, i64)>::new();
+    for frame in frames.iter().filter(|frame| {
+        matches!(
+            frame.stream_type,
+            crate::dav::STREAM_VIDEO_P | crate::dav::STREAM_VIDEO_I
+        )
+    }) {
+        let Some(seconds) = packed_date_seconds(frame) else {
+            predecessors.remove(&frame.channel);
+            out.push(Finding {
+                kind: "dav-date-coverage-limitation",
+                selector: row.id.clone(),
+                source_path: row.source_path.clone(),
+                detail: format!(
+                    "skipped invalid Gregorian date at byte offset {} on channel {}; adjacent interval comparisons unavailable",
+                    frame.offset, frame.channel
+                ),
+            });
+            continue;
+        };
+        let Some((prev_offset, prev_seconds)) =
+            predecessors.insert(frame.channel, (frame.offset, seconds))
+        else {
+            continue;
+        };
+        let delta = seconds - prev_seconds;
+        let kind = if delta < 0 {
+            "dav-frame-timestamp-regression"
+        } else if delta > DAV_FRAME_GAP_SECS {
+            "dav-frame-gap"
+        } else {
+            continue;
+        };
+        out.push(Finding {
+            kind,
+            selector: row.id.clone(),
+            source_path: row.source_path.clone(),
+            detail: format!(
+                "channel {} video frames at byte offsets {} -> {} have packed civil-time span {delta}s (gap threshold {DAV_FRAME_GAP_SECS}s); 1-second resolution, timezone unknown, free-running counter not used as wall-clock milliseconds; candidate clock discontinuity, not proof of dropped frames",
+                frame.channel, prev_offset, frame.offset
+            ),
+        });
+    }
+    out
+}
+
+fn packed_date_seconds(frame: &crate::dav::DavFrame) -> Option<i64> {
     let (year, month, day, hour, minute, second) = frame.date_breakdown();
-    u64::from(year) * 31536000
-        + u64::from(month) * 2592000
-        + u64::from(day) * 86400
-        + u64::from(hour) * 3600
-        + u64::from(minute) * 60
-        + u64::from(second)
+    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&month) || day == 0 || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    if day > month_days[(month - 1) as usize] {
+        return None;
+    }
+    let previous_year = i64::from(year) - 1;
+    let days = previous_year * 365 + previous_year / 4 - previous_year / 100
+        + previous_year / 400
+        + i64::from(month_days[..(month - 1) as usize].iter().sum::<u32>())
+        + i64::from(day - 1);
+    Some(days * 86400 + i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second))
 }
 
 pub fn read_indexed_rows(case_dir: &Path) -> Result<Vec<IndexedRow>, String> {
@@ -482,9 +536,8 @@ mod tests {
         let findings = dav_frame_gap_findings(&dir, &rows);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].kind, "dav-frame-gap");
-        // 10s from packed dates; the ms remainder (500-0) only refines it.
         assert!(
-            findings[0].detail.contains("span 10.500s") || findings[0].detail.contains("10.5"),
+            findings[0].detail.contains("span 10s") && !findings[0].detail.contains("10.500"),
             "{detail}",
             detail = findings[0].detail
         );
@@ -515,7 +568,7 @@ mod tests {
         fn frame(channel: u8, second: u32, timestamp_ms: u16, payload: &[u8]) -> Vec<u8> {
             let header_len = 24u32;
             let frame_length = header_len + payload.len() as u32 + 8;
-            let date = second & 0x3F; // packed: only the seconds field
+            let date = (26 << 26) | (1 << 22) | (1 << 17) | (second & 0x3F);
             let mut bytes = Vec::with_capacity(frame_length as usize);
             bytes.extend_from_slice(b"DHAV");
             bytes.push(0xFD); // key video frame
@@ -537,6 +590,104 @@ mod tests {
         out.extend(frame(1, first_sec, 65000, b"V1"));
         out.extend(frame(1, second_sec, 500, b"V2"));
         out
+    }
+
+    fn dated_frame(date: (u32, u32, u32, u32, u32, u32), channel: u16) -> crate::dav::DavFrame {
+        let (year, month, day, hour, minute, second) = date;
+        crate::dav::DavFrame {
+            offset: 0,
+            stream_type: crate::dav::STREAM_VIDEO_I,
+            channel,
+            date: ((year - 2000) << 26)
+                | (month << 22)
+                | (day << 17)
+                | (hour << 12)
+                | (minute << 6)
+                | second,
+            timestamp_ms: 65500,
+            payload_offset: 24,
+            payload_size: 2,
+        }
+    }
+
+    fn dav_test_row() -> IndexedRow {
+        IndexedRow {
+            id: "vid_1".into(),
+            source_path: "cam.dav".into(),
+            sha256: None,
+            size_bytes: None,
+            modified_unix: None,
+            duration_seconds: None,
+            format_name: None,
+            video_codec: None,
+            ffprobe_ok: None,
+        }
+    }
+
+    #[test]
+    fn dav_gregorian_boundaries_have_one_second_cadence() {
+        for (left, right) in [
+            ((2026, 1, 31), (2026, 2, 1)),
+            ((2026, 4, 30), (2026, 5, 1)),
+            ((2026, 2, 28), (2026, 3, 1)),
+            ((2024, 2, 28), (2024, 2, 29)),
+            ((2024, 2, 29), (2024, 3, 1)),
+            ((2000, 2, 29), (2000, 3, 1)),
+            ((2023, 12, 31), (2024, 1, 1)),
+            ((2024, 12, 31), (2025, 1, 1)),
+        ] {
+            let prev = dated_frame((left.0, left.1, left.2, 23, 59, 59), 1);
+            let mut next = dated_frame((right.0, right.1, right.2, 0, 0, 0), 1);
+            next.timestamp_ms = 500;
+            assert_eq!(
+                packed_date_seconds(&next).unwrap() - packed_date_seconds(&prev).unwrap(),
+                1
+            );
+            assert!(dav_sequence_findings(&dav_test_row(), &[prev, next]).is_empty());
+        }
+    }
+
+    #[test]
+    fn dav_interleaved_channels_keep_independent_predecessors() {
+        let frames = [
+            dated_frame((2026, 1, 1, 0, 0, 0), 1),
+            dated_frame((2026, 1, 1, 12, 0, 1), 2),
+            dated_frame((2026, 1, 1, 0, 0, 10), 1),
+            dated_frame((2026, 1, 1, 12, 0, 0), 2),
+        ];
+        assert!(dav_sequence_findings(&dav_test_row(), &frames[..2]).is_empty());
+        let findings = dav_sequence_findings(&dav_test_row(), &frames);
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0].kind, "dav-frame-gap");
+        assert!(findings[0].detail.contains("span 10s"));
+        assert_eq!(findings[1].kind, "dav-frame-timestamp-regression");
+    }
+
+    #[test]
+    fn dav_invalid_dates_limit_coverage_without_bridging_intervals() {
+        for date in [
+            (2026, 0, 1, 0, 0, 0),
+            (2026, 13, 1, 0, 0, 0),
+            (2026, 1, 0, 0, 0, 0),
+            (2026, 2, 29, 0, 0, 0),
+            (2026, 4, 31, 0, 0, 0),
+            (2026, 1, 1, 24, 0, 0),
+            (2026, 1, 1, 0, 60, 0),
+            (2026, 1, 1, 0, 0, 60),
+        ] {
+            let invalid = dated_frame(date, 1);
+            assert_eq!(packed_date_seconds(&invalid), None);
+            let findings = dav_sequence_findings(
+                &dav_test_row(),
+                &[
+                    dated_frame((2026, 1, 1, 0, 0, 0), 1),
+                    invalid,
+                    dated_frame((2026, 1, 1, 0, 0, 10), 1),
+                ],
+            );
+            assert_eq!(findings.len(), 1);
+            assert_eq!(findings[0].kind, "dav-date-coverage-limitation");
+        }
     }
 
     #[test]

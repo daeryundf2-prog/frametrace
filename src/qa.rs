@@ -177,6 +177,11 @@ pub fn consistency_report(case_dir: &Path, output_dir: &Path) -> Result<QaReport
 
     let jsonl_path = case_dir.join("db/videos.jsonl");
     let mut jsonl_ids = HashSet::new();
+    let sqlite_by_id: HashMap<_, _> = sqlite_rows
+        .iter()
+        .map(|row| (row.id.as_str(), row))
+        .collect();
+    let mut mismatches = Vec::new();
     let mut malformed = 0usize;
     if jsonl_path.is_file() {
         let text = read_to_string(&jsonl_path)
@@ -186,6 +191,24 @@ pub fn consistency_report(case_dir: &Path, output_dir: &Path) -> Result<QaReport
                 Ok(value) => {
                     if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
                         jsonl_ids.insert(id.to_string());
+                        if let Some(row) = sqlite_by_id.get(id) {
+                            let path = value.get("source_path").and_then(serde_json::Value::as_str);
+                            if path != Some(row.source_path.as_str()) {
+                                mismatches.push(serde_json::json!({
+                                    "id": id, "field": "source_path",
+                                    "sqlite": row.source_path, "jsonl": path,
+                                }));
+                            }
+                            if let (Some(left), Some(right)) = (
+                                row.sha256.as_deref(),
+                                value.get("sha256").and_then(serde_json::Value::as_str),
+                            ) && !left.eq_ignore_ascii_case(right)
+                            {
+                                mismatches.push(serde_json::json!({
+                                    "id": id, "field": "sha256", "sqlite": left, "jsonl": right,
+                                }));
+                            }
+                        }
                     } else {
                         malformed += 1;
                     }
@@ -197,14 +220,15 @@ pub fn consistency_report(case_dir: &Path, output_dir: &Path) -> Result<QaReport
 
     let sqlite_only: Vec<String> = sqlite_ids.difference(&jsonl_ids).cloned().collect();
     let jsonl_only: Vec<String> = jsonl_ids.difference(&sqlite_ids).cloned().collect();
-    let passed = sqlite_only.is_empty() && jsonl_only.is_empty() && malformed == 0;
+    let passed =
+        sqlite_only.is_empty() && jsonl_only.is_empty() && malformed == 0 && mismatches.is_empty();
 
     fs::create_dir_all(output_dir)
         .map_err(|err| format!("failed to create QA output directory: {err}"))?;
     let json_path = output_dir.join("consistency-report.json");
     let html_path = output_dir.join("consistency-report.html");
     let body = format!(
-        "sqlite rows: {}\njsonl rows: {}\nsqlite-only: {}\njsonl-only: {}\nmalformed jsonl lines: {}",
+        "sqlite rows: {}\njsonl rows: {}\nsqlite-only: {}\njsonl-only: {}\nmalformed jsonl lines: {}\nmismatches: {}",
         sqlite_rows.len(),
         jsonl_ids.len(),
         if sqlite_only.is_empty() {
@@ -218,17 +242,19 @@ pub fn consistency_report(case_dir: &Path, output_dir: &Path) -> Result<QaReport
             jsonl_only.join(", ")
         },
         malformed,
+        serde_json::Value::Array(mismatches.clone()),
     );
     write_text(
         &json_path,
         &format!(
-            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"consistency\",\n  \"passed\": {},\n  \"sqlite_rows\": {},\n  \"jsonl_rows\": {},\n  \"sqlite_only\": {},\n  \"jsonl_only\": {},\n  \"malformed\": {}\n}}\n",
+            "{{\n  \"schema_version\": 1,\n  \"qa_type\": \"consistency\",\n  \"passed\": {},\n  \"sqlite_rows\": {},\n  \"jsonl_rows\": {},\n  \"sqlite_only\": {},\n  \"jsonl_only\": {},\n  \"malformed\": {},\n  \"mismatches\": {}\n}}\n",
             passed,
             sqlite_rows.len(),
             jsonl_ids.len(),
             json_array(&sqlite_only),
             json_array(&jsonl_only),
             malformed,
+            serde_json::Value::Array(mismatches.clone()),
         ),
     )
     .map_err(|err| format!("failed to write consistency JSON: {err}"))?;
@@ -733,6 +759,51 @@ mod tests {
         // JSONL row is jsonl-only => consistency must FAIL (not panic).
         let result = consistency_report(&case_dir, &output_dir);
         assert!(result.is_err(), "ghost jsonl rows must fail consistency");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn consistency_detects_same_id_path_and_hash_mismatches() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-qa-fields-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("db")).unwrap();
+        let conn = crate::case_db::open_case_db(&root).unwrap();
+        crate::case_db::init_schema(&conn).unwrap();
+        conn.execute("INSERT INTO videos (id, source_path, file_url, relative_path, extension, size_bytes, hash_status, confidence, source_profile_json, ffprobe_ok, first_indexed_unix, last_indexed_unix, record_json, sha256) VALUES ('vid_000001', '/ev/a.mp4', '', '', 'mp4', 1, 'complete', 'unknown', '{}', 0, 1, 1, '{}', 'aa')", []).unwrap();
+        for (path, hash, field) in [
+            ("/ev/b.mp4", "aa", "source_path"),
+            ("/ev/a.mp4", "bb", "sha256"),
+        ] {
+            fs::write(
+                root.join("db/videos.jsonl"),
+                serde_json::json!({"id":"vid_000001", "source_path":path, "sha256":hash})
+                    .to_string(),
+            )
+            .unwrap();
+            assert!(
+                consistency_report(&root, &root.join("qa")).is_err(),
+                "same IDs but different {field} must fail"
+            );
+            let report: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(root.join("qa/consistency-report.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(report["mismatches"][0]["id"], "vid_000001");
+            assert_eq!(report["mismatches"][0]["field"], field);
+        }
+        fs::write(
+            root.join("db/videos.jsonl"),
+            "{\"id\":\"vid_000001\",\"source_path\":\"/ev/a.mp4\",\"sha256\":\"AA\"}\n",
+        )
+        .unwrap();
+        consistency_report(&root, &root.join("qa")).unwrap();
+        fs::write(
+            root.join("db/videos.jsonl"),
+            "{\"id\":\"vid_000001\",\"source_path\":\"/ev/a.mp4\"}\n",
+        )
+        .unwrap();
+        consistency_report(&root, &root.join("qa")).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 

@@ -34,10 +34,10 @@ pub fn register_evidence_source(
             kind = excluded.kind,
             path = excluded.path,
             last_seen_unix = excluded.last_seen_unix,
-            write_protect = excluded.write_protect,
-            acquisition_tool = excluded.acquisition_tool,
-            evidence_hash = excluded.evidence_hash,
-            notes = excluded.notes,
+            write_protect = COALESCE(excluded.write_protect, evidence_sources.write_protect),
+            acquisition_tool = COALESCE(excluded.acquisition_tool, evidence_sources.acquisition_tool),
+            evidence_hash = COALESCE(excluded.evidence_hash, evidence_sources.evidence_hash),
+            notes = COALESCE(excluded.notes, evidence_sources.notes),
             metadata_json = excluded.metadata_json
         ON CONFLICT(kind, path) DO UPDATE SET
             last_seen_unix = excluded.last_seen_unix,
@@ -80,7 +80,7 @@ pub(crate) fn stable_source_id(kind: &str, path: &str) -> String {
     format!("src_{}", &digest[..16])
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ReviewMarkRow {
     pub record_id: String,
     pub status: String,
@@ -93,11 +93,35 @@ pub struct ReviewMarkRow {
 /// Upserts examiner review marks imported from the viewer's marks file.
 /// Returns the number of stored rows.
 pub fn upsert_review_marks(case_dir: &Path, marks: &[ReviewMarkRow]) -> Result<usize, String> {
+    patch_review_annotations(case_dir, marks, &[], &[])
+}
+
+pub fn patch_review_annotations(
+    case_dir: &Path,
+    marks: &[ReviewMarkRow],
+    tags: &[crate::selection::TagEntry],
+    deleted_ids: &[String],
+) -> Result<usize, String> {
     let mut conn = open_case_db(case_dir)?;
     init_schema(&conn)?;
     let tx = conn
         .transaction()
         .map_err(|err| format!("failed to start SQLite marks transaction: {err}"))?;
+    for id in deleted_ids {
+        tx.execute("DELETE FROM review_marks WHERE record_id = ?1", [id])
+            .map_err(|err| format!("failed to remove review mark: {err}"))?;
+    }
+    for entry in tags {
+        let key = format!("review_tags.v1:{}", entry.id);
+        if entry.tags.is_empty() {
+            tx.execute("DELETE FROM schema_meta WHERE key = ?1", [&key])
+                .map_err(|err| format!("failed to remove review tags: {err}"))?;
+        } else {
+            let value = serde_json::to_string(&entry.tags).map_err(|err| err.to_string())?;
+            tx.execute("INSERT INTO schema_meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, value])
+                .map_err(|err| format!("failed to store review tags: {err}"))?;
+        }
+    }
     for mark in marks {
         tx.execute(
             r#"
@@ -124,6 +148,33 @@ pub fn upsert_review_marks(case_dir: &Path, marks: &[ReviewMarkRow]) -> Result<u
     tx.commit()
         .map_err(|err| format!("failed to commit review marks: {err}"))?;
     Ok(marks.len())
+}
+
+pub fn load_review_tags(case_dir: &Path) -> Result<Vec<crate::selection::TagEntry>, String> {
+    let path = case_db_path(case_dir);
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let conn = open_readonly_case_db(&path)?;
+    if !table_exists(&conn, "schema_meta")? {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare("SELECT key, value FROM schema_meta WHERE substr(key, 1, 15) = 'review_tags.v1:' ORDER BY key")
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| err.to_string())?;
+    rows.map(|row| {
+        let (key, value) = row.map_err(|err| err.to_string())?;
+        Ok(crate::selection::TagEntry {
+            id: key[15..].to_string(),
+            tags: serde_json::from_str(&value)
+                .map_err(|err| format!("invalid stored tags: {err}"))?,
+        })
+    })
+    .collect()
 }
 
 pub fn load_review_marks(case_dir: &Path) -> Result<Vec<ReviewMarkRow>, String> {

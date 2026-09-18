@@ -32,6 +32,196 @@ fn assert_success(output: &Output) {
 }
 
 #[test]
+fn review_annotations_roundtrip_and_explicit_removals_preserve_unrelated_rows() {
+    let root = unique_temp_dir("annotations");
+    let case_dir = root.join("case");
+    assert_success(&run(&["init-case", path(&case_dir)]));
+    let input = root.join("marks.json");
+    let seed = serde_json::json!({"schema_version":2,"examiner":"fallback","marks":[
+        {"id":"a","status":"important","note":"memo","examiner":"Alice"},
+        {"id":"b","status":"reviewed","note":"keep","examiner":"Bob"}
+    ],"tags":[{"id":"a","tags":["사고","custom"]},{"id":"b","tags":["keep"]}]});
+    fs::write(&input, seed.to_string()).unwrap();
+    assert_success(&run(&["import-marks", path(&case_dir), path(&input)]));
+    assert_success(&run(&["export-marks", path(&case_dir)]));
+    let exported = case_dir.join("db/review-marks.json");
+    let read = || {
+        serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&exported).unwrap()).unwrap()
+    };
+    let initial = read();
+    assert_eq!(initial["marks"][0]["examiner"], "Alice");
+    assert_eq!(
+        initial["tags"][0]["tags"],
+        serde_json::json!(["사고", "custom"])
+    );
+    assert_success(&run(&["import-marks", path(&case_dir), path(&exported)]));
+    fs::write(&input, r#"{"schema_version":2,"protocol":"patch-v1","marks":[{"id":"a","status":"important","note":""}],"tags":[{"id":"a","tags":[]}]}"#).unwrap();
+    assert_success(&run(&["import-marks", path(&case_dir), path(&input)]));
+    assert_success(&run(&["export-marks", path(&case_dir)]));
+    assert_eq!(read()["marks"][0]["note"], "");
+    fs::write(
+        &input,
+        r#"{"schema_version":2,"protocol":"patch-v1","marks":[],"deleted_ids":["a"]}"#,
+    )
+    .unwrap();
+    assert_success(&run(&["import-marks", path(&case_dir), path(&input)]));
+    assert_success(&run(&["export-marks", path(&case_dir)]));
+    let final_state = read();
+    assert_eq!(final_state["marks"].as_array().unwrap().len(), 1);
+    assert_eq!(final_state["marks"][0]["id"], "b");
+    assert_eq!(final_state["marks"][0]["examiner"], "Bob");
+    assert_eq!(final_state["marks"][0]["note"], "keep");
+    assert_eq!(
+        final_state["tags"],
+        serde_json::json!([{"id":"b","tags":["keep"]}])
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn anomaly_rehash_reports_coverage_in_log_and_stdout() {
+    let root = unique_temp_dir("anomaly-coverage");
+    let case_dir = root.join("case");
+    assert_success(&run(&["init-case", path(&case_dir)]));
+    let media = root.join("clip.mp4");
+    fs::write(&media, b"payload").unwrap();
+    let digest = frametrace::audit::digest_file(&media).unwrap();
+    for (name, rows, counts, limited) in [
+        (
+            "skips",
+            vec![
+                serde_json::json!({"id":"missing", "source_path":root.join("missing.mp4"), "sha256":digest}),
+                serde_json::json!({"id":"unhashed", "source_path":media}),
+            ],
+            [1, 1, 0],
+            true,
+        ),
+        (
+            "error",
+            vec![serde_json::json!({"id":"directory", "source_path":root, "sha256":digest})],
+            [0, 0, 1],
+            true,
+        ),
+        (
+            "complete",
+            vec![serde_json::json!({"id":"readable", "source_path":media, "sha256":digest})],
+            [0, 0, 0],
+            false,
+        ),
+    ] {
+        let index = rows
+            .iter()
+            .map(|row| format!("{row}\n"))
+            .collect::<String>();
+        fs::write(case_dir.join("db/videos.jsonl"), index).unwrap();
+        let output = run(&["qa", "anomalies", path(&case_dir)]);
+        assert_success(&output);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let log = fs::read_to_string(case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap();
+        let entry: serde_json::Value = serde_json::from_str(log.lines().last().unwrap()).unwrap();
+        assert_eq!(entry["event"], "anomaly-scan-run");
+        for (field, count) in ["skipped_no_hash", "skipped_missing", "skipped_error"]
+            .iter()
+            .zip(counts)
+        {
+            assert_eq!(entry[field], count, "{name}: {entry}");
+            assert!(
+                stdout.contains(&format!("{field}={count}")),
+                "{name}: {stdout}"
+            );
+        }
+        assert_eq!(entry["coverage_limited"], limited);
+        if limited {
+            assert!(
+                entry["detail"]
+                    .as_str()
+                    .unwrap()
+                    .contains("coverage limitation")
+            );
+            assert!(stdout.contains("coverage limitation"), "{stdout}");
+            assert!(
+                !log.lines()
+                    .last()
+                    .unwrap()
+                    .contains("live re-hashing of every indexed file")
+            );
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn report_outputs_preserve_existing_and_protected_case_files() {
+    let root = unique_temp_dir("output-protection");
+    let case_dir = root.join("case");
+    assert_success(&run(&["init-case", path(&case_dir)]));
+    let list = root.join("hashes.txt");
+    fs::write(&list, "").unwrap();
+    let mut failures = Vec::new();
+    for (command, default) in [
+        ("timeline", "db/timeline.jsonl"),
+        ("compare-cases", "reports/case-compare.json"),
+        ("known-hash-filter", "reports/known-hash-filter.json"),
+        ("export-dfxml", "reports/case-index.dfxml"),
+        ("export-marks", "db/review-marks.json"),
+    ] {
+        let invoke = |output: Option<&Path>| {
+            let mut args = vec![command, path(&case_dir)];
+            if command == "compare-cases" {
+                args.push(path(&case_dir));
+            } else if command == "known-hash-filter" {
+                args.push(path(&list));
+            }
+            if let Some(output) = output {
+                args.extend(["--output", path(output)]);
+            }
+            run(&args)
+        };
+        let custom = case_dir.join(format!("{command}-custom.out"));
+        fs::write(&custom, "preserve me").unwrap();
+        let output = invoke(Some(&custom));
+        if output.status.success() || fs::read(&custom).unwrap() != b"preserve me" {
+            failures.push(format!("{command} overwrote an existing custom output"));
+        }
+        for protected in [
+            "case.json",
+            "db/case.db",
+            "db/videos.jsonl",
+            "db/video_paths.tsv",
+            "db/video_index.json",
+            "db/scan_runs/new.json",
+            "evidence/logs/new.jsonl",
+            "review/new.html",
+            "reports/other-report.json",
+        ] {
+            let target = case_dir.join(protected);
+            let before = fs::read(&target).ok();
+            let output = invoke(Some(&target));
+            let after = fs::read(&target).ok();
+            if output.status.success() || before != after {
+                failures.push(format!("{command} modified protected {protected}"));
+            }
+            match before {
+                Some(bytes) => fs::write(&target, bytes).unwrap(),
+                None => {
+                    let _ = fs::remove_file(&target);
+                }
+            }
+        }
+        for _ in 0..2 {
+            assert_success(&invoke(None));
+            assert!(case_dir.join(default).is_file());
+        }
+        assert_success(&invoke(Some(&case_dir.join(default))));
+        let fresh = case_dir.join(format!("exports/{command}.out"));
+        assert_success(&invoke(Some(&fresh)));
+        assert!(fresh.is_file());
+    }
+    fs::remove_dir_all(root).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
 fn help_command_succeeds() {
     let output = run(&["--help"]);
     assert_success(&output);
@@ -172,6 +362,253 @@ fn case_lifecycle_smoke_test_uses_real_binary() {
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_case_refuses_existing_case_and_generates_unique_ids() {
+    let root = unique_temp_dir("cli-init-refuse");
+    let first_dir = root.join("case-first");
+    fs::create_dir_all(&root).expect("root dir should be created");
+    assert_success(&run(&[
+        "init-case",
+        path(&first_dir),
+        "--title",
+        "Original Case",
+        "--operator",
+        "Original Operator",
+    ]));
+    let first_manifest =
+        fs::read_to_string(first_dir.join("case.json")).expect("first manifest should be readable");
+
+    let refusal = run(&["init-case", path(&first_dir), "--title", "Replacement"]);
+    assert!(
+        !refusal.status.success(),
+        "re-init must fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&refusal.stdout),
+        String::from_utf8_lossy(&refusal.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&refusal.stderr);
+    assert!(
+        stderr.contains("already exists"),
+        "stderr should explain the refusal, was: {stderr}"
+    );
+    let after_refusal =
+        fs::read_to_string(first_dir.join("case.json")).expect("manifest should remain");
+    assert_eq!(
+        first_manifest, after_refusal,
+        "refused re-init must not modify the existing manifest"
+    );
+
+    let second_dir = root.join("case-second");
+    assert_success(&run(&["init-case", path(&second_dir)]));
+    let read_case_id = |dir: &Path| {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.join("case.json")).unwrap()).unwrap();
+        manifest["case_id"].as_str().unwrap().to_string()
+    };
+    let second_id = read_case_id(&second_dir);
+    assert!(!second_id.is_empty(), "second case id should be printed");
+    let first_id = read_case_id(&first_dir);
+    assert_ne!(
+        first_id, second_id,
+        "case ids created back-to-back must not collide"
+    );
+
+    let empty_dir = root.join("empty");
+    fs::create_dir(&empty_dir).unwrap();
+    assert_success(&run(&["init-case", path(&empty_dir)]));
+    assert!(empty_dir.join("evidence/logs").is_dir());
+    assert!(empty_dir.join("artifacts/clips").is_dir());
+    assert!(empty_dir.join("db").is_dir());
+    let id = read_case_id(&empty_dir);
+    let suffix = id.rsplit('-').next().unwrap();
+    assert_eq!(suffix.len(), 32);
+    assert!(suffix.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+    let occupied = root.join("occupied");
+    fs::create_dir(&occupied).unwrap();
+    fs::write(occupied.join("evidence.bin"), b"preserve me").unwrap();
+    assert!(!run(&["init-case", path(&occupied)]).status.success());
+    assert_eq!(
+        fs::read(occupied.join("evidence.bin")).unwrap(),
+        b"preserve me"
+    );
+    assert!(!occupied.join("case.json").exists());
+    assert_eq!(fs::read_dir(&occupied).unwrap().count(), 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn concurrent_case_initialization_has_one_winner() {
+    let root = unique_temp_dir("cli-init-concurrent");
+    fs::create_dir_all(&root).unwrap();
+    let barrier = std::sync::Barrier::new(4);
+    let outputs = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                scope.spawn(|| {
+                    barrier.wait();
+                    run(&["init-case", path(&root)])
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|output| output.status.success())
+            .count(),
+        1
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("case.json")).unwrap()).unwrap();
+    assert!(manifest["case_id"].as_str().unwrap().starts_with("FT-"));
+    assert!(!fs::read_dir(&root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")
+    }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn case_snapshot(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn visit(root: &Path, dir: &Path, files: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let relative = path.strip_prefix(root).unwrap().to_path_buf();
+            if path.is_dir() {
+                files.insert(relative, Vec::new());
+                visit(root, &path, files);
+            } else {
+                files.insert(relative, fs::read(&path).unwrap());
+            }
+        }
+    }
+    let mut files = std::collections::BTreeMap::new();
+    visit(dir, dir, &mut files);
+    files
+}
+
+#[test]
+fn case_binding_rejects_cross_case_imports_before_side_effects() {
+    let root = unique_temp_dir("cli-case-binding");
+    let case_dir = root.join("case");
+    let other_dir = root.join("other");
+    assert_success(&run(&["init-case", path(&case_dir)]));
+    assert_success(&run(&["init-case", path(&other_dir)]));
+    let other: serde_json::Value =
+        serde_json::from_slice(&fs::read(other_dir.join("case.json")).unwrap()).unwrap();
+    let import = root.join("import.json");
+    fs::write(
+        &import,
+        serde_json::json!({
+            "schema_version": 1,
+            "case_id": other["case_id"],
+            "items": [{"selector": "vid_000001", "action": "validate"}],
+            "marks": [{"id": "vid_000001", "status": "important"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let before = case_snapshot(&case_dir);
+    for command in [
+        "export-batch",
+        "validate-batch",
+        "recover-batch",
+        "import-marks",
+    ] {
+        let output = if command == "recover-batch" {
+            run(&[
+                command,
+                path(&case_dir),
+                path(&root.join("missing.img")),
+                path(&import),
+            ])
+        } else {
+            run(&[command, path(&case_dir), path(&import)])
+        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{command} accepted another case");
+        assert!(stderr.contains("case_id mismatch"), "{command}: {stderr}");
+        assert_eq!(
+            case_snapshot(&case_dir),
+            before,
+            "{command} mutated the case"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn case_binding_round_trips_marks_and_warns_for_legacy_imports() {
+    let root = unique_temp_dir("cli-binding-roundtrip");
+    let case_dir = root.join("case");
+    assert_success(&run(&["init-case", path(&case_dir)]));
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(case_dir.join("case.json")).unwrap()).unwrap();
+    let import = root.join("import.json");
+    for case_id in [
+        None,
+        Some(serde_json::Value::Null),
+        Some(manifest["case_id"].clone()),
+    ] {
+        let mut payload = serde_json::json!({
+            "schema_version": 1,
+            "items": [{"selector": "vid_000001", "action": "validate"}],
+            "marks": [{"id": "vid_000001", "status": "important", "marked_unix": 100}]
+        });
+        if let Some(id) = &case_id {
+            payload["case_id"] = id.clone();
+        }
+        fs::write(&import, payload.to_string()).unwrap();
+        for command in [
+            "import-marks",
+            "export-batch",
+            "validate-batch",
+            "recover-batch",
+        ] {
+            let output = if command == "recover-batch" {
+                run(&[
+                    command,
+                    path(&case_dir),
+                    path(&root.join("missing.img")),
+                    path(&import),
+                ])
+            } else {
+                run(&[command, path(&case_dir), path(&import)])
+            };
+            if matches!(command, "import-marks" | "export-batch") {
+                assert_success(&output);
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                stderr.contains("warning:"),
+                case_id.as_ref().is_none_or(|id| id.is_null()),
+                "{command}: {stderr}"
+            );
+            if case_id.as_ref().is_none_or(|id| id.is_null()) {
+                assert!(
+                    stderr.contains("case binding unavailable"),
+                    "{command}: {stderr}"
+                );
+            } else {
+                assert!(!stderr.contains("case_id mismatch"), "{command}: {stderr}");
+            }
+        }
+    }
+    assert_success(&run(&["export-marks", path(&case_dir)]));
+    let exported = case_dir.join("db/review-marks.json");
+    let payload: serde_json::Value = serde_json::from_slice(&fs::read(&exported).unwrap()).unwrap();
+    assert_eq!(payload["case_id"], manifest["case_id"]);
+    assert_success(&run(&["import-marks", path(&case_dir), path(&exported)]));
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

@@ -47,6 +47,25 @@ pub fn upsert_indexed_rows(
     Ok(())
 }
 
+pub fn load_video_record_lines(case_dir: &Path) -> Result<Vec<String>, String> {
+    let path = case_db_path(case_dir);
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let conn = open_readonly_case_db(&path)?;
+    if !table_exists(&conn, "videos")? {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn
+        .prepare("SELECT record_json FROM videos ORDER BY id")
+        .map_err(|err| format!("failed to prepare SQLite records query: {err}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("failed to query SQLite records: {err}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("failed to read SQLite records: {err}"))
+}
+
 pub fn load_video_ids(case_dir: &Path) -> Result<Vec<VideoIdRow>, String> {
     let path = case_db_path(case_dir);
     if !path.is_file() {
@@ -59,13 +78,14 @@ pub fn load_video_ids(case_dir: &Path) -> Result<Vec<VideoIdRow>, String> {
     }
 
     let mut stmt = conn
-        .prepare("SELECT id, source_path FROM videos ORDER BY id")
+        .prepare("SELECT id, source_path, sha256 FROM videos ORDER BY id")
         .map_err(|err| format!("failed to prepare SQLite video id query: {err}"))?;
     let rows = stmt
         .query_map([], |row| {
             Ok(VideoIdRow {
                 id: row.get(0)?,
                 source_path: row.get(1)?,
+                sha256: row.get(2)?,
             })
         })
         .map_err(|err| format!("failed to query SQLite video ids: {err}"))?;

@@ -357,11 +357,12 @@ pub fn render_evidence_viewer_html(
     anomaly_log_jsonl: &str,
     fls_entries_jsonl: &str,
     thumbs_json: &str,
+    annotations_json: &str,
 ) -> String {
     // The layout/markup lives in assets/evidence_viewer.* and is embedded at
     // compile time, keeping the generated page a single serverless file.
     let data = format!(
-        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines}}};",
+        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines}}};",
         manifest = json_for_script(manifest_json),
         index = json_for_script(index_json),
         carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl)),
@@ -373,6 +374,7 @@ pub fn render_evidence_viewer_html(
         // </script> sequence inside any thumb value must not break out of
         // the data block.
         thumbs_lines = json_for_script(thumbs_json),
+        annotations_lines = json_for_script(annotations_json)
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)
@@ -407,7 +409,8 @@ mod tests {
         let manifest = r#"{"case_id":"FT-1","title":"Test"}"#;
         let index = r#"{"videos":[]}"#;
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
-        let html = render_evidence_viewer_html(manifest, index, "", filesystem, "", "", "", "{}");
+        let html =
+            render_evidence_viewer_html(manifest, index, "", filesystem, "", "", "", "{}", "{}");
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
         assert!(html.contains("inode_1304.bin"));
@@ -480,6 +483,7 @@ mod tests {
                 r#"{"event":"anomaly-scan","kind":"timestamp-gap","selector":"vid_000001","label":"candidate-finding","detail":"gap"}"#,
                 "",
                 "{}",
+                r#"{"marks":[{"id":"vid_000001","status":"reviewed","marked_unix":100,"note":"db memo","examiner":"Alice"}],"tags":[{"id":"vid_000001","tags":["DB태그"]}]}"#,
             ),
         );
         assert_script_blocks_parse_with_node(

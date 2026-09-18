@@ -19,6 +19,15 @@ struct PackageFile {
 
 pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<PackageResult, String> {
     let created_unix = now_unix()?;
+    let running_jobs = match crate::case_db::latest_running_jobs(case_dir) {
+        Ok(jobs) => jobs,
+        Err(err) => {
+            return Err(format!(
+                "package-case cannot determine case quiescence; refusing to claim an unverified snapshot: {err}"
+            ));
+        }
+    };
+    let quiescent = running_jobs.is_empty();
     let output_dir = match output_dir {
         Some(path) => {
             reject_recursive_package_output(case_dir, path)?;
@@ -48,7 +57,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     // the copy loop starts.
     crate::diskspace::ensure_available(
         &output_dir,
-        estimate_package_bytes(case_dir),
+        estimate_package_bytes(case_dir, &output_dir),
         "package-case",
     )?;
     fs::create_dir_all(&output_dir)
@@ -68,7 +77,6 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
             &mut missing_optional_files,
         )?;
     }
-    copy_markdown_reports(case_dir, &output_dir, &mut files)?;
     for rel_dir in recursive_package_dirs() {
         copy_package_dir(case_dir, &output_dir, Path::new(rel_dir), &mut files)?;
     }
@@ -82,7 +90,13 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     write_text(&checksum_path, &checksum_text)
         .map_err(|err| format!("failed to write package checksum manifest: {err}"))?;
 
-    let manifest_json = package_manifest_json(created_unix, &files, &missing_optional_files);
+    let manifest_json = package_manifest_json(
+        created_unix,
+        &files,
+        &missing_optional_files,
+        &running_jobs,
+        quiescent,
+    );
     let manifest_path = output_dir.join("package-manifest.json");
     write_text(&manifest_path, &manifest_json)
         .map_err(|err| format!("failed to write package manifest: {err}"))?;
@@ -98,7 +112,7 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     write_text(
         &output_dir.join("README.txt"),
         &format!(
-            "FrameTrace case package\n\n{report_note} Verify package contents with manifest.sha256 before transfer.\n\nFor Amped FIVE or Magnet DVR Examiner handoff steps, see docs/COMMERCIAL_HANDOFF.md in the FrameTrace repository.\n"
+            "FrameTrace case package\n\n{report_note} Verify package contents with manifest.sha256 before transfer.\n\nSnapshot scope: see snapshot_scope in package-manifest.json. For Amped FIVE or Magnet DVR Examiner handoff steps, see docs/COMMERCIAL_HANDOFF.md in the FrameTrace repository.\n"
         ),
     )
     .map_err(|err| format!("failed to write package README: {err}"))?;
@@ -110,21 +124,24 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
     })
 }
 
-/// Upper-bound estimate of bytes the package will copy: every required and
-/// optional file, all reports/*.md, and every file under the recursively
-/// packaged directories.
-fn estimate_package_bytes(case_dir: &Path) -> u64 {
-    fn dir_bytes(path: &Path, total: &mut u64) {
+fn estimate_package_bytes(case_dir: &Path, output_dir: &Path) -> u64 {
+    fn dir_bytes(path: &Path, rel: &Path, output_dir: &Path, total: &mut u64) {
         let Ok(entries) = fs::read_dir(path) else {
             return;
         };
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                *total =
-                    total.saturating_add(fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0));
-            } else if path.is_dir() {
-                dir_bytes(&path, total);
+            let entry_path = entry.path();
+            let entry_rel = rel.join(entry.file_name());
+            if excluded_package_path(&entry_path, output_dir) {
+                continue;
+            }
+            let Ok(metadata) = fs::symlink_metadata(&entry_path) else {
+                continue;
+            };
+            if metadata.is_file() && is_report_file(rel) {
+                *total = total.saturating_add(metadata.len());
+            } else if metadata.is_dir() {
+                dir_bytes(&entry_path, &entry_rel, output_dir, total);
             }
         }
     }
@@ -140,18 +157,25 @@ fn estimate_package_bytes(case_dir: &Path) -> u64 {
                 .unwrap_or(0),
         );
     }
-    let reports_dir = case_dir.join("reports");
-    if let Ok(entries) = fs::read_dir(&reports_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "md") && path.is_file() {
-                total =
-                    total.saturating_add(fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0));
-            }
-        }
-    }
+    dir_bytes(
+        &case_dir.join("reports"),
+        Path::new("reports"),
+        output_dir,
+        &mut total,
+    );
+    dir_bytes(
+        &case_dir.join("qa"),
+        Path::new("qa"),
+        output_dir,
+        &mut total,
+    );
     for rel_dir in recursive_package_dirs() {
-        dir_bytes(&case_dir.join(rel_dir), &mut total);
+        dir_bytes(
+            &case_dir.join(rel_dir),
+            Path::new(rel_dir),
+            output_dir,
+            &mut total,
+        );
     }
     total
 }
@@ -184,7 +208,9 @@ fn optional_package_files() -> &'static [&'static str] {
         "db/carve_results.json",
         "review/index.html",
         "review/evidence-viewer.html",
-        "reports/case-report.html",
+        "review/thumbs.json",
+        "artifacts/logs/batch-log.jsonl",
+        "db/timeline.jsonl",
     ]
 }
 
@@ -213,40 +239,45 @@ fn recursive_package_dirs() -> &'static [&'static str] {
         "artifacts/carved",
         "artifacts/recovered",
         "db/filesystem",
+        "db/scan_runs",
+        "review/thumbs",
+        "qa",
+        "reports",
     ]
 }
 
-fn copy_markdown_reports(
-    case_dir: &Path,
-    output_dir: &Path,
-    files: &mut Vec<PackageFile>,
-) -> Result<(), String> {
-    let reports_dir = case_dir.join("reports");
-    if !reports_dir.is_dir() {
-        return Ok(());
+fn excluded_package_path(path: &Path, output_dir: &Path) -> bool {
+    if path == output_dir || path.join("package-manifest.json").is_file() {
+        return true;
     }
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    name.starts_with('.')
+        || name.starts_with("package_")
+        || matches!(
+            name.as_str(),
+            "audit-key" | "audit-keys.json" | "secrets" | "credentials" | "credentials.json"
+        )
+        || matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("key" | "pem" | "p12" | "pfx")
+        )
+}
 
-    let entries = fs::read_dir(&reports_dir)
-        .map_err(|err| format!("failed to read reports directory: {err}"))?;
-    for entry in entries {
-        let entry = entry.map_err(|err| format!("failed to read reports entry: {err}"))?;
-        let path = entry.path();
-        if !path.is_file()
-            || !path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
-        {
-            continue;
-        }
-        copy_package_file(
-            case_dir,
-            output_dir,
-            &Path::new("reports").join(entry.file_name()),
-            files,
-        )?;
+fn is_report_file(rel: &Path) -> bool {
+    if rel.starts_with("reports") || rel.starts_with("qa") {
+        matches!(
+            rel.extension().and_then(|ext| ext.to_str()),
+            Some(
+                "md" | "html" | "json" | "jsonl" | "csv" | "tsv" | "xml" | "txt" | "pdf" | "dfxml"
+            )
+        )
+    } else {
+        true
     }
-    Ok(())
 }
 
 fn copy_package_dir(
@@ -270,6 +301,9 @@ fn copy_package_dir(
             entry.map_err(|err| format!("failed to read package directory entry: {err}"))?;
         let path = entry.path();
         let rel = rel_dir.join(entry.file_name());
+        if excluded_package_path(&path, output_dir) {
+            continue;
+        }
         let file_type = entry
             .file_type()
             .map_err(|err| format!("failed to read package file type {}: {err}", path.display()))?;
@@ -281,7 +315,7 @@ fn copy_package_dir(
         }
         if file_type.is_dir() {
             copy_package_dir(case_dir, output_dir, &rel, files)?;
-        } else if file_type.is_file() {
+        } else if file_type.is_file() && is_report_file(&rel) {
             copy_package_file(case_dir, output_dir, &rel, files)?;
         }
     }
@@ -319,17 +353,25 @@ fn copy_package_file(
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create package directory: {err}"))?;
     }
-    fs::copy(&source, &target).map_err(|err| {
-        format!(
-            "failed to copy package file {} to {}: {err}",
-            source.display(),
-            target.display()
-        )
-    })?;
+    if rel == Path::new("db/case.db") {
+        let conn = crate::case_db::open_readonly_case_db(&source)?;
+        conn.backup(rusqlite::MAIN_DB, &target, None)
+            .map_err(|err| format!("failed to snapshot package SQLite database: {err}"))?;
+    } else {
+        fs::copy(&source, &target).map_err(|err| {
+            format!(
+                "failed to copy package file {} to {}: {err}",
+                source.display(),
+                target.display()
+            )
+        })?;
+    }
     files.push(PackageFile {
         relative_path: rel.to_path_buf(),
         sha256: audit::digest_file(&target)?,
-        size_bytes: metadata.len(),
+        size_bytes: fs::metadata(&target)
+            .map_err(|err| format!("failed to stat final package file: {err}"))?
+            .len(),
     });
     Ok(())
 }
@@ -352,6 +394,8 @@ fn package_manifest_json(
     created_unix: u64,
     files: &[PackageFile],
     missing_optional_files: &[PathBuf],
+    running_jobs: &[crate::case_db::RunningJob],
+    quiescent: bool,
 ) -> String {
     let mut out = String::new();
     out.push_str("{\n");
@@ -382,6 +426,33 @@ fn package_manifest_json(
         out.push('\n');
     }
     out.push_str("  ],\n");
+    out.push_str("  \"quiescence\": {\n");
+    out.push_str(&format!("    \"quiescent\": {},\n", quiescent));
+    out.push_str("    \"running_jobs\": [\n");
+    for (index, job) in running_jobs.iter().enumerate() {
+        out.push_str(&format!(
+            "    {{\"job_id\":\"{}\",\"job_type\":\"{}\",\"subject_path\":\"{}\",\"started_unix\":{}}}",
+            json_escape(&job.job_id),
+            json_escape(&job.job_type),
+            json_escape(&job.subject_path),
+            job.started_unix
+        ));
+        if index + 1 != running_jobs.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("    ]\n");
+    out.push_str("  },\n");
+    let snapshot_scope = if quiescent {
+        "Packaged while the case showed no running jobs; the multi-file set is a best-effort near-point-in-time snapshot, not a single atomic point-in-time snapshot. Files captured at different moments during packaging; re-run tools that modify the case after packaging invalidates it."
+    } else {
+        "Jobs were running when this package was created, so the multi-file set is explicitly NOT a point-in-time snapshot and not a single atomic point-in-time snapshot; files captured mid-write may be internally inconsistent. Re-package after jobs complete."
+    };
+    out.push_str(&format!(
+        "  \"snapshot_scope\": \"{}\",\n",
+        json_escape(snapshot_scope)
+    ));
     let pdf_note = if files
         .iter()
         .any(|file| file.relative_path == Path::new("reports/case-report.html"))
@@ -400,6 +471,179 @@ mod tests {
     use super::package_case;
     use std::fs;
 
+    fn fixture(name: &str) -> std::path::PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-package-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let case_dir = root.join("case");
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        fs::write(case_dir.join("case.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/video_index.json"), b"{}").unwrap();
+        fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
+        fs::write(case_dir.join("db/video_paths.tsv"), b"id\tsource_path\n").unwrap();
+        let conn = crate::case_db::open_case_db(&case_dir).unwrap();
+        crate::case_db::init_schema(&conn).unwrap();
+        root
+    }
+
+    #[test]
+    fn wal_snapshot_preserves_committed_rows_and_final_file_metadata() {
+        let root = fixture("wal");
+        let case_dir = root.join("case");
+        let output = root.join("package");
+        let conn = rusqlite::Connection::open(case_dir.join("db/case.db")).unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE snapshot_rows (value TEXT); INSERT INTO snapshot_rows VALUES ('committed');").unwrap();
+        assert!(case_dir.join("db/case.db-wal").metadata().unwrap().len() > 0);
+        package_case(&case_dir, Some(&output)).unwrap();
+        let backup = rusqlite::Connection::open(output.join("db/case.db")).unwrap();
+        assert_eq!(
+            backup
+                .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        let rows = backup
+            .prepare("SELECT value FROM snapshot_rows")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(rows, vec!["committed"]);
+        drop(backup);
+        drop(conn);
+        let manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(output.join("package-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        for file in manifest["files"].as_array().unwrap() {
+            let path = output.join(file["relative_path"].as_str().unwrap());
+            assert_eq!(
+                file["size_bytes"].as_u64().unwrap(),
+                path.metadata().unwrap().len()
+            );
+            assert_eq!(
+                file["sha256"].as_str().unwrap(),
+                crate::audit::digest_file(&path).unwrap()
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn package_includes_work_products_without_previous_packages_or_private_inputs() {
+        let root = fixture("products");
+        let case_dir = root.join("case");
+        let products = [
+            "artifacts/logs/batch-log.jsonl",
+            "db/scan_runs/run_1.json",
+            "db/timeline.jsonl",
+            "review/thumbs/vid_1.jpg",
+            "review/thumbs.json",
+            "reports/qa/consistency-report.json",
+            "reports/qa/report-defense-checklist.md",
+            "qa/accuracy-report.html",
+            "reports/comparison.json",
+            "reports/timeline.csv",
+            "reports/dfxml.xml",
+            "reports/nested/export.tsv",
+        ];
+        let excluded = [
+            "evidence/raw/original.raw",
+            "evidence/originals/source.mp4",
+            "db/job-locks/job.lock",
+            "reports/.env",
+            "reports/private.key",
+            "reports/audit-key",
+            "reports/audit-keys.json",
+            "reports/secrets/credentials.json",
+            "reports/previous/package-manifest.json",
+            "reports/previous/db/case.db",
+        ];
+        for rel in products.iter().chain(excluded.iter()) {
+            let path = case_dir.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, rel).unwrap();
+        }
+        let first = package_case(&case_dir, None).unwrap();
+        let second = package_case(&case_dir, None).unwrap();
+        for output in [&first.output_dir, &second.output_dir] {
+            let manifest: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(output.join("package-manifest.json")).unwrap(),
+            )
+            .unwrap();
+            let listed = manifest["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|file| file["relative_path"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            for rel in products {
+                assert!(output.join(rel).is_file(), "missing {rel}");
+                assert!(listed.contains(&rel), "not manifested: {rel}");
+            }
+            for rel in excluded {
+                assert!(!output.join(rel).exists(), "included {rel}");
+            }
+            assert!(!listed.iter().any(|rel| rel.contains("package_")));
+            assert_eq!(
+                listed.len(),
+                listed
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_records_running_jobs_and_snapshot_scope_limits() {
+        let root = fixture("quiescence");
+        let case_dir = root.join("case");
+        let output = root.join("package");
+        let job =
+            crate::case_db::start_job(&case_dir, "scan-folder", &case_dir, None, "{}").unwrap();
+        package_case(&case_dir, Some(&output)).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(output.join("package-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            manifest["quiescence"]["quiescent"],
+            serde_json::json!(false)
+        );
+        assert!(
+            manifest["quiescence"]["running_jobs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["job_type"] == "scan-folder")
+        );
+        assert!(
+            manifest["snapshot_scope"]
+                .as_str()
+                .unwrap()
+                .contains("not a single atomic point-in-time snapshot")
+        );
+        crate::case_db::complete_job(&case_dir, &job.job_id, 0, "done").unwrap();
+        let output2 = root.join("package2");
+        package_case(&case_dir, Some(&output2)).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(output2.join("package-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["quiescence"]["quiescent"], serde_json::json!(true));
+        assert_eq!(
+            manifest["quiescence"]["running_jobs"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn creates_checksummed_package_directory() {
         let root =
@@ -410,7 +654,9 @@ mod tests {
         fs::create_dir_all(case_dir.join("db")).unwrap();
         fs::create_dir_all(case_dir.join("reports")).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
-        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        let conn = crate::case_db::open_case_db(&case_dir).unwrap();
+        crate::case_db::init_schema(&conn).unwrap();
+        drop(conn);
         fs::write(case_dir.join("db/video_index.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
         fs::write(case_dir.join("db/video_paths.tsv"), b"id\tsource_path\n").unwrap();
@@ -481,7 +727,9 @@ mod tests {
         fs::create_dir_all(case_dir.join("db")).unwrap();
         fs::create_dir_all(case_dir.join("evidence/logs")).unwrap();
         fs::write(case_dir.join("case.json"), b"{}").unwrap();
-        fs::write(case_dir.join("db/case.db"), b"sqlite placeholder").unwrap();
+        let conn = crate::case_db::open_case_db(&case_dir).unwrap();
+        crate::case_db::init_schema(&conn).unwrap();
+        drop(conn);
         fs::write(case_dir.join("db/video_index.json"), b"{}").unwrap();
         fs::write(case_dir.join("db/videos.jsonl"), b"").unwrap();
         fs::write(case_dir.join("db/video_paths.tsv"), b"id\tsource_path\n").unwrap();

@@ -108,6 +108,89 @@ pub fn require_case_output_path(
     Ok(())
 }
 
+pub fn require_case_report_path(
+    case_dir: &Path,
+    output_path: &Path,
+    default_relative: &str,
+    label: &str,
+) -> Result<(PathBuf, bool), String> {
+    require_case_output_path(case_dir, output_path, label)?;
+    let resolve = || -> std::io::Result<(PathBuf, PathBuf)> {
+        let root = case_dir.canonicalize()?;
+        let absolute = lexical_absolute_path(output_path)?;
+        let ancestor = nearest_existing_parent(absolute.parent().unwrap());
+        let resolved = ancestor
+            .canonicalize()?
+            .join(absolute.strip_prefix(&ancestor).unwrap());
+        Ok((root, resolved))
+    };
+    let (root, resolved) =
+        resolve().map_err(|err| format!("failed to resolve {label} output: {err}"))?;
+    let relative = resolved
+        .strip_prefix(&root)
+        .map_err(|_| format!("{label} output must be inside the case directory"))?;
+    let is_default = relative == Path::new(default_relative);
+    let protected = [
+        "case.json",
+        "db/case.db",
+        "db/videos.jsonl",
+        "db/video_paths.tsv",
+        "db/video_index.json",
+    ]
+    .iter()
+    .any(|path| relative == Path::new(path))
+        || ["db/scan_runs", "evidence/logs", "review", "reports"]
+            .iter()
+            .any(|path| relative.starts_with(path));
+    if protected && !is_default {
+        return Err(format!(
+            "{label} output targets a protected case path: {}",
+            output_path.display()
+        ));
+    }
+    match std::fs::symlink_metadata(&resolved) {
+        Ok(metadata) if !is_default || !metadata.file_type().is_file() => {
+            return Err(format!(
+                "{label} output already exists: {}",
+                output_path.display()
+            ));
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("failed to inspect {label} output: {err}")),
+    }
+    Ok((resolved, is_default))
+}
+
+pub fn write_case_report(
+    case_dir: &Path,
+    output_path: &Path,
+    default_relative: &str,
+    label: &str,
+    text: &str,
+) -> Result<(), String> {
+    let (resolved, is_default) =
+        require_case_report_path(case_dir, output_path, default_relative, label)?;
+    let write = || -> std::io::Result<()> {
+        if is_default {
+            crate::util::write_text_atomic(&resolved, text)
+        } else {
+            std::fs::create_dir_all(resolved.parent().unwrap())?;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&resolved)?;
+            std::io::Write::write_all(&mut file, text.as_bytes())
+        }
+    };
+    write().map_err(|err| {
+        format!(
+            "failed to write {label} output {}: {err}",
+            output_path.display()
+        )
+    })
+}
+
 fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
     allowed_names.iter().any(|allowed| {
         candidate == *allowed

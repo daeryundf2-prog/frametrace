@@ -84,6 +84,8 @@ pub struct CarveResult {
     /// Byte offset the signature scan resumed from (0 = full scan ran).
     pub resumed_scan_offset: u64,
     pub warnings: Vec<String>,
+    pub candidate_limit_reached: bool,
+    pub scan_complete: bool,
     pub options: CarveOptions,
 }
 
@@ -108,6 +110,10 @@ impl CarveResult {
         out.push_str(&format!(
             "  \"resumed_artifacts\": {},\n",
             self.resumed_artifacts
+        ));
+        out.push_str(&format!(
+            "  \"candidate_limit_reached\": {},\n  \"scan_complete\": {},\n",
+            self.candidate_limit_reached, self.scan_complete
         ));
         out.push_str("  \"options\": {\n");
         out.push_str(&format!("    \"max_bytes\": {},\n", self.options.max_bytes));
@@ -209,12 +215,11 @@ pub fn carve_file(
                 .to_string(),
         );
     }
-    // `>` not `>=`: hits.len() == max means the scan stopped exactly at the
-    // limit WITHOUT dropping a further candidate (dedup may shrink the
-    // list below it), which is not a truncation warning.
-    if hits.len() > options.max_candidates {
+    let candidate_limit_reached = hits.len() >= options.max_candidates;
+    let scan_complete = !candidate_limit_reached;
+    if candidate_limit_reached {
         warnings.push(format!(
-            "candidate limit reached at {}; rerun with --max-candidates if needed",
+            "candidate limit reached at {}; scan completeness is not established (conservative even at EOF); additional candidates may exist; rerun with a higher --max-candidates",
             options.max_candidates
         ));
     }
@@ -236,16 +241,35 @@ pub fn carve_file(
             continue;
         }
 
-        // Replay an already-carved artifact verbatim when its output file
-        // still exists; a deleted/never-finished output is re-carved.
+        let mut validation_note = format!(
+            "{} End boundary uses the next retained signature or EOF, limited by max_bytes; signature boundaries are heuristics, not proof of a complete recovered file.",
+            validation_note_for_signature(&hit.signature)
+        );
+        if available > options.max_bytes {
+            let note = format!(
+                "truncated by max_bytes={} from a heuristic span of {} bytes at offset {}",
+                options.max_bytes, available, hit.offset
+            );
+            warnings.push(note.clone());
+            validation_note.push_str(&format!(" {note}."));
+        }
         if let Some(artifact) = carved_map.get(&hit.offset)
             && artifact.output_path.is_file()
         {
+            let current_hash = audit::digest_file(&artifact.output_path)?;
+            if !current_hash.eq_ignore_ascii_case(&artifact.sha256) {
+                return Err(format!(
+                    "stale completed carve artifact {}: current hash differs from recorded hash; output preserved; rerun with --no-resume to create fresh artifacts",
+                    artifact.output_path.display()
+                ));
+            }
             first_by_hash
                 .entry(artifact.sha256.clone())
                 .or_insert_with(|| artifact.id.clone());
             resumed_artifacts += 1;
-            artifacts.push(artifact.clone());
+            let mut replayed = artifact.clone();
+            replayed.validation_note = validation_note;
+            artifacts.push(replayed);
             continue;
         }
 
@@ -281,7 +305,7 @@ pub fn carve_file(
             extension: hit.extension.clone(),
             sha256,
             validation_status,
-            validation_note: validation_note_for_signature(&hit.signature).to_string(),
+            validation_note,
             duplicate_of,
         };
         // Checkpoint the artifact right after it lands on disk: a crash
@@ -298,6 +322,8 @@ pub fn carve_file(
         resumed_artifacts,
         resumed_scan_offset: resume_offset,
         warnings,
+        candidate_limit_reached,
+        scan_complete,
         options: options.clone(),
     };
     write_carve_outputs(case_dir, &result)?;
@@ -419,6 +445,8 @@ fn scan_signatures(
     progress: Option<&CarveProgress<'_>>,
 ) -> Result<Vec<CarveHit>, String> {
     let mut hits = prior_hits;
+    hits.sort_by_key(|hit| hit.offset);
+    hits.dedup_by_key(|hit| hit.offset);
     if hits.len() >= max_candidates {
         // The interrupted run had already stopped scanning at the cap.
         hits.truncate(max_candidates);
@@ -450,6 +478,8 @@ fn scan_signatures(
         scan.extend_from_slice(&chunk);
         let scan_start = offset.saturating_sub(overlap.len() as u64);
         scan_buffer(&scan, scan_start, offset, &mut hits);
+        hits.sort_by_key(|hit| hit.offset);
+        hits.dedup_by_key(|hit| hit.offset);
         if hits.len() >= max_candidates {
             hits.truncate(max_candidates);
             break;
@@ -525,6 +555,8 @@ pub fn find_video_signatures_in(
         scan.extend_from_slice(&chunk);
         let scan_start = offset.saturating_sub(overlap.len() as u64);
         scan_buffer(&scan, scan_start, offset, &mut hits);
+        hits.sort_by_key(|hit| hit.offset);
+        hits.dedup_by_key(|hit| hit.offset);
         if hits.len() >= max_candidates {
             hits.truncate(max_candidates);
             break;
@@ -637,6 +669,152 @@ mod tests {
         scan_buffer(b"padIMKHpayloaddatahere", 0, 0, &mut hits);
         assert!(hits.iter().any(|hit| hit.signature == "hikvision-imkh"));
         assert!(validation_note_for_signature("hikvision-imkh").contains("export-hik"));
+    }
+
+    #[test]
+    fn cap_and_byte_limits_are_explicit_and_conservative() {
+        for cap in [1, 2, 3] {
+            let (case_dir, source, _) = resume_fixture(&format!("cap-{cap}"));
+            let options = super::CarveOptions {
+                max_candidates: cap,
+                max_bytes: 32,
+            };
+            let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+            assert_eq!(result.candidate_limit_reached, cap <= 2);
+            assert_eq!(result.scan_complete, cap > 2);
+            assert_eq!(result.artifacts.len(), cap.min(2));
+            assert_eq!(
+                result
+                    .warnings
+                    .iter()
+                    .any(|w| w.contains("candidate limit reached")),
+                cap <= 2
+            );
+            for artifact in &result.artifacts {
+                assert_eq!(artifact.size_bytes, 32);
+                assert!(
+                    artifact
+                        .validation_note
+                        .contains("truncated by max_bytes=32")
+                );
+                assert!(artifact.validation_note.contains("heuristics, not proof"));
+                assert!(matches!(
+                    artifact.validation_status.as_str(),
+                    "candidate-unvalidated" | "duplicate-candidate"
+                ));
+            }
+            let json: serde_json::Value = serde_json::from_str(&result.to_json()).unwrap();
+            assert_eq!(json["candidate_limit_reached"], cap <= 2);
+            assert_eq!(json["scan_complete"], cap > 2);
+            let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn overlap_duplicates_do_not_consume_candidate_budget() {
+        let (case_dir, source, _) = resume_fixture("overlap");
+        let mut content = vec![0; super::CHUNK_SIZE + 256];
+        let first = super::CHUNK_SIZE - 24;
+        let second = super::CHUNK_SIZE + 128;
+        let ftyp = b"\0\0\0\x18ftypisom\0\0\0\0isommp42";
+        content[first..first + ftyp.len()].copy_from_slice(ftyp);
+        content[second..second + ftyp.len()].copy_from_slice(ftyp);
+        fs::write(&source, &content).unwrap();
+        let options = super::CarveOptions {
+            max_candidates: 2,
+            ..Default::default()
+        };
+        let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+        assert_eq!(
+            result
+                .artifacts
+                .iter()
+                .map(|a| a.offset)
+                .collect::<Vec<_>>(),
+            vec![first as u64, second as u64]
+        );
+        let streamed =
+            super::find_video_signatures_in(&mut std::io::Cursor::new(&content), 2).unwrap();
+        assert_eq!(streamed.len(), 2);
+        assert_eq!(streamed[1].offset, second as u64);
+        let fingerprint = carve_fingerprint(
+            &source.canonicalize().unwrap(),
+            &fs::metadata(&source).unwrap(),
+            &options,
+        );
+        let mut checkpoint = RunCheckpoint::begin(
+            &case_dir.join("db/carve-progress.jsonl"),
+            "carve-file",
+            &fingerprint,
+            ResumeMode::Auto,
+        )
+        .unwrap();
+        checkpoint
+            .append_line(&scan_progress_line(
+                super::CHUNK_SIZE as u64,
+                &[streamed[0].clone(), streamed[0].clone()],
+            ))
+            .unwrap();
+        drop(checkpoint);
+        let resumed = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+        assert_eq!(resumed.artifacts.len(), 2);
+        assert_eq!(resumed.artifacts[1].offset, second as u64);
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn stale_completed_artifact_is_rejected_without_overwrite() {
+        let (case_dir, source, content) = resume_fixture("changed-output");
+        let options = super::CarveOptions::default();
+        let first = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+        let fingerprint = carve_fingerprint(
+            &source.canonicalize().unwrap(),
+            &fs::metadata(&source).unwrap(),
+            &options,
+        );
+        let mut checkpoint = RunCheckpoint::begin(
+            &case_dir.join("db/carve-progress.jsonl"),
+            "carve-file",
+            &fingerprint,
+            ResumeMode::Auto,
+        )
+        .unwrap();
+        let hits = first
+            .artifacts
+            .iter()
+            .map(|a| CarveHit {
+                offset: a.offset,
+                signature: a.signature.clone(),
+                extension: a.extension.clone(),
+            })
+            .collect::<Vec<_>>();
+        checkpoint
+            .append_line(&scan_progress_line(content.len() as u64, &hits))
+            .unwrap();
+        checkpoint
+            .append_line(&format!("{{\"carved\":{}}}", first.artifacts[0].to_json()))
+            .unwrap();
+        drop(checkpoint);
+        let output = &first.artifacts[0].output_path;
+        let mut revised = fs::read(output).unwrap();
+        revised[12] = 1;
+        fs::write(output, &revised).unwrap();
+        let results_before = fs::read(case_dir.join("db/carve_results.json")).unwrap();
+        let err = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap_err();
+        assert!(
+            err.contains("current hash differs from recorded hash"),
+            "{err}"
+        );
+        assert_eq!(fs::read(output).unwrap(), revised);
+        assert_eq!(
+            fs::read(case_dir.join("db/carve_results.json")).unwrap(),
+            results_before
+        );
+        assert!(case_dir.join("db/carve-progress.jsonl").exists());
+        let fresh = carve_file(&case_dir, &source, &options, ResumeMode::Disabled, None).unwrap();
+        assert_ne!(&fresh.artifacts[0].output_path, output);
+        assert_eq!(fs::read(output).unwrap(), revised);
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
     }
 
     #[test]

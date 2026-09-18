@@ -27,6 +27,7 @@ pub struct IndexedVideoRow {
 pub struct VideoIdRow {
     pub id: String,
     pub source_path: String,
+    pub sha256: Option<String>,
 }
 
 pub struct CaseDbSummary {

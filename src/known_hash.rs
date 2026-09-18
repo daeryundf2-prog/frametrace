@@ -15,7 +15,7 @@
 
 use crate::anomaly::{IndexedRow, read_indexed_rows};
 use crate::audit;
-use crate::util::{json_escape, now_unix, read_to_string, write_text};
+use crate::util::{json_escape, now_unix, read_to_string};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -68,12 +68,13 @@ pub fn filter_known_hashes(
         &unknown,
         &unhashed,
     );
-    write_text(output_path, &report).map_err(|err| {
-        format!(
-            "failed to write known-hash report {}: {err}",
-            output_path.display()
-        )
-    })?;
+    crate::tool_policy::write_case_report(
+        case_dir,
+        output_path,
+        "reports/known-hash-filter.json",
+        "known-hash filter",
+        &report,
+    )?;
     let line = format!(
         "{{\"schema_version\":1,\"event\":\"known-hash-filter\",\"generated_unix\":{},\"label\":\"{}\",\"hash_list\":\"{}\",\"report_path\":\"{}\",\"list_size\":{},\"ignored_list_lines\":{},\"known\":{},\"unknown\":{},\"unhashed\":{}}}",
         generated_unix,

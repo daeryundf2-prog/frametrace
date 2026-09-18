@@ -171,6 +171,17 @@ fn validation_status(probe: &ProbeSummary) -> (&'static str, &'static str) {
 /// line (`{"computed":{...}}`). Internal resume state — not a published
 /// contract — but still hand-rolled except the probe sub-object, which
 /// serde_json emits deterministically in field order.
+pub fn checkpoint_target_is_current(
+    case_dir: &Path,
+    selector: &str,
+    target_path: &Path,
+    target_sha256: &str,
+) -> bool {
+    resolve_artifact_path(case_dir, selector).is_ok_and(|path| {
+        path == target_path && audit::digest_file(&path).is_ok_and(|digest| digest == target_sha256)
+    })
+}
+
 pub fn checkpoint_line(index: usize, result: &ValidationResult) -> String {
     let (size, modified) = std::fs::metadata(&result.target_path)
         .map(|metadata| {

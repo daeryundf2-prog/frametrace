@@ -235,6 +235,42 @@ pub fn latest_running_job(case_dir: &Path) -> Result<Option<JobProgress>, String
     .map_err(|err| format!("failed to read running job progress: {err}"))
 }
 
+pub struct RunningJob {
+    pub job_id: String,
+    pub job_type: String,
+    pub subject_path: String,
+    pub started_unix: i64,
+}
+
+pub fn latest_running_jobs(case_dir: &Path) -> Result<Vec<RunningJob>, String> {
+    reap_interrupted_jobs(case_dir);
+    let conn = open_case_db(case_dir)?;
+    init_schema(&conn)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT job_id, job_type, subject_path, started_unix
+             FROM jobs
+             WHERE status = 'running'
+             ORDER BY started_unix DESC",
+        )
+        .map_err(|err| format!("failed to read running jobs: {err}"))?;
+    let mapped = stmt
+        .query_map([], |row| {
+            Ok(RunningJob {
+                job_id: row.get(0)?,
+                job_type: row.get(1)?,
+                subject_path: row.get(2)?,
+                started_unix: row.get(3)?,
+            })
+        })
+        .map_err(|err| format!("failed to read running jobs: {err}"))?;
+    let mut rows = Vec::new();
+    for row in mapped {
+        rows.push(row.map_err(|err| format!("failed to read running jobs: {err}"))?);
+    }
+    Ok(rows)
+}
+
 pub fn complete_job(
     case_dir: &Path,
     job_id: &str,
