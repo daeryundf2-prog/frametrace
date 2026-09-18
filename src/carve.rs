@@ -1310,8 +1310,14 @@ fn mp4_bifragment_joins(
         let mdat = boxes.iter().find(|b| &b.typ == b"mdat");
         let Some(mdat) = mdat else { continue };
         let mdat_end = mdat.offset + mdat.size;
+        // stsz re-bounding is only sound when mdat is the LAST box: if a
+        // moov (or anything else) follows it inside the fragment, those
+        // bytes are real content and cutting at the payload end would
+        // amputate them.
+        let mdat_is_last = boxes.last().is_some_and(|b| b.typ == *b"mdat");
         match moov {
-            Some(moov) => match mp4_sample_payload_bytes(source, artifact.offset, moov) {
+            Some(moov) if mdat_is_last => {
+                match mp4_sample_payload_bytes(source, artifact.offset, moov) {
                 Some(total) => {
                     let true_end = mdat.payload + total;
                     if true_end < artifact.size_bytes && artifact.size_bytes - true_end >= 8 {
@@ -1340,7 +1346,9 @@ fn mp4_bifragment_joins(
                     "{}: moov present but stsz/stz2 unreadable — mdat bound unknown; reassembly skipped",
                     artifact.id
                 )),
-            },
+                }
+            }
+            Some(_) => {} // moov follows mdat — tail boxes are real content
             None => {
                 // moov absent from the fragment. Either mdat is truncated
                 // (continuation holds payload then moov) or mdat completed
@@ -1348,7 +1356,12 @@ fn mp4_bifragment_joins(
                 // is hunting a plausible moov in an anonymous region.
                 let need = mdat_end.saturating_sub(artifact.size_bytes);
                 emit_mp4_gapfills(
-                    artifact, regions, need, Some(source), joins, warnings,
+                    artifact,
+                    regions,
+                    need,
+                    Some(source),
+                    joins,
+                    warnings,
                     "moov lies beyond the fragment; tail+moov attribution unverified",
                 );
             }
@@ -2272,6 +2285,46 @@ mod tests {
             join.validation_note.contains("attribution unverified"),
             "{}",
             join.validation_note
+        );
+        let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    /// moov AFTER mdat (normal layout): the fragment holds ftyp+mdat+moov
+    /// and ends on a box boundary — stsz re-bounding must NOT fire, or the
+    /// "refined" artifact would amputate the moov itself.
+    #[test]
+    fn reassemble_mp4_moov_after_mdat_is_not_refined() {
+        let (case_dir, source) = reasm_case("mp4-moovlast");
+        let mut data = Vec::new();
+        data.extend_from_slice(&bx(b"ftyp", b"isom\0\0\0\0isommp42".to_vec()));
+        data.extend_from_slice(&bx(b"mdat", vec![0xAA; 992])); // declared 1000
+        let moov = moov_with_stsz(992, 1);
+        data.extend_from_slice(&moov);
+        let frag_len = data.len() as u64;
+        data.extend_from_slice(&[0u8; 1024]);
+        fs::write(&source, &data).unwrap();
+
+        let mut artifacts = vec![fake_artifact(
+            "carve_000001",
+            0,
+            frag_len,
+            "mp4-ftyp",
+            "mp4",
+            &source,
+        )];
+        let mut warnings = Vec::new();
+        super::reassemble_fragments(
+            &source,
+            &case_dir,
+            data.len() as u64,
+            &mut artifacts,
+            &mut warnings,
+        )
+        .unwrap();
+
+        assert!(
+            !artifacts.iter().any(|a| a.signature == "mp4-stsz-refined"),
+            "moov-after-mdat fragment must not be 'refined' into amputating the moov"
         );
         let _ = fs::remove_dir_all(case_dir.parent().unwrap());
     }
