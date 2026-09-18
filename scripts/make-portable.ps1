@@ -9,7 +9,6 @@ New-Item -ItemType Directory -Path "$stage/tools/bin" | Out-Null
 Copy-Item target/release/frametrace.exe $stage/
 Copy-Item target/release/frametrace-app.exe $stage/
 Copy-Item README.md $stage/
-Copy-Item docs/WINDOWS_USAGE.md $stage/docs/WINDOWS_USAGE.md -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path "$stage/docs" -Force | Out-Null
 Copy-Item docs/WINDOWS_USAGE.md $stage/docs/
 Copy-Item docs/WINDOWS_VALIDATION.md $stage/docs/ -ErrorAction SilentlyContinue
