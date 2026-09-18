@@ -11,6 +11,7 @@
 
 # Local case/evidence outputs
 /case-*
+/deepfake-test*
 /cases
 /Cases
 /evidence
