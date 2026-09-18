@@ -24,6 +24,7 @@ const EXT_UNC = EXT_PREFIX + "unc" + BS;
 const LAYOUT_KEY = "ft.viewer." + (manifest.case_id || "case") + ".layout.v2";
 const MARKS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".marks";
 const NOTES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".notes";
+const ANNOTATIONS_KEY = "ft.viewer." + (manifest.case_id || "case") + ".annotations.v1";
 const RANGES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".ranges";
 const PROXIES_KEY = "ft.viewer." + (manifest.case_id || "case") + ".proxies";
 const EXAMINER_KEY = "ft.viewer." + (manifest.case_id || "case") + ".examiner";
@@ -520,6 +521,9 @@ const state = {
   activeId: records[0]?.id || null,
   selectedIds: new Set(),
   lastCheckedKey: null,
+  drafts: storageGet(ANNOTATIONS_KEY, {}),
+  deletedIds: [],
+  examiners: {},
   marks: storageGet(MARKS_KEY, {}),
   notes: storageGet(NOTES_KEY, {}),
   ranges: storageGet(RANGES_KEY, {}),
@@ -541,6 +545,40 @@ const state = {
   recType: "",
   collapsedGroups: new Set()
 };
+
+function touchAnnotation(id) {
+  state.examiners[id] = (state.examiner || "").trim() || state.examiners[id] || null;
+  const draft = {
+    mark: state.marks[id] || null,
+    note: state.notes[id] || "",
+    tags: state.tags[id] || [],
+    examiner: state.examiners[id]
+  };
+  state.drafts[id] = draft;
+  state.deletedIds = [...new Set([...state.deletedIds, id])];
+  storageSet(ANNOTATIONS_KEY, state.drafts);
+}
+
+function hydrateAnnotations(annotations) {
+  state.marks = {}; state.notes = {}; state.tags = {}; state.examiners = {};
+  for (const mark of annotations.marks || []) {
+    if (mark.status !== "noted") state.marks[mark.id] = { status: mark.status, marked_unix: mark.marked_unix };
+    state.notes[mark.id] = mark.note || "";
+    state.examiners[mark.id] = mark.examiner || null;
+  }
+  for (const entry of annotations.tags || []) state.tags[entry.id] = entry.tags;
+  state.deletedIds = [];
+  for (const [id, draft] of Object.entries(state.drafts)) {
+    if (draft.mark) state.marks[id] = draft.mark;
+    else delete state.marks[id];
+    state.notes[id] = draft.note;
+    state.tags[id] = draft.tags;
+    state.examiners[id] = draft.examiner;
+    state.deletedIds.push(id);
+  }
+}
+
+hydrateAnnotations(DATA.annotations || { marks: [], tags: [] });
 
 const els = {
   caseLine: document.getElementById("caseLine"),
@@ -659,7 +697,7 @@ function groupKeyFor(record) {
   }
 }
 
-function selectedRecord() { return records.find(record => record.id === state.activeId) || records[0]; }
+function selectedRecord() { return records.find(record => record.id === state.activeId); }
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
@@ -782,7 +820,7 @@ function applyVideoScale() {
 
 function renderGrid(filtered) {
   if (!filtered.some(record => record.id === state.activeId)) {
-    state.activeId = filtered[0]?.id || records[0]?.id || null;
+    state.activeId = filtered[0]?.id || null;
   }
   const pageCount = Math.max(1, Math.ceil(filtered.length / state.pageSize));
   state.currentPage = Math.min(Math.max(1, state.currentPage), pageCount);
@@ -823,8 +861,8 @@ function renderGrid(filtered) {
         lastGroup = key;
         const collapsed = state.collapsedGroups.has(key);
         cardsHtml.push(`<div class="group-header" data-group="${escapeHtml(key)}"><span>${escapeHtml(key)}</span><span class="muted">${groupCounts.get(key) || 0}${t("unit.count")}${collapsed ? ` · ${t("group.collapsed")}` : ""}</span></div>`);
-        if (collapsed) return;
       }
+      if (state.collapsedGroups.has(key)) return;
     }
     cardsHtml.push(renderCard(record));
   });
@@ -901,6 +939,7 @@ function addTag(id, tag) {
   const list = state.tags[id] || [];
   if (!list.includes(tag)) list.push(tag);
   state.tags[id] = list;
+  touchAnnotation(id);
   storageSet(TAGS_KEY, state.tags);
 }
 
@@ -909,6 +948,7 @@ function removeTag(id, tag) {
   const idx = list.indexOf(tag);
   if (idx >= 0) list.splice(idx, 1);
   state.tags[id] = list;
+  touchAnnotation(id);
   storageSet(TAGS_KEY, state.tags);
 }
 
@@ -963,8 +1003,11 @@ function applyMark(status) {
   if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
   const stamped = Math.floor(Date.now() / 1000);
   ids.forEach(id => {
-    if (status === null) delete state.marks[id];
+    if (status === null) { delete state.marks[id]; state.notes[id] = ""; }
     else state.marks[id] = { status, marked_unix: stamped };
+    // touchAnnotation must run after the mutation — it snapshots the
+    // resulting state into the draft that hydration replays on reload.
+    touchAnnotation(id);
   });
   storageSet(MARKS_KEY, state.marks);
   render();
@@ -1046,7 +1089,8 @@ function renderDetails() {
   document.getElementById("evidenceNote").addEventListener("input", e => {
     const value = e.target.value;
     if (value.trim()) state.notes[record.id] = value;
-    else delete state.notes[record.id];
+    else state.notes[record.id] = "";
+    touchAnnotation(record.id);
     storageSet(NOTES_KEY, state.notes);
   });
   document.querySelectorAll(".tag-btn").forEach(btn => {
@@ -1257,6 +1301,7 @@ function applyTag(tag) {
     const list = state.tags[id] || [];
     if (!list.includes(tag)) list.push(tag);
     state.tags[id] = list;
+    touchAnnotation(id);
   });
   storageSet(TAGS_KEY, state.tags);
   render();
@@ -1266,7 +1311,7 @@ function applyTag(tag) {
 function clearTags() {
   const ids = targetIds();
   if (!ids.length) { toast("대상 증거를 먼저 선택하세요."); return; }
-  ids.forEach(id => delete state.tags[id]);
+  ids.forEach(id => { delete state.tags[id]; touchAnnotation(id); });
   storageSet(TAGS_KEY, state.tags);
   render();
   toast(`${ids.length}개 증거의 태그를 해제했습니다.`);
@@ -1532,7 +1577,7 @@ function applyDesc(d,autoplay){
 if(!d){document.getElementById("title").textContent="표시할 증거가 없습니다";return;}
 cur=d;
 document.getElementById("title").textContent=d.name;
-document.getElementById("meta").textContent=d.id+" · "+d.statusLabel+" · "+(d.index)+"/"+d.total+"건"+(d.mark?" · 마크:"+d.mark:"")+(d.warnings.length?" · 경고 "+d.warnings.length:"");
+document.getElementById("meta").textContent=d.id+" · "+d.statusLabel+" · "+(d.index||"-")+"/"+d.total+"건"+(d.mark?" · 마크:"+d.mark:"")+(d.warnings.length?" · 경고 "+d.warnings.length:"");
 document.title=d.name+" — FrameTrace Player";
 if(d.src){document.getElementById("novid").hidden=true;if(v.getAttribute("src")!==d.src){v.setAttribute("src",d.src);v.load();}v.playbackRate=Number(rate.value);if(autoplay!==false)v.play().catch(function(){});}
 else{document.getElementById("novid").hidden=false;v.removeAttribute("src");v.load();}
@@ -1617,12 +1662,18 @@ function toggleShortcuts(open) {
 // Single-key triage: mark the active record and advance so an examiner
 // can clear a review queue without touching the mouse.
 function markActive(status) {
-  if (!state.activeId) return;
-  if (status === null) delete state.marks[state.activeId];
+  const before = filteredRecords();
+  const index = before.findIndex(record => record.id === state.activeId);
+  if (index < 0) return;
+  if (status === null) { delete state.marks[state.activeId]; state.notes[state.activeId] = ""; }
   else state.marks[state.activeId] = { status, marked_unix: Math.floor(Date.now() / 1000) };
+  touchAnnotation(state.activeId);
   storageSet(MARKS_KEY, state.marks);
+  const after = filteredRecords();
+  const next = before.slice(index + 1).find(record => after.some(item => item.id === record.id));
+  state.activeId = next?.id || after[Math.min(index, after.length - 1)]?.id || null;
+  state.currentPage = Math.max(1, Math.floor(after.findIndex(record => record.id === state.activeId) / state.pageSize) + 1);
   render();
-  moveActive(1);
 }
 
 document.addEventListener("keydown", event => {
@@ -1741,7 +1792,8 @@ function updateRangeLabel() {
   const el = document.getElementById("rangeLabel");
   const record = selectedRecord();
   const range = rangeOf(record);
-  el.textContent = range ? `구간 ${range.in.toFixed(1)}s ~ ${range.out.toFixed(1)}s` : "";
+  const point = value => Number.isFinite(value) ? `${value.toFixed(1)}s` : "—";
+  el.textContent = range ? `구간 ${point(range.in)} ~ ${point(range.out)}` : "";
   const proxyBtn = document.getElementById("btnProxy");
   if (proxyBtn) proxyBtn.classList.toggle("on", !!(record && state.proxies[record.id]));
 }
@@ -1752,7 +1804,7 @@ function setRangePoint(which) {
   const t = video.currentTime;
   const range = state.ranges[record.id] || { in: null, out: null };
   if (which === "in") range.in = t; else range.out = t;
-  if (range.in != null && range.out != null && range.out <= range.in) {
+  if (Number.isFinite(range.in) && Number.isFinite(range.out) && range.out <= range.in) {
     toast("OUT 지점이 IN보다 앞입니다 — 다시 지정하세요.");
     if (which === "in") range.in = null; else range.out = null;
   }
@@ -1804,7 +1856,7 @@ document.getElementById("btnProxy").addEventListener("click", async () => {
 document.getElementById("btnExportClip").addEventListener("click", async () => {
   const record = selectedRecord();
   const range = rangeOf(record);
-  if (!record || !range || range.in == null || range.out == null || range.out <= range.in) {
+  if (!record || !range || !Number.isFinite(range.in) || !Number.isFinite(range.out) || range.out <= range.in) {
     toast("먼저 IN/OUT 구간을 지정하세요 (i / o 키).");
     return;
   }
@@ -1833,8 +1885,10 @@ document.getElementById("btnCopyIds").addEventListener("click", () => {
   if (ids.length) copyText(ids.join("\n"), "증거 ID");
 });
 document.getElementById("btnCopyPaths").addEventListener("click", () => {
-  const paths = selectedRecords().map(record => record.path);
+  const ids = new Set(targetIds());
+  const paths = records.filter(record => ids.has(record.id)).map(record => record.path);
   if (paths.length) copyText(paths.join("\n"), "증거 경로");
+  else toast("대상 증거를 먼저 선택하세요.");
 });
 document.getElementById("btnTagAccident").addEventListener("click", () => applyTag("사고"));
 document.getElementById("btnTagSpeed").addEventListener("click", () => applyTag("과속"));
@@ -1868,12 +1922,15 @@ function marksPayload() {
       id,
       status: mark ? mark.status : "noted",
       marked_unix: mark ? mark.marked_unix : Math.floor(Date.now() / 1000),
-      ...(note ? { note } : {})
+      note,
+      examiner: state.examiners[id] ?? ((state.examiner || "").trim() || null)
     };
   });
   const tagEntries = Object.entries(state.tags).map(([id, tags]) => ({ id, tags }));
   return {
     schema_version: 2,
+    protocol: "patch-v1",
+    deleted_ids: state.deletedIds.filter(id => !ids.has(id)),
     case_id: manifest.case_id || null,
     examiner: (state.examiner || "").trim() || null,
     exported_unix: Math.floor(Date.now() / 1000),
@@ -1884,7 +1941,7 @@ function marksPayload() {
 
 document.getElementById("btnDownloadMarks").addEventListener("click", () => {
   const payload = marksPayload();
-  if (!payload.marks.length && !payload.tags.length) { toast("저장된 판독 마크가 없습니다."); return; }
+  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast("반영할 판독 변경이 없습니다."); return; }
   downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, payload);
 });
 
@@ -1892,7 +1949,7 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
 // the download → file-pick → import dance.
 document.getElementById("btnApplyMarks").addEventListener("click", async () => {
   const payload = marksPayload();
-  if (!payload.marks.length && !payload.tags.length) { toast("저장된 판독 마크가 없습니다."); return; }
+  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast("반영할 판독 변경이 없습니다."); return; }
   try {
     const res = await fetch("/api/import-marks", {
       method: "POST",

@@ -486,6 +486,30 @@ $("btnStart").addEventListener("click", async () => {
   setStep(3, 2);
 });
 
+// Switching cases must not leak the previous case's state into the UI —
+// badges, links and package paths describe whatever the server last
+// reported, so clear them before the poll repopulates from the new case.
+function resetCaseUi() {
+  jobSeen = false; reviewReady = false; autoReviewed = false; autoProgress = false;
+  auditVerified = false;
+  $("s2").disabled = true; $("s3").disabled = true; $("s4").disabled = true;
+  setStep(1, 0);
+  $("btnFinalize").disabled = true;
+  $("btnFinalize").textContent = "결과 보고서 생성 및 패키징";
+  $("finalLinks").innerHTML = "";
+  $("finalHint").textContent = "";
+  $("recoverHint").textContent = "조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다.";
+  $("pkgPath").classList.remove("show");
+  $("pkgPath").textContent = "";
+  $("advOut").hidden = true;
+  $("advOut").textContent = "";
+  $("advLink").innerHTML = "";
+  $("track").innerHTML = "";
+  $("log").textContent = "";
+  const audit = $("auditBadge");
+  if (audit) { audit.className = "badge"; audit.textContent = "감사 로그 대기"; audit.removeAttribute("title"); }
+}
+
 $("btnOpenCase").addEventListener("click", () => openCase($("caseDir").value.trim()));
 async function openCase(dir) {
   if (!dir) {
@@ -494,7 +518,13 @@ async function openCase(dir) {
     return;
   }
   $("startErr").classList.remove("show");
-  const res = await jpost("/api/open-case", { case_dir: dir });
+  let res;
+  try {
+    res = await jpost("/api/open-case", { case_dir: dir });
+  } catch (err) {
+    res = { ok: false, error: "서버에 연결할 수 없습니다: " + err.message };
+  }
+  resetCaseUi();
   if (!res.ok) {
     $("startErr").classList.add("show");
     $("startErr").textContent = "오류: " + (res.error || "케이스 열기 실패");
@@ -507,7 +537,8 @@ async function openCase(dir) {
   }
   pushRecent("recentCases", dir);
   savePrefs({ lastCase: dir });
-  autoReviewed = false; // let the next poll jump to the review screen
+  // Flags were already reset above — the next poll re-enables the rail
+  // and jumps to the review screen when the new case reports its state.
 }
 
 let cancelRequested = false;

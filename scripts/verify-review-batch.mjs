@@ -213,4 +213,129 @@ async function main() {
   process.exit(failed.length ? 1 : 0);
 }
 
-main().catch(err => { console.error('DRIVER ERROR:', err); process.exit(2); });
+async function unitTests() {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const { default: assert } = await import('node:assert/strict');
+  const source = readFileSync(new URL('../assets/evidence_viewer.js', import.meta.url), 'utf8');
+  const fn = name => source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))?.[0];
+  const label = { textContent: '' };
+  const state = { activeId: 'a', ranges: { a: { in: 1, out: null } }, proxies: {} };
+  const context = { state, document: { getElementById: id => id === 'rangeLabel' ? label : null }, selectedRecord: () => ({ id: 'a' }) };
+  runInNewContext(fn('rangeOf')?.split('\n')[0] + '\n' + fn('updateRangeLabel') + '\nupdateRangeLabel();', context);
+  assert.equal(label.textContent, '구간 1.0s ~ —');
+  state.ranges.a = { in: null, out: 3 };
+  runInNewContext(fn('updateRangeLabel') + '\nupdateRangeLabel();', context);
+  assert.equal(label.textContent, '구간 — ~ 3.0s');
+  console.log('PASS VM partial IN/OUT labels');
+  const records = ['a', 'b', 'c'].map(id => ({ id }));
+  const els = Object.fromEntries(['resultCount', 'pageStatus', 'prevPage', 'nextPage', 'recordGrid'].map(id => [id, {}]));
+  Object.assign(state, { marks: {}, selectedIds: new Set(), pageSize: 100, currentPage: 1, groupBy: 'none', collapsedGroups: new Set() });
+  const grid = { state, records, els, t: x => x, escapeHtml: x => x, groupKeyFor: () => 'group', renderCard: r => `<card>${r.id}</card>` };
+  const selectedSource = source.match(/^function selectedRecord\(\).*$/m)[0];
+  assert.equal(runInNewContext(selectedSource + '\nselectedRecord();', grid), records[0]);
+  runInNewContext(fn('renderGrid') + '\nrenderGrid([]);', grid);
+  assert.equal(state.activeId, null);
+  assert.equal(runInNewContext(source.match(/^function selectedRecord\(\).*$/m)[0] + '\nselectedRecord();', grid) || undefined, undefined);
+  state.groupBy = 'kind'; state.collapsedGroups.add('group');
+  runInNewContext(fn('renderGrid') + '\nrenderGrid(records);', grid);
+  assert.ok(!els.recordGrid.innerHTML.includes('<card>'));
+  state.groupBy = 'none'; state.activeId = 'a';
+  Object.assign(grid, { MARKS_KEY: 'marks', ANNOTATIONS_KEY: 'annotations', storageSet: () => {}, filteredRecords: () => records.filter(r => !state.marks[r.id]), render: () => runInNewContext(fn('renderGrid') + '\nrenderGrid(filteredRecords());', grid), moveActive: () => { state.activeId = 'c'; } });
+  Object.assign(state, { drafts: {}, deletedIds: [], examiners: {}, notes: {}, tags: {} });
+  const touch = fn('touchAnnotation');
+  runInNewContext(touch + '\n' + fn('markActive') + '\nmarkActive("reviewed");', grid);
+  assert.equal(state.activeId, 'b');
+  console.log('PASS VM empty filter, collapsed group, sequential triage');
+  Object.assign(state, { marks: {}, notes: {}, tags: {}, examiner: 'New', deletedIds: ['a'], examiners: { b: 'Bob' } });
+  Object.assign(grid, { manifest: { case_id: 'test' } });
+  let payload = runInNewContext(fn('marksPayload') + '\nmarksPayload();', grid);
+  assert.equal(payload.protocol, 'patch-v1');
+  assert.equal(JSON.stringify(payload.deleted_ids), '["a"]');
+  state.marks.b = { status: 'important', marked_unix: 1 };
+  payload = runInNewContext(fn('marksPayload') + '\nmarksPayload();', grid);
+  assert.equal(payload.marks[0].note, '');
+  assert.equal(payload.marks[0].examiner, 'Bob');
+  console.log('PASS VM explicit annotation clears and examiner preservation');
+  Object.assign(grid, { ANNOTATIONS_KEY: 'annotations', storageSet: () => {} });
+  state.drafts = {};
+  runInNewContext(fn('touchAnnotation') + '\ntouchAnnotation("a");', grid);
+  assert.ok(state.deletedIds.includes('a'));
+  const saved = JSON.stringify(state.drafts);
+  Object.assign(state, { marks: {}, notes: {}, tags: {}, examiners: {}, deletedIds: [], drafts: JSON.parse(saved) });
+  grid.annotations = { marks: [{ id: 'a', status: 'important', note: 'old' }, { id: 'b', status: 'reviewed', note: 'DB memo', examiner: 'Bob' }], tags: [{ id: 'b', tags: ['DB tag'] }] };
+  runInNewContext(fn('hydrateAnnotations') + '\nhydrateAnnotations(annotations);', grid);
+  assert.equal(state.marks.a, undefined);
+  assert.equal(state.notes.b, 'DB memo');
+  assert.equal(state.examiners.b, 'Bob');
+  assert.equal(JSON.stringify(state.tags.b), '["DB tag"]');
+  console.log('PASS VM DB hydration with pending tombstone');
+  // Drafts must snapshot post-mutation state: a draft recorded before the
+  // mark/tag mutation replays the old value on reload and resurrects
+  // cleared annotations (or drops new ones) after hydration.
+  Object.assign(state, { marks: {}, notes: {}, tags: {}, drafts: {}, deletedIds: [], selectedIds: new Set(['a']) });
+  Object.assign(grid, { toast: () => {}, markLabel: s => s, NOTES_KEY: 'notes', TAGS_KEY: 'tags' });
+  const ops = [fn('targetIds'), fn('touchAnnotation'), fn('applyMark'), fn('applyTag'), fn('clearTags')].join('\n');
+  runInNewContext(ops + '\napplyMark("important");', grid);
+  assert.equal(state.drafts.a.mark.status, 'important');
+  runInNewContext(ops + '\napplyMark(null);', grid);
+  assert.equal(state.drafts.a.mark, null);
+  runInNewContext(ops + '\napplyTag("사고");', grid);
+  assert.equal(JSON.stringify(state.drafts.a.tags), '["사고"]');
+  runInNewContext(ops + '\nclearTags();', grid);
+  assert.equal(JSON.stringify(state.drafts.a.tags), '[]');
+  console.log('PASS VM annotation drafts capture post-mutation state');
+  const exSource = readFileSync(new URL('../assets/examiner_app.html', import.meta.url), 'utf8');
+  const scripts = [...exSource.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(match => match[1]);
+  const exScript = scripts[scripts.length - 1];
+  const { document: exDoc } = { document: {} };
+  void exDoc;
+  const el = id => ({ id, value: '', textContent: '', innerHTML: '', disabled: false, checked: false, classList: { add() {}, remove() {}, toggle() {} }, style: {}, dataset: {}, addEventListener() {}, setAttribute() {}, removeAttribute() {}, closest: () => null, querySelectorAll: () => [] });
+  const dom = {
+    getElementById: id => (dom[id] ||= el(id)),
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    addEventListener() {},
+    body: el('body')
+  };
+  dom.startErr = { classList: { add() {}, remove() {} }, textContent: '' };
+  // setTimeout must not actually schedule: poll() re-arms itself forever and
+  // would keep the --unit process alive after the assertions finish.
+  const noopTimeout = () => 0;
+  const ex = { window: {}, document: dom, location: { protocol: 'http:' }, localStorage: { getItem: () => null, setItem() {} }, fetch: async () => { throw new Error('down'); }, console, confirm: () => true, setTimeout: noopTimeout, clearTimeout };
+  ex.window = ex;
+  runInNewContext(exScript, ex);
+  const openFail = async () => {
+    ex.document.getElementById('caseDir').value = '/tmp/nope';
+    await ex.openCase('/tmp/nope');
+    assert.equal(dom.startErr.textContent.includes('서버에 연결할 수 없습니다'), true);
+    assert.equal(dom.s2.disabled, true);
+    assert.equal(dom.btnFinalize.disabled, true);
+  };
+  await openFail();
+  console.log('PASS VM examiner open-case failure resets workflow state');
+  // A successful switch must also clear the previous case's results —
+  // otherwise stale report links, package paths and the audit badge of
+  // case A stay visible while case B is being reviewed.
+  dom.finalLinks.innerHTML = '<a href="/case/reports/case-report.html">old</a>';
+  dom.pkgPath.textContent = 'old-package';
+  dom.pkgPath.classList.add('show');
+  dom.btnFinalize.disabled = false;
+  dom.btnFinalize.textContent = '보고서 재생성';
+  dom.auditBadge.className = 'badge ok';
+  dom.auditBadge.textContent = '감사 로그 구조 검증됨';
+  dom.s3.disabled = false;
+  dom.s4.disabled = false;
+  ex.fetch = async () => ({ ok: true, has_review: true });
+  await ex.openCase('/tmp/other-case');
+  assert.equal(dom.finalLinks.innerHTML, '');
+  assert.equal(dom.pkgPath.textContent, '');
+  assert.equal(dom.btnFinalize.disabled, true);
+  assert.equal(dom.btnFinalize.textContent, '결과 보고서 생성 및 패키징');
+  assert.equal(dom.auditBadge.textContent, '감사 로그 대기');
+  assert.equal(dom.s3.disabled, true);
+  assert.equal(dom.s4.disabled, true);
+  console.log('PASS VM examiner open-case success clears stale results');
+}
+
+(process.argv.includes('--unit') ? unitTests() : main()).catch(err => { console.error('DRIVER ERROR:', err); process.exit(2); });
