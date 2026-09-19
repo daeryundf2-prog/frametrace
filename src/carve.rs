@@ -2361,8 +2361,10 @@ mod tests {
                 .any(|a| a.signature.starts_with("reassembled"))
         );
 
-        let mut options = super::CarveOptions::default();
-        options.reassemble = true;
+        let options = super::CarveOptions {
+            reassemble: true,
+            ..Default::default()
+        };
         let joined = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
         assert_eq!(joined.artifacts.len(), 3);
         assert_eq!(joined.artifacts[2].signature, "reassembled-ts-cc");

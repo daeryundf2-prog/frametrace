@@ -480,7 +480,7 @@ mod tests {
         fs::write(&target, b"not a real video").unwrap();
         fs::write(
             dir.join("db/videos.jsonl"),
-            &format!(
+            format!(
                 "{{\"id\":\"vid_1\",\"source_path\":\"{}\"}}\n",
                 crate::util::json_escape(&target.to_string_lossy())
             ),

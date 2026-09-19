@@ -59,6 +59,24 @@ The executable is:
 .\target\release\frametrace.exe
 ```
 
+## Examiner Workstation Lifecycle
+
+`frametrace-app.exe` (windowed, no console) or a bare `frametrace.exe` starts
+the local review workstation on `127.0.0.1` and opens it in the browser.
+
+- **Stopping**: use the **종료** button in the page header — there is no
+  console window to close, and closing the browser tab alone leaves the
+  server running. Shutdown is refused while a job is in progress; cancel
+  the job first (the UI offers this).
+- **Relaunching**: starting the app again while it is already running
+  reuses the live server and just opens a browser tab — no duplicate
+  instances stack up on successive ports.
+- **Idle auto-stop** (optional): `set FRAMETRACE_IDLE_MINUTES=120` makes the
+  server exit after that many minutes without requests while no job runs.
+  Default `0` = never auto-stop.
+- **Auth** (optional): `FRAMETRACE_TOKEN` adds a shared-secret gate — see
+  `docs/security-review.md`.
+
 ## Recommended Field Workflow
 
 Use a case folder on a fast local SSD when possible:

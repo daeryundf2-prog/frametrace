@@ -121,6 +121,14 @@ struct JobState {
     /// documented loopback-trust model; when set, every request must prove
     /// the token via header, query, or the planted `ft_token` cookie.
     token: Option<String>,
+    /// Set by POST /api/shutdown; the accept loop polls this flag and exits
+    /// once in-flight connections drain so the workstation can actually be
+    /// closed from the UI (the windowed launcher has no console to close).
+    shutdown_requested: bool,
+    /// Updated on every accepted connection; enables the optional
+    /// FRAMETRACE_IDLE_MINUTES auto-shutdown so a forgotten browser tab does
+    /// not leave a headless server running forever.
+    last_activity: std::time::Instant,
 }
 
 impl JobState {
@@ -138,6 +146,8 @@ impl JobState {
             cancel_requested: false,
             byte_progress: None,
             token: None,
+            shutdown_requested: false,
+            last_activity: std::time::Instant::now(),
         }
     }
 }
@@ -228,6 +238,26 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
         }
         state_lock(&state).token = Some(token.clone());
     }
+    // Relaunching the app (e.g. after closing the browser tab) must reuse
+    // the already-running workstation instead of stacking zombie servers on
+    // successive ports. Skipped when a port or case is explicitly given —
+    // that is the E2E harness / CLI asking for a fresh dedicated instance.
+    if options.port.is_none()
+        && options.case_dir.is_none()
+        && let Some(existing_port) = find_running_server()
+    {
+        let url = match &token {
+            Some(token) => format!("http://127.0.0.1:{existing_port}/?token={token}"),
+            None => format!("http://127.0.0.1:{existing_port}/"),
+        };
+        println!("FrameTrace workstation is already running — reusing it.");
+        println!("  {url}");
+        let _ = std::io::stdout().flush();
+        if std::env::var("FRAMETRACE_NO_BROWSER").as_deref() != Ok("1") {
+            open_in_browser(&url);
+        }
+        return Ok(());
+    }
     let listener = match options.port {
         Some(port) => TcpListener::bind(("127.0.0.1", port))
             .map_err(|err| format!("failed to bind 127.0.0.1:{port}: {err}"))?,
@@ -255,25 +285,60 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
 }
 
 /// Accept loop shared by `run` and the integration tests (no browser side
-/// effects here).
+/// effects here). Nonblocking so the /api/shutdown flag (and the optional
+/// idle timeout) can end the loop without a wake-up connection.
 fn serve_on(listener: TcpListener, state: SharedState) {
     let in_flight = Arc::new(AtomicUsize::new(0));
-    for stream in listener.incoming() {
-        let Ok(mut stream) = stream else { continue };
-        let state = Arc::clone(&state);
-        let in_flight = Arc::clone(&in_flight);
-        if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
-            in_flight.fetch_sub(1, Ordering::SeqCst);
-            let _ = write_simple(&mut stream, 503, b"server busy - too many connections");
-            let _ = stream.shutdown(std::net::Shutdown::Both);
-            continue;
+    let _ = listener.set_nonblocking(true);
+    let idle_limit = std::env::var("FRAMETRACE_IDLE_MINUTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .map(|minutes| Duration::from_secs(minutes * 60));
+    loop {
+        {
+            let guard = state_lock(&state);
+            if guard.shutdown_requested {
+                break;
+            }
+            if let Some(limit) = idle_limit
+                && !guard.busy
+                && guard.last_activity.elapsed() >= limit
+            {
+                break;
+            }
         }
-        let _ = thread::Builder::new()
-            .name("ft-http".into())
-            .spawn(move || {
-                let _ = handle_connection(stream, state);
-                in_flight.fetch_sub(1, Ordering::SeqCst);
-            });
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                state_lock(&state).last_activity = std::time::Instant::now();
+                let state = Arc::clone(&state);
+                let in_flight = Arc::clone(&in_flight);
+                if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    let _ = write_simple(&mut stream, 503, b"server busy - too many connections");
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
+                let _ = thread::Builder::new()
+                    .name("ft-http".into())
+                    .spawn(move || {
+                        let _ = handle_connection(stream, state);
+                        in_flight.fetch_sub(1, Ordering::SeqCst);
+                    });
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(_) => thread::sleep(Duration::from_millis(50)),
+        }
+    }
+    // Drain in-flight handlers so a shutdown response (and any in-progress
+    // write) is fully flushed before the process exits.
+    for _ in 0..200 {
+        if in_flight.load(Ordering::SeqCst) == 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -284,6 +349,47 @@ fn first_free_port() -> Option<TcpListener> {
         }
     }
     TcpListener::bind(("127.0.0.1", 0)).ok()
+}
+
+/// Probes the workstation port range for an already-running FrameTrace
+/// server. Identified by the `"app":"frametrace"` marker in /api/status so
+/// an unrelated local service on the same port is never hijacked.
+fn find_running_server() -> Option<u16> {
+    for port in 8477..=8486 {
+        let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
+            continue;
+        };
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+        let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
+        if stream
+            .write_all(b"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            .is_err()
+        {
+            continue;
+        }
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&chunk[..n]);
+                    if buf.len() > 64 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+            // The status JSON is small; stop once the body marker arrives.
+            if buf.windows(18).any(|w| w == b"\"app\":\"frametrace\"") {
+                break;
+            }
+        }
+        if buf.windows(18).any(|w| w == b"\"app\":\"frametrace\"") {
+            return Some(port);
+        }
+    }
+    None
 }
 
 fn open_in_browser(url: &str) {
@@ -669,6 +775,7 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/export-selected") => json(api_export_selected(request, state)),
         ("POST", "/api/verify-audit") => json(api_verify_audit(state)),
         ("POST", "/api/cancel") => json(api_cancel(state)),
+        ("POST", "/api/shutdown") => json(api_shutdown(state)),
         ("POST", "/api/open-case") => json(api_open_case(request, state)),
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
         ("POST", "/api/capture-frame") => json(api_capture_frame(request, state)),
@@ -699,6 +806,9 @@ const PROBED_TOOLS: &[(&str, &str)] = &[
     ("mmls", ""),
     ("fls", ""),
     ("icat", ""),
+    // deepfake-lens is optional; resolution-only so the UI can grey out the
+    // screening controls instead of failing at click time.
+    ("deepfake-lens", ""),
 ];
 
 /// The env probe spawns every probed binary with a version flag, which
@@ -729,11 +839,22 @@ fn probe_env() -> String {
     let media = has("ffmpeg") && has("ffprobe");
     let ewf = has("ewfinfo") && has("ewfverify") && has("ewfexport");
     let tsk = has("mmls") && has("fls") && has("icat");
+    // deepfake-lens resolves via FRAMETRACE_DEEPFAKE_LENS first, then PATH /
+    // tools/bin — mirror that order so the badge matches what the pipeline
+    // would actually run.
+    let deepfake = std::env::var("FRAMETRACE_DEEPFAKE_LENS")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .map(|v| PathBuf::from(&v).is_file() || tool_available(&v, ""))
+        .unwrap_or(false)
+        || has("deepfake-lens");
     format!(
-        "{{\"ok\":true,\"ffmpeg\":{},\"ffprobe\":{},\"ewf\":{},\"tools\":{{{}}},\"workflows\":{{\"media\":{},\"e01\":{},\"filesystem\":{}}},\"hints\":{{{}}}}}",
+        "{{\"ok\":true,\"ffmpeg\":{},\"ffprobe\":{},\"ewf\":{},\"deepfake\":{},\"tools\":{{{}}},\"workflows\":{{\"media\":{},\"e01\":{},\"filesystem\":{}}},\"hints\":{{{}}}}}",
         json_bool(has("ffmpeg")),
         json_bool(has("ffprobe")),
         json_bool(ewf),
+        json_bool(deepfake),
         tools
             .iter()
             .map(|(name, ok)| format!("{}:{}", json_string(name), json_bool(*ok)))
@@ -968,9 +1089,10 @@ fn api_status(state: &SharedState) -> String {
         None => "null".to_string(),
     };
     format!(
-        "{{\"ok\":true,\"has_job\":{},\"phase\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
+        "{{\"ok\":true,\"app\":\"frametrace\",\"has_job\":{},\"phase\":{},\"busy\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
         json_bool(guard.phase != "idle"),
         json_string(guard.phase),
+        json_bool(guard.busy),
         steps.join(","),
         names.join(","),
         logs.join(","),
@@ -2122,6 +2244,20 @@ fn api_cancel(state: &SharedState) -> String {
     guard
         .logs
         .push("중단 요청을 받았습니다. 현재 단계를 멈추는 중입니다.".to_string());
+    "{\"ok\":true}".to_string()
+}
+
+/// POST /api/shutdown — the only clean way to stop the windowed
+/// `frametrace-app.exe` (no console to close). Refuses while a job runs so
+/// a mid-pipeline exit cannot truncate audit/carve output; the UI offers a
+/// cancel-then-shutdown flow for that case.
+fn api_shutdown(state: &SharedState) -> String {
+    let mut guard = state_lock(state);
+    if guard.busy {
+        return "{\"ok\":false,\"running\":true,\"error\":\"작업이 진행 중입니다 — 중단 후 종료하십시오.\"}"
+            .to_string();
+    }
+    guard.shutdown_requested = true;
     "{\"ok\":true}".to_string()
 }
 
@@ -3379,6 +3515,21 @@ mod tests {
         let value = parse("api_status(hostile)", &api_status(&state));
         assert_eq!(value["error"].as_str().unwrap(), "error: \"bad\" \\ path");
         parse("api_cancel", &api_cancel(&state));
+    }
+
+    #[test]
+    fn shutdown_refuses_while_busy_then_accepts() {
+        let parse = |json: &str| serde_json::from_str::<serde_json::Value>(json).unwrap();
+        let state: SharedState = Arc::new(Mutex::new(JobState::new()));
+        state_lock(&state).busy = true;
+        let refused = parse(&api_shutdown(&state));
+        assert_eq!(refused["ok"].as_bool(), Some(false));
+        assert_eq!(refused["running"].as_bool(), Some(true));
+        assert!(!state_lock(&state).shutdown_requested);
+        state_lock(&state).busy = false;
+        let granted = parse(&api_shutdown(&state));
+        assert_eq!(granted["ok"].as_bool(), Some(true));
+        assert!(state_lock(&state).shutdown_requested);
     }
 
     #[test]

@@ -23,6 +23,12 @@
     header h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
     header .sub { color: var(--muted); font-size: 13px; flex: 1; }
     .env { display: flex; gap: 6px; }
+    .quitbtn { height: 28px; padding: 0 12px; margin-left: 8px; border: 1px solid var(--line); border-radius: 980px; background: transparent; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+    .quitbtn:hover { color: var(--danger); border-color: #f0b6b6; }
+    .quitpage { display: grid; place-items: center; min-height: calc(100vh - 58px); }
+    .quitpage .card { text-align: center; padding: 48px 56px; }
+    .quitpage h2 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+    .quitpage p { color: var(--muted); font-size: 14px; margin: 0; }
     .badge { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 11px; border-radius: 980px; font-size: 12.5px; font-weight: 500; background: #e8e8ed; color: var(--muted); }
     .badge.ok { background: #e3f4ec; color: var(--ok); }
     .badge.bad { background: #fdeceb; color: var(--danger); }
@@ -86,6 +92,8 @@
     .seg label { display: flex; align-items: center; padding: 7px 16px; border-radius: 9px; font-size: 13.5px; font-weight: 500; cursor: pointer; color: var(--ink); transition: background .15s ease, box-shadow .15s ease; }
     .seg label:has(input:checked) { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.14); font-weight: 600; }
     .seg input { position: absolute; opacity: 0; pointer-events: none; }
+    .seg .need { color: var(--danger); font-size: 11.5px; font-weight: 400; margin-left: 6px; }
+    .seg label:has(input:disabled) { opacity: .55; cursor: default; }
     button { font: inherit; height: 38px; border: none; border-radius: 980px; background: #e8e8ed; color: var(--ink); font-weight: 500; cursor: pointer; padding: 0 18px; transition: background .15s ease, transform .15s ease, box-shadow .15s ease; }
     button:hover:not(:disabled) { background: #dedee3; }
     button:active:not(:disabled) { transform: scale(.97); }
@@ -149,6 +157,7 @@
     .adv-out { font-family: var(--mono); font-size: 12px; background: var(--bg); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; margin-top: 10px; }
     .err { display: none; background: #fdeceb; color: var(--danger); border-radius: 12px; padding: 12px 14px; font-size: 14px; margin-top: 12px; }
     .err.show { display: block; }
+    .err .hintline { margin-top: 6px; font-size: 13px; opacity: .85; }
     .muted { color: var(--muted); }
     footer { max-width: 1180px; margin: 0 auto; padding: 0 20px 40px; color: var(--muted); font-size: 13px; }
     @media (max-width: 860px) {
@@ -210,7 +219,14 @@
   <h1>FrameTrace 검수 워크스테이션</h1>
   <div class="sub">로컬 전용 · 원본 증거는 읽기 전용으로만 접근합니다</div>
   <div class="env" id="env"></div>
+  <button class="quitbtn" id="btnQuit" title="워크스테이션 서버를 종료합니다 — 케이스 데이터는 보존됩니다">종료</button>
 </header>
+<div class="quitpage" id="quitPage" hidden>
+  <div class="card">
+    <h2>워크스테이션이 종료되었습니다</h2>
+    <p>케이스 데이터와 감사 로그는 보존됩니다. 이 창을 닫아도 됩니다.<br>다시 시작하려면 frametrace-app을 실행하십시오.</p>
+  </div>
+</div>
 <div class="shell">
 <nav class="rail" aria-label="작업 단계">
   <button class="navstep sel current" id="s1" data-view="1"><span class="num">1</span><span class="nt"><b>입력</b><small>증거 소스 · 케이스 폴더</small></span></button>
@@ -225,7 +241,7 @@
     <p class="hint">분석할 증거를 선택하십시오. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
     <div class="seg">
       <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
-      <label><input type="radio" name="inputKind" value="e01"> E01 디스크 이미지</label>
+      <label><input type="radio" name="inputKind" value="e01"> E01 디스크 이미지 <small id="e01Need" class="need" hidden>— libewf 미설치: tools/bin 또는 PATH에 ewf*.exe 필요</small></label>
     </div>
     <div class="field">
       <label class="fieldlabel" for="sourcePath"><span id="sourceLabel">증거 소스 경로 (필수)</span></label>
@@ -259,14 +275,14 @@
       <button class="primary" id="btnStart">분석 시작</button>
       <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
     </div>
-    <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.</p>
+    <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.<br>브라우저를 닫은 경우 frametrace-app을 다시 실행하면 이 화면으로 돌아옵니다.</p>
     <div id="recentCaseRow" class="caselist" hidden></div>
     <div class="err" id="startErr"></div>
   </section>
 
   <section class="card view" id="progCard" data-view="2">
     <h2>분석 진행</h2>
-    <p class="hint">각 단계는 감사 로그에 기록됩니다. 창을 닫지 마십시오.</p>
+    <p class="hint">각 단계는 감사 로그에 기록됩니다. 이 탭을 닫아도 분석은 계속되지만, 결과를 보려면 페이지를 다시 열어야 합니다.</p>
     <div class="viewcols" style="grid-template-columns:300px minmax(0,1fr)">
       <ol class="steptrack" id="track"></ol>
       <pre class="log" id="log" aria-live="polite" style="margin:0;min-height:340px"></pre>
@@ -288,11 +304,11 @@
       <span class="vsep"></span>
       <button id="btnRecoverDeleted">삭제 영상 후보 복구</button>
       <button id="btnCarve" title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
-      <label class="chk" title="조각난 영상의 재조립 가설 후보를 추가로 생성합니다 — TS 연속성 카운터 일치, MP4 moov 경계 기반. 검증 전 후보로만 표시됩니다" style="font-size:11px;align-self:center"><input type="checkbox" id="chkReassemble"> 조각 재조립 시도</label>
+      <label class="chk" title="조각난 영상을 이어붙인 후보를 추가로 만듭니다. 시간이 더 걸리며, 결과는 검증 전 '후보'로만 표시됩니다 — 확정된 복구가 아닙니다" style="font-size:11px;align-self:center"><input type="checkbox" id="chkReassemble"> 조각 재조립 시도</label>
       <span class="muted" style="font-size:11px;margin-left:auto;align-self:center">깊은 검토는 전체화면·새 창 권장</span>
     </div>
     <iframe id="reviewFrame" title="증거 뷰어" allow="fullscreen"></iframe>
-    <p class="muted" id="recoverHint" style="font-size:11px;margin:6px 0 0">조사된 이미지에서 삭제된 영상 후보를 자동 복구한 뒤 뷰어를 갱신합니다. 카빙은 export된 raw 이미지가 있을 때만 동작합니다.</p>
+    <p class="muted" id="recoverHint" style="font-size:11px;margin:6px 0 0">뷰어에서 항목을 마크·메모로 선별한 뒤, 4단계 '결과물'에서 보고서와 패키지를 생성합니다. 삭제 후보 복구·카빙은 조사된 이미지가 있을 때만 동작합니다.</p>
   </section>
 
   <section class="card view" id="finalCard" data-view="4">
@@ -384,12 +400,23 @@ async function loadEnv() {
       badge("TSK(파일시스템)", wf.filesystem, hints.filesystem) +
       `<span class="badge" id="auditBadge" title="감사 로그 무결성은 분석 완료 후 자동 검증됩니다">감사 로그 대기</span>`;
     if (!t.ffprobe) $("withFfprobe").checked = false;
-    if (!wf.e01) {
-      const e01Radio = document.querySelector("input[name='inputKind'][value='e01']");
-      if (e01Radio) {
-        e01Radio.disabled = true;
-        e01Radio.closest("label")?.setAttribute("title", esc(hints.e01 || "libewf 도구가 필요합니다"));
-      }
+    const e01Radio = document.querySelector("input[name='inputKind'][value='e01']");
+    if (e01Radio) {
+      e01Radio.disabled = !wf.e01;
+      $("e01Need").hidden = wf.e01;
+      if (!wf.e01) e01Radio.closest("label")?.setAttribute("title", esc(hints.e01 || "libewf 도구가 필요합니다"));
+    }
+    // deepfake-lens is optional — grey the controls rather than letting a
+    // first-time user click into a per-file "tool not found" storm.
+    const dfOk = env.deepfake === true;
+    $("withDeepfake").disabled = !dfOk;
+    $("withDeepfake").closest("label")?.setAttribute("title",
+      dfOk ? "" : "deepfake-lens 미설치 — pip install deepfake-lens 또는 FRAMETRACE_DEEPFAKE_LENS 경로 설정");
+    const dfBtn = document.querySelector("button[data-adv='deepfake']");
+    if (dfBtn) {
+      dfBtn.disabled = !dfOk;
+      dfBtn.setAttribute("title",
+        dfOk ? "케이스의 모든 파일을 deepfake-lens로 스크리닝 — 결과는 '합성의심' 배지로 표시" : "deepfake-lens 미설치 — pip install deepfake-lens 또는 FRAMETRACE_DEEPFAKE_LENS 경로 설정");
     }
   } catch (e) { console.error("loadEnv failed:", e); }
 }
@@ -489,7 +516,30 @@ async function verifyAudit() {
     badge.title = (res.logs || []).map(l => `${l.name}: ${l.integrity}, ${l.entries}항목`).join("\n");
   } catch (e) { badge.className = "badge bad"; badge.textContent = "감사 로그 검증 불가"; }
 }
+// Maps raw pipeline errors to a first-run action hint — the log keeps the
+// exact CLI output, this answers "what do I do now?".
+function errorHint(msg) {
+  const m = msg.toLowerCase();
+  if (/ewfinfo|ewfverify|ewfexport|libewf/.test(m))
+    return "E01 처리에는 libewf 도구가 필요합니다 — tools/bin에 ewf*.exe를 넣거나 PATH에 설치하십시오.";
+  if (/mmls|fls|icat|sleuth/.test(m))
+    return "파일시스템 조사에는 Sleuth Kit이 필요합니다 — tools/bin에 mmls/fls/icat.exe를 넣거나 PATH에 설치하십시오.";
+  if (/ffmpeg|ffprobe/.test(m))
+    return "ffmpeg/ffprobe가 필요합니다 — tools/bin에 복사하거나 PATH에 설치하십시오.";
+  if (/tool not found|not found|cannot find|실행 파일/.test(m))
+    return "필요한 외부 도구를 찾지 못했습니다 — 상단 도구 배지에서 누락 항목을 확인하십시오.";
+  if (/space|disk|공간|저장소/.test(m))
+    return "디스크 공간이 부족합니다 — 케이스 폴더 드라이브의 여유 공간을 확보하십시오.";
+  if (/찾을 수 없|no such|not exist|존재하지 않/.test(m))
+    return "입력 경로를 확인하십시오 — 파일이나 폴더가 이동·삭제되었을 수 있습니다.";
+  if (/corrupt|damaged|손상|invalid/.test(m))
+    return "입력 이미지가 손상되었거나 형식이 다릅니다 — 원본을 다시 확인하거나 다른 소스로 시도하십시오.";
+  return "로그에서 실패한 단계를 확인하십시오 — 입력을 바로잡은 뒤 '분석 시작'으로 재시도할 수 있습니다.";
+}
+
+let shuttingDown = false;
 async function poll() {
+  if (shuttingDown) return;
   try {
     const st = await jget("/api/status");
     if (!st.has_job) { setTimeout(poll, 1500); return; }
@@ -518,7 +568,8 @@ async function poll() {
         $("pkgPath").textContent = "패키지: " + st.package_dir;
         if (!$("finalLinks").innerHTML) {
           $("finalLinks").innerHTML =
-            `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>`;
+            `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>` +
+            pkgExplorerLink(st.package_dir);
         }
         ensureReportFrame();
       }
@@ -527,7 +578,8 @@ async function poll() {
     }
     if (st.error) {
       $("startErr").classList.add("show");
-      $("startErr").textContent = "오류: " + st.error;
+      $("startErr").innerHTML =
+        `<div>오류: ${esc(st.error)}</div><div class="hintline">${esc(errorHint(st.error))}</div>`;
     } else {
       $("startErr").classList.remove("show");
     }
@@ -632,7 +684,7 @@ async function openCase(dir) {
 
 let cancelRequested = false;
 $("btnCancel").addEventListener("click", async () => {
-  if (!confirm("분석을 중단하시겠습니까?\n진행 중인 단계의 중간 산출물은 케이스 폴더에 남을 수 있습니다.")) return;
+  if (!confirm("분석을 중단하시겠습니까?\n중단 후 '분석 시작'을 다시 누르면 같은 케이스를 체크포인트에서 이어서 분석합니다.")) return;
   cancelRequested = true;
   $("btnCancel").disabled = true;
   $("btnCancel").textContent = "중단 요청 중…";
@@ -660,6 +712,12 @@ function refreshCaseStats() {
     if (typeof fn === "function") s = fn();
   } catch (e) { /* not loaded yet */ }
   if (!s) { el.innerHTML = `<span class="muted" style="font-size:12px">뷰어 로딩 중…</span>`; return; }
+  if (!s.total) {
+    el.innerHTML =
+      `<span class="stat" style="border-color:#f0cf9e"><i style="color:#b2560f">발견된 영상 없음</i></span>` +
+      `<span class="muted" style="font-size:12px;align-self:center">다른 소스로 다시 분석하거나, 디스크 이미지라면 '이미지 카빙'을 시도하십시오.</span>`;
+    return;
+  }
   const kindLabel = { video: "원본", carved: "카빙", filesystem: "복구", candidate: "복구 전" };
   const chips = [`<span class="stat"><i>전체</i>${s.total}</span>`];
   ["video", "carved", "filesystem", "candidate"].forEach(k => {
@@ -735,14 +793,28 @@ $("btnFinalize").addEventListener("click", async () => {
   if (!res.ok) { $("finalHint").textContent = "실패: " + (res.error || ""); return; }
   $("finalLinks").innerHTML =
     `<a href="/case/reports/case-report.html" target="_blank"><b>최종 결과 보고서 열기</b><span>발견 원본 영상 · 메타데이터 · SHA-256 · 발견/분석 기법 · 처리 체인</span></a>` +
-    `<a href="/case/${esc(res.package_url || "")}" target="_blank"><b>패키지 폴더 보기</b><span>체크섬 검증된 증거 패키지</span></a>`;
+    `<a href="/case/${esc(res.package_url || "")}" target="_blank"><b>패키지 폴더 보기</b><span>체크섬 검증된 증거 패키지</span></a>` +
+    pkgExplorerLink(res.package_dir);
   if (res.package_dir) {
     $("pkgPath").classList.add("show");
     $("pkgPath").textContent = "패키지: " + res.package_dir;
   }
   setStep(4, 4);
   ensureReportFrame();
-  await jpost("/api/open-folder", { path: res.package_dir || "" });
+});
+
+// Package dir is a server-side path, not a browsable URL — this link POSTs
+// to /api/open-folder so the OS shell opens it instead of surprise-popping
+// Explorer the moment the report finishes.
+function pkgExplorerLink(dir) {
+  if (!dir) return "";
+  return `<a href="#" data-pkgdir="${esc(dir)}"><b>탐색기에서 패키지 폴더 열기</b><span>${esc(dir)}</span></a>`;
+}
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-pkgdir]");
+  if (!a) return;
+  e.preventDefault();
+  jpost("/api/open-folder", { path: a.dataset.pkgdir });
 });
 
 $("btnImportMarks").addEventListener("click", () => $("marksFile").click());
@@ -1055,6 +1127,40 @@ $("btnCopyLog").addEventListener("click", async () => {
   if (prefs.lastCase) $("caseDir").value = prefs.lastCase;
   renderRecent();
 })();
+
+// ---- 워크스테이션 종료 ----
+// frametrace-app.exe has no console window, so this button is the only
+// clean way to stop the server. Busy jobs must be cancelled first — the
+// server refuses shutdown while busy to protect audit/carve output.
+function showQuitPage() {
+  shuttingDown = true;
+  document.querySelector(".shell").style.display = "none";
+  $("env").innerHTML = "";
+  $("btnQuit").style.display = "none";
+  $("quitPage").hidden = false;
+}
+$("btnQuit").addEventListener("click", async () => {
+  $("btnQuit").disabled = true;
+  try {
+    const st = await jget("/api/status").catch(() => null);
+    if (st && st.busy) {
+      if (!confirm("작업이 진행 중입니다.\n중단 후 종료하시겠습니까? (케이스 데이터는 보존됩니다)")) return;
+      await jpost("/api/cancel", {}).catch(() => {});
+      let still = true;
+      for (let i = 0; i < 120 && still; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const s = await jget("/api/status").catch(() => null);
+        still = !!(s && s.busy);
+      }
+      if (still) { alert("작업이 아직 멈추지 않았습니다 — 잠시 후 다시 시도하십시오."); return; }
+    } else if (!confirm("워크스테이션을 종료하시겠습니까?\n케이스 데이터와 감사 로그는 보존됩니다.")) return;
+    const res = await jpost("/api/shutdown", {}).catch(() => null);
+    if (res && res.running) { alert("작업이 아직 진행 중입니다 — 잠시 후 다시 시도하십시오."); return; }
+    showQuitPage();
+  } finally {
+    $("btnQuit").disabled = false;
+  }
+});
 
 syncInputKind();
 poll();

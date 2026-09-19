@@ -21,6 +21,8 @@ FrameTrace portable package
    - mmls.exe / fls.exe / icat.exe (Sleuth Kit)
    설치/빌드 안내는 docs/WINDOWS_USAGE.md 참고.
 2. frametrace-app.exe를 실행하면 브라우저 검수 워크스테이션이 열립니다 (콘솔 없음).
+   종료는 페이지 우측 상단 '종료' 버튼을 사용하십시오. 브라우저 탭만 닫으면
+   서버가 계속 실행됩니다. 다시 실행하면 실행 중인 서버에 재접속됩니다.
 3. frametrace.exe는 CLI입니다 (인자 없이 실행해도 워크스테이션이 시작됩니다).
 4. 실 Dahua DAV 샘플 검증: scripts/validate-dav-samples.ps1 -Samples <폴더>
 '@ | Out-File -Encoding utf8 "$stage/tools/bin/README-tools.txt"
