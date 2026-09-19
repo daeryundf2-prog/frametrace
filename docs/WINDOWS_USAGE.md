@@ -71,9 +71,8 @@ the local review workstation on `127.0.0.1` and opens it in the browser.
 - **Relaunching**: starting the app again while it is already running
   reuses the live server and just opens a browser tab — no duplicate
   instances stack up on successive ports.
-- **Idle auto-stop** (optional): `set FRAMETRACE_IDLE_MINUTES=120` makes the
-  server exit after that many minutes without requests while no job runs.
-  Default `0` = never auto-stop.
+- The server never stops on its own — it only exits via the 종료 button /
+  `POST /api/shutdown` or by killing the process.
 - **Auth** (optional): `FRAMETRACE_TOKEN` adds a shared-secret gate — see
   `docs/security-review.md`.
 

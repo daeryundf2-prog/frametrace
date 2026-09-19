@@ -125,10 +125,6 @@ struct JobState {
     /// once in-flight connections drain so the workstation can actually be
     /// closed from the UI (the windowed launcher has no console to close).
     shutdown_requested: bool,
-    /// Updated on every accepted connection; enables the optional
-    /// FRAMETRACE_IDLE_MINUTES auto-shutdown so a forgotten browser tab does
-    /// not leave a headless server running forever.
-    last_activity: std::time::Instant,
 }
 
 impl JobState {
@@ -147,7 +143,6 @@ impl JobState {
             byte_progress: None,
             token: None,
             shutdown_requested: false,
-            last_activity: std::time::Instant::now(),
         }
     }
 }
@@ -285,32 +280,18 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
 }
 
 /// Accept loop shared by `run` and the integration tests (no browser side
-/// effects here). Nonblocking so the /api/shutdown flag (and the optional
-/// idle timeout) can end the loop without a wake-up connection.
+/// effects here). Nonblocking so the /api/shutdown flag can end the loop
+/// without a wake-up connection. The server only exits on an explicit
+/// shutdown request — never on idle timeout.
 fn serve_on(listener: TcpListener, state: SharedState) {
     let in_flight = Arc::new(AtomicUsize::new(0));
     let _ = listener.set_nonblocking(true);
-    let idle_limit = std::env::var("FRAMETRACE_IDLE_MINUTES")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .map(|minutes| Duration::from_secs(minutes * 60));
     loop {
-        {
-            let guard = state_lock(&state);
-            if guard.shutdown_requested {
-                break;
-            }
-            if let Some(limit) = idle_limit
-                && !guard.busy
-                && guard.last_activity.elapsed() >= limit
-            {
-                break;
-            }
+        if state_lock(&state).shutdown_requested {
+            break;
         }
         match listener.accept() {
             Ok((mut stream, _)) => {
-                state_lock(&state).last_activity = std::time::Instant::now();
                 let state = Arc::clone(&state);
                 let in_flight = Arc::clone(&in_flight);
                 if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
