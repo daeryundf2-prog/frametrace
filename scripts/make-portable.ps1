@@ -12,19 +12,30 @@ Copy-Item README.md $stage/
 New-Item -ItemType Directory -Path "$stage/docs" -Force | Out-Null
 Copy-Item docs/WINDOWS_USAGE.md $stage/docs/
 Copy-Item docs/WINDOWS_VALIDATION.md $stage/docs/ -ErrorAction SilentlyContinue
+Copy-Item scripts/install.ps1 $stage/
+# Bundle vendored tool binaries (libewf / Sleuth Kit + their DLLs) when the
+# repo has them, so E01 and deleted-file workflows work out of the box.
+# ffmpeg/ffprobe are still expected on PATH or dropped into tools/bin by the
+# examiner (they are large and commonly already installed).
+if (Test-Path "tools/bin") {
+    Copy-Item "tools/bin/*" "$stage/tools/bin/" -Recurse -Force
+}
 @'
 FrameTrace portable package
 ===========================
-1. (선택) tools/bin 아래에 실행 파일을 넣으면 PATH 설정 없이 자동 인식됩니다:
-   - ffmpeg.exe / ffprobe.exe
-   - ewfinfo.exe / ewfverify.exe / ewfexport.exe (E01)
-   - mmls.exe / fls.exe / icat.exe (Sleuth Kit)
+1. tools/bin 아래의 도구 실행 파일은 PATH 설정 없이 자동 인식됩니다.
+   - ewfinfo.exe / ewfverify.exe / ewfexport.exe (E01) — 패키지에 포함된 경우 그대로 동작
+   - mmls.exe / fls.exe / icat.exe (Sleuth Kit) — 동일
+   - ffmpeg.exe / ffprobe.exe — PATH에 없으면 이 폴더에 넣으십시오
    설치/빌드 안내는 docs/WINDOWS_USAGE.md 참고.
 2. frametrace-app.exe를 실행하면 브라우저 검수 워크스테이션이 열립니다 (콘솔 없음).
    종료는 페이지 우측 상단 '종료' 버튼을 사용하십시오. 브라우저 탭만 닫으면
    서버가 계속 실행됩니다. 다시 실행하면 실행 중인 서버에 재접속됩니다.
 3. frametrace.exe는 CLI입니다 (인자 없이 실행해도 워크스테이션이 시작됩니다).
-4. 실 Dahua DAV 샘플 검증: scripts/validate-dav-samples.ps1 -Samples <폴더>
+4. 설치(시작 메뉴 등록): powershell -ExecutionPolicy Bypass -File install.ps1
+   제거: powershell -ExecutionPolicy Bypass -File install.ps1 -Uninstall
+   그냥 압축 풀고 frametrace-app.exe를 바로 실행해도 됩니다.
+5. 실 Dahua DAV 샘플 검증: scripts/validate-dav-samples.ps1 -Samples <폴더>
 '@ | Out-File -Encoding utf8 "$stage/tools/bin/README-tools.txt"
 Compress-Archive -Path $stage -DestinationPath "$stage.zip" -Force
 # SHA256SUMS covering every zip in dist/ — same manifest convention as

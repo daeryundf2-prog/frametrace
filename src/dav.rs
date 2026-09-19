@@ -268,7 +268,7 @@ pub fn remux_dav_to_mp4(
 
     let mut command = Command::new(&ffmpeg);
     command
-        .args(["-y", "-v", "error", "-i"])
+        .args(["-y", "-v", "error", "-f", "dhav", "-i"])
         .arg(dav_path)
         .args(["-c", "copy", "-movflags", "+faststart"])
         .arg(mp4_output);
@@ -368,6 +368,19 @@ mod tests {
         ));
         std::fs::write(&path, fixture_bytes()).unwrap();
         path
+    }
+
+    #[test]
+    fn header_gate_rejects_mp4_and_accepts_dav() {
+        // Ordinary MP4 must never enter the DAV export path — ffmpeg would
+        // happily remux it with `-c copy` and a pass would be miscounted.
+        assert!(!is_dav_header(b"\x00\x00\x00\x20ftypisom"));
+        assert!(!is_dav_header(b"RIFF...."));
+        assert!(is_dav_header(b"DAHUA"));
+        assert!(is_dav_header(b"DHAV\xFD"));
+        assert!(is_dav_header(b"DHAV\xF0"));
+        assert!(!is_dav_header(b"DHAV\x99")); // unknown frame type
+        assert!(!is_dav_header(b"DHA"));
     }
 
     #[test]

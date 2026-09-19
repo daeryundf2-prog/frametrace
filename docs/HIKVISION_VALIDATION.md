@@ -22,6 +22,16 @@ Scope: ROADMAP M4 item 6 (first implementable slice without HDD corpus)
   disk/image corpus and separate legal/forensic review.
 - Encrypted / SDK-only player packages.
 
+## Update — 2026-09-20
+
+- `export-hik` already hard-gates on `IMKH` magic (`strip_imkh_header` rejects
+  non-IMKH input before any ffmpeg call) — the MP4 pass-through hole found in
+  `export-dav` does not exist on this lane.
+- No real IMKH export exists on this machine; the synthetic integration test
+  (IMKH header + MPEG-PS → remux → ffprobe confirmed) remains the only
+  exercised path. Field gate stays **blocked** until real iVMS/NVR downloads
+  are placed in the intake folder.
+
 ## Field gate
 
 Place IMKH-prefixed iVMS/NVR downloads outside git, then:

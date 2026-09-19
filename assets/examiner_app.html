@@ -126,6 +126,11 @@
     .linklist a span { color: var(--muted); font-size: 13px; display: block; margin-top: 2px; }
     .pkg { font-family: var(--mono); font-size: 12px; word-break: break-all; background: var(--bg); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 10px 12px; margin-top: 10px; display: none; }
     .pkg.show { display: block; }
+    .onboard { border: 1px solid var(--line); border-radius: 14px; background: var(--bg); padding: 16px 18px 12px; margin: 0 0 18px; font-size: 13.5px; line-height: 1.55; }
+    .onboard b.ob-title { display: block; font-size: 14px; margin-bottom: 8px; }
+    .onboard ul { margin: 0 0 10px; padding-left: 18px; display: grid; gap: 4px; color: var(--ink); }
+    .onboard .ob-foot { display: flex; align-items: center; gap: 10px; }
+    .onboard .ob-foot button { height: 32px; padding: 0 16px; font-size: 13px; }
     .caselist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
     .casechip { height: 32px; padding: 0 14px; font-size: 13px; font-weight: 500; background: var(--bg); border-radius: 980px; }
     .casechip:hover { background: #e2f0ee; }
@@ -238,6 +243,20 @@
 
   <section class="card view on" id="inputCard" data-view="1">
     <h2>새 분석 — 증거 입력</h2>
+    <div class="onboard" id="onboard" hidden>
+      <b class="ob-title">FrameTrace 첫 실행 안내</b>
+      <ul>
+        <li>원본 증거는 <b>읽기 전용</b>으로만 접근합니다 — 해시·메타데이터·감사 로그 등 모든 산출물은 아래 '케이스 폴더'에만 기록됩니다.</li>
+        <li>진행은 왼쪽 4단계를 따릅니다: <b>① 입력 → ② 분석 → ③ 검토(마크·선별) → ④ 결과물(보고서·패키지)</b></li>
+        <li>도구 상태는 헤더 배지를 보십시오 — ffmpeg/ffprobe는 영상 검증에 쓰이고, E01 입력에는 libewf, 삭제 파일 조사에는 Sleuth Kit이 필요합니다. 없는 도구가 있어도 기본 폴더 분석은 동작합니다.</li>
+        <li>삭제 후보·카빙·재조립 결과는 검증을 통과하기 전까지 '<b>후보</b>'로만 표시됩니다.</li>
+        <li><b>첫 행동:</b> 증거 소스 경로를 입력하고 '분석 시작'을 누르십시오.</li>
+      </ul>
+      <div class="ob-foot">
+        <button class="primary" id="btnOnboardOk">알겠습니다</button>
+        <span class="muted" style="font-size:12px">이 안내는 한 번만 표시됩니다 — 아래 '안내 다시 보기'로 언제든 다시 열 수 있습니다.</span>
+      </div>
+    </div>
     <p class="hint">분석할 증거를 선택하십시오. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
     <div class="seg">
       <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
@@ -275,7 +294,7 @@
       <button class="primary" id="btnStart">분석 시작</button>
       <span class="muted" id="startHint">분석에는 소스 크기에 따라 수 분이 걸릴 수 있습니다.</span>
     </div>
-    <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.<br>브라우저를 닫은 경우 frametrace-app을 다시 실행하면 이 화면으로 돌아옵니다.</p>
+    <p class="hint" style="margin:14px 0 0">이미 만들어진 케이스가 있으면 케이스 폴더를 지정한 뒤 <button type="button" class="ghost" id="btnOpenCase" style="height:auto;padding:0 2px;vertical-align:baseline">기존 케이스 열기</button>로 검토 화면을 바로 열 수 있습니다.<br>브라우저를 닫은 경우 frametrace-app을 다시 실행하면 이 화면으로 돌아옵니다. <button type="button" class="ghost" id="btnOnboardShow" style="height:auto;padding:0 2px;vertical-align:baseline">안내 다시 보기</button></p>
     <div id="recentCaseRow" class="caselist" hidden></div>
     <div class="err" id="startErr"></div>
   </section>
@@ -1127,6 +1146,18 @@ $("btnCopyLog").addEventListener("click", async () => {
   if (prefs.lastCase) $("caseDir").value = prefs.lastCase;
   renderRecent();
 })();
+
+// First-run onboarding: shown once until dismissed, reopenable via
+// '안내 다시 보기'. Persisted in the same prefs bucket as recent paths.
+if (!loadPrefs().onboarded) $("onboard").hidden = false;
+$("btnOnboardOk").addEventListener("click", () => {
+  savePrefs({ onboarded: true });
+  $("onboard").hidden = true;
+});
+$("btnOnboardShow").addEventListener("click", () => {
+  $("onboard").hidden = false;
+  $("onboard").scrollIntoView({ block: "nearest" });
+});
 
 // ---- 워크스테이션 종료 ----
 // frametrace-app.exe has no console window, so this button is the only

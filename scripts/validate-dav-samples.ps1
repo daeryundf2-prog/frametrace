@@ -48,6 +48,25 @@ if ($davFiles.Count -eq 0) {
 	exit 2
 }
 
+# Pre-gate on container magic so mislabeled files (e.g. ordinary MP4 renamed
+# .dav, or base64 blobs with an accidental DHAV prefix) are classified as
+# "not-dav" instead of polluting the pass/fail counts. A file only counts as
+# a DAV candidate if it starts with DAHUA or DHAV + a known frame type byte.
+function Test-DavMagic {
+	param([string]$Path)
+	$fs = [System.IO.File]::OpenRead($Path)
+	try {
+		$buf = New-Object byte[] 5
+		$read = $fs.Read($buf, 0, 5)
+		if ($read -ge 5 -and [System.Text.Encoding]::ASCII.GetString($buf, 0, 5) -eq "DAHUA") { return $true }
+		if ($read -ge 5 -and [System.Text.Encoding]::ASCII.GetString($buf, 0, 4) -eq "DHAV" -and
+			(0xF0, 0xF1, 0xFC, 0xFD -contains $buf[4])) { return $true }
+		return $false
+	} finally {
+		$fs.Close()
+	}
+}
+
 $exePath = Resolve-FrametraceExe -Preferred $Exe
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $caseDir = Join-Path $WorkRoot "case-$stamp"
@@ -58,6 +77,7 @@ New-Item -ItemType Directory -Force -Path $caseDir | Out-Null
 
 $passed = 0
 $failed = 0
+$notDav = 0
 $results = @()
 
 foreach ($dav in $davFiles) {
@@ -72,6 +92,15 @@ foreach ($dav in $davFiles) {
 		output_mp4  = $null
 		error       = $null
 		export_log  = $null
+	}
+	if (-not (Test-DavMagic -Path $dav.FullName)) {
+		$entry.status = "not-dav"
+		$entry.error = "missing DAHUA/DHAV container magic — not a DAV file"
+		$notDav++
+		Write-Host "SKIP: not a DAV container"
+		($entry | ConvertTo-Json -Compress) | Add-Content -LiteralPath $reportPath -Encoding utf8
+		$results += $entry
+		continue
 	}
 	try {
 		& $exePath export-dav $caseDir $dav.FullName --timeout $TimeoutSecs | Out-Host
@@ -107,18 +136,22 @@ foreach ($dav in $davFiles) {
 }
 
 Write-Host "===="
-Write-Host "samples: $($davFiles.Count)  pass: $passed  fail: $failed"
+Write-Host "samples: $($davFiles.Count)  pass: $passed  fail: $failed  not-dav: $notDav"
+if ($passed -eq 0 -and $notDav -gt 0) {
+	Write-Host "WARNING: no genuine DAV samples in corpus — field validation still BLOCKED."
+}
 Write-Host "case: $caseDir"
 Write-Host "report: $reportPath"
 
-if ($davFiles.Count -lt 3) {
-	Write-Host "NOTE: ROADMAP M2-1 asks for >=3 recorder exports before field validation is claimed."
+$davCandidates = $davFiles.Count - $notDav
+if ($davCandidates -lt 3) {
+	Write-Host "NOTE: ROADMAP M2-1 asks for >=3 genuine recorder exports (this corpus has $davCandidates) before field validation is claimed."
 }
 
 if ($failed -gt 0) {
 	exit 1
 }
-if ($davFiles.Count -lt 3) {
+if ($davCandidates -lt 3) {
 	exit 3
 }
 exit 0

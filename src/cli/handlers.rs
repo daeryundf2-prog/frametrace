@@ -372,6 +372,24 @@ fn export_dav_inner(
     output: Option<PathBuf>,
     timeout_secs: Option<u64>,
 ) -> Result<(), String> {
+    // Type gate: ffmpeg can remux an ordinary MP4 with `-c copy`, so success
+    // alone never proved DAV input. Require DAV/DAHUA magic up front so
+    // non-DAV files are rejected as "not a DAV container" instead of being
+    // silently counted as DAV exports.
+    {
+        let mut head = [0u8; 5];
+        let mut f = std::fs::File::open(dav_file)
+            .map_err(|err| format!("failed to open DAV {}: {err}", dav_file.display()))?;
+        let read = std::io::Read::read(&mut f, &mut head)
+            .map_err(|err| format!("failed to read DAV header: {err}"))?;
+        if !crate::dav::is_dav_header(&head[..read]) {
+            return Err(format!(
+                "not a DAV container (missing DHAV/DAHUA magic): {}",
+                dav_file.display()
+            ));
+        }
+    }
+
     let stem = dav_file
         .file_stem()
         .and_then(|stem| stem.to_str())

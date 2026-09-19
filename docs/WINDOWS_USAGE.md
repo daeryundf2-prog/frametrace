@@ -59,6 +59,45 @@ The executable is:
 .\target\release\frametrace.exe
 ```
 
+## Distribution (Portable / Install / Signing)
+
+Build the portable package:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/make-portable.ps1
+```
+
+This produces `dist/FrameTrace-<version>-win64/` + `.zip` + `SHA256SUMS`.
+The package contains both executables, docs, `install.ps1`, and `tools/bin`
+(pre-populated with vendored libewf/Sleuth Kit binaries when present in the
+repo — drop `ffmpeg.exe`/`ffprobe.exe` there too for a fully turnkey bundle).
+
+**Two ways to run it:**
+
+- *No install*: unzip and double-click `frametrace-app.exe`.
+- *Install*: `powershell -ExecutionPolicy Bypass -File install.ps1` from the
+  package folder — copies to `%LOCALAPPDATA%\Programs\FrameTrace`, creates a
+  Start Menu shortcut (`-DesktopShortcut` for desktop), and unblocks the
+  binaries. `-Uninstall` removes everything (it refuses if case data still
+  lives under the install dir).
+
+**SmartScreen / signing:** unsigned builds trigger SmartScreen once —
+"추가 정보 → 실행" is safe. `scripts/sign-release.ps1` signs the package
+binaries two ways:
+
+```powershell
+# Real CA certificate (removes SmartScreen reputation warnings for users):
+powershell -File scripts/sign-release.ps1 -Thumbprint <cert-thumbprint>
+
+# Local self-signed dev cert (signs but does NOT suppress SmartScreen on
+# other machines — development/internal use only):
+powershell -File scripts/sign-release.ps1 -SelfSigned
+```
+
+Suppressing SmartScreen reputation prompts for end users requires a real
+OV/EV code-signing certificate from a CA — that is a purchase decision and
+cannot be scripted.
+
 ## Examiner Workstation Lifecycle
 
 `frametrace-app.exe` (windowed, no console) or a bare `frametrace.exe` starts
