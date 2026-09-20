@@ -84,7 +84,13 @@ pub fn package_case(case_dir: &Path, output_dir: Option<&Path>) -> Result<Packag
 
     let checksum_text = files
         .iter()
-        .map(|file| format!("{}  {}\n", file.sha256, rel_manifest_path(&file.relative_path)))
+        .map(|file| {
+            format!(
+                "{}  {}\n",
+                file.sha256,
+                rel_manifest_path(&file.relative_path)
+            )
+        })
         .collect::<String>();
     let checksum_path = output_dir.join("manifest.sha256");
     write_text(&checksum_path, &checksum_text)
