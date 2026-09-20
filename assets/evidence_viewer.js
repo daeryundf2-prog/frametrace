@@ -207,6 +207,7 @@ const I18N = {
     "dfl.title": "deepfake-lens 스크리닝 {score}점 — 검토 우선순위, 판정 아님",
     "dfl.fail": "스크리닝 실패",
     "dfl.failTitle": "deepfake-lens 스크리닝 실패: {error}",
+    "dfl.dist": "합성의심 스크리닝 {n}/{total}건 — 높음 {high} · 주의 {medium} · 낮음 {low} · 판단어려움 {unknown} · 실패 {failed} · 미실시 {none}",
     "hist.item": "{day} {count}건",
     "hist.empty": "시각 정보가 있는 증거가 없습니다 — 파일명 패턴 또는 수정시각에서 추출합니다.",
     "hist.range": "녹화 기간: {from} ~ {to} · 시각 확인 {known}/{total}건 (파일명·수정시각 추출)",
@@ -511,6 +512,7 @@ const I18N = {
     "dfl.title": "deepfake-lens score {score} — review priority, not a verdict",
     "dfl.fail": "Screening failed",
     "dfl.failTitle": "deepfake-lens screening failed: {error}",
+    "dfl.dist": "Deepfake screening {n}/{total} — high {high} · medium {medium} · low {low} · unknown {unknown} · failed {failed} · not screened {none}",
     "hist.item": "{day} {count} items",
     "hist.empty": "No evidence with time info — extracted from filename patterns or mtimes.",
     "hist.range": "Recording span: {from} ~ {to} · time known for {known}/{total} (from filename/mtime)",
@@ -1167,6 +1169,7 @@ const els = {
   dateTo: document.getElementById("dateTo"),
   dayHistogram: document.getElementById("dayHistogram"),
   periodLabel: document.getElementById("periodLabel"),
+  dflSummary: document.getElementById("dflSummary"),
   caseWarnings: document.getElementById("caseWarnings")
 };
 
@@ -1389,6 +1392,21 @@ function renderGrid(filtered) {
   });
   if (els.triageStatus) {
     els.triageStatus.textContent = tf("triage.line", { done: reviewed, total: records.length, imp: important, pend: pending });
+  }
+  if (els.dflSummary) {
+    const dist = { high: 0, medium: 0, low: 0, unknown: 0, failed: 0 };
+    let screened = 0;
+    records.forEach(record => {
+      const dfl = record.dfl;
+      if (!dfl) return;
+      if (dfl.error) { dist.failed += 1; screened += 1; return; }
+      const band = String(dfl.band || "unknown");
+      if (band in dist) dist[band] += 1; else dist.unknown += 1;
+      screened += 1;
+    });
+    els.dflSummary.textContent = screened
+      ? tf("dfl.dist", { n: screened, total: records.length, high: dist.high, medium: dist.medium, low: dist.low, unknown: dist.unknown, failed: dist.failed, none: records.length - screened })
+      : "";
   }
   els.prevPage.disabled = state.currentPage <= 1;
   els.nextPage.disabled = state.currentPage >= pageCount;

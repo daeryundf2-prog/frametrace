@@ -309,13 +309,33 @@ pub struct ScreenCaseStats {
     pub failed: usize,
 }
 
+/// Returns true when an existing artifact JSON records a failed
+/// screening (`"ok":false` or a non-null `"error"` field), meaning
+/// `--retry-failed` should re-screen the record. Unparseable artifacts
+/// count as failed — a torn write should not be trusted as a result.
+fn artifact_failed(artifact: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(artifact) else {
+        return true;
+    };
+    match serde_json::from_str::<serde_json::Value>(text.trim()) {
+        Ok(v) => {
+            v.get("ok").and_then(|x| x.as_bool()) == Some(false)
+                || v.get("error").map(|e| !e.is_null()).unwrap_or(false)
+        }
+        Err(_) => true,
+    }
+}
+
 /// Screens every case record that lacks a deepfake artifact (or all of
 /// them with `force`), writing `artifacts/deepfake/<id>.json` per record.
+/// With `retry_failed`, artifacts that recorded a screening failure are
+/// re-screened while successful results are left untouched.
 /// Individual failures never abort the pass — a case can contain a file
 /// deepfake-lens cannot parse.
 pub fn screen_case(
     case_dir: &Path,
     force: bool,
+    retry_failed: bool,
     progress: &dyn Fn(usize, usize, &str),
 ) -> Result<ScreenCaseStats, String> {
     let targets = collect_targets(case_dir);
@@ -327,7 +347,7 @@ pub fn screen_case(
     for (idx, target) in targets.into_iter().enumerate() {
         progress(idx, total, &target.id);
         let artifact = artifact_dir.join(format!("{}.json", artifact_name(&target.id)));
-        if artifact.is_file() && !force {
+        if artifact.is_file() && !force && !(retry_failed && artifact_failed(&artifact)) {
             stats.skipped_existing += 1;
             continue;
         }
@@ -456,7 +476,7 @@ mod tests {
             "{\"id\":\"vid_1\",\"source_path\":\"/nonexistent/a.mp4\"}\n{torn\n",
         )
         .unwrap();
-        let stats = screen_case(&dir, false, &|_, _, _| {}).unwrap();
+        let stats = screen_case(&dir, false, false, &|_, _, _| {}).unwrap();
         assert_eq!(stats.skipped_missing, 1);
         assert_eq!(stats.screened, 0);
         assert!(!dir.join("artifacts/deepfake/vid_1.json").is_file());
@@ -489,7 +509,7 @@ mod tests {
         unsafe {
             std::env::set_var("FRAMETRACE_DEEPFAKE_LENS", &shim);
         }
-        let stats = screen_case(&dir, false, &|_, _, _| {}).unwrap();
+        let stats = screen_case(&dir, false, false, &|_, _, _| {}).unwrap();
         unsafe {
             std::env::remove_var("FRAMETRACE_DEEPFAKE_LENS");
         }
@@ -513,6 +533,24 @@ mod tests {
         let summary = screen_with_binary(shim.to_str().unwrap(), Path::new("x.png"));
         assert!(!summary.ok);
         assert!(summary.error.as_deref().unwrap_or("").contains("exited"));
+    }
+
+    #[test]
+    fn artifact_failed_detects_error_and_torn_artifacts() {
+        let dir = temp_dir();
+        let ok = dir.join("ok.json");
+        fs::write(&ok, "{\"ok\":true,\"score\":12}").unwrap();
+        assert!(!artifact_failed(&ok));
+        let err = dir.join("err.json");
+        fs::write(&err, "{\"ok\":false,\"error\":\"unparseable output\"}").unwrap();
+        assert!(artifact_failed(&err));
+        let error_field = dir.join("error_field.json");
+        fs::write(&error_field, "{\"score\":0,\"error\":\"crashed\"}").unwrap();
+        assert!(artifact_failed(&error_field));
+        let torn = dir.join("torn.json");
+        fs::write(&torn, "{\"ok\":tru").unwrap();
+        assert!(artifact_failed(&torn));
+        assert!(artifact_failed(&dir.join("missing.json")));
     }
 
     #[test]

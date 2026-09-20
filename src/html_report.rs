@@ -420,6 +420,24 @@ mod tests {
         assert!(html.contains("anomalyLog"));
     }
 
+    #[test]
+    fn evidence_viewer_embeds_deepfake_map_and_escapes_script_close() {
+        let manifest = r#"{"case_id":"FT-2","title":"Dfl"}"#;
+        let index = r#"{"videos":[]}"#;
+        // The deepfake map is keyed by sanitized artifact ids; a hostile
+        // </script> inside a field must not break the data block —
+        // json_for_script escapes it to <.
+        let deepfake = r#"{"vid_1":{"band":"high","score":88,"note":"</script><script>alert(1)</script>"}}"#;
+        let html = render_evidence_viewer_html(
+            manifest, index, "", "", "", "", "", "{}", "{}", deepfake,
+        );
+        assert!(html.contains("deepfake:{\"vid_1\""));
+        assert!(html.contains("vid_1"));
+        assert!(!html.contains("</script><script>alert(1)"));
+        assert!(html.contains("\\u003c/script\\u003e"));
+        assert_script_blocks_parse_with_node("evidence-viewer-dfl", &html);
+    }
+
     fn extract_script_blocks(html: &str) -> Vec<String> {
         let mut blocks = Vec::new();
         let mut rest = html;

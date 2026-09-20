@@ -391,6 +391,11 @@ pub enum Commands {
         /// Re-screen records that already have an artifact
         #[arg(long)]
         force: bool,
+        /// Re-screen only records whose existing artifact records a
+        /// screening failure (ok:false or error) — leaves good results
+        /// untouched
+        #[arg(long)]
+        retry_failed: bool,
     },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
@@ -796,7 +801,9 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             benchmark_db(&output_dir, options)
         }
         Commands::DeepfakeScreen { file, json_out } => deepfake_screen(&file, json_out.as_deref()),
-        Commands::DeepfakeScan { case_dir, force } => deepfake_scan(&case_dir, force),
+        Commands::DeepfakeScan { case_dir, force, retry_failed } => {
+            deepfake_scan(&case_dir, force, retry_failed)
+        }
         Commands::Inspect { case_dir } => inspect(&case_dir),
         Commands::Qa { command } => run_qa(command),
     }

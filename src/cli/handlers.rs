@@ -2597,21 +2597,21 @@ pub fn deepfake_screen(file: &Path, json_out: Option<&Path>) -> Result<(), Strin
     Ok(())
 }
 
-pub fn deepfake_scan(case_dir: &Path, force: bool) -> Result<(), String> {
+pub fn deepfake_scan(case_dir: &Path, force: bool, retry_failed: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let job = case_db::start_job(
         case_dir,
         "deepfake-scan",
         case_dir,
         None,
-        &format!("{{\"force\":{force}}}"),
+        &format!("{{\"force\":{force},\"retry_failed\":{retry_failed}}}"),
     )?;
     let progress = |done: usize, total: usize, id: &str| {
         if !id.is_empty() {
             println!("deepfake screen {done}/{total}: {id}");
         }
     };
-    let stats = match crate::deepfake::screen_case(case_dir, force, &progress) {
+    let stats = match crate::deepfake::screen_case(case_dir, force, retry_failed, &progress) {
         Ok(stats) => stats,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
