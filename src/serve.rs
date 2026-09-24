@@ -125,6 +125,11 @@ struct JobState {
     /// once in-flight connections drain so the workstation can actually be
     /// closed from the UI (the windowed launcher has no console to close).
     shutdown_requested: bool,
+    /// Random per-process nonce echoed by /api/status and written to the
+    /// user-private instance file. `find_running_server` requires this
+    /// marker so a spoofed `"app":"frametrace"` string on the probe port
+    /// range can no longer impersonate the workstation.
+    instance: String,
 }
 
 impl JobState {
@@ -143,8 +148,21 @@ impl JobState {
             byte_progress: None,
             token: None,
             shutdown_requested: false,
+            instance: new_instance_id(),
         }
     }
+}
+
+/// Random 128-bit hex nonce identifying this server process.
+fn new_instance_id() -> String {
+    let mut bytes = [0u8; 16];
+    if getrandom::fill(&mut bytes).is_err() {
+        // Entropy failure degrades to an empty marker — the strict instance
+        // check in find_running_server then simply never matches, which is
+        // fail-closed (we spawn a fresh server instead of reusing a stranger).
+        return String::new();
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 type SharedState = Arc<Mutex<JobState>>;
@@ -262,6 +280,7 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
         None => first_free_port().ok_or("사용 가능한 로컬 포트를 찾지 못했습니다")?,
     };
     let port = listener.local_addr().map(|addr| addr.port()).unwrap_or(0);
+    write_instance_file(port, &state_lock(&state).instance);
     let url = match &token {
         Some(token) => format!("http://127.0.0.1:{port}/?token={token}"),
         None => format!("http://127.0.0.1:{port}/"),
@@ -332,41 +351,110 @@ fn first_free_port() -> Option<TcpListener> {
     TcpListener::bind(("127.0.0.1", 0)).ok()
 }
 
-/// Probes the workstation port range for an already-running FrameTrace
-/// server. Identified by the `"app":"frametrace"` marker in /api/status so
-/// an unrelated local service on the same port is never hijacked.
-fn find_running_server() -> Option<u16> {
-    for port in 8477..=8486 {
-        let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
-            continue;
-        };
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
-        let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
-        if stream
-            .write_all(b"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-            .is_err()
-        {
-            continue;
+/// Path of the per-user instance file. `FRAMETRACE_INSTANCE_FILE` overrides
+/// it (tests, multi-instance harnesses); the default lives in the user's
+/// home directory so other local users cannot read the nonce.
+fn instance_file_path() -> Option<PathBuf> {
+    if let Ok(custom) = std::env::var("FRAMETRACE_INSTANCE_FILE") {
+        if !custom.trim().is_empty() {
+            return Some(PathBuf::from(custom));
         }
-        let mut buf = Vec::new();
-        let mut chunk = [0u8; 8192];
-        loop {
-            match stream.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => {
-                    buf.extend_from_slice(&chunk[..n]);
-                    if buf.len() > 64 * 1024 {
-                        break;
-                    }
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".frametrace").join("server.json"))
+}
+
+/// Records `{port, pid, instance}` in a user-private file (0600 on unix).
+/// The nonce lets future launches distinguish the real workstation from a
+/// process that merely prints the `"app":"frametrace"` marker.
+fn write_instance_file(port: u16, instance: &str) {
+    let Some(path) = instance_file_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+    let body = format!(
+        "{{\"port\":{port},\"pid\":{},\"instance\":{}}}",
+        std::process::id(),
+        json_string(instance)
+    );
+    if std::fs::write(&path, body).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+/// Reads the recorded `{port, instance}` pair, if the file exists and
+/// parses. Returns `None` for missing/corrupt files — callers then fall
+/// back to the structural port scan.
+fn read_instance_file() -> Option<(u16, String)> {
+    let text = std::fs::read_to_string(instance_file_path()?).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let port = value.get("port")?.as_u64()? as u16;
+    let instance = value.get("instance")?.as_str()?.to_string();
+    if instance.is_empty() {
+        return None;
+    }
+    Some((port, instance))
+}
+
+fn probe_status_body(port: u16) -> Option<Vec<u8>> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(800)));
+    stream
+        .write_all(b"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .ok()?;
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > 64 * 1024 {
+                    break;
                 }
-                Err(_) => break,
             }
-            // The status JSON is small; stop once the body marker arrives.
-            if buf.windows(18).any(|w| w == b"\"app\":\"frametrace\"") {
-                break;
-            }
+            Err(_) => break,
         }
         if buf.windows(18).any(|w| w == b"\"app\":\"frametrace\"") {
+            break;
+        }
+    }
+    Some(buf)
+}
+
+/// Probes for an already-running FrameTrace server. The instance file is
+/// the primary channel: the responder must echo the nonce only our server
+/// knows. When no instance file exists (server started by an older build),
+/// fall back to the structural scan — but require the full status shape
+/// (`app` + `has_job` + `case_dir` keys), not just the spoofable marker.
+fn find_running_server() -> Option<u16> {
+    if let Some((port, instance)) = read_instance_file() {
+        if let Some(body) = probe_status_body(port) {
+            let needle = format!("\"instance\":\"{instance}\"");
+            if body.windows(needle.len()).any(|w| w == needle.as_bytes()) {
+                return Some(port);
+            }
+        }
+        // Stale or foreign instance file: keep scanning below.
+    }
+    for port in 8477..=8486 {
+        let Some(buf) = probe_status_body(port) else {
+            continue;
+        };
+        let has = |key: &[u8]| buf.windows(key.len()).any(|w| w == key);
+        if has(b"\"app\":\"frametrace\"") && has(b"\"has_job\"") && has(b"\"case_dir\"") {
             return Some(port);
         }
     }
@@ -1070,7 +1158,8 @@ fn api_status(state: &SharedState) -> String {
         None => "null".to_string(),
     };
     format!(
-        "{{\"ok\":true,\"app\":\"frametrace\",\"has_job\":{},\"phase\":{},\"busy\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
+        "{{\"ok\":true,\"app\":\"frametrace\",\"instance\":{},\"has_job\":{},\"phase\":{},\"busy\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
+        json_string(&guard.instance),
         json_bool(guard.phase != "idle"),
         json_string(guard.phase),
         json_bool(guard.busy),

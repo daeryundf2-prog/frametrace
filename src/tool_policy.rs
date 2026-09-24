@@ -105,6 +105,33 @@ pub fn require_case_output_path(
         ));
     }
 
+    // The parent check only covers existing ancestors. An already-existing
+    // leaf is a separate escape vector: a symlink leaf resolves outside the
+    // case root even though its parent directory is inside. Reject symlink
+    // leaves outright and re-verify containment for any existing target.
+    match std::fs::symlink_metadata(&absolute_output) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(format!(
+                    "{label} output path is a symlink: {}",
+                    absolute_output.display()
+                ));
+            }
+            let canonical_leaf = absolute_output
+                .canonicalize()
+                .map_err(|err| format!("failed to canonicalize {label} output: {err}"))?;
+            if !canonical_leaf.starts_with(&case_root) {
+                return Err(format!(
+                    "{label} output must be inside the case directory {}; resolves to {}",
+                    case_root.display(),
+                    canonical_leaf.display()
+                ));
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("failed to inspect {label} output: {err}")),
+    }
+
     Ok(())
 }
 
