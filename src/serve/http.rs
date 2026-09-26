@@ -20,6 +20,9 @@ pub(crate) struct Request {
     pub(crate) cookie: Option<String>,
     /// X-FrameTrace-Token header (explicit-token auth for scripts/curl).
     pub(crate) token_header: Option<String>,
+    /// X-FrameTrace-Nonce header (instance-nonce proof for mutating
+    /// requests when FRAMETRACE_TOKEN is not configured).
+    pub(crate) nonce_header: Option<String>,
 }
 
 pub(crate) fn handle_connection(mut stream: TcpStream, state: SharedState) -> Result<(), String> {
@@ -55,6 +58,22 @@ pub(crate) fn handle_connection(mut stream: TcpStream, state: SharedState) -> Re
             AuthProof::Header | AuthProof::Cookie => {}
         }
     }
+    // Without a configured FRAMETRACE_TOKEN, mutating requests still prove
+    // they came from the workstation UI: every non-GET/HEAD request must
+    // present the per-instance nonce — planted as a SameSite=Strict
+    // ft_nonce cookie on page loads, so same-origin fetches carry it
+    // automatically while cross-site forms (which browsers strip it from)
+    // and non-browser clients that never learned it are refused. Scripts
+    // read the nonce from /api/status's "instance" field or the
+    // user-private instance file and send X-FrameTrace-Nonce.
+    if token.is_none() && !matches!(request.method.as_str(), "GET" | "HEAD") {
+        let instance = state_lock(&state).instance.clone();
+        if !request_nonce_authorized(&request, &instance) {
+            let _ = stream.write_all(&plain(401, b"unauthorized".to_vec()));
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            return Ok(());
+        }
+    }
     if request.method == "GET" && request.path == "/media" {
         let result = serve_media(&mut stream, &request, &state);
         let _ = stream.shutdown(std::net::Shutdown::Write);
@@ -70,6 +89,14 @@ pub(crate) fn handle_connection(mut stream: TcpStream, state: SharedState) -> Re
     let mut response = route(&request, &state);
     if plant_cookie && let Some(token) = token.as_deref() {
         set_token_cookie(&mut response, token);
+    }
+    // GETs under the no-token model also plant the instance nonce so the
+    // just-served page can satisfy the mutating-request gate.
+    if token.is_none() && request.method == "GET" {
+        let instance = state_lock(&state).instance.clone();
+        if !instance.is_empty() {
+            set_nonce_cookie(&mut response, &instance);
+        }
     }
     stream
         .write_all(&response)
@@ -109,6 +136,7 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     let mut host = None;
     let mut cookie = None;
     let mut token_header = None;
+    let mut nonce_header = None;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -129,6 +157,8 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
             cookie = Some(value.to_string());
         } else if name.eq_ignore_ascii_case("x-frametrace-token") {
             token_header = Some(value.to_string());
+        } else if name.eq_ignore_ascii_case("x-frametrace-nonce") {
+            nonce_header = Some(value.to_string());
         }
     }
     if content_length > MAX_BODY {
@@ -159,6 +189,7 @@ pub(crate) fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
         host,
         cookie,
         token_header,
+        nonce_header,
     })
 }
 
@@ -348,6 +379,37 @@ pub(crate) fn request_authorized(request: &Request, token: &str) -> AuthProof {
 /// after the status line.
 pub(crate) fn set_token_cookie(response: &mut Vec<u8>, token: &str) {
     let header = format!("Set-Cookie: ft_token={token}; HttpOnly; SameSite=Strict; Path=/\r\n");
+    if let Some(pos) = response.windows(2).position(|w| w == b"\r\n") {
+        response.splice(pos + 2..pos + 2, header.into_bytes());
+    }
+}
+
+/// Checks the instance-nonce proof for mutating requests in the no-token
+/// model. An empty configured nonce can never authenticate (entropy
+/// failure is fail-closed, matching the instance-file check).
+pub(crate) fn request_nonce_authorized(request: &Request, nonce: &str) -> bool {
+    if nonce.is_empty() {
+        return false;
+    }
+    if request.nonce_header.as_deref() == Some(nonce) {
+        return true;
+    }
+    if query_value(&request.query, "nonce").as_deref() == Some(nonce) {
+        return true;
+    }
+    request.cookie.as_deref().is_some_and(|cookie| {
+        cookie.split(';').any(|part| {
+            let mut parts = part.trim().splitn(2, '=');
+            parts.next().map(str::trim) == Some("ft_nonce") && parts.next() == Some(nonce)
+        })
+    })
+}
+
+/// Inserts the `ft_nonce` cookie so the served page's same-origin fetches
+/// carry the instance proof automatically. SameSite=Strict keeps it off
+/// cross-site form POSTs — the request then fails the nonce gate.
+pub(crate) fn set_nonce_cookie(response: &mut Vec<u8>, nonce: &str) {
+    let header = format!("Set-Cookie: ft_nonce={nonce}; HttpOnly; SameSite=Strict; Path=/\r\n");
     if let Some(pos) = response.windows(2).position(|w| w == b"\r\n") {
         response.splice(pos + 2..pos + 2, header.into_bytes());
     }

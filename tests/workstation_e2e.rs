@@ -46,13 +46,28 @@ fn unique_dir(name: &str) -> PathBuf {
 /// closes connections after one response (write half-close), so request
 /// and response live on one connection.
 fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    http_with(port, method, path, body, None)
+}
+
+/// Mutating requests need the instance nonce under the no-token gate —
+/// the workstation reports it as /api/status's "instance" field.
+fn http_with(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    nonce: Option<&str>,
+) -> (u16, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect workstation");
     stream
         .set_read_timeout(Some(Duration::from_secs(120)))
         .unwrap();
     let body = body.unwrap_or("");
+    let nonce_header = nonce
+        .map(|nonce| format!("X-FrameTrace-Nonce: {nonce}\r\n"))
+        .unwrap_or_default();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n{nonce_header}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).unwrap();
@@ -164,6 +179,21 @@ fn workstation_full_pipeline_over_http() {
         panic!("idle status failed: {code} {body}");
     }
 
+    // The mutating-request gate needs the instance nonce — read it from
+    // the status body reported above.
+    let nonce_at = body
+        .find("\"instance\":\"")
+        .map(|at| at + "\"instance\":\"".len())
+        .expect("status reports an instance nonce");
+    let nonce_end = body[nonce_at..]
+        .find('"')
+        .map(|off| nonce_at + off)
+        .expect("instance nonce is quoted");
+    let nonce = body[nonce_at..nonce_end].to_string();
+    // A nonce-less mutating request must be refused outright.
+    let (code, _) = http(port, "POST", "/api/start", Some("{}"));
+    assert_eq!(code, 401, "POST without the instance nonce must be 401");
+
     // Start the folder pipeline with hashing and ffprobe.
     // serde_json quoting keeps Windows paths valid: C:\...\source contains
     // backslashes that would corrupt raw-{} interpolation as JSON escapes.
@@ -172,7 +202,7 @@ fn workstation_full_pipeline_over_http() {
         serde_json::to_string(&work.join("source").display().to_string()).unwrap(),
         serde_json::to_string(&case_dir.display().to_string()).unwrap()
     );
-    let (code, body) = http(port, "POST", "/api/start", Some(&start_body));
+    let (code, body) = http_with(port, "POST", "/api/start", Some(&start_body), Some(&nonce));
     if code != 200 || !body.contains("\"ok\":true") {
         cleanup(&mut child);
         panic!("api/start failed: {code} {body}");
@@ -186,7 +216,7 @@ fn workstation_full_pipeline_over_http() {
     }
 
     // Finalize -> make-report + package-case.
-    let (code, body) = http(port, "POST", "/api/finalize", Some("{}"));
+    let (code, body) = http_with(port, "POST", "/api/finalize", Some("{}"), Some(&nonce));
     if code != 200 || !body.contains("\"ok\":true") {
         cleanup(&mut child);
         panic!("api/finalize failed: {code} {body}");

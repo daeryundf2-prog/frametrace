@@ -172,6 +172,7 @@ fn api_responses_stay_valid_json_with_hostile_strings() {
         host: None,
         cookie: None,
         token_header: None,
+        nonce_header: None,
     };
     let parse = |label: &str, json: &str| -> serde_json::Value {
         serde_json::from_str(json)
@@ -323,6 +324,7 @@ fn case_binding_api_rejects_marks_before_writing() {
             host: None,
             cookie: None,
             token_header: None,
+            nonce_header: None,
         };
         let response: serde_json::Value =
             serde_json::from_str(&api_import_marks(&request, &state)).unwrap();
@@ -475,6 +477,7 @@ fn export_selected_copies_allowed_files_and_writes_manifest() {
         host: None,
         cookie: None,
         token_header: None,
+        nonce_header: None,
     };
     let out = api_export_selected(&request, &state);
     assert!(out.contains("\"ok\":true"), "{out}");
@@ -521,6 +524,7 @@ fn origin_gate_requires_exact_loopback_authority() {
         host: host.map(str::to_string),
         cookie: None,
         token_header: None,
+        nonce_header: None,
     };
     // Prefix-spoofed authorities that the old starts_with gate let
     // through: a loopback literal as a subdomain prefix, as userinfo,
@@ -670,10 +674,36 @@ fn server_answers_status_env_and_guards() {
         "POST /api/open-folder HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: http://evil.example\r\nContent-Type: text/plain\r\nContent-Length: 23\r\n\r\n{\"path\":\"C:\\\\evil.exe\"}",
     );
     assert!(csrf.contains("403"), "{csrf}");
-    let traversal = response(
+    // Nonce gate (no FRAMETRACE_TOKEN configured): a mutating POST with
+    // no nonce proof is refused before reaching the handler. The nonce
+    // itself is the "instance" value /api/status reports.
+    let nonce_start = status.find("\"instance\":\"").unwrap() + "\"instance\":\"".len();
+    let nonce = &status[nonce_start..status[nonce_start..].find('"').unwrap() + nonce_start];
+    assert!(!nonce.is_empty());
+    let no_nonce = response(
         "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"source_path\":\"C:\\nope\\missing\"}",
     );
-    assert!(traversal.contains("\"ok\":false"));
+    assert!(no_nonce.contains("401"), "{no_nonce}");
+    let bad_nonce = response(
+        "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FrameTrace-Nonce: wrong\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{\"source_path\":\"C:\\nope\\missing\"}",
+    );
+    assert!(bad_nonce.contains("401"), "{bad_nonce}");
+    // The planted ft_nonce cookie and the explicit header both satisfy
+    // the gate — the request then reaches the handler's own error path.
+    let header = response(&format!(
+        "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nX-FrameTrace-Nonce: {nonce}\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{{\"source_path\":\"C:\\\\nope\\\\missing\"}}"
+    ));
+    assert!(header.contains("\"ok\":false"), "{header}");
+    let cookie = response(&format!(
+        "POST /api/start HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ft_nonce={nonce}\r\nContent-Type: application/json\r\nContent-Length: 33\r\n\r\n{{\"source_path\":\"C:\\\\nope\\\\missing\"}}"
+    ));
+    assert!(cookie.contains("\"ok\":false"), "{cookie}");
+    // GETs plant the ft_nonce cookie so the served page's same-origin
+    // fetches carry the proof automatically.
+    assert!(
+        status.contains("Set-Cookie: ft_nonce="),
+        "GET responses must plant the nonce cookie: {status}"
+    );
 }
 
 #[test]
@@ -688,6 +718,7 @@ fn token_auth_accepts_header_query_and_cookie() {
         host: None,
         cookie: cookie.map(str::to_string),
         token_header: header.map(str::to_string),
+        nonce_header: None,
     };
     let token = "abc12345-x";
     assert_eq!(

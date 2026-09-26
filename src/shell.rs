@@ -156,16 +156,47 @@ fn request_shutdown(port: u16) {
         Ok(token) if !token.trim().is_empty() => format!("?token={token}"),
         _ => String::new(),
     };
+    // No configured token means the mutating-request gate wants the
+    // instance nonce — the shell shares the user's trust domain, so the
+    // user-private instance file (or /api/status) supplies it.
+    let nonce_header = instance_nonce(port)
+        .map(|nonce| format!("X-FrameTrace-Nonce: {nonce}\r\n"))
+        .unwrap_or_default();
     let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
         return;
     };
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-    let request = format!("POST /api/shutdown{query} HTTP/1.0\r\nContent-Length: 0\r\n\r\n");
+    let request =
+        format!("POST /api/shutdown{query} HTTP/1.0\r\n{nonce_header}Content-Length: 0\r\n\r\n");
     if stream.write_all(request.as_bytes()).is_err() {
         return;
     }
     let mut buf = [0u8; 512];
     let _ = stream.read(&mut buf);
+}
+
+/// Per-process instance nonce for the nonce gate: the instance file is
+/// authoritative (user-private); /api/status is the fallback for servers
+/// started before instance files existed.
+fn instance_nonce(port: u16) -> Option<String> {
+    if let Some((instance_port, instance)) = crate::serve::read_instance_file()
+        && instance_port == port
+        && !instance.is_empty()
+    {
+        return Some(instance);
+    }
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream
+        .write_all(b"GET /api/status HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .ok()?;
+    let mut body = String::new();
+    let _ = stream.read_to_string(&mut body);
+    let needle = "\"instance\":\"";
+    let start = body.find(needle)? + needle.len();
+    let end = body[start..].find('"')? + start;
+    let nonce = &body[start..end];
+    (!nonce.is_empty()).then(|| nonce.to_string())
 }
 
 fn host_window(url: &str) -> Result<(), String> {
