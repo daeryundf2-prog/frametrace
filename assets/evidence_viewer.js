@@ -1083,6 +1083,7 @@ function touchAnnotation(id) {
   state.drafts[id] = draft;
   state.deletedIds = [...new Set([...state.deletedIds, id])];
   storageSet(ANNOTATIONS_KEY, state.drafts);
+  markReviewDirty();
 }
 
 function hydrateAnnotations(annotations) {
@@ -1443,7 +1444,7 @@ function renderCard(record) {
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
   const staleTag = record.indexStatus === "stale" ? '<span class="muted">(stale)</span>' : "";
   const thumb = record.thumb
-    ? `<img src="${escapeHtml(record.thumb)}" loading="lazy">`
+    ? `<img src="${escapeHtml(record.thumb)}" loading="lazy" decoding="async" fetchpriority="low">`
     : `<div class="ph">${record.status === "validation-failed" ? t("thumb.damaged") : t("thumb.missing")}</div>`;
   const recTypeTag = record.recType ? `<span class="rec-type">${escapeHtml(recTypeLabel(record.recType))}</span>` : "";
   const channel = record.channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : "";
@@ -2183,6 +2184,26 @@ window.__ftBridge = {
   },
 };
 
+// BroadcastChannel mirror of __ftBridge: a popup bound to this case keeps
+// working even when window.opener was severed (browser popup policies,
+// parent navigation), because the channel is name-addressed rather than
+// object-referenced. Requests carry a correlation seq; replies echo it.
+const playerChannel = ("BroadcastChannel" in window)
+  ? new BroadcastChannel(`ft-player:${manifest.case_id || "case"}`)
+  : null;
+if (playerChannel) {
+  playerChannel.addEventListener("message", (ev) => {
+    const m = ev.data || {};
+    const reply = (payload) => playerChannel.postMessage({ seq: m.seq, payload });
+    if (m.type === "descriptor") reply(playerDescriptor());
+    else if (m.type === "focus") reply(window.__ftBridge.focus(m.arg));
+    else if (m.type === "navigate") reply(window.__ftBridge.navigate(m.arg));
+    else if (m.type === "mark") reply(window.__ftBridge.mark(m.arg));
+    else if (m.type === "toggleTag") reply(window.__ftBridge.toggleTag(m.arg));
+    else if (m.type === "list") reply(window.__ftBridge.list());
+  });
+}
+
 // A minimal dedicated player window — the examiner can park the clip on
 // a second monitor and keep triaging: marks, tags, and next/previous
 // navigation all route back through __ftBridge.
@@ -2252,7 +2273,16 @@ var RATES=[${RATES.join(",")}];
 var rate=document.getElementById("rate");
 var cur=null;
 v.playbackRate=${rate};
-function B(){return (window.opener&&!window.opener.closed&&window.opener.__ftBridge)||null;}
+var seqN=0,pend={},chan=("BroadcastChannel" in window)?new BroadcastChannel(${JSON.stringify(`ft-player:${manifest.case_id || "case"}`)}):null;
+if(chan){chan.onmessage=function(ev){var m=ev.data||{},f=m.seq&&pend[m.seq];if(f){delete pend[m.seq];f(m.payload);}};}
+function call(op,arg,cb){
+var b=(window.opener&&!window.opener.closed&&window.opener.__ftBridge)||null;
+if(b){try{cb(b[op](arg));}catch(e){cb(undefined);}return;}
+if(!chan){cb(undefined);return;}
+var s=++seqN;pend[s]=cb;
+chan.postMessage({type:op,seq:s,arg:arg});
+setTimeout(function(){if(pend[s]){delete pend[s];cb(undefined);}},3000);
+}
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]});}
 function note(t){document.getElementById("note").textContent=t||"";}
 function dead(){note(${JSON.stringify(t("player.dead"))});}
@@ -2270,18 +2300,19 @@ renderList();
 }
 var listEl=document.getElementById("list");
 function renderList(){
-var b=B();if(!b){listEl.innerHTML="";return;}
-var items=b.list();
+call("list",null,function(items){
+if(!items){listEl.innerHTML="";return;}
 listEl.innerHTML=items.map(function(it){
 return '<div class="li'+(it.id===(cur&&cur.id)?" on":"")+(it.hasVideo?"":" novid")+'" data-id="'+esc(it.id)+'" tabindex="0" role="option" aria-selected="'+(it.id===(cur&&cur.id))+'"><span class="idx">'+it.index+'</span>'+esc(it.name)+(it.markLabel?'<span class="mk">'+esc(it.markLabel)+'</span>':'')+'</div>';
 }).join("");
 var on=listEl.querySelector(".li.on");if(on)on.scrollIntoView({block:"nearest"});
+});
 }
-listEl.addEventListener("click",function(e){var it=e.target.closest(".li");if(!it)return;var b=B();if(!b){dead();return;}applyDesc(b.focus(it.dataset.id),true);});
-listEl.addEventListener("keydown",function(e){if(e.key!=="Enter"&&e.key!==" ")return;var it=e.target.closest(".li");if(!it)return;e.preventDefault();var b=B();if(!b){dead();return;}applyDesc(b.focus(it.dataset.id),true);});
-function nav(step,autoplay){var b=B();if(!b){dead();return;}var r=b.navigate(step);applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?${JSON.stringify(t("player.last"))}:${JSON.stringify(t("player.first"))});else note("");}
-function doMark(m){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.mark(m||null),true);}
-function doTag(t){var b=B();if(!b||!cur){dead();return;}b.focus(cur.id);applyDesc(b.toggleTag(t),false);}
+listEl.addEventListener("click",function(e){var it=e.target.closest(".li");if(!it)return;call("focus",it.dataset.id,function(d){if(d===undefined){dead();return;}applyDesc(d,true);});});
+listEl.addEventListener("keydown",function(e){if(e.key!=="Enter"&&e.key!==" ")return;var it=e.target.closest(".li");if(!it)return;e.preventDefault();call("focus",it.dataset.id,function(d){if(d===undefined){dead();return;}applyDesc(d,true);});});
+function nav(step,autoplay){call("navigate",step,function(r){if(!r){dead();return;}applyDesc(r.descriptor,autoplay);if(!r.moved)note(step>0?${JSON.stringify(t("player.last"))}:${JSON.stringify(t("player.first"))});else note("");});}
+function doMark(m){if(!cur)return;call("focus",cur.id,function(f){if(f===undefined){dead();return;}call("mark",m||null,function(d){if(d===undefined){dead();return;}applyDesc(d,true);});});}
+function doTag(t){if(!cur)return;call("focus",cur.id,function(f){if(f===undefined){dead();return;}call("toggleTag",t,function(d){if(d===undefined){dead();return;}applyDesc(d,false);});});}
 function skip(d){v.currentTime=Math.max(0,Math.min(v.duration||1e9,v.currentTime+d));}
 function stepRate(d){var i=RATES.indexOf(Number(rate.value));var n=RATES[Math.max(0,Math.min(RATES.length-1,(i<0?3:i)+d))];rate.value=String(n);v.playbackRate=n;}
 document.getElementById("b10").onclick=function(){skip(-10)};
@@ -2314,7 +2345,7 @@ else if(e.key===" "){e.preventDefault();v.paused?v.play():v.pause();}
 else if(e.key==="j")nav(1,true);else if(e.key==="k")nav(-1,true);
 else if(e.key==="1")doMark("reviewed");else if(e.key==="2")doMark("important");
 else if(e.key==="3")doMark("needs_verification");else if(e.key==="0")doMark("");});
-var b0=B();if(b0){applyDesc(b0.descriptor(),true);}else{dead();}
+call("descriptor",null,function(d){if(d===undefined){dead();}else{applyDesc(d,true);}});
 <\/script></body></html>`);
   win.document.close();
   win.focus();
@@ -2761,19 +2792,70 @@ document.getElementById("btnDownloadMarks").addEventListener("click", () => {
   downloadJSON(`frametrace-marks-${manifest.case_id || "case"}.json`, payload);
 });
 
+// --- Review-change protection -------------------------------------------
+// touchAnnotation() funnels every mark/note/tag mutation, and deletedIds
+// already tracks records changed since the last server import. pendingReviewSync
+// drives both the beforeunload guard and the debounced server auto-save, so
+// examiner work can't silently die in localStorage.
+let pendingReviewSync = state.deletedIds.length > 0;
+let autosaveTimer = null;
+const viewerIsServed = location.protocol === "http:" || location.protocol === "https:";
+
+function markReviewDirty() {
+  pendingReviewSync = true;
+  if (!viewerIsServed) return; // file:// viewing — unload warning only
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(autoApplyMarks, 2500);
+}
+
+function clearReviewDirty() {
+  pendingReviewSync = false;
+  state.deletedIds = [];
+  state.drafts = {};
+  storageSet(ANNOTATIONS_KEY, state.drafts);
+}
+
+async function pushMarksToCase(payload) {
+  const res = await fetch("/api/import-marks", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ marks_json: JSON.stringify(payload) })
+  });
+  return res.json();
+}
+
+async function autoApplyMarks() {
+  if (!pendingReviewSync || !viewerIsServed) return;
+  const payload = marksPayload();
+  if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) {
+    clearReviewDirty();
+    return;
+  }
+  try {
+    const data = await pushMarksToCase(payload);
+    if (data.ok) clearReviewDirty();
+  } catch { /* stay dirty — the next change retries */ }
+}
+
+window.addEventListener("beforeunload", (event) => {
+  if (!pendingReviewSync && !state.deletedIds.length) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
 // Server-served viewers can push marks straight into the case DB instead of
 // the download → file-pick → import dance.
 document.getElementById("btnApplyMarks").addEventListener("click", async () => {
   const payload = marksPayload();
   if (!payload.marks.length && !payload.tags.length && !payload.deleted_ids.length) { toast(t("toast.noChanges")); return; }
   try {
-    const res = await fetch("/api/import-marks", {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ marks_json: JSON.stringify(payload) })
-    });
-    const data = await res.json();
-    toast(data.ok ? t("toast.applyDone") : tf("toast.applyFail", { err: data.error || "?" }));
+    const data = await pushMarksToCase(payload);
+    if (data.ok) {
+      clearReviewDirty();
+      toast(t("toast.applyDone"));
+    } else {
+      toast(tf("toast.applyFail", { err: data.error || "?" }));
+    }
   } catch (err) {
     toast(t("toast.applyOffline"));
   }

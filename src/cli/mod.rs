@@ -801,9 +801,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             benchmark_db(&output_dir, options)
         }
         Commands::DeepfakeScreen { file, json_out } => deepfake_screen(&file, json_out.as_deref()),
-        Commands::DeepfakeScan { case_dir, force, retry_failed } => {
-            deepfake_scan(&case_dir, force, retry_failed)
-        }
+        Commands::DeepfakeScan {
+            case_dir,
+            force,
+            retry_failed,
+        } => deepfake_scan(&case_dir, force, retry_failed),
         Commands::Inspect { case_dir } => inspect(&case_dir),
         Commands::Qa { command } => run_qa(command),
     }

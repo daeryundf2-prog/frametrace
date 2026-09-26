@@ -379,6 +379,91 @@ pub fn screen_case(
     Ok(stats)
 }
 
+/// Parallel variant of `screen_case`: every screening spawns a
+/// deepfake-lens subprocess, so a small worker pool overlaps interpreter
+/// startup and inference instead of serializing seconds-to-minutes per
+/// file. Policy skips, artifact writes, and progress callbacks still run
+/// on the calling thread — `progress(done, queued, &id)` reports queue
+/// progress where `queued` counts only records actually screened.
+pub fn screen_case_parallel(
+    case_dir: &Path,
+    force: bool,
+    retry_failed: bool,
+    progress: &dyn Fn(usize, usize, &str),
+    workers: usize,
+) -> Result<ScreenCaseStats, String> {
+    let targets = collect_targets(case_dir);
+    let artifact_dir = case_dir.join("artifacts/deepfake");
+    fs::create_dir_all(&artifact_dir)
+        .map_err(|err| format!("deepfake artifact dir failed: {err}"))?;
+    let mut stats = ScreenCaseStats::default();
+
+    // Policy skips are resolved up front so the worker pool only carries
+    // records that will actually invoke deepfake-lens.
+    let mut queue = Vec::new();
+    for target in targets {
+        let artifact = artifact_dir.join(format!("{}.json", artifact_name(&target.id)));
+        if artifact.is_file() && !force && !(retry_failed && artifact_failed(&artifact)) {
+            stats.skipped_existing += 1;
+            continue;
+        }
+        if !target.path.is_file() {
+            stats.skipped_missing += 1;
+            continue;
+        }
+        queue.push(target);
+    }
+
+    let queued = queue.len();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, DeepfakeSummary)>();
+    let worker_count = workers.clamp(1, 8).min(queued.max(1));
+    std::thread::scope(|scope| {
+        for _ in 0..worker_count {
+            let tx = tx.clone();
+            let queue = &queue;
+            let next = &next;
+            scope.spawn(move || {
+                loop {
+                    let idx = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(target) = queue.get(idx) else {
+                        break;
+                    };
+                    if tx.send((idx, screen(&target.path))).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(tx);
+        for (done, (idx, screening)) in rx.into_iter().enumerate() {
+            let target = &queue[idx];
+            progress(done, queued, &target.id);
+            let screen_error = screening.error.clone();
+            let body = screening.raw_json.clone().unwrap_or_else(|| {
+                format!(
+                    "{{\"ok\":false,\"error\":\"{}\",\"origin\":\"{}\"}}",
+                    crate::util::json_escape(screen_error.as_deref().unwrap_or("unknown")),
+                    target.origin
+                )
+            });
+            let artifact = artifact_dir.join(format!("{}.json", artifact_name(&target.id)));
+            match crate::util::write_text_atomic(&artifact, &body) {
+                Ok(()) => {
+                    if screen_error.is_some() {
+                        stats.failed += 1;
+                    } else {
+                        stats.screened += 1;
+                    }
+                }
+                Err(_) => stats.failed += 1,
+            }
+        }
+    });
+    progress(queued, queued, "");
+    Ok(stats)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

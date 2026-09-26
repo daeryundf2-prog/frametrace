@@ -130,7 +130,7 @@ body.theater .player { height: calc(100vh - 52px); }
 
 /* ---- thumbnail grid ---- */
 .grid { overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); grid-auto-rows: max-content; gap: 8px; align-content: start; padding: 2px 4px 6px 2px; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 240px; }
 .card:hover { border-color: var(--accent); }
 .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }

@@ -1,27 +1,33 @@
-# FrameTrace WinUI Shell
+# FrameTrace WinUI 셸 — 현재 상태: 런처
 
-Thin Windows desktop shell. **Evidence logic stays in `frametrace.exe`.**
+이 디렉터리의 WinUI 3 앱은 **엔진 런처**입니다. `frametrace-app.exe` /
+`frametrace.exe`를 찾아 `Process.Start`로 실행하고, 실제 워크스테이션 UI는
+엔진이 띄우는 로컬 웹 페이지(`http://127.0.0.1:포트`)가 담당합니다.
 
-## Prerequisites
+즉 현재 사용자 흐름은 "WinUI 창 → 시작 버튼 → 기본 브라우저 탭"이며,
+두 개의 창이 생깁니다. 이것은 의도된 최종 형태가 아니라 배포용 임시
+경로입니다.
 
-- .NET SDK 8+ (user-local install is fine):
-  `powershell -File https://dot.net/v1/dotnet-install.ps1` style, or
-  already under `%LOCALAPPDATA%\Microsoft\dotnet`
-- Windows App SDK templates:
-  `dotnet new install Microsoft.WindowsAppSDK.WinUI.CSharp.Templates`
-- Release engine nearby: `target/release/frametrace.exe` (+ optional `frametrace-app.exe`)
+## 왜 런처인가
 
-## Build / run
+- 포렌식 엔진(Rust 바이너리 + 임베디드 HTML)은 이미 브라우저 기반
+  워크스테이션으로 완결되어 있습니다.
+- WinUI 셸은 시작 진입점·엔진 상태 표시·설치된 도구 감지 역할만 합니다.
+- 엔진 없이 셸만 실행하면 아무 기능도 동작하지 않습니다.
 
-```powershell
-$env:Path = "$env:LOCALAPPDATA\Microsoft\dotnet;$env:Path"
-cd gui/winui
-dotnet build -c Release -p:Platform=x64
-dotnet run -c Release -p:Platform=x64
-```
+## 로드맵: 단일 네이티브 창 (WebView2)
 
-## Behavior
+목표는 WebView2를 셸 내부에 임베딩해 별도 브라우저 탭 없이 단일 네이티브
+앱으로 구동하는 것입니다.
 
-- Launch examiner workstation → starts `frametrace-app.exe` (falls back to `frametrace.exe`).
-- `make-review` / `make-report` / `qa anomalies` → subprocess to CLI with the case folder.
-- Does not reimplement scan/carve/validation.
+1. `MainPage`에 `WebView2` 컨트롤 추가 — 엔진 기동 후 `127.0.0.1` URL로
+   `CoreWebView2.Navigate`.
+2. 엔진의 `/api/status`를 폴링해 서버 준비 전 로딩 화면, 실패 시
+   `api_env`의 도구/힌트 정보 표시.
+3. `FRAMETRACE_NO_BROWSER=1`로 엔진을 자식 프로세스로 띄우고 셸 종료 시
+   `/api/shutdown` → 프로세스 종료 순으로 깨끗이 정리.
+4. WebView2 런타임은 Windows 10 1803+ / 11에 사전 설치됨(Edge 기반).
+   미설치 환경에서는 기존 브라우저 런처 경로로 폴백.
+
+대안으로 Tauri 단일화도 검토 대상이나, Rust 엔진이 이미 완성형 HTTP
+서버라 WebView2 임베딩이 변경 폭이 가장 작습니다.

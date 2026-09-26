@@ -3240,8 +3240,12 @@ fn serve_media(
                 }
             })
             .collect();
+        // RFC 5987/6266: keep the ASCII fallback filename for old clients but
+        // also send filename*=UTF-8''<percent-encoded> so Korean/non-ASCII
+        // evidence names survive the download instead of collapsing to "___".
+        let encoded = percent_encode_header_value(name);
         head.push_str(&format!(
-            "Content-Disposition: attachment; filename=\"{safe}\"\r\n"
+            "Content-Disposition: attachment; filename=\"{safe}\"; filename*=UTF-8''{encoded}\r\n"
         ));
     }
     if code == 206 {
@@ -3332,6 +3336,34 @@ fn respond(
     let mut bytes = head.into_bytes();
     bytes.extend_from_slice(&body);
     bytes
+}
+
+/// Percent-encodes a value for RFC 5986/5987 ext-value (`filename*=`).
+/// attr-char per RFC 5987 §3.2.1; everything else becomes %XX of the UTF-8
+/// byte sequence, so Korean and other non-ASCII names round-trip correctly.
+fn percent_encode_header_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for &b in value.as_bytes() {
+        match b {
+            b'!'
+            | b'#'
+            | b'$'
+            | b'&'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'|'
+            | b'~'
+            | b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'a'..=b'z' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -4189,6 +4221,24 @@ mod tests {
         assert_eq!(std::fs::read(&first).unwrap(), b"payload");
         assert_eq!(std::fs::read(&second).unwrap(), b"payload");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn download_header_preserves_utf8_filenames() {
+        // Korean evidence names must not collapse to underscores: the ASCII
+        // fallback stays sanitized while filename*=UTF-8'' carries the real
+        // name per RFC 5987.
+        let encoded = percent_encode_header_value("사고_블랙박스_전방_20260926_1400.mp4");
+        assert!(encoded.contains(".mp4"));
+        assert!(encoded.contains('%'), "{encoded}");
+        // UTF-8 사 → EC 82 AC
+        assert!(encoded.contains("%EC%82%AC"), "{encoded}");
+        assert_eq!(
+            percent_encode_header_value("plain-file_1.mp4"),
+            "plain-file_1.mp4"
+        );
+        assert_eq!(percent_encode_header_value("a b.mp4"), "a%20b.mp4");
+        assert_eq!(percent_encode_header_value("x\"y.mp4"), "x%22y.mp4");
     }
 
     #[test]

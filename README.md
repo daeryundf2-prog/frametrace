@@ -66,12 +66,13 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/static-analysis.md` - static-analysis baseline snapshot.
 - `docs/cleanup-review.md` - cleanup decisions and symbol handling rules.
 
-## Two viewers, one engine
+## Viewer
 
-`gui/evidence-viewer/` is the static design prototype (mock data, four-pane
-workstation). The case-facing viewer is generated per case at
+The case-facing viewer is generated per case at
 `review/evidence-viewer.html` by `make-review` — a serverless single page with a
-left/right split, thumbnail grid, tagging, and marks. Docs describing a
+left/right split, thumbnail grid, tagging, and marks. (The old
+`gui/evidence-viewer/` static mock prototype was removed — it was not the
+real viewer and confused contributors.) Docs describing a
 "four-pane" layout refer to the prototype; the generated viewer is the product.
 
 ## Examiner Workstation (single executable)
@@ -153,7 +154,6 @@ cargo run -- benchmark-db ./target/frametrace-db-bench --rows 10000
 Open `case-001/review/index.html` in a browser after `make-review`.
 Open `case-001/review/evidence-viewer.html` to review actual indexed/candidate media in a viewer-first page. The viewer supports responsive/resizable layout (drag the column splitters, double-click to reset), video size modes (fit/50%/100%/200%), theater/fullscreen/picture-in-picture, multi-select with shift-click ranges, bulk examiner marks persisted per case in browser storage, and selection list download. Feed a downloaded selection file back to the engine with `export-batch` (add `--dry-run` to preview) or `validate-batch`, and round-trip examiner marks with `import-marks`/`export-marks` (stored in the case SQLite `review_marks` table).
 Open `case-001/reports/case-report.html` after `make-report`.
-Open `gui/evidence-viewer/index.html` to review the viewer-first GUI prototype. The prototype defaults to Korean and can be switched to English from the top-right language button.
 
 By default, `scan-folder` skips full SHA-256 hashing because terabyte-scale evidence can take hours. Use `--hash` when the evidence workflow requires per-file hashes.
 

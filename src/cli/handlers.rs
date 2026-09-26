@@ -200,6 +200,48 @@ pub fn scan_folder(
     println!("bytes indexed: {}", result.total_bytes);
     println!("index: {}", case_dir.join("db/video_index.json").display());
     println!("sqlite: {}", case_db::case_db_path(case_dir).display());
+
+    // Deepfake screening runs as its own job after indexing completes, so
+    // the scan step finishes fast and screening progress is visible as a
+    // separate pass. A small worker pool overlaps the per-file subprocess
+    // overhead instead of serializing deepfake-lens invocations.
+    if options.deepfake_screen {
+        let dj = case_db::start_job(case_dir, "deepfake-scan", source_dir, None, "{}")?;
+        let progress_job_id = dj.job_id.clone();
+        let stats = match crate::deepfake::screen_case_parallel(
+            case_dir,
+            false,
+            false,
+            &move |done, total, id| {
+                let _ = case_db::report_job_progress(
+                    case_dir,
+                    &progress_job_id,
+                    Some(total as u64),
+                    done as u64,
+                );
+                if !id.is_empty() {
+                    println!("deepfake screen {done}/{total}: {id}");
+                }
+            },
+            3,
+        ) {
+            Ok(stats) => stats,
+            Err(err) => {
+                let _ = case_db::fail_job(case_dir, &dj.job_id, &err);
+                return Err(err);
+            }
+        };
+        case_db::complete_job(
+            case_dir,
+            &dj.job_id,
+            stats.screened as u64,
+            "deepfake-scan completed",
+        )?;
+        println!(
+            "deepfake screening: {} screened, {} already done, {} missing, {} failed",
+            stats.screened, stats.skipped_existing, stats.skipped_missing, stats.failed
+        );
+    }
     Ok(())
 }
 
@@ -2611,13 +2653,14 @@ pub fn deepfake_scan(case_dir: &Path, force: bool, retry_failed: bool) -> Result
             println!("deepfake screen {done}/{total}: {id}");
         }
     };
-    let stats = match crate::deepfake::screen_case(case_dir, force, retry_failed, &progress) {
-        Ok(stats) => stats,
-        Err(err) => {
-            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
-            return Err(err);
-        }
-    };
+    let stats =
+        match crate::deepfake::screen_case_parallel(case_dir, force, retry_failed, &progress, 3) {
+            Ok(stats) => stats,
+            Err(err) => {
+                let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+                return Err(err);
+            }
+        };
     case_db::complete_job(
         case_dir,
         &job.job_id,
