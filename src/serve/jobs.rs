@@ -657,7 +657,7 @@ pub(crate) fn api_import_marks(request: &Request, state: &SharedState) -> String
             )
         });
     if let Err(err) = preflight {
-        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+        return serde_json::json!({"ok": false, "error": err}).to_string();
     }
     if let Err(err) = std::fs::write(&marks_path, &marks_body) {
         return format!(
@@ -684,10 +684,10 @@ pub(crate) fn api_import_marks(request: &Request, state: &SharedState) -> String
         ],
         state,
     ) {
-        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+        return serde_json::json!({"ok": false, "error": err}).to_string();
     }
     if let Err(err) = run_step(&exe, &["make-report".into(), case_text.clone()], state) {
-        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+        return serde_json::json!({"ok": false, "error": err}).to_string();
     }
     {
         let mut guard = state_lock(state);
@@ -764,7 +764,7 @@ pub(crate) fn api_finalize(state: &SharedState) -> String {
             guard.phase = "review-ready";
             guard.busy = false;
             guard.error = Some(error.clone());
-            format!("{{\"ok\":false,\"error\":{}}}", json_string(&error))
+            serde_json::json!({"ok": false, "error": error}).to_string()
         }
     }
 }
@@ -840,7 +840,7 @@ pub(crate) fn api_recover_deleted(state: &SharedState) -> String {
             guard.phase = "review-ready";
             guard.busy = false;
             guard.error = Some(error.clone());
-            format!("{{\"ok\":false,\"error\":{}}}", json_string(&error))
+            serde_json::json!({"ok": false, "error": error}).to_string()
         }
     }
 }
@@ -913,7 +913,7 @@ pub(crate) fn api_carve(request: &Request, state: &SharedState) -> String {
             guard.phase = "review-ready";
             guard.busy = false;
             guard.error = Some(error.clone());
-            format!("{{\"ok\":false,\"error\":{}}}", json_string(&error))
+            serde_json::json!({"ok": false, "error": error}).to_string()
         }
     }
 }

@@ -43,7 +43,7 @@ fn progress_query_does_not_create_an_uninitialized_case() {
     let case_dir =
         std::env::temp_dir().join(format!("ft-progress-uninitialized-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&case_dir);
-    assert_eq!(progress_json(Some(&case_dir), None), "null");
+    assert!(progress_json(Some(&case_dir), None).is_null());
     assert!(!case_dir.exists());
 }
 
@@ -54,7 +54,7 @@ fn progress_json_reports_running_job_with_eta() {
     std::fs::create_dir_all(&case_dir).unwrap();
 
     std::fs::write(case_dir.join("case.json"), b"{}").unwrap();
-    assert_eq!(progress_json(Some(&case_dir), None), "null");
+    assert!(progress_json(Some(&case_dir), None).is_null());
     assert!(!crate::case_db::case_db_path(&case_dir).exists());
 
     let job = crate::case_db::start_job(
@@ -67,14 +67,14 @@ fn progress_json_reports_running_job_with_eta() {
     .unwrap();
     crate::case_db::report_job_progress(&case_dir, &job.job_id, Some(100), 50).unwrap();
 
-    let json = progress_json(Some(&case_dir), None);
+    let json = progress_json(Some(&case_dir), None).to_string();
     assert!(json.contains("\"job_type\":\"scan-folder\""), "{json}");
     assert!(json.contains("\"done\":50"), "{json}");
     assert!(json.contains("\"total\":100"), "{json}");
     assert!(json.contains("\"elapsed_secs\":"), "{json}");
 
     crate::case_db::complete_job(&case_dir, &job.job_id, 100, "done").unwrap();
-    assert_eq!(progress_json(Some(&case_dir), None), "null");
+    assert!(progress_json(Some(&case_dir), None).is_null());
 
     let _ = std::fs::remove_dir_all(case_dir);
 }
@@ -88,18 +88,18 @@ fn byte_progress_reports_growing_output_file() {
     let raw = case_dir.join("evidence.raw");
     std::fs::write(&raw, vec![0u8; 4096]).unwrap();
 
-    let json = byte_progress_json(Some(&(raw.clone(), None)));
+    let json = byte_progress_json(Some(&(raw.clone(), None))).to_string();
     assert!(json.contains("\"done\":4096"), "{json}");
     assert!(json.contains("\"total\":0"), "{json}");
 
     // A known larger total yields a real numerator/denominator pair.
-    let json = byte_progress_json(Some(&(raw.clone(), Some(8192))));
+    let json = byte_progress_json(Some(&(raw.clone(), Some(8192)))).to_string();
     assert!(json.contains("\"total\":8192"), "{json}");
 
     // Missing file or absent hint degrades to null, never an error.
     std::fs::remove_file(&raw).unwrap();
-    assert_eq!(byte_progress_json(Some(&(raw, None))), "null");
-    assert_eq!(byte_progress_json(None), "null");
+    assert!(byte_progress_json(Some(&(raw, None))).is_null());
+    assert!(byte_progress_json(None).is_null());
 
     let _ = std::fs::remove_dir_all(case_dir);
 }

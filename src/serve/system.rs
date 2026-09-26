@@ -57,39 +57,25 @@ pub(crate) fn probe_env() -> String {
         .map(|v| PathBuf::from(&v).is_file() || tool_available(&v, ""))
         .unwrap_or(false)
         || has("deepfake-lens");
-    format!(
-        "{{\"ok\":true,\"ffmpeg\":{},\"ffprobe\":{},\"ewf\":{},\"deepfake\":{},\"tools\":{{{}}},\"workflows\":{{\"media\":{},\"e01\":{},\"filesystem\":{}}},\"hints\":{{{}}}}}",
-        json_bool(has("ffmpeg")),
-        json_bool(has("ffprobe")),
-        json_bool(ewf),
-        json_bool(deepfake),
-        tools
-            .iter()
-            .map(|(name, ok)| format!("{}:{}", json_string(name), json_bool(*ok)))
-            .collect::<Vec<_>>()
-            .join(","),
-        json_bool(media),
-        json_bool(ewf),
-        json_bool(tsk),
-        [
-            (
-                "media",
-                "FFmpeg 설치 후 ffmpeg/ffprobe가 PATH에 있어야 합니다. portable 배포본은 tools/bin에 복사하면 자동 인식됩니다.",
-            ),
-            (
-                "e01",
-                "libewf(ewfinfo/ewfverify/ewfexport) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
-            ),
-            (
-                "filesystem",
-                "Sleuth Kit(mmls/fls/icat) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
-            ),
-        ]
+    let tools_map: serde_json::Map<String, serde_json::Value> = tools
         .iter()
-        .map(|(key, hint)| format!("{}:{}", json_string(key), json_string(hint)))
-        .collect::<Vec<_>>()
-        .join(","),
-    )
+        .map(|(name, ok)| (name.to_string(), serde_json::Value::Bool(*ok)))
+        .collect();
+    serde_json::json!({
+        "ok": true,
+        "ffmpeg": has("ffmpeg"),
+        "ffprobe": has("ffprobe"),
+        "ewf": ewf,
+        "deepfake": deepfake,
+        "tools": tools_map,
+        "workflows": {"media": media, "e01": ewf, "filesystem": tsk},
+        "hints": {
+            "media": "FFmpeg 설치 후 ffmpeg/ffprobe가 PATH에 있어야 합니다. portable 배포본은 tools/bin에 복사하면 자동 인식됩니다.",
+            "e01": "libewf(ewfinfo/ewfverify/ewfexport) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+            "filesystem": "Sleuth Kit(mmls/fls/icat) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+        }
+    })
+    .to_string()
 }
 
 pub(crate) fn tool_available(name: &str, version_arg: &str) -> bool {
@@ -114,10 +100,6 @@ pub(crate) fn tool_available(name: &str, version_arg: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn json_bool(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
-}
-
 /// Directory listing for the in-app path picker. An empty `path` returns
 /// drive roots; a directory returns its children — subdirectories always,
 /// first-segment E01-family files only when `files=e01`. Existence and
@@ -131,43 +113,40 @@ pub(crate) fn api_browse(request: &Request) -> String {
 
 pub(crate) fn browse_json(raw: &str, want_files: bool) -> String {
     if raw.is_empty() {
-        let entries = drive_roots()
+        let entries: Vec<serde_json::Value> = drive_roots()
             .iter()
             .map(|root| browse_entry_json(root, root, true, false))
-            .collect::<Vec<_>>()
-            .join(",");
-        return format!(
-            "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"path\":\"\",\"entries\":[{entries}]}}"
-        );
+            .collect();
+        return serde_json::json!({
+            "ok": true, "exists": true, "is_dir": true, "path": "", "entries": entries
+        })
+        .to_string();
     }
     let path = PathBuf::from(raw);
     let display = path.display().to_string();
     let Ok(meta) = std::fs::metadata(&path) else {
-        return format!(
-            "{{\"ok\":true,\"exists\":false,\"path\":{}}}",
-            json_string(&display)
-        );
+        return serde_json::json!({"ok": true, "exists": false, "path": display}).to_string();
     };
     if meta.is_file() {
-        return format!(
-            "{{\"ok\":true,\"exists\":true,\"is_file\":true,\"is_dir\":false,\"path\":{},\"name\":{}}}",
-            json_string(&display),
-            json_string(
-                &path
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            ),
-        );
+        return serde_json::json!({
+            "ok": true, "exists": true, "is_file": true, "is_dir": false,
+            "path": display,
+            "name": path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        })
+        .to_string();
     }
     let read = match std::fs::read_dir(&path) {
         Ok(read) => read,
         Err(error) => {
-            return format!(
-                "{{\"ok\":false,\"exists\":true,\"is_dir\":true,\"path\":{},\"error\":{}}}",
-                json_string(&display),
-                json_string(&format!("폴더를 읽을 수 없습니다: {error}")),
-            );
+            return serde_json::json!({
+                "ok": false, "exists": true, "is_dir": true,
+                "path": display,
+                "error": format!("폴더를 읽을 수 없습니다: {error}"),
+            })
+            .to_string();
         }
     };
     // Cap keeps the picker responsive on huge directories; the status
@@ -198,7 +177,7 @@ pub(crate) fn browse_json(raw: &str, want_files: bool) -> String {
         |a: &(String, String), b: &(String, String)| a.0.to_lowercase().cmp(&b.0.to_lowercase());
     dirs.sort_by(by_name);
     files.sort_by(by_name);
-    let entries = dirs
+    let entries: Vec<serde_json::Value> = dirs
         .iter()
         .map(|(name, full)| {
             // A directory holding db/case.db is an openable case — the
@@ -211,30 +190,34 @@ pub(crate) fn browse_json(raw: &str, want_files: bool) -> String {
                 .iter()
                 .map(|(name, full)| browse_entry_json(name, full, false, false)),
         )
-        .collect::<Vec<_>>()
-        .join(",");
-    let parent = path
+        .collect();
+    let mut body = serde_json::json!({
+        "ok": true, "exists": true, "is_dir": true,
+        "is_case": crate::case_db::case_db_path(&path).is_file(),
+        "path": display,
+        "entries": entries,
+        "truncated": truncated,
+    });
+    if let Some(parent) = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
-        .map(|parent| format!("\"parent\":{},", json_string(&parent.display().to_string())))
-        .unwrap_or_default();
-    let is_case = crate::case_db::case_db_path(&path).is_file();
-    format!(
-        "{{\"ok\":true,\"exists\":true,\"is_dir\":true,\"is_case\":{},\"path\":{},{parent}\"entries\":[{entries}],\"truncated\":{}}}",
-        json_bool(is_case),
-        json_string(&display),
-        json_bool(truncated),
-    )
+        && let Some(map) = body.as_object_mut()
+    {
+        map.insert(
+            "parent".to_string(),
+            serde_json::Value::String(parent.display().to_string()),
+        );
+    }
+    body.to_string()
 }
 
-pub(crate) fn browse_entry_json(name: &str, path: &str, dir: bool, is_case: bool) -> String {
-    format!(
-        "{{\"name\":{},\"path\":{},\"dir\":{},\"is_case\":{}}}",
-        json_string(name),
-        json_string(path),
-        json_bool(dir),
-        json_bool(is_case)
-    )
+pub(crate) fn browse_entry_json(
+    name: &str,
+    path: &str,
+    dir: bool,
+    is_case: bool,
+) -> serde_json::Value {
+    serde_json::json!({"name": name, "path": path, "dir": dir, "is_case": is_case})
 }
 
 /// `true` for the first segment of a split forensic image family. The
@@ -268,47 +251,36 @@ pub(crate) fn api_status(state: &SharedState) -> String {
     let guard = state_lock(state);
     let case_dir = guard.case_dir.clone();
     let byte_progress = guard.byte_progress.clone();
-    let steps: Vec<String> = guard
-        .steps
-        .iter()
-        .map(|step| json_string(step.as_str()))
-        .collect();
+    let steps: Vec<&str> = guard.steps.iter().map(|step| step.as_str()).collect();
     let current = guard
         .steps
         .iter()
         .position(|step| *step == StepStatus::Running)
         .map(|index| index.to_string())
         .unwrap_or_default();
-    let logs: Vec<String> = guard
-        .logs
-        .iter()
-        .rev()
-        .take(60)
-        .rev()
-        .map(|line| json_string(line))
-        .collect();
-    let names: Vec<String> = guard.step_names.iter().copied().map(json_string).collect();
-    let opt = |value: &Option<PathBuf>| match value {
-        Some(path) => json_string(&path.to_string_lossy()),
-        None => "null".to_string(),
+    let logs: Vec<String> = guard.logs.iter().rev().take(60).rev().cloned().collect();
+    let opt = |value: &Option<PathBuf>| {
+        value
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string())
     };
-    let error = match &guard.error {
-        Some(error) => json_string(error),
-        None => "null".to_string(),
-    };
-    format!(
-        "{{\"ok\":true,\"app\":\"frametrace\",\"instance\":{},\"has_job\":{},\"phase\":{},\"busy\":{},\"steps\":[{}],\"step_names\":[{}],\"current\":\"{current}\",\"logs\":[{}],\"case_dir\":{},\"package_dir\":{},\"error\":{error},\"progress\":{}}}",
-        json_string(&guard.instance),
-        json_bool(guard.phase != "idle"),
-        json_string(guard.phase),
-        json_bool(guard.busy),
-        steps.join(","),
-        names.join(","),
-        logs.join(","),
-        opt(&guard.case_dir),
-        opt(&guard.package_dir),
-        progress_json(case_dir.as_deref(), byte_progress.as_ref()),
-    )
+    serde_json::json!({
+        "ok": true,
+        "app": "frametrace",
+        "instance": guard.instance,
+        "has_job": guard.phase != "idle",
+        "phase": guard.phase,
+        "busy": guard.busy,
+        "steps": steps,
+        "step_names": guard.step_names,
+        "current": current,
+        "logs": logs,
+        "case_dir": opt(&guard.case_dir),
+        "package_dir": opt(&guard.package_dir),
+        "error": guard.error,
+        "progress": progress_json(case_dir.as_deref(), byte_progress.as_ref()),
+    })
+    .to_string()
 }
 
 /// Reads the newest running job's progress from the case DB so the UI can
@@ -318,9 +290,9 @@ pub(crate) fn api_status(state: &SharedState) -> String {
 pub(crate) fn progress_json(
     case_dir: Option<&Path>,
     byte_progress: Option<&(PathBuf, Option<u64>)>,
-) -> String {
+) -> serde_json::Value {
     let Some(case_dir) = case_dir else {
-        return "null".to_string();
+        return serde_json::Value::Null;
     };
     if !case_dir.join("case.json").is_file() || !crate::case_db::case_db_path(case_dir).is_file() {
         return byte_progress_json(byte_progress);
@@ -348,35 +320,39 @@ pub(crate) fn progress_json(
     } else {
         0
     };
-    format!(
-        "{{\"job_type\":{},\"done\":{},\"total\":{},\"elapsed_secs\":{},\"eta_secs\":{}}}",
-        json_string(&job.job_type),
-        done,
-        total,
-        elapsed,
-        eta
-    )
+    serde_json::json!({
+        "job_type": job.job_type,
+        "done": done,
+        "total": total,
+        "elapsed_secs": elapsed,
+        "eta_secs": eta,
+    })
 }
 
 /// Byte-level fallback for steps whose work happens inside an external
 /// tool (ewfexport): the pipeline records the output path being written
 /// and an optional total (E01 source size ≈ lower bound of raw bytes).
-pub(crate) fn byte_progress_json(byte_progress: Option<&(PathBuf, Option<u64>)>) -> String {
+pub(crate) fn byte_progress_json(
+    byte_progress: Option<&(PathBuf, Option<u64>)>,
+) -> serde_json::Value {
     let Some((path, total)) = byte_progress else {
-        return "null".to_string();
+        return serde_json::Value::Null;
     };
     let done = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
     if done == 0 {
-        return "null".to_string();
+        return serde_json::Value::Null;
     }
     let total = match total {
         Some(t) if *t > done => *t,
         _ => 0, // unknown total → UI shows indeterminate + bytes written
     };
-    format!(
-        "{{\"job_type\":\"import-e01\",\"done\":{},\"total\":{},\"elapsed_secs\":0,\"eta_secs\":0}}",
-        done, total
-    )
+    serde_json::json!({
+        "job_type": "import-e01",
+        "done": done,
+        "total": total,
+        "elapsed_secs": 0,
+        "eta_secs": 0,
+    })
 }
 
 /// `POST /api/verify-audit`: verify every chained audit log under
@@ -455,10 +431,11 @@ pub(crate) fn api_verify_audit(state: &SharedState) -> String {
             .filter(|path| path.extension().and_then(|e| e.to_str()) == Some("jsonl"))
             .collect(),
         Err(err) => {
-            return format!(
-                "{{\"ok\":false,\"error\":{}}}",
-                json_string(&format!("감사 로그 디렉터리를 읽지 못했습니다: {err}"))
-            );
+            return serde_json::json!({
+                "ok": false,
+                "error": format!("감사 로그 디렉터리를 읽지 못했습니다: {err}"),
+            })
+            .to_string();
         }
     };
     log_paths.sort();
@@ -481,25 +458,24 @@ pub(crate) fn api_verify_audit(state: &SharedState) -> String {
                 if result.integrity == audit::AuditIntegrity::StructuralOnly {
                     any_structural_only = true;
                 }
-                let warnings: Vec<String> =
-                    result.warnings.iter().map(|w| json_string(w)).collect();
-                logs_json.push(format!(
-                    "{{\"name\":{},\"entries\":{},\"integrity\":{},\"keyed_entries\":{},\"unauthenticated_keyed_entries\":{},\"warnings\":[{}]}}",
-                    json_string(&name),
-                    result.entries,
-                    json_string(result.integrity.label()),
-                    result.keyed_entries,
-                    result.unauthenticated_keyed_entries,
-                    warnings.join(",")
-                ));
+                logs_json.push(serde_json::json!({
+                    "name": name,
+                    "entries": result.entries,
+                    "integrity": result.integrity.label(),
+                    "keyed_entries": result.keyed_entries,
+                    "unauthenticated_keyed_entries": result.unauthenticated_keyed_entries,
+                    "warnings": result.warnings,
+                }));
             }
             Err(err) => {
                 failed += 1;
-                logs_json.push(format!(
-                    "{{\"name\":{},\"entries\":0,\"integrity\":\"failed\",\"error\":{},\"warnings\":[]}}",
-                    json_string(&name),
-                    json_string(&err)
-                ));
+                logs_json.push(serde_json::json!({
+                    "name": name,
+                    "entries": 0,
+                    "integrity": "failed",
+                    "error": err,
+                    "warnings": Vec::<String>::new(),
+                }));
             }
         }
     }
@@ -510,13 +486,13 @@ pub(crate) fn api_verify_audit(state: &SharedState) -> String {
     } else {
         "integrity-keyed"
     };
-    format!(
-        "{{\"ok\":{},\"verified\":{},\"failed\":{},\"entries\":{},\"integrity\":{},\"logs\":[{}]}}",
-        if failed == 0 { "true" } else { "false" },
-        log_paths.len() - failed,
-        failed,
-        total_entries,
-        json_string(overall),
-        logs_json.join(",")
-    )
+    serde_json::json!({
+        "ok": failed == 0,
+        "verified": log_paths.len() - failed,
+        "failed": failed,
+        "entries": total_entries,
+        "integrity": overall,
+        "logs": logs_json,
+    })
+    .to_string()
 }

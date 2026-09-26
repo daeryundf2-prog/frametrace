@@ -70,10 +70,7 @@ pub(crate) fn api_records(request: &Request, state: &SharedState) -> String {
         .take(limit)
         .cloned()
         .collect();
-    format!(
-        "{{\"ok\":true,\"total\":{total},\"offset\":{offset},\"videos\":{}}}",
-        serde_json::to_string(&page).unwrap_or_else(|_| "[]".to_string())
-    )
+    serde_json::json!({"ok": true, "total": total, "offset": offset, "videos": page}).to_string()
 }
 
 /// `GET /api/records-meta` — the non-record half of the viewer data

@@ -28,7 +28,7 @@ pub(crate) fn api_capture_frame(request: &Request, state: &SharedState) -> Strin
     }
     let stamp = match crate::util::now_unix() {
         Ok(stamp) => stamp,
-        Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        Err(err) => return serde_json::json!({"ok": false, "error": err}).to_string(),
     };
     let dir = case_dir.join("artifacts/captures");
     if let Err(err) = std::fs::create_dir_all(&dir) {
@@ -180,9 +180,9 @@ pub(crate) fn api_export_clip(request: &Request, state: &SharedState) -> String 
                 .strip_prefix(&case_dir)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| output.to_string_lossy().to_string());
-            format!("{{\"ok\":true,\"path\":{}}}", json_string(&rel))
+            serde_json::json!({"ok": true, "path": rel}).to_string()
         }
-        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        Err(err) => serde_json::json!({"ok": false, "error": err}).to_string(),
     }
 }
 
@@ -231,11 +231,11 @@ pub(crate) fn api_telemetry(request: &Request, state: &SharedState) -> String {
     if !artifact.is_file() {
         let source = match crate::video_export::resolve_video_source(&case_dir, &selector) {
             Ok(p) => p,
-            Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+            Err(err) => return serde_json::json!({"ok": false, "error": err}).to_string(),
         };
         let mut report = match crate::telemetry::extract_file(&source) {
             Ok(r) => r,
-            Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+            Err(err) => return serde_json::json!({"ok": false, "error": err}).to_string(),
         };
         report.selector = id.clone();
         let dir = case_dir.join("artifacts/telemetry");
@@ -315,7 +315,7 @@ pub(crate) fn api_transcode_queue(request: &Request, state: &SharedState) -> Str
                 .unwrap_or_else(|| result.clone());
             format!("{{\"ok\":true,\"summary\":{}}}", latest)
         }
-        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        Err(err) => serde_json::json!({"ok": false, "error": err}).to_string(),
     }
 }
 
@@ -396,7 +396,7 @@ pub(crate) fn api_proxy(request: &Request, state: &SharedState) -> String {
                 selector.clone(),
             ];
             if let Err(err) = run_step(&exe, &args, state) {
-                return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+                return serde_json::json!({"ok": false, "error": err}).to_string();
             }
             match find_existing(&dir) {
                 Some(path) => path,
@@ -501,7 +501,7 @@ pub(crate) fn api_advanced(request: &Request, state: &SharedState) -> String {
                 json_string(&tail.join("\n"))
             )
         }
-        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        Err(err) => serde_json::json!({"ok": false, "error": err}).to_string(),
     }
 }
 
@@ -711,7 +711,7 @@ pub(crate) fn api_export_selected(request: &Request, state: &SharedState) -> Str
             )
         });
     if let Err(err) = result {
-        return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err));
+        return serde_json::json!({"ok": false, "error": err}).to_string();
     }
     format!(
         "{{\"ok\":true,\"export_dir\":{},\"copied\":{copied},\"skipped\":{skipped}}}",
