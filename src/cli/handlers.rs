@@ -1016,7 +1016,13 @@ pub fn inspect_image(
         Some(options.max_entries as u64),
         &tsk_inspect_options_json(&options),
     )?;
-    let result = match tsk::inspect_image(case_dir, image_file, &options) {
+    let progress_job_id = job.job_id.clone();
+    let fls_progress = move |entries_seen: u64| {
+        // fls reports no total up front — only the running entry count is
+        // honest progress.
+        let _ = case_db::report_job_progress(case_dir, &progress_job_id, None, entries_seen);
+    };
+    let result = match tsk::inspect_image(case_dir, image_file, &options, Some(&fls_progress)) {
         Ok(result) => result,
         Err(err) => {
             let _ = case_db::fail_job(case_dir, &job.job_id, &err);
@@ -1027,7 +1033,11 @@ pub fn inspect_image(
         case_dir,
         &job.job_id,
         result.entries.len() as u64,
-        "inspect-image completed",
+        if result.fls_completed {
+            "inspect-image completed"
+        } else {
+            "inspect-image completed with a PARTIAL fls listing (timeout)"
+        },
     )?;
     println!("filesystem image inspected");
     println!("source registered: {} ({})", source.source_id, source.kind);

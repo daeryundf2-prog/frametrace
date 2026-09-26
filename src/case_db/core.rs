@@ -202,6 +202,76 @@ fn init_schema_locked(conn: &Connection) -> Result<(), String> {
             return Err(format!("unsupported SQLite schema version: {version}"));
         }
     }
+    apply_schema_fts_index(conn)
+}
+
+/// Additive FTS5 substring index over the videos table — a regular FTS
+/// table (not external-content) populated by triggers, because the
+/// searchable haystack joins relational columns with fields inside
+/// record_json that the content table cannot express. `q` searches
+/// still return record_json from the JSON index, so this index is a
+/// lookup accelerator only, never a shape authority.
+fn apply_schema_fts_index(conn: &Connection) -> Result<(), String> {
+    // The trigram tokenizer gives true substring semantics (the same
+    // contract the in-JSON `contains` search honors); unicode61 would
+    // silently narrow matches to token boundaries.
+    conn.execute_batch(
+        r#"
+        CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
+            haystack,
+            id UNINDEXED,
+            tokenize='trigram'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS videos_fts_ai AFTER INSERT ON videos BEGIN
+            INSERT INTO videos_fts(rowid, id, haystack) VALUES (
+                new.rowid, new.id,
+                coalesce(new.id,'') || ' ' || coalesce(new.source_path,'') || ' ' ||
+                coalesce(new.relative_path,'') || ' ' ||
+                coalesce(json_extract(new.record_json,'$.name'),'') || ' ' ||
+                coalesce(json_extract(new.record_json,'$.original_name'),''));
+        END;
+        CREATE TRIGGER IF NOT EXISTS videos_fts_ad AFTER DELETE ON videos BEGIN
+            DELETE FROM videos_fts WHERE rowid = old.rowid;
+        END;
+        CREATE TRIGGER IF NOT EXISTS videos_fts_au AFTER UPDATE ON videos BEGIN
+            DELETE FROM videos_fts WHERE rowid = old.rowid;
+            INSERT INTO videos_fts(rowid, id, haystack) VALUES (
+                new.rowid, new.id,
+                coalesce(new.id,'') || ' ' || coalesce(new.source_path,'') || ' ' ||
+                coalesce(new.relative_path,'') || ' ' ||
+                coalesce(json_extract(new.record_json,'$.name'),'') || ' ' ||
+                coalesce(json_extract(new.record_json,'$.original_name'),''));
+        END;
+        "#,
+    )
+    .map_err(|err| format!("failed to create videos FTS index: {err}"))?;
+    // Backfill once for databases that predate the index; the flag keeps
+    // a 100k-row rebuild from repeating on every open.
+    let built: Option<String> = conn
+        .query_row(
+            "SELECT value FROM schema_meta WHERE key = 'videos_fts_built'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("failed to read FTS backfill flag: {err}"))?;
+    if built.is_none() {
+        conn.execute_batch(
+            r#"
+            INSERT INTO videos_fts(rowid, id, haystack)
+            SELECT rowid, id,
+                coalesce(id,'') || ' ' || coalesce(source_path,'') || ' ' ||
+                coalesce(relative_path,'') || ' ' ||
+                coalesce(json_extract(record_json,'$.name'),'') || ' ' ||
+                coalesce(json_extract(record_json,'$.original_name'),'')
+            FROM videos;
+            INSERT OR REPLACE INTO schema_meta (key, value)
+            VALUES ('videos_fts_built', '1');
+            "#,
+        )
+        .map_err(|err| format!("failed to backfill videos FTS index: {err}"))?;
+    }
     Ok(())
 }
 
@@ -373,6 +443,77 @@ mod tests {
         init_schema(&conn).unwrap();
         assert_eq!(read_schema_version(&conn).as_deref(), Some(SCHEMA_VERSION));
         assert!(index_exists(&conn, "videos_modified_unix_idx"));
+
+        let _ = fs::remove_dir_all(case_dir);
+    }
+
+    #[test]
+    fn fts_index_backfills_and_tracks_video_rows() {
+        let case_dir =
+            std::env::temp_dir().join(format!("frametrace-fts-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&case_dir);
+
+        let conn = open_case_db(&case_dir).unwrap();
+        init_schema(&conn).unwrap();
+        assert!(table_exists(&conn, "videos_fts").unwrap());
+        let insert = |id: &str, path: &str, rel: &str, record: &str| {
+            conn.execute(
+                "INSERT INTO videos (id, source_path, file_url, relative_path, extension,
+                     size_bytes, hash_status, confidence, source_profile_json, ffprobe_ok,
+                     first_indexed_unix, last_indexed_unix, record_json)
+                 VALUES (?1, ?2, '', ?3, 'mp4', 1, 'pending', 'confirmed', '{}', 0, 0, 0, ?4)",
+                rusqlite::params![id, path, rel, record],
+            )
+            .unwrap();
+        };
+        insert(
+            "vid_1",
+            "D:\\evidence\\사고 블랙박스 영상.mp4",
+            "사고 블랙박스 영상.mp4",
+            r#"{"id":"vid_1","name":"accident","original_name":"사고 블랙박스 영상.mp4"}"#,
+        );
+        insert(
+            "vid_2",
+            "D:\\evidence\\OTHER.mp4",
+            "other.mp4",
+            r#"{"id":"vid_2"}"#,
+        );
+        // Trigram substring semantics: mixed-case ASCII and a Hangul
+        // fragment both hit; an absent substring misses.
+        let hits = |q: &str| -> Vec<String> {
+            conn.prepare("SELECT id FROM videos_fts WHERE videos_fts MATCH ?1")
+                .unwrap()
+                .query_map([format!("\"{q}\"")], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(hits("블랙박스"), vec!["vid_1"]);
+        assert_eq!(hits("OTHER"), vec!["vid_2"]);
+        assert_eq!(hits("ther.mp4"), vec!["vid_2"]);
+        assert!(hits("dashcam").is_empty());
+        // The update trigger re-indexes: renaming both paths must move
+        // the hit (haystack covers source_path AND relative_path).
+        conn.execute(
+            "UPDATE videos SET source_path = 'D:\\evidence\\renamed.mp4', relative_path = 'renamed.mp4' WHERE id = 'vid_2'",
+            [],
+        )
+        .unwrap();
+        assert!(hits("other.mp4").is_empty());
+        assert_eq!(hits("renamed"), vec!["vid_2"]);
+        conn.execute("DELETE FROM videos WHERE id = 'vid_1'", [])
+            .unwrap();
+        assert!(hits("블랙박스").is_empty());
+        // The one-shot backfill flag is set so reopening never rebuilds.
+        let flag: Option<String> = conn
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'videos_fts_built'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert_eq!(flag.as_deref(), Some("1"));
 
         let _ = fs::remove_dir_all(case_dir);
     }

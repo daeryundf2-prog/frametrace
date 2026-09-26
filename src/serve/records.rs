@@ -40,10 +40,16 @@ pub(crate) fn api_records(request: &Request, state: &SharedState) -> String {
         .and_then(|v| v.as_array())
         .unwrap_or(&empty);
     let query = query_value(&request.query, "q").map(|q| q.to_lowercase());
-    let matches = |video: &&serde_json::Value| -> bool {
-        let Some(q) = query.as_deref() else {
-            return true;
-        };
+    // FTS5 trigram index accelerates the same substring contract for
+    // DB-indexed records; `None` (no db, short query, or any error)
+    // falls back to the full substring scan rather than returning an
+    // honest-but-wrong empty set.
+    let fts = query.as_deref().and_then(|q| {
+        crate::case_db::fts_search_video_ids(&case_dir, q)
+            .ok()
+            .flatten()
+    });
+    let substring_match = |video: &&serde_json::Value, q: &str| -> bool {
         [
             "id",
             "relative_path",
@@ -54,6 +60,23 @@ pub(crate) fn api_records(request: &Request, state: &SharedState) -> String {
         .iter()
         .filter_map(|key| video.get(*key).and_then(|v| v.as_str()))
         .any(|text| text.to_lowercase().contains(q))
+    };
+    let matches = |video: &&serde_json::Value| -> bool {
+        let Some(q) = query.as_deref() else {
+            return true;
+        };
+        if let Some((hits, indexed)) = &fts {
+            let id = video.get("id").and_then(|v| v.as_str());
+            return match id {
+                Some(id) if hits.contains(id) => true,
+                // Indexed in the db but not in FTS results = no match;
+                // anything else (carved/filesystem records outside the
+                // videos table) still gets the substring contract.
+                Some(id) if indexed.contains(id) => false,
+                _ => substring_match(video, q),
+            };
+        }
+        substring_match(video, q)
     };
     let offset = query_value(&request.query, "offset")
         .and_then(|v| v.parse::<usize>().ok())

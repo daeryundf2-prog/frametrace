@@ -112,6 +112,10 @@ pub struct TskInspectResult {
     pub partition_offset: u64,
     pub partitions: Vec<MmlsPartition>,
     pub entries: Vec<FlsEntry>,
+    /// False when fls was killed by the timeout mid-walk — `entries`
+    /// then holds a *partial* listing (clearly flagged in warnings,
+    /// the summary, and the audit event), not a complete one.
+    pub fls_completed: bool,
     pub warnings: Vec<String>,
     pub mmls_log_path: PathBuf,
     pub fls_log_path: PathBuf,
@@ -132,10 +136,14 @@ pub struct TskRecoverResult {
     pub warnings: Vec<String>,
 }
 
+/// `fls_progress` receives the cumulative entry count as fls output is
+/// streamed (about every 5000 lines plus once at the end), so a multi-
+/// minute filesystem walk reports live progress instead of silence.
 pub fn inspect_image(
     case_dir: &Path,
     image_path: &Path,
     options: &TskInspectOptions,
+    fls_progress: Option<&(dyn Fn(u64) + Send + Sync)>,
 ) -> Result<TskInspectResult, String> {
     if options.max_entries == 0 {
         return Err("--max-entries must be greater than 0".to_string());
@@ -198,14 +206,30 @@ pub fn inspect_image(
             .join(format!("tsk-fls-{inspected_unix}.txt")),
     );
     let fls_args = fls_args(&image_path, partition_offset);
-    let fls = run_capture(&options.fls_bin, &["fls"], &fls_args, options.timeout_secs)?;
-    write_text(&fls_log_path, &fls.combined_text())
+    let fls = run_capture_streaming(
+        &options.fls_bin,
+        &["fls"],
+        &fls_args,
+        options.timeout_secs,
+        fls_progress,
+    )?;
+    write_text(&fls_log_path, &fls.output.combined_text())
         .map_err(|err| format!("failed to write fls log: {err}"))?;
-    if !fls.status_success {
+    let fls_completed = !fls.timed_out;
+    if fls.timed_out {
+        // A killed fls still produced complete per-line entries — the
+        // partial listing is real evidence and must be preserved, but
+        // every downstream artifact must know it is not a full walk.
+        warnings.push(format!(
+            "fls timed out after {}s with {} entries captured — the filesystem listing is PARTIAL, not complete; rerun with a larger --timeout (or --timeout 0) for full coverage",
+            options.timeout_secs.unwrap_or_default(),
+            fls.lines_seen
+        ));
+    } else if !fls.output.status_success {
         let mut message = format!(
             "fls failed at offset {}: {}",
             partition_offset,
-            fls.stderr.trim()
+            fls.output.stderr.trim()
         );
         // A truncated export can still hold the boot sector while $MFT or
         // the FAT lie past EOF; say so instead of leaving a bare
@@ -223,7 +247,7 @@ pub fn inspect_image(
         return Err(message);
     }
 
-    let mut entries = parse_fls_entries(&fls.stdout);
+    let mut entries = parse_fls_entries(&fls.output.stdout);
     if entries.len() > options.max_entries {
         warnings.push(format!(
             "filesystem listing truncated from {} to {} entries",
@@ -257,6 +281,7 @@ pub fn inspect_image(
         partition_offset,
         partitions: &partitions,
         entries: &entries,
+        fls_completed,
         warnings: &warnings,
         mmls_log_path: &mmls_log_path,
         fls_log_path: &fls_log_path,
@@ -268,7 +293,7 @@ pub fn inspect_image(
     append_tsk_audit(
         case_dir,
         &format!(
-            "{{\"schema_version\":1,\"event\":\"inspect-image-filesystem\",\"inspected_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"partition_count\":{},\"entry_count\":{},\"deleted_count\":{},\"video_candidate_count\":{},\"mmls_version\":\"{}\",\"fls_version\":\"{}\",\"mmls_log_path\":\"{}\",\"fls_log_path\":\"{}\",\"entries_jsonl_path\":\"{}\",\"summary_path\":\"{}\",\"warnings\":{}}}",
+            "{{\"schema_version\":1,\"event\":\"inspect-image-filesystem\",\"inspected_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"partition_count\":{},\"entry_count\":{},\"deleted_count\":{},\"video_candidate_count\":{},\"fls_completed\":{},\"mmls_version\":\"{}\",\"fls_version\":\"{}\",\"mmls_log_path\":\"{}\",\"fls_log_path\":\"{}\",\"entries_jsonl_path\":\"{}\",\"summary_path\":\"{}\",\"warnings\":{}}}",
             inspected_unix,
             json_escape(&image_path.to_string_lossy()),
             partition_offset,
@@ -276,6 +301,7 @@ pub fn inspect_image(
             entries.len(),
             entries.iter().filter(|entry| entry.deleted).count(),
             entries.iter().filter(|entry| entry.video_candidate).count(),
+            fls_completed,
             json_escape(&tsk_command_version(&options.mmls_bin, &["mmls"])),
             json_escape(&tsk_command_version(&options.fls_bin, &["fls"])),
             json_escape(&mmls_log_path.to_string_lossy()),
@@ -292,6 +318,7 @@ pub fn inspect_image(
         partition_offset,
         partitions,
         entries,
+        fls_completed,
         warnings,
         mmls_log_path,
         fls_log_path,
@@ -459,6 +486,7 @@ struct InspectSummaryInput<'a> {
     partition_offset: u64,
     partitions: &'a [MmlsPartition],
     entries: &'a [FlsEntry],
+    fls_completed: bool,
     warnings: &'a [String],
     mmls_log_path: &'a Path,
     fls_log_path: &'a Path,
@@ -473,7 +501,7 @@ fn inspect_summary_json(input: &InspectSummaryInput<'_>) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{{\n  \"schema_version\": 1,\n  \"image_path\": \"{}\",\n  \"inspected_unix\": {},\n  \"partition_offset\": {},\n  \"partition_count\": {},\n  \"entry_count\": {},\n  \"deleted_count\": {},\n  \"video_candidate_count\": {},\n  \"warnings\": {},\n  \"mmls_log_path\": \"{}\",\n  \"fls_log_path\": \"{}\",\n  \"entries_jsonl_path\": \"{}\",\n  \"partitions\": [{}]\n}}\n",
+        "{{\n  \"schema_version\": 1,\n  \"image_path\": \"{}\",\n  \"inspected_unix\": {},\n  \"partition_offset\": {},\n  \"partition_count\": {},\n  \"entry_count\": {},\n  \"deleted_count\": {},\n  \"video_candidate_count\": {},\n  \"fls_completed\": {},\n  \"warnings\": {},\n  \"mmls_log_path\": \"{}\",\n  \"fls_log_path\": \"{}\",\n  \"entries_jsonl_path\": \"{}\",\n  \"partitions\": [{}]\n}}\n",
         json_escape(&input.image_path.to_string_lossy()),
         input.inspected_unix,
         input.partition_offset,
@@ -485,6 +513,7 @@ fn inspect_summary_json(input: &InspectSummaryInput<'_>) -> String {
             .iter()
             .filter(|entry| entry.video_candidate)
             .count(),
+        input.fls_completed,
         audit::json_string_array(input.warnings),
         json_escape(&input.mmls_log_path.to_string_lossy()),
         json_escape(&input.fls_log_path.to_string_lossy()),
@@ -539,6 +568,114 @@ fn run_capture(
         status_success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+/// Timeout-aware capture that counts stdout lines as they stream —
+/// fls's full-filesystem walk can take ~25 minutes on a ~230GiB E01,
+/// and callers need live entry counts plus the partial output a killed
+/// run still produced. Unlike `run_capture`/`run_with_timeout`, a
+/// timeout returns Ok with `timed_out: true` instead of discarding the
+/// partial buffer.
+struct StreamedOutput {
+    output: CommandOutput,
+    /// The timeout killed the child; `output.stdout` holds every line
+    /// captured before termination (each complete line is still usable).
+    timed_out: bool,
+    /// Newlines seen on stdout before termination (≈ fls entry count).
+    lines_seen: u64,
+}
+
+fn run_capture_streaming(
+    binary: &str,
+    allowed: &[&str],
+    args: &[String],
+    timeout_secs: Option<u64>,
+    on_lines: Option<&(dyn Fn(u64) + Send + Sync)>,
+) -> Result<StreamedOutput, String> {
+    let resolved_binary = resolve_tool_binary(binary, allowed)
+        .map_err(|err| format!("{err} (install Sleuth Kit and ensure {binary} is in PATH)"))?;
+    let mut command = Command::new(&resolved_binary);
+    command.args(args);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = command
+        .spawn()
+        .map_err(|err| format!("failed to run {binary}: {err}"))?;
+    drain_streaming(child, timeout_secs, on_lines)
+}
+
+/// Reads a piped child's stdout/stderr on dedicated threads, counting
+/// stdout newlines as they arrive so long-running tools report live
+/// progress. A timeout kills the child but keeps every line already
+/// captured (`timed_out: true`); the caller decides whether partial
+/// output is usable.
+fn drain_streaming(
+    mut child: std::process::Child,
+    timeout_secs: Option<u64>,
+    on_lines: Option<&(dyn Fn(u64) + Send + Sync)>,
+) -> Result<StreamedOutput, String> {
+    let mut stdout_pipe = child.stdout.take().expect("piped stdout");
+    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    std::thread::scope(|scope| {
+        let stderr_reader = scope.spawn(move || {
+            let mut buffer = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stderr_pipe, &mut buffer);
+            buffer
+        });
+        let stdout_reader = scope.spawn(move || {
+            let mut buffer = Vec::new();
+            let mut lines = 0u64;
+            let mut last_report = 0u64;
+            let mut chunk = [0u8; 16 * 1024];
+            loop {
+                match std::io::Read::read(&mut stdout_pipe, &mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => {
+                        buffer.extend_from_slice(&chunk[..read]);
+                        lines += chunk[..read].iter().filter(|byte| **byte == b'\n').count() as u64;
+                        if let Some(report) = on_lines
+                            && lines - last_report >= 5000
+                        {
+                            report(lines);
+                            last_report = lines;
+                        }
+                    }
+                }
+            }
+            if let Some(report) = on_lines {
+                report(lines);
+            }
+            (buffer, lines)
+        });
+        let status = match timeout_secs {
+            Some(secs) => child
+                .wait_timeout(std::time::Duration::from_secs(secs))
+                .map_err(|err| format!("failed to wait for streamed tool: {err}"))?,
+            None => Some(
+                child
+                    .wait()
+                    .map_err(|err| format!("failed to wait for streamed tool: {err}"))?,
+            ),
+        };
+        let timed_out = status.is_none();
+        if timed_out {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let (stdout, lines_seen) = stdout_reader.join().unwrap_or_default();
+        let stderr = stderr_reader.join().unwrap_or_default();
+        Ok(StreamedOutput {
+            output: CommandOutput {
+                status_success: status.map(|s| s.success()).unwrap_or(false),
+                stdout: String::from_utf8_lossy(&stdout).to_string(),
+                stderr: String::from_utf8_lossy(&stderr).to_string(),
+            },
+            timed_out,
+            lines_seen,
+        })
     })
 }
 
@@ -782,10 +919,11 @@ fn sanitize_filename(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        TskRecoverOptions, choose_partition_offset, fls_args, icat_args, is_protective_mbr_only,
-        parse_fls_entry, parse_mmls_partitions,
+        TskRecoverOptions, choose_partition_offset, drain_streaming, fls_args, icat_args,
+        is_protective_mbr_only, parse_fls_entry, parse_mmls_partitions,
     };
     use std::path::Path;
+    use std::process::{Command, Stdio};
 
     #[test]
     fn parses_mmls_allocated_partition_offsets() {
@@ -943,5 +1081,106 @@ Units are in 512-byte sectors
             icat_args(image, &options),
             vec!["-h", "-r", "-o", "2048", "/cases/image.raw", "1304-128-1"]
         );
+    }
+
+    /// Spawns a shell child that prints `lines` to stdout and then sleeps
+    /// `sleep_secs` before exiting — a stand-in for fls emitting entries
+    /// during a long walk. Tests drive `drain_streaming` directly so the
+    /// tool-whitelist policy never enters the picture.
+    #[cfg(windows)]
+    fn spawn_line_printer(lines: &[&str], sleep_secs: u64) -> std::process::Child {
+        let mut script = lines
+            .iter()
+            .map(|line| format!("echo {line}"))
+            .collect::<Vec<_>>()
+            .join("& ");
+        if sleep_secs > 0 {
+            // `timeout /t` refuses redirected stdin; ping pacing is the
+            // stock Windows sleep that survives Stdio::null().
+            script.push_str(&format!("& ping -n {sleep_secs} 127.0.0.1 >NUL"));
+        }
+        Command::new("cmd")
+            .args(["/C", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn line printer")
+    }
+
+    #[cfg(unix)]
+    fn spawn_line_printer(lines: &[&str], sleep_secs: u64) -> std::process::Child {
+        let mut script = lines
+            .iter()
+            .map(|line| format!("echo {line}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        if sleep_secs > 0 {
+            script.push_str(&format!("; sleep {sleep_secs}"));
+        }
+        Command::new("sh")
+            .args(["-c", &script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn line printer")
+    }
+
+    #[test]
+    fn streaming_capture_counts_lines_and_reports_progress() {
+        use std::sync::{Arc, Mutex};
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let reports_clone = reports.clone();
+        let progress = move |lines: u64| reports_clone.lock().unwrap().push(lines);
+        let child = spawn_line_printer(&["alpha", "beta", "gamma"], 0);
+        let result = drain_streaming(child, Some(30), Some(&progress)).expect("drained");
+        assert!(result.output.status_success);
+        assert!(!result.timed_out);
+        assert_eq!(result.lines_seen, 3);
+        assert!(result.output.stdout.contains("alpha"));
+        assert!(result.output.stdout.contains("gamma"));
+        // The reader always reports the final line count once, even below
+        // the 5000-line incremental threshold.
+        assert_eq!(*reports.lock().unwrap(), vec![3]);
+    }
+
+    #[test]
+    fn streaming_capture_preserves_partial_output_on_timeout() {
+        // 5s sleep: the kill lands at ~1s, and cmd's grandchild (ping on
+        // Windows) keeps the stdout pipe open until it exits — enough to
+        // prove partial capture without a minute-long test.
+        let child = spawn_line_printer(&["partial-entry"], 5);
+        let result = drain_streaming(child, Some(1), None).expect("drained");
+        assert!(result.timed_out);
+        assert!(!result.output.status_success);
+        // The line emitted before the kill must survive in the partial
+        // buffer — a timed-out listing is evidence, not an error.
+        assert!(result.lines_seen >= 1);
+        assert!(result.output.stdout.contains("partial-entry"));
+    }
+
+    #[test]
+    fn streaming_capture_distinguishes_nonzero_exit_from_timeout() {
+        #[cfg(windows)]
+        let child = Command::new("cmd")
+            .args(["/C", "echo doomed& exit /b 3"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn failing child");
+        #[cfg(unix)]
+        let child = Command::new("sh")
+            .args(["-c", "echo doomed; exit 3"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn failing child");
+        let result = drain_streaming(child, Some(30), None).expect("drained");
+        assert!(!result.timed_out);
+        assert!(!result.output.status_success);
+        assert!(result.output.stdout.contains("doomed"));
     }
 }

@@ -66,6 +66,51 @@ pub fn load_video_record_lines(case_dir: &Path) -> Result<Vec<String>, String> {
         .map_err(|err| format!("failed to read SQLite records: {err}"))
 }
 
+/// `(matched_ids, indexed_ids)` for `/api/records?q=`: ids whose FTS
+/// haystack contains the query, plus every id present in the videos
+/// table. The second set distinguishes "indexed but no match" from "not
+/// DB-indexed" (carved/fs records), which still deserve the plain
+/// substring path.
+pub type FtsSearchHit = (
+    std::collections::HashSet<String>,
+    std::collections::HashSet<String>,
+);
+
+/// FTS5 substring lookup for `/api/records?q=`. Returns `None` when the
+/// case db or index is unavailable so the caller falls back to a full
+/// substring scan without treating it as zero hits.
+pub fn fts_search_video_ids(case_dir: &Path, query: &str) -> Result<Option<FtsSearchHit>, String> {
+    let path = case_db_path(case_dir);
+    if !path.is_file() || query.len() < 3 {
+        return Ok(None);
+    }
+    let conn = open_readonly_case_db(&path)?;
+    if !table_exists(&conn, "videos_fts")? || !table_exists(&conn, "videos")? {
+        return Ok(None);
+    }
+    // Trigram MATCH needs the query as one quoted phrase so embedded
+    // whitespace/punctuation stays a literal substring, and queries
+    // shorter than three bytes can never form a trigram.
+    let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+    let mut stmt = conn
+        .prepare("SELECT id FROM videos_fts WHERE videos_fts MATCH ?1")
+        .map_err(|err| format!("failed to prepare FTS query: {err}"))?;
+    let matched = stmt
+        .query_map([fts_query], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("failed to run FTS query: {err}"))?
+        .collect::<Result<std::collections::HashSet<_>, _>>()
+        .map_err(|err| format!("failed to read FTS matches: {err}"))?;
+    let mut stmt = conn
+        .prepare("SELECT id FROM videos")
+        .map_err(|err| format!("failed to prepare id listing: {err}"))?;
+    let indexed = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| format!("failed to list indexed ids: {err}"))?
+        .collect::<Result<std::collections::HashSet<_>, _>>()
+        .map_err(|err| format!("failed to read indexed ids: {err}"))?;
+    Ok(Some((matched, indexed)))
+}
+
 pub fn load_video_ids(case_dir: &Path) -> Result<Vec<VideoIdRow>, String> {
     let path = case_db_path(case_dir);
     if !path.is_file() {
