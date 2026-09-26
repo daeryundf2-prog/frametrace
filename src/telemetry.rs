@@ -64,7 +64,7 @@ fn parse_nmea(sentence: &str) -> Option<TelemetryPoint> {
     }
     let s = s.split('*').next().unwrap_or(s);
     let f: Vec<&str> = s.split(',').collect();
-    let kind = &f[0][3..];
+    let kind = f[0].get(3..)?;
     match kind {
         "RMC" => {
             if f.len() < 10 || f[2] != "A" {
@@ -153,24 +153,31 @@ fn rmc_unix(time: &str, date: &str) -> Option<f64> {
 /// mid-record between binary fields, so no line-start alignment is
 /// assumed; each candidate is bounded by the next CR/LF or 200 bytes.
 fn scan_nmea_bytes(bytes: &[u8], points: &mut Vec<TelemetryPoint>) {
-    let text = String::from_utf8_lossy(bytes);
-    let mut rest: &str = &text;
-    while let Some(pos) = rest.find("$G") {
+    let mut pos = 0usize;
+    while pos + 1 < bytes.len() {
         if points.len() >= MAX_POINTS {
             return;
         }
-        let tail = &rest[pos..];
-        let end = tail.find(['\n', '\r']).unwrap_or(tail.len());
-        let line = &tail[..end.min(200)];
+        let Some(off) = bytes[pos..].windows(2).position(|w| w == b"$G") else {
+            return;
+        };
+        let start = pos + off;
+        let hard_end = (start + 200).min(bytes.len());
+        let end = bytes[start..hard_end]
+            .iter()
+            .position(|b| *b == b'\n' || *b == b'\r')
+            .map(|e| start + e)
+            .unwrap_or(hard_end);
+        let line = String::from_utf8_lossy(&bytes[start..end]);
         if line.len() > 10
             && line
                 .get(3..)
                 .is_some_and(|rest| rest.starts_with("RMC,") || rest.starts_with("GGA,"))
-            && let Some(p) = parse_nmea(line)
+            && let Some(p) = parse_nmea(&line)
         {
             points.push(p);
         }
-        rest = &rest[pos + 2..];
+        pos = start + 2;
     }
 }
 
@@ -412,5 +419,18 @@ mod tests {
         scan_nmea_bytes(&bytes, &mut points);
         assert_eq!(points.len(), 1);
         assert!((points[0].lat - 37.386666).abs() < 0.001);
+    }
+
+    #[test]
+    fn does_not_panic_on_binary_after_marker() {
+        // Regression: a real dashcam MP4 put invalid-UTF-8 bytes right
+        // after "$G"; the old str-slicing path panicked on a char
+        // boundary. Byte-level scanning must tolerate any payload.
+        let mut bytes = b"$G".to_vec();
+        bytes.extend_from_slice(&[0xF0, 0x9F, 0x98]); // truncated 4-byte seq
+        bytes.extend(std::iter::repeat_n(0x80, 210));
+        let mut points = Vec::new();
+        scan_nmea_bytes(&bytes, &mut points);
+        assert!(points.is_empty());
     }
 }
