@@ -411,6 +411,17 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
         guard
             .logs
             .push(format!("기존 케이스를 열었습니다: {}", case_dir.display()));
+    } else {
+        // Without a review bundle the new binding has nothing to show —
+        // leaving a previous case's "review-ready" phase would report a
+        // state this case never reached.
+        guard.phase = "idle";
+        guard.steps = [StepStatus::Pending; 5];
+        guard.package_dir = None;
+        guard.logs.push(format!(
+            "케이스를 열었습니다 (검토 결과 없음): {}",
+            case_dir.display()
+        ));
     }
     drop(guard);
     save_session(&case_dir, None);
