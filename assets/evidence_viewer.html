@@ -133,6 +133,7 @@ __CSS__
             <option value="4">4×</option>
           </select>
           <button id="btnPopPlayer" type="button" class="primary" title="현재 영상을 별도 창으로 엽니다 — 마크·태그·자동 넘김 지원" data-i18n="toolbar.popPlayer">⧉ 영상 새 창</button>
+          <button id="btnDual" type="button" title="같은 이름의 다른 채널 영상(_F/_R, 전방/후방)을 나란히 동기 재생합니다" data-i18n="toolbar.dual">듀얼 재생</button>
           <button id="btnDownloadFile" type="button" title="현재 영상의 원본 파일을 그대로 내려받습니다 — 워크스테이션 서버 필요" data-i18n="toolbar.download">⤓ 저장</button>
           <button id="btnCaptureFrame" type="button" title="현재 재생 위치의 프레임을 케이스 artifacts/captures에 JPEG로 저장합니다 — 워크스테이션 서버 필요" data-i18n="toolbar.capture">프레임 캡처</button>
           <span class="sep"></span>
@@ -140,6 +141,7 @@ __CSS__
           <button id="btnSetOut" type="button" title="현재 위치를 구간 끝으로 (o)" data-i18n="toolbar.out">OUT ]</button>
           <span class="muted" id="rangeLabel"></span>
           <button id="btnExportClip" type="button" title="IN~OUT 구간을 MP4 클립으로보냅니다 — 워크스테이션 서버 필요" data-i18n="toolbar.clip">구간보내기</button>
+          <button id="btnExportClipBurn" type="button" title="타임코드·케이스ID·해시·호증표를 화면에 새긴 법원 제출용 클립입니다 — 서버 필요" data-i18n="toolbar.clipBurn">법원용 보내기</button>
           <button id="btnProxy" type="button" title="원본이 무거우면 검토용 저용량 프록시로 재생합니다 (없으면 생성 — 서버 필요)" data-i18n="toolbar.proxy">프록시 재생</button>
           <span class="muted" data-i18n="media.size">크기</span>
           <select id="videoMode">
@@ -157,6 +159,8 @@ __CSS__
         <div class="panel-title" data-i18n="panel.selected">선택 증거</div>
         <div id="detailBadges"></div>
         <dl id="summaryList"></dl>
+        <div class="panel-title telemetry-title" id="telemetryTitle" hidden><span data-i18n="panel.telemetry">주행 궤적</span><button id="btnTelemetry" type="button" data-i18n="btn.telemetry">추출</button></div>
+        <div id="telemetryPane" hidden><canvas id="telemetryCanvas" width="236" height="130"></canvas><div class="telemetry-note" id="telemetryNote"></div></div>
         <div class="panel-title" data-i18n="panel.inspector">포렌식 인스펙터</div>
         <dl id="metaList"></dl>
         <div class="panel-title" data-i18n="panel.validation">검증 로그</div>
@@ -192,6 +196,7 @@ __CSS__
       <div class="menu-list" id="exportMenuList" hidden>
         <button id="btnDownloadFiles" type="button" title="선택한 원본 파일을 그대로 내려받습니다 — 브라우저가 다중 다운로드 허용을 물을 수 있습니다. 워크스테이션 서버 필요" data-i18n="export.files">선택 파일 다운로드</button>
         <button id="btnExportSelected" type="button" title="선택 항목을 케이스 exports 폴더에 해시 매니페스트와 함께 복사합니다 — 워크스테이션 서버 필요" data-i18n="export.selected">선별 자료 묶기</button>
+        <button id="btnTranscodeQueue" type="button" title="브라우저에서 재생되지 않는 독점 포맷(DAV/NOV/AVE 등)을 H.264 프록시로 일괄 변환합니다 — 선택 없으면 전체 후보, 서버 필요" data-i18n="export.transcode">미재생 포맷 프록시 큐</button>
         <button id="btnDownloadCsv" type="button" title="선택 항목의 메타데이터를 Excel용 CSV로 내려받습니다" data-i18n="export.csv">선별 CSV</button>
         <button id="btnSummary" type="button" title="선택/마크된 항목을 인쇄 가능한 요약 리포트(HTML)로 내려받습니다" data-i18n="export.summary">요약 리포트</button>
         <hr>

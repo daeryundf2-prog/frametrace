@@ -348,7 +348,9 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
 }
 
 #[allow(clippy::too_many_arguments)] // log feeds arrive as one field per pipeline lane
-pub fn render_evidence_viewer_html(
+/// The `window.__FRAMETRACE_DATA__` assignment shared by the inline and
+/// external-bundle renderers.
+fn evidence_viewer_data(
     manifest_json: &str,
     index_json: &str,
     carve_log_jsonl: &str,
@@ -359,11 +361,10 @@ pub fn render_evidence_viewer_html(
     thumbs_json: &str,
     annotations_json: &str,
     deepfake_json: &str,
+    telemetry_json: &str,
 ) -> String {
-    // The layout/markup lives in assets/evidence_viewer.* and is embedded at
-    // compile time, keeping the generated page a single serverless file.
-    let data = format!(
-        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map}}};",
+    format!(
+        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map},telemetry:{telemetry_map}}};",
         manifest = json_for_script(manifest_json),
         index = json_for_script(index_json),
         carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl)),
@@ -377,10 +378,86 @@ pub fn render_evidence_viewer_html(
         thumbs_lines = json_for_script(thumbs_json),
         annotations_lines = json_for_script(annotations_json),
         deepfake_map = json_for_script(deepfake_json),
+        telemetry_map = json_for_script(telemetry_json),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn render_evidence_viewer_html(
+    manifest_json: &str,
+    index_json: &str,
+    carve_log_jsonl: &str,
+    filesystem_log_jsonl: &str,
+    validation_log_jsonl: &str,
+    anomaly_log_jsonl: &str,
+    fls_entries_jsonl: &str,
+    thumbs_json: &str,
+    annotations_json: &str,
+    deepfake_json: &str,
+    telemetry_json: &str,
+) -> String {
+    // The layout/markup lives in assets/evidence_viewer.* and is embedded at
+    // compile time, keeping the generated page a single serverless file.
+    let data = evidence_viewer_data(
+        manifest_json,
+        index_json,
+        carve_log_jsonl,
+        filesystem_log_jsonl,
+        validation_log_jsonl,
+        anomaly_log_jsonl,
+        fls_entries_jsonl,
+        thumbs_json,
+        annotations_json,
+        deepfake_json,
+        telemetry_json,
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)
         .replace("__DATA__", &data)
+        .replace("__JS__", VIEWER_JS)
+}
+
+/// External data bundle written next to the slim viewer page
+/// (`review/data-bundle.js`). The viewer loads it through a dynamically
+/// inserted <script> tag, which also works under file:// where fetch()
+/// is blocked — keeping the standalone deliverable self-sufficient.
+#[allow(clippy::too_many_arguments)]
+pub fn render_data_bundle_js(
+    manifest_json: &str,
+    index_json: &str,
+    carve_log_jsonl: &str,
+    filesystem_log_jsonl: &str,
+    validation_log_jsonl: &str,
+    anomaly_log_jsonl: &str,
+    fls_entries_jsonl: &str,
+    thumbs_json: &str,
+    annotations_json: &str,
+    deepfake_json: &str,
+    telemetry_json: &str,
+) -> String {
+    evidence_viewer_data(
+        manifest_json,
+        index_json,
+        carve_log_jsonl,
+        filesystem_log_jsonl,
+        validation_log_jsonl,
+        anomaly_log_jsonl,
+        fls_entries_jsonl,
+        thumbs_json,
+        annotations_json,
+        deepfake_json,
+        telemetry_json,
+    )
+}
+
+/// Slim viewer page: `__FRAMETRACE_DATA__` starts null and the viewer
+/// boot resolves records via /api/records (workstation mode) or the
+/// sibling data-bundle.js (standalone), so a huge index never lands
+/// inside the HTML itself.
+pub fn render_evidence_viewer_html_slim() -> String {
+    VIEWER_TEMPLATE
+        .replace("__CSS__", VIEWER_CSS)
+        .replace("__DATA__", "window.__FRAMETRACE_DATA__ = null;")
         .replace("__JS__", VIEWER_JS)
 }
 
@@ -412,7 +489,7 @@ mod tests {
         let index = r#"{"videos":[]}"#;
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
         let html = render_evidence_viewer_html(
-            manifest, index, "", filesystem, "", "", "", "{}", "{}", "{}",
+            manifest, index, "", filesystem, "", "", "", "{}", "{}", "{}", "{}",
         );
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
@@ -429,8 +506,9 @@ mod tests {
         // json_for_script escapes it to <.
         let deepfake =
             r#"{"vid_1":{"band":"high","score":88,"note":"</script><script>alert(1)</script>"}}"#;
-        let html =
-            render_evidence_viewer_html(manifest, index, "", "", "", "", "", "{}", "{}", deepfake);
+        let html = render_evidence_viewer_html(
+            manifest, index, "", "", "", "", "", "{}", "{}", deepfake, "{}",
+        );
         assert!(html.contains("deepfake:{\"vid_1\""));
         assert!(html.contains("vid_1"));
         assert!(!html.contains("</script><script>alert(1)"));
@@ -505,6 +583,7 @@ mod tests {
                 "",
                 "{}",
                 r#"{"marks":[{"id":"vid_000001","status":"reviewed","marked_unix":100,"note":"db memo","examiner":"Alice"}],"tags":[{"id":"vid_000001","tags":["DB태그"]}]}"#,
+                "{}",
                 "{}",
             ),
         );

@@ -130,6 +130,10 @@ struct JobState {
     /// marker so a spoofed `"app":"frametrace"` string on the probe port
     /// range can no longer impersonate the workstation.
     instance: String,
+    /// Parsed video_index.json cache for /api/records: (path, mtime,
+    /// value). A large index re-parses only when the file actually
+    /// changes, not on every page fetch.
+    index_cache: Option<(PathBuf, SystemTime, serde_json::Value)>,
 }
 
 impl JobState {
@@ -149,6 +153,7 @@ impl JobState {
             token: None,
             shutdown_requested: false,
             instance: new_instance_id(),
+            index_cache: None,
         }
     }
 }
@@ -355,10 +360,10 @@ fn first_free_port() -> Option<TcpListener> {
 /// it (tests, multi-instance harnesses); the default lives in the user's
 /// home directory so other local users cannot read the nonce.
 fn instance_file_path() -> Option<PathBuf> {
-    if let Ok(custom) = std::env::var("FRAMETRACE_INSTANCE_FILE") {
-        if !custom.trim().is_empty() {
-            return Some(PathBuf::from(custom));
-        }
+    if let Ok(custom) = std::env::var("FRAMETRACE_INSTANCE_FILE")
+        && !custom.trim().is_empty()
+    {
+        return Some(PathBuf::from(custom));
     }
     let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     Some(PathBuf::from(home).join(".frametrace").join("server.json"))
@@ -440,12 +445,12 @@ fn probe_status_body(port: u16) -> Option<Vec<u8>> {
 /// fall back to the structural scan — but require the full status shape
 /// (`app` + `has_job` + `case_dir` keys), not just the spoofable marker.
 fn find_running_server() -> Option<u16> {
-    if let Some((port, instance)) = read_instance_file() {
-        if let Some(body) = probe_status_body(port) {
-            let needle = format!("\"instance\":\"{instance}\"");
-            if body.windows(needle.len()).any(|w| w == needle.as_bytes()) {
-                return Some(port);
-            }
+    if let Some((port, instance)) = read_instance_file()
+        && let Some(body) = probe_status_body(port)
+    {
+        let needle = format!("\"instance\":\"{instance}\"");
+        if body.windows(needle.len()).any(|w| w == needle.as_bytes()) {
+            return Some(port);
         }
         // Stale or foreign instance file: keep scanning below.
     }
@@ -462,8 +467,26 @@ fn find_running_server() -> Option<u16> {
 }
 
 fn open_in_browser(url: &str) {
+    // Windows-first: prefer Edge app mode so the workstation opens as a
+    // dedicated chromeless window instead of a tab inside the examiner's
+    // browsing session. Falls back to the default browser when Edge is
+    // unavailable (PATH, then the standard install location).
     #[cfg(target_os = "windows")]
-    let _ = Command::new("explorer.exe").arg(url).spawn();
+    {
+        let app_arg = format!("--app={url}");
+        let launched = Command::new("msedge.exe").arg(&app_arg).spawn().is_ok()
+            || Command::new(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe")
+                .arg(&app_arg)
+                .spawn()
+                .is_ok()
+            || Command::new(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
+                .arg(&app_arg)
+                .spawn()
+                .is_ok();
+        if !launched {
+            let _ = Command::new("explorer.exe").arg(url).spawn();
+        }
+    }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = Command::new("xdg-open").arg(url).spawn();
@@ -837,6 +860,8 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("GET", "/") => page(EXAMINER_PAGE.as_bytes().to_vec()),
         ("GET", "/api/env") => json(api_env(request)),
         ("GET", "/api/browse") => json(api_browse(request)),
+        ("GET", "/api/records") => json(api_records(request, state)),
+        ("GET", "/api/records-meta") => json(api_records_meta(state)),
         ("GET", "/api/status") => json(api_status(state)),
         ("POST", "/api/start") => json(api_start(request, state)),
         ("POST", "/api/finalize") => json(api_finalize(state)),
@@ -849,6 +874,8 @@ fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/import-marks") => json(api_import_marks(request, state)),
         ("POST", "/api/capture-frame") => json(api_capture_frame(request, state)),
         ("POST", "/api/export-clip") => json(api_export_clip(request, state)),
+        ("POST", "/api/telemetry") => json(api_telemetry(request, state)),
+        ("POST", "/api/transcode-queue") => json(api_transcode_queue(request, state)),
         ("POST", "/api/proxy") => json(api_proxy(request, state)),
         ("POST", "/api/advanced") => json(api_advanced(request, state)),
         ("POST", "/api/carve") => json(api_carve(request, state)),
@@ -1238,6 +1265,163 @@ fn byte_progress_json(byte_progress: Option<&(PathBuf, Option<u64>)>) -> String 
         "{{\"job_type\":\"import-e01\",\"done\":{},\"total\":{},\"elapsed_secs\":0,\"eta_secs\":0}}",
         done, total
     )
+}
+
+/// `GET /api/records?offset=0&limit=500&q=foo` — paged slice of the case
+/// video index so the reviewer UI does not have to parse one giant inline
+/// JSON block for a large case. `q` is a case-insensitive substring match
+/// over id/paths/name; the JSON index stays the shape authority so the
+/// API can never drift from what the viewer renders offline.
+fn api_records(request: &Request, state: &SharedState) -> String {
+    let Some(case_dir) = state_lock(state).case_dir.clone() else {
+        return "{\"ok\":false,\"error\":\"no case open\"}".to_string();
+    };
+    let index_path = case_dir.join("db/video_index.json");
+    let mtime = index_path
+        .metadata()
+        .and_then(|m| m.modified())
+        .unwrap_or(UNIX_EPOCH);
+    let index = {
+        let mut guard = state_lock(state);
+        match &guard.index_cache {
+            Some((path, cached_mtime, value)) if *path == index_path && *cached_mtime == mtime => {
+                value.clone()
+            }
+            _ => {
+                let Ok(text) = crate::util::read_to_string(&index_path) else {
+                    return "{\"ok\":false,\"error\":\"no case index yet\"}".to_string();
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    return "{\"ok\":false,\"error\":\"case index is not valid JSON\"}".to_string();
+                };
+                guard.index_cache = Some((index_path, mtime, value.clone()));
+                value
+            }
+        }
+    };
+    let empty = Vec::new();
+    let videos = index
+        .get("videos")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let query = query_value(&request.query, "q").map(|q| q.to_lowercase());
+    let matches = |video: &&serde_json::Value| -> bool {
+        let Some(q) = query.as_deref() else {
+            return true;
+        };
+        [
+            "id",
+            "relative_path",
+            "source_path",
+            "name",
+            "original_name",
+        ]
+        .iter()
+        .filter_map(|key| video.get(*key).and_then(|v| v.as_str()))
+        .any(|text| text.to_lowercase().contains(q))
+    };
+    let offset = query_value(&request.query, "offset")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let limit = query_value(&request.query, "limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(500)
+        .clamp(1, 5000);
+    let filtered: Vec<&serde_json::Value> = videos.iter().filter(matches).collect();
+    let total = filtered.len();
+    let page: Vec<serde_json::Value> = filtered
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect();
+    format!(
+        "{{\"ok\":true,\"total\":{total},\"offset\":{offset},\"videos\":{}}}",
+        serde_json::to_string(&page).unwrap_or_else(|_| "[]".to_string())
+    )
+}
+
+/// `GET /api/records-meta` — the non-record half of the viewer data
+/// bundle (manifest, logs, thumbs map, annotations, deepfake reports) so
+/// the paged API can fully replace the inline `__FRAMETRACE_DATA__`
+/// payload when the viewer is served over the workstation.
+fn api_records_meta(state: &SharedState) -> String {
+    let Some(case_dir) = state_lock(state).case_dir.clone() else {
+        return "{\"ok\":false,\"error\":\"no case open\"}".to_string();
+    };
+    let read_json = |path: PathBuf| -> serde_json::Value {
+        crate::util::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or(serde_json::Value::Null)
+    };
+    let read_jsonl = |path: PathBuf| -> serde_json::Value {
+        let items: Vec<serde_json::Value> = crate::util::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .collect();
+        serde_json::Value::Array(items)
+    };
+    // The scan object minus the (paged) videos array.
+    let mut scan = read_json(case_dir.join("db/video_index.json"));
+    if let serde_json::Value::Object(map) = &mut scan {
+        map.insert("videos".to_string(), serde_json::Value::Array(Vec::new()));
+    }
+    let fls_entries = std::fs::read_dir(case_dir.join("db/filesystem"))
+        .ok()
+        .and_then(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| {
+                            name.starts_with("tsk-files-") && name.ends_with(".jsonl")
+                        })
+                })
+                .max()
+        })
+        .map(read_jsonl)
+        .unwrap_or(serde_json::Value::Array(Vec::new()));
+    // Same thumb mapping the bundle generator emits: review/thumbs/<id>.jpg
+    // relative to the served viewer page.
+    let mut thumbs = serde_json::Map::new();
+    if let Ok(entries) = std::fs::read_dir(case_dir.join("review/thumbs")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("jpg")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                thumbs.insert(
+                    stem.to_string(),
+                    serde_json::Value::String(format!("thumbs/{stem}.jpg")),
+                );
+            }
+        }
+    }
+    let annotations = serde_json::json!({
+        "marks": crate::case_db::load_review_marks(&case_dir).unwrap_or_default(),
+        "tags": crate::case_db::load_review_tags(&case_dir).unwrap_or_default(),
+    });
+    let body = serde_json::json!({
+        "ok": true,
+        "manifest": read_json(case_dir.join("case.json")),
+        "scan": scan,
+        "carveLog": read_jsonl(case_dir.join("artifacts/carved/carve-log.jsonl")),
+        "filesystemLog": read_jsonl(case_dir.join("evidence/logs/tsk-audit.jsonl")),
+        "validationLog": read_jsonl(case_dir.join("evidence/logs/validation-log.jsonl")),
+        "anomalyLog": read_jsonl(case_dir.join("evidence/logs/anomaly-log.jsonl")),
+        "flsEntries": fls_entries,
+        "thumbs": thumbs,
+        "annotations": annotations,
+        "deepfake": crate::deepfake::collect_reports(&case_dir),
+        "telemetry": crate::telemetry::collect_reports(&case_dir),
+    });
+    serde_json::to_string(&body).unwrap_or_else(|_| "{\"ok\":false}".to_string())
 }
 
 fn api_start(request: &Request, state: &SharedState) -> String {
@@ -2087,7 +2271,7 @@ fn api_export_clip(request: &Request, state: &SharedState) -> String {
         }
     };
     let case_text = case_dir.to_string_lossy().to_string();
-    let args = vec![
+    let mut args = vec![
         "export-video".into(),
         case_text,
         selector,
@@ -2100,6 +2284,18 @@ fn api_export_clip(request: &Request, state: &SharedState) -> String {
         "--output".into(),
         output.to_string_lossy().to_string(),
     ];
+    // Court-submission burn-in: exhibit label optional — case id, hash
+    // prefix, and ms timecode are always stamped when requested.
+    if body_value(&request.body, "burn_in").as_deref() == Some("true") {
+        args.push("--burn-in".into());
+        if let Some(exhibit) = body_value(&request.body, "exhibit")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+        {
+            args.push("--exhibit".into());
+            args.push(exhibit);
+        }
+    }
     match run_step(&exe, &args, state) {
         Ok(_) => {
             let rel = output
@@ -2107,6 +2303,143 @@ fn api_export_clip(request: &Request, state: &SharedState) -> String {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| output.to_string_lossy().to_string());
             format!("{{\"ok\":true,\"path\":{}}}", json_string(&rel))
+        }
+        Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+    }
+}
+
+/// `POST /api/telemetry`: return the telemetry artifact for a record,
+/// extracting it lazily via `extract-telemetry` when absent. Same
+/// selector/path confinement rules as export-clip.
+fn api_telemetry(request: &Request, state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
+    }
+    let id = body_value(&request.body, "id").unwrap_or_default();
+    if id.trim().is_empty() {
+        return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
+    }
+    let selector = if id.starts_with("vid_") {
+        id.clone()
+    } else {
+        let alt = body_value(&request.body, "path").unwrap_or_default();
+        let candidate = PathBuf::from(alt.trim());
+        let roots = state_lock(state).media_roots.clone();
+        let allowed = candidate
+            .canonicalize()
+            .map(|canonical| {
+                roots
+                    .iter()
+                    .filter_map(|root| root.canonicalize().ok())
+                    .any(|root| path_is_under(&root, &canonical))
+            })
+            .unwrap_or(false);
+        if !allowed {
+            return "{\"ok\":false,\"error\":\"색인된 영상 또는 허용된 경로의 파일만 텔레메트리를 추출할 수 있습니다.\"}"
+                .to_string();
+        }
+        candidate.to_string_lossy().to_string()
+    };
+    // The artifact is keyed by the record id — the viewer joins
+    // DATA.telemetry[sanitized-id], so a path selector must never leak
+    // into the filename.
+    let artifact = crate::telemetry::artifact_path(&case_dir, &id);
+    if !artifact.is_file() {
+        let source = match crate::video_export::resolve_video_source(&case_dir, &selector) {
+            Ok(p) => p,
+            Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        };
+        let mut report = match crate::telemetry::extract_file(&source) {
+            Ok(r) => r,
+            Err(err) => return format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
+        };
+        report.selector = id.clone();
+        let dir = case_dir.join("artifacts/telemetry");
+        if let Err(err) = std::fs::create_dir_all(&dir) {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+        let text = serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into());
+        if let Err(err) = crate::util::write_text_atomic(&artifact, &text) {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    }
+    match std::fs::read_to_string(&artifact) {
+        Ok(text) => format!("{{\"ok\":true,\"report\":{}}}", text),
+        Err(err) => format!(
+            "{{\"ok\":false,\"error\":{}}}",
+            json_string(&format!("텔레메트리 결과를 읽지 못했습니다: {err}"))
+        ),
+    }
+}
+
+/// `POST /api/transcode-queue`: batch-transcode every browser-unplayable /
+/// proprietary-format record to an H.264 review proxy via the CLI queue.
+/// `ids` (comma-separated) restricts the queue; `force` re-runs even when
+/// a proxy already exists.
+fn api_transcode_queue(request: &Request, state: &SharedState) -> String {
+    let (case_dir, busy) = {
+        let guard = state_lock(state);
+        (guard.case_dir.clone(), guard.busy)
+    };
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    if busy {
+        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
+    }
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(err) => {
+            return format!(
+                "{{\"ok\":false,\"error\":{}}}",
+                json_string(&err.to_string())
+            );
+        }
+    };
+    let mut args = vec![
+        "transcode-queue".into(),
+        case_dir.to_string_lossy().to_string(),
+    ];
+    let ids = body_value(&request.body, "ids").unwrap_or_default();
+    let ids = ids.trim();
+    if !ids.is_empty() {
+        // Ids travel as a comma list; keep anything that could look like a
+        // flag out of argv by rejecting leading dashes.
+        if ids.split(',').any(|v| v.trim().starts_with('-')) {
+            return "{\"ok\":false,\"error\":\"id 값이 올바르지 않습니다.\"}".to_string();
+        }
+        args.push("--only".into());
+        args.push(ids.to_string());
+    }
+    if body_value(&request.body, "force").as_deref() == Some("true") {
+        args.push("--force".into());
+    }
+    match run_step(&exe, &args, state) {
+        Ok(stdout) => {
+            let result = stdout
+                .lines()
+                .find_map(|l| l.strip_prefix("QUEUE-RESULT "))
+                .map(str::to_string)
+                .unwrap_or_else(|| "{}".to_string());
+            let latest = crate::transcode::latest_summary(&case_dir)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| result.clone());
+            format!("{{\"ok\":true,\"summary\":{}}}", latest)
         }
         Err(err) => format!("{{\"ok\":false,\"error\":{}}}", json_string(&err)),
     }

@@ -188,10 +188,12 @@ fn full_lifecycle_with_real_ffmpeg() {
     assert_eq!(failed, 1, "validation log: {validation_log}");
 
     // Review: externalized thumbnails on disk (healthy clips only) and no
-    // inline data URLs in the page.
+    // inline data URLs in the data bundle.
     let viewer = read_file(&case_dir.join("review/evidence-viewer.html"));
-    assert!(viewer.contains("thumbs/vid_000001.jpg"));
-    assert!(!viewer.contains("data:image/jpeg"));
+    assert!(viewer.contains("__FRAMETRACE_DATA__"));
+    let bundle = read_file(&case_dir.join("review/data-bundle.js"));
+    assert!(bundle.contains("thumbs/vid_000001.jpg"));
+    assert!(!bundle.contains("data:image/jpeg"));
     let thumbs_dir = case_dir.join("review/thumbs");
     let thumb_count = std::fs::read_dir(&thumbs_dir)
         .unwrap()

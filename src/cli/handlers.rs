@@ -9,7 +9,9 @@ use crate::model::{CaseManifest, ScanOptions};
 use crate::package;
 use crate::report;
 use crate::scan;
+use crate::telemetry;
 use crate::tool_policy::require_case_output_path;
+use crate::transcode;
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::{
     create_case_layout, json_escape, now_unix, read_to_string, write_text, write_text_atomic,
@@ -624,7 +626,12 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
     }))
     .map_err(|err| err.to_string())?;
     let deepfake_reports = crate::deepfake::collect_reports(case_dir).to_string();
-    let evidence_viewer = html_report::render_evidence_viewer_html(
+    let telemetry_reports = crate::telemetry::collect_reports(case_dir).to_string();
+    // The viewer page stays slim; the (potentially huge) record payload
+    // lives in data-bundle.js beside it. Standalone file:// use loads the
+    // bundle through a script tag; workstation serving pages the same
+    // data through /api/records instead.
+    let data_bundle = html_report::render_data_bundle_js(
         &manifest_json,
         &index_json,
         &carve_log,
@@ -635,7 +642,11 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &thumbs_json,
         &annotations_json,
         &deepfake_reports,
+        &telemetry_reports,
     );
+    write_text(&case_dir.join("review/data-bundle.js"), &data_bundle)
+        .map_err(|err| format!("failed to write review data bundle: {err}"))?;
+    let evidence_viewer = html_report::render_evidence_viewer_html_slim();
     let evidence_viewer_path = case_dir.join("review/evidence-viewer.html");
     write_text(
         &evidence_viewer_path,
@@ -839,6 +850,43 @@ pub fn export_video(case_dir: &Path, selector: &str, options: ExportOptions) -> 
     println!("source: {}", result.source_path.display());
     println!("output: {}", result.output_path.display());
     println!("format: {}", result.format.extension());
+    Ok(())
+}
+
+pub fn transcode_queue(case_dir: &Path, only: Option<&str>, force: bool) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let ids: Option<Vec<String>> = only.map(|s| {
+        s.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    });
+    let summary = transcode::run_queue(case_dir, ids.as_deref(), force)?;
+    println!(
+        "queue done: {} candidates · {} proxied · {} cached · {} failed",
+        summary.total, summary.proxied, summary.skipped_existing, summary.failed
+    );
+    Ok(())
+}
+
+pub fn extract_telemetry(case_dir: &Path, selector: &str) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let (artifact, report) = telemetry::extract_telemetry(case_dir, selector)?;
+    println!("telemetry extracted");
+    println!("source: {}", report.source_path);
+    println!("points: {}", report.point_count);
+    println!("lane: {}", report.source);
+    if let (Some(a), Some(b)) = (report.first_ts_unix, report.last_ts_unix) {
+        println!("range: {} .. {}", a as i64, b as i64);
+    }
+    if let Some(s) = report.max_speed_kmh {
+        println!("max speed: {:.1} km/h", s);
+    }
+    for s in &report.unparsed_streams {
+        println!("unparsed: {s}");
+    }
+    println!("artifact: {}", artifact.display());
     Ok(())
 }
 
@@ -1292,6 +1340,7 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                                 format,
                             )?),
                             timeout_secs: None,
+                            burn_in: None,
                         };
                         let selector = resolved.display().to_string();
                         let result = video_export::export_video(case_dir, &selector, &options)?;
@@ -2681,6 +2730,246 @@ pub fn deepfake_scan(case_dir: &Path, force: bool, retry_failed: bool) -> Result
         case_dir.display()
     );
     Ok(())
+}
+
+/// One diagnostic line for `frametrace doctor`. `level` renders as
+/// OK/WARN/FAIL — WARN means the workstation runs but a feature lane is
+/// unavailable, FAIL means a blocking defect (corrupt db, broken keyring).
+struct DoctorCheck {
+    level: &'static str,
+    name: String,
+    detail: String,
+}
+
+impl DoctorCheck {
+    fn ok(name: &str, detail: String) -> Self {
+        Self {
+            level: "OK",
+            name: name.to_string(),
+            detail,
+        }
+    }
+    fn warn(name: &str, detail: String) -> Self {
+        Self {
+            level: "WARN",
+            name: name.to_string(),
+            detail,
+        }
+    }
+    fn fail(name: &str, detail: String) -> Self {
+        Self {
+            level: "FAIL",
+            name: name.to_string(),
+            detail,
+        }
+    }
+}
+
+/// Preflight/field diagnostic: which forensic lanes are usable right now,
+/// whether the target volume is writable with headroom, and — when a case
+/// is given — whether its SQLite index and chained audit logs are intact.
+/// Hardware write blockers cannot be detected from software; the writable
+/// probe is the actionable equivalent.
+pub fn doctor(case_dir: Option<&Path>, json: bool) -> Result<(), String> {
+    let mut checks = Vec::new();
+
+    for (name, feature) in [
+        ("ffmpeg", "클립/프록시/썸네일/포맷 변환"),
+        ("ffprobe", "영상 메타데이터·스트림 검증"),
+        ("ewfinfo", "E01 이미지 메타데이터"),
+        ("ewfverify", "E01 무결성 검증"),
+        ("ewfexport", "E01 → RAW 추출"),
+        ("mmls", "파티션 맵 (삭제 영상 복구 전제)"),
+        ("fls", "삭제 파일 나열"),
+        ("icat", "inode 내용 복구"),
+    ] {
+        match crate::tool_policy::resolve_tool_binary(name, &[name]) {
+            Ok(found) => checks.push(DoctorCheck::ok(name, format!("{found} — {feature}"))),
+            Err(err) => checks.push(DoctorCheck::warn(
+                name,
+                format!("미설치 — {feature} 불가 ({err})"),
+            )),
+        }
+    }
+
+    // deepfake-lens mirrors api_env: env override file, PATH shim, then
+    // python interpreter fallback (the lane only needs `python -m
+    // deepfake_lens.cli` importable).
+    let deepfake_ok = std::env::var("FRAMETRACE_DEEPFAKE_LENS")
+        .ok()
+        .map(|v| !v.trim().is_empty() && PathBuf::from(v.trim()).is_file())
+        .unwrap_or(false)
+        || crate::tool_policy::resolve_tool_binary("deepfake-lens", &["deepfake-lens"]).is_ok()
+        || crate::tool_policy::resolve_tool_binary("python", &["python", "python3", "py"]).is_ok();
+    checks.push(if deepfake_ok {
+        DoctorCheck::ok("deepfake-lens", "합성 영상 스크리닝 사용 가능".into())
+    } else {
+        DoctorCheck::warn(
+            "deepfake-lens",
+            "미설치 — 합성 영상 스크리닝 불가 (선택 기능)".into(),
+        )
+    });
+
+    // Writable probe + free space on the case (or current) volume.
+    let probe_dir = case_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let probe = probe_dir.join(format!(".frametrace-doctor-{}", std::process::id()));
+    match fs::write(&probe, b"probe") {
+        Ok(()) => {
+            let _ = fs::remove_file(&probe);
+            checks.push(DoctorCheck::ok(
+                "case volume writable",
+                format!("{} — 쓰기 가능", probe_dir.display()),
+            ));
+        }
+        Err(err) => checks.push(DoctorCheck::fail(
+            "case volume writable",
+            format!("{} — 쓰기 불가: {err}", probe_dir.display()),
+        )),
+    }
+    match fs2::free_space(&probe_dir) {
+        Ok(free) => {
+            let gib = free as f64 / (1024.0 * 1024.0 * 1024.0);
+            checks.push(if free < 10 * 1024 * 1024 * 1024 {
+                DoctorCheck::warn(
+                    "free space",
+                    format!("{gib:.1} GiB 여유 — 대용량 이미지 추출 전 용량 확보 권장"),
+                )
+            } else {
+                DoctorCheck::ok("free space", format!("{gib:.1} GiB 여유"))
+            });
+        }
+        Err(err) => checks.push(DoctorCheck::warn(
+            "free space",
+            format!("여유 공간 조회 실패: {err}"),
+        )),
+    }
+
+    // HMAC keyring: absent is a warning (structural-only audit), present-
+    // but-broken is a fail (keyed entries unverifiable).
+    match crate::audit_key::configured() {
+        Ok(Some(key)) => checks.push(DoctorCheck::ok(
+            "audit keyring",
+            format!("활성 키 '{}' — HMAC 서명 감사 사용", key.id),
+        )),
+        Ok(None) => checks.push(DoctorCheck::warn(
+            "audit keyring",
+            "키 없음 — 감사 로그가 구조 검증 전용으로 동작".into(),
+        )),
+        Err(err) => checks.push(DoctorCheck::fail(
+            "audit keyring",
+            format!("키링 손상 — {err}"),
+        )),
+    }
+
+    if let Some(case_dir) = case_dir {
+        ensure_case(case_dir)?;
+        let db_path = case_db::case_db_path(case_dir);
+        if db_path.is_file() {
+            match rusqlite::Connection::open(&db_path).and_then(|conn| {
+                conn.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            }) {
+                Ok(result) if result == "ok" => {
+                    let videos = rusqlite::Connection::open(&db_path)
+                        .and_then(|conn| {
+                            conn.query_row("SELECT COUNT(*) FROM videos", [], |row| {
+                                row.get::<_, i64>(0)
+                            })
+                        })
+                        .unwrap_or(-1);
+                    checks.push(DoctorCheck::ok(
+                        "sqlite integrity",
+                        format!("integrity_check ok — 색인 {}건", videos.max(0)),
+                    ));
+                }
+                Ok(other) => checks.push(DoctorCheck::fail(
+                    "sqlite integrity",
+                    format!("integrity_check: {other}"),
+                )),
+                Err(err) => checks.push(DoctorCheck::fail(
+                    "sqlite integrity",
+                    format!("case.db 열기 실패: {err}"),
+                )),
+            }
+        } else {
+            checks.push(DoctorCheck::warn(
+                "sqlite integrity",
+                "case.db 없음 — 아직 스캔되지 않은 케이스".into(),
+            ));
+        }
+
+        for log_dir in [
+            case_dir.join("evidence/logs"),
+            case_dir.join("artifacts/logs"),
+            case_dir.join("artifacts/clips"),
+        ] {
+            let Ok(entries) = fs::read_dir(&log_dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let name = format!(
+                    "audit log {}",
+                    path.strip_prefix(case_dir).unwrap_or(&path).display()
+                );
+                match audit::verify_chained_jsonl(&path) {
+                    Ok(result) => {
+                        let detail = format!(
+                            "{}건 · {}{}",
+                            result.entries,
+                            result.integrity.label(),
+                            if result.warnings.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" · {}", result.warnings.join("; "))
+                            }
+                        );
+                        checks.push(if result.integrity == crate::audit::AuditIntegrity::Keyed {
+                            DoctorCheck::ok(&name, detail)
+                        } else {
+                            DoctorCheck::warn(&name, detail)
+                        });
+                    }
+                    Err(err) => checks.push(DoctorCheck::fail(&name, err)),
+                }
+            }
+        }
+    }
+
+    let fails = checks.iter().filter(|c| c.level == "FAIL").count();
+    let warns = checks.iter().filter(|c| c.level == "WARN").count();
+    if json {
+        let body = checks
+            .iter()
+            .map(|c| {
+                format!(
+                    "{{\"level\":\"{}\",\"name\":\"{}\",\"detail\":\"{}\"}}",
+                    c.level,
+                    json_escape(&c.name),
+                    json_escape(&c.detail)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        println!(
+            "{{\"ok\":{},\"fails\":{fails},\"warns\":{warns},\"checks\":[{body}]}}",
+            fails == 0
+        );
+    } else {
+        for check in &checks {
+            println!("[{}] {} — {}", check.level, check.name, check.detail);
+        }
+        println!("doctor: {fails} fail · {warns} warn");
+    }
+    if fails > 0 {
+        Err(format!("doctor: {fails} blocking problem(s) found"))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -45,3 +45,5 @@
 /tools
 /target3
 /chrome-test-profile
+/tmp/
+/shots-*/

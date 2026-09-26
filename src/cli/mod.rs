@@ -168,6 +168,12 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         timeout: Option<u64>,
+        /// Burn exhibit label, case id, hash prefix, and ms timecode onto frames
+        #[arg(long)]
+        burn_in: bool,
+        /// Exhibit label for burn-in, e.g. "갑 제3호증"
+        #[arg(long)]
+        exhibit: Option<String>,
     },
     /// Remux a Dahua DAV export to MP4 without re-encoding (real-sample validation pending)
     ExportDav {
@@ -177,6 +183,22 @@ pub enum Commands {
         output: Option<PathBuf>,
         #[arg(long)]
         timeout: Option<u64>,
+    },
+    /// Queue browser-unplayable / proprietary-format videos for H.264 proxy transcoding with chained hash logging
+    TranscodeQueue {
+        case_dir: PathBuf,
+        /// Comma-separated ids to queue (default: all unplayable candidates)
+        #[arg(long)]
+        only: Option<String>,
+        /// Re-transcode even when a proxy already exists
+        #[arg(long)]
+        force: bool,
+    },
+    /// Extract dashcam GPS telemetry (NMEA tracks) into artifacts/telemetry; binary IMU tracks are detected, not decoded
+    ExtractTelemetry {
+        case_dir: PathBuf,
+        /// Indexed id (vid_*) or media file path
+        selector: String,
     },
     /// Remux a Hikvision IMKH export to MP4 (strip 40-byte header; real-sample validation pending)
     ExportHik {
@@ -399,6 +421,15 @@ pub enum Commands {
     },
     /// Print the current case/index status
     Inspect { case_dir: PathBuf },
+    /// Diagnose tool availability, disk space, case DB integrity, and audit health
+    Doctor {
+        /// Case directory to inspect — omit for system checks only
+        #[arg(long)]
+        case: Option<PathBuf>,
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Run forensic QA validation checks
     Qa {
         #[command(subcommand)]
@@ -627,6 +658,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             duration,
             output,
             timeout,
+            burn_in,
+            exhibit,
         } => {
             let fmt = ExportFormat::parse(&format)?;
             let options = ExportOptions {
@@ -635,8 +668,23 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 duration_seconds: duration,
                 output_path: output,
                 timeout_secs: timeout,
+                burn_in: if burn_in || exhibit.is_some() {
+                    Some(crate::video_export::BurnInSpec {
+                        exhibit: exhibit.unwrap_or_default(),
+                    })
+                } else {
+                    None
+                },
             };
             export_video(&case_dir, &selector, options)
+        }
+        Commands::TranscodeQueue {
+            case_dir,
+            only,
+            force,
+        } => transcode_queue(&case_dir, only.as_deref(), force),
+        Commands::ExtractTelemetry { case_dir, selector } => {
+            extract_telemetry(&case_dir, &selector)
         }
         Commands::MakeProxy {
             case_dir,
@@ -807,6 +855,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             retry_failed,
         } => deepfake_scan(&case_dir, force, retry_failed),
         Commands::Inspect { case_dir } => inspect(&case_dir),
+        Commands::Doctor { case, json } => doctor(case.as_deref(), json),
         Commands::Qa { command } => run_qa(command),
     }
 }

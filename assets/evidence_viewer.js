@@ -2,7 +2,8 @@
  * Data arrives via window.__FRAMETRACE_DATA__ (inlined by frametrace make-review).
  * Reviewer state (layout, marks, selection) persists in localStorage per case. */
 
-const DATA = window.__FRAMETRACE_DATA__;
+(async function () {
+const DATA = await loadViewerData();
 const manifest = DATA.manifest || {};
 const scan = DATA.scan || {};
 const carveLog = Array.isArray(DATA.carveLog) ? DATA.carveLog : [];
@@ -130,6 +131,24 @@ const I18N = {
     "toolbar.in": "[ IN",
     "toolbar.out": "OUT ]",
     "toolbar.clip": "구간보내기",
+    "toolbar.clipBurn": "법원용 보내기",
+    "toolbar.dual": "듀얼 재생",
+    "toast.noPair": "페어링된 채널 영상이 없습니다 — _F/_R 또는 전방/후방이 포함된 같은 이름 파일이 필요합니다.",
+    "panel.telemetry": "주행 궤적",
+    "btn.telemetry": "추출",
+    "telemetry.summary": "{n}개 궤적점 (상대 개략도 — 지도 아님)",
+    "telemetry.maxSpeed": "최고 {v}km/h",
+    "telemetry.noPoints": "추출된 궤적점 없음",
+    "toast.telemetryDone": "텔레메트리 {n}개 궤적점 추출",
+    "toast.telemetryFail": "텔레메트리 추출 실패: {err}",
+    "toast.telemetryOffline": "텔레메트리 추출은 워크스테이션 서버에서만 가능합니다.",
+    "export.transcode": "미재생 포맷 프록시 큐",
+    "toast.queueRunning": "트랜스코딩 큐 실행 중 — 파일 수에 따라 오래 걸릴 수 있습니다.",
+    "toast.queueDone": "큐 완료: 후보 {t} · 변환 {p} · 기존 {c} · 실패 {f}",
+    "toast.queueFail": "프록시 큐 실패: {err}",
+    "toast.queueOffline": "프록시 큐는 워크스테이션 서버에서만 가능합니다.",
+    "clip.exhibitPrompt": "화면에 새길 호증 표시를 입력하십시오 (예: 갑 제3호증). 비워두면 케이스ID·해시·타임코드만 새겨집니다.",
+    "clip.exhibitDefault": "갑 제1호증",
     "toolbar.proxy": "프록시 재생",
     "panel.inspector": "포렌식 인스펙터",
     "panel.validation": "검증 로그",
@@ -435,6 +454,24 @@ const I18N = {
     "toolbar.in": "[ IN",
     "toolbar.out": "OUT ]",
     "toolbar.clip": "Export clip",
+    "toolbar.clipBurn": "Court export",
+    "toolbar.dual": "Dual sync",
+    "toast.noPair": "No paired channel video — needs same-name files with _F/_R or front/rear in the name.",
+    "panel.telemetry": "Drive track",
+    "btn.telemetry": "Extract",
+    "telemetry.summary": "{n} track points (relative sketch — no basemap)",
+    "telemetry.maxSpeed": "max {v}km/h",
+    "telemetry.noPoints": "No track points extracted",
+    "toast.telemetryDone": "Telemetry: {n} track points",
+    "toast.telemetryFail": "Telemetry extraction failed: {err}",
+    "toast.telemetryOffline": "Telemetry extraction needs the workstation server.",
+    "export.transcode": "Unplayable-format proxy queue",
+    "toast.queueRunning": "Transcode queue running — may take a while for many files.",
+    "toast.queueDone": "Queue done: {t} candidates · {p} proxied · {c} cached · {f} failed",
+    "toast.queueFail": "Proxy queue failed: {err}",
+    "toast.queueOffline": "The proxy queue needs the workstation server.",
+    "clip.exhibitPrompt": "Exhibit label to burn into the video (e.g. Exhibit A). Leave empty to stamp only case id, hash, and timecode.",
+    "clip.exhibitDefault": "Exhibit A",
     "toolbar.proxy": "Play proxy",
     "panel.inspector": "Forensic inspector",
     "panel.validation": "Validation log",
@@ -655,7 +692,13 @@ const I18N = {
 };
 
 function t(key) {
-  const locale = state?.locale || storageGet(LOCALE_KEY, "ko") || "ko";
+  let locale = storageGet(LOCALE_KEY, "ko") || "ko";
+  // `state` is a top-level const initialized after the record maps that
+  // call t() run — touching it in its TDZ throws ReferenceError, so the
+  // access must be guarded rather than assumed initialized.
+  try {
+    if (state && state.locale) locale = state.locale;
+  } catch { /* state not initialized yet */ }
   return (I18N[locale] && I18N[locale][key]) || (I18N.ko[key]) || key;
 }
 
@@ -740,17 +783,96 @@ function recTypeLabel(recType) {
   return ({ driving: t("rectype.driving"), event: t("rectype.event"), parking: t("rectype.parking"), unclassified: t("rectype.unclassified") })[recType] || t("rectype.unclassified");
 }
 
-function channelFor(record) {
+function channelCodeOf(record) {
   const name = `${record.originalPath || ""} ${record.name || ""}`;
   let match = name.match(/[_\-. ]([FRIB])(?:[_.\- ]|[a-z0-9]*$)/i);
-  if (match) {
-    const code = match[1].toUpperCase();
-    return ({ F: t("chan.front"), R: t("chan.rear"), I: t("chan.interior"), B: t("chan.rear2") })[code] || code;
-  }
-  if (/front/i.test(name)) return t("chan.front");
-  if (/rear/i.test(name)) return t("chan.rear");
-  if (/interior|inside/i.test(name)) return t("chan.interior");
+  if (match) return match[1].toUpperCase();
+  if (/front/i.test(name)) return "F";
+  if (/rear/i.test(name)) return "R";
+  if (/interior|inside/i.test(name)) return "I";
   return null;
+}
+
+function channelLabel(code) {
+  return ({ F: t("chan.front"), R: t("chan.rear"), I: t("chan.interior"), B: t("chan.rear2") })[code] || code;
+}
+
+function channelFor(record) {
+  const code = channelCodeOf(record);
+  return code ? channelLabel(code) : null;
+}
+
+// Channel pairing for dual sync playback: two records mate when their
+// filenames differ only by a channel token (_F/_R/_I/_B or front/rear/
+// interior) inside the same folder. The channel token is stripped to form
+// a shared key — `20240101_1200_F.mp4` and `20240101_1200_R.mp4` pair.
+function pairKeyOf(record) {
+  const p = String(record.originalPath || record.name || "").replace(/\\/g, "/");
+  const dir = p.split("/").slice(0, -1).join("/").toLowerCase();
+  let base = (p.split("/").pop() || "").replace(/\.[^.]*$/, "").toLowerCase();
+  base = base
+    .replace(/front|rear|interior|inside/g, "")
+    .replace(/[_\-. ][frib](?=$|[_\-. ])/g, "")
+    .replace(/^[ _\-.]+|[ _\-.]+$/g, "");
+  return base ? `${dir}|${base}` : "";
+}
+
+function matesOf(record) {
+  const code = channelCodeOf(record);
+  const key = pairKeyOf(record);
+  if (!code || !key) return [];
+  return records.filter(r =>
+    r.id !== record.id &&
+    pairKeyOf(r) === key &&
+    channelCodeOf(r) && channelCodeOf(r) !== code &&
+    mediaSrcFor(r)
+  );
+}
+
+// Dual-channel panes: any pane can drive — user events are mirrored to the
+// others. A suppress flag stops echo loops, and a drift poll re-locks
+// panes that wander (>0.3s) without a user event (decoder jitter,
+// background tab throttling).
+function wireDualSync(videos) {
+  const list = Array.from(videos);
+  if (list.length < 2) return;
+  let suppress = false;
+  const release = () => setTimeout(() => { suppress = false; }, 250);
+  list.forEach(src => {
+    src.addEventListener("play", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) { v.currentTime = src.currentTime; v.play().catch(() => {}); } });
+      release();
+    });
+    src.addEventListener("pause", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.pause(); });
+      release();
+    });
+    src.addEventListener("seeked", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.currentTime = src.currentTime; });
+      release();
+    });
+    src.addEventListener("ratechange", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.playbackRate = src.playbackRate; });
+      release();
+    });
+  });
+  const drift = setInterval(() => {
+    if (!list[0].isConnected) { clearInterval(drift); return; }
+    const driver = list.find(v => !v.paused) || list[0];
+    list.forEach(v => {
+      if (v !== driver && Math.abs(v.currentTime - driver.currentTime) > 0.3) {
+        v.currentTime = driver.currentTime;
+      }
+    });
+  }, 500);
 }
 
 function prefixFor(record) {
@@ -1024,6 +1146,7 @@ records.forEach(record => {
   // Artifact filenames sanitize record ids (inode:<off>:<ino> →
   // inode_<off>_<ino>) — mirror the same mapping for the lookup.
   record.dfl = DATA.deepfake?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
+  record.telemetry = DATA.telemetry?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
   const fromId = anomaliesBySelector.get(record.id) || [];
   const fromValidation = Array.isArray(record.validation?.anomaly_flags)
     ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
@@ -1057,7 +1180,7 @@ const state = {
   tags: storageGet(TAGS_KEY, {}),
   tagPresets: storageGet(TAG_PRESETS_KEY, null),
   locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
-  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, dual: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
   currentPage: 1,
   pageSize: 100,
   query: "",
@@ -1254,8 +1377,8 @@ function selectedRecord() { return records.find(record => record.id === state.ac
 function markOf(record) { return state.marks[record.id] || null; }
 
 function saveLayout() {
-  const { videoMode, videoZoom, theater, playerH, colSplit, rate } = state.layout;
-  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, playerH, colSplit, rate });
+  const { videoMode, videoZoom, theater, dual, playerH, colSplit, rate } = state.layout;
+  storageSet(LAYOUT_KEY, { videoMode, videoZoom, theater, dual, playerH, colSplit, rate });
 }
 
 let layoutSaveTimer = null;
@@ -1276,6 +1399,7 @@ function applyLayout() {
   els.playRate.value = String(state.layout.rate || 1);
   const rateVideo = els.mediaStage.querySelector("video");
   if (rateVideo) rateVideo.playbackRate = state.layout.rate || 1;
+  document.getElementById("btnDual")?.classList.toggle("on", !!state.layout.dual);
 }
 
 // Column split between the browse pane and the media pane. The default lives
@@ -1512,6 +1636,9 @@ function renderHistogram(filtered) {
 function tagListFor(record) { return state.tags[record.id] || []; }
 
 function saveTagPresets() { storageSet(TAG_PRESETS_KEY, state.tagPresets); }
+// renderDetails/openPlayerWindow call tagPresets() for the preset list —
+// the array itself lives on state (initialized with DEFAULT_TAG_PRESETS).
+function tagPresets() { return state.tagPresets || DEFAULT_TAG_PRESETS; }
 function addTagPreset(tag) {
   const name = String(tag || "").trim();
   if (!name || state.tagPresets.includes(name)) return;
@@ -1606,8 +1733,46 @@ function applyMark(status) {
 
 let mediaRenderedFor = null;
 
+function drawTelemetry(report) {
+  const canvas = document.getElementById("telemetryCanvas");
+  const note = document.getElementById("telemetryNote");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const pts = (report.points || []).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  if (pts.length < 2) {
+    note.textContent = report.note || t("telemetry.noPoints");
+    return;
+  }
+  // Relative track sketch — no basemap: the viewer stays fully offline.
+  const lats = pts.map(p => p.lat), lons = pts.map(p => p.lon);
+  const [minLat, maxLat] = [Math.min(...lats), Math.max(...lats)];
+  const [minLon, maxLon] = [Math.min(...lons), Math.max(...lons)];
+  const pad = 8;
+  const s = Math.min((canvas.width - 2 * pad) / Math.max(maxLon - minLon, 1e-9),
+                     (canvas.height - 2 * pad) / Math.max(maxLat - minLat, 1e-9));
+  const X = p => pad + (p.lon - minLon) * s;
+  const Y = p => canvas.height - pad - (p.lat - minLat) * s;
+  const stride = Math.max(1, Math.floor(pts.length / 4000));
+  ctx.strokeStyle = "#0f7c71";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i += stride) {
+    i === 0 ? ctx.moveTo(X(pts[i]), Y(pts[i])) : ctx.lineTo(X(pts[i]), Y(pts[i]));
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#2ea043";
+  ctx.beginPath(); ctx.arc(X(pts[0]), Y(pts[0]), 3.5, 0, 7); ctx.fill();
+  ctx.fillStyle = "#c0392b";
+  const last = pts[pts.length - 1];
+  ctx.beginPath(); ctx.arc(X(last), Y(last), 3.5, 0, 7); ctx.fill();
+  const speed = Number.isFinite(report.max_speed_kmh) ? ` · ${tf("telemetry.maxSpeed", { v: report.max_speed_kmh.toFixed(0) })}` : "";
+  note.textContent = tf("telemetry.summary", { n: pts.length }) + speed;
+}
+
 function renderDetails() {
   const record = selectedRecord();
+  const teleTitle = document.getElementById("telemetryTitle");
+  const telePane = document.getElementById("telemetryPane");
   if (!record) {
     els.mediaStage.innerHTML = `<div class="fallback">${t("empty.index")}</div>`;
     els.mediaTitle.textContent = "-";
@@ -1616,29 +1781,49 @@ function renderDetails() {
     els.metaList.innerHTML = "";
     els.validationList.innerHTML = "";
     els.detailBadges.innerHTML = "";
+    if (teleTitle) teleTitle.hidden = true;
+    if (telePane) telePane.hidden = true;
     mediaRenderedFor = null;
     return;
   }
   els.mediaTitle.textContent = record.originalName || record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
-  const mediaKey = `${record.id}:${record.fileUrl}:${state.proxies[record.id] || ""}`;
+  const dualMates = state.layout.dual ? matesOf(record) : [];
+  const mediaKey = `${record.id}:${record.fileUrl}:${state.proxies[record.id] || ""}:dual:${state.layout.dual ? dualMates.map(m => m.id).join(",") : "off"}`;
   if (mediaRenderedFor !== mediaKey) {
     const mediaSrc = mediaSrcFor(record);
-    els.mediaStage.innerHTML = mediaSrc
-      ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
-      : `<div class="fallback">${t("empty.play")}</div>`;
-    const newVideo = els.mediaStage.querySelector("video");
-    if (newVideo) {
-      newVideo.playbackRate = state.layout.rate || 1;
-      newVideo.addEventListener("loadedmetadata", applyVideoScale);
+    if (mediaSrc && dualMates.length) {
+      els.mediaStage.innerHTML = `<div class="dual-stage">${[record, ...dualMates].map(r =>
+        `<div class="dual-pane"><video controls preload="metadata" src="${escapeHtml(mediaSrcFor(r))}"></video>` +
+        `<span class="dual-label">${escapeHtml(`${channelLabel(channelCodeOf(r))} · ${r.originalName || r.name || r.id}`)}</span></div>`
+      ).join("")}</div>`;
+      wireDualSync(els.mediaStage.querySelectorAll("video"));
+    } else {
+      els.mediaStage.innerHTML = mediaSrc
+        ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
+        : `<div class="fallback">${t("empty.play")}</div>`;
     }
+    els.mediaStage.querySelectorAll("video").forEach(v => {
+      v.playbackRate = state.layout.rate || 1;
+      v.addEventListener("loadedmetadata", applyVideoScale);
+    });
     mediaRenderedFor = mediaKey;
   }
   applyVideoScale();
   updateRangeLabel();
   const mark = markOf(record);
   const recordTags = tagListFor(record);
+  if (teleTitle && telePane) {
+    teleTitle.hidden = !mediaSrcFor(record);
+    const tele = record.telemetry;
+    if (tele && Array.isArray(tele.points) && tele.points.length) {
+      telePane.hidden = false;
+      drawTelemetry(tele);
+    } else {
+      telePane.hidden = true;
+    }
+  }
   document.getElementById("detailBadges").innerHTML = [
     `<span class="badge ${statusClass(record.status)}">${escapeHtml(statusLabel(record.status))}</span>`,
     (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">${tf("warn.count", { n: record.warnings.length })}</span>` : "",
@@ -2507,6 +2692,43 @@ document.getElementById("btnSkipBack").addEventListener("click", () => skipVideo
 document.getElementById("btnSkipFwd").addEventListener("click", () => skipVideo(10));
 document.getElementById("playRate").addEventListener("change", () => setRate(Number(els.playRate.value) || 1));
 document.getElementById("btnPopPlayer").addEventListener("click", openPlayerWindow);
+document.getElementById("btnDual").addEventListener("click", () => {
+  state.layout.dual = !state.layout.dual;
+  saveLayout();
+  applyLayout();
+  if (state.layout.dual) {
+    const record = selectedRecord();
+    if (!record || !matesOf(record).length) toast(t("toast.noPair"));
+  }
+  mediaRenderedFor = null;
+  renderDetails();
+});
+document.getElementById("btnTelemetry").addEventListener("click", async (ev) => {
+  const record = selectedRecord();
+  if (!record) return;
+  const btn = ev.currentTarget;
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: record.id, path: record.path || "" })
+    });
+    const data = await res.json();
+    if (data.ok && data.report) {
+      record.telemetry = data.report;
+      if (DATA.telemetry) DATA.telemetry[String(record.id).replace(/[:\\\/]/g, "_")] = data.report;
+      renderDetails();
+      toast(tf("toast.telemetryDone", { n: data.report.point_count || 0 }));
+    } else {
+      toast(tf("toast.telemetryFail", { err: data.error || "" }));
+    }
+  } catch {
+    toast(t("toast.telemetryOffline"));
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // Grab the decoded frame straight off the <video> element — no ffmpeg round
 // trip — and store it as a hashed case artifact (artifacts/captures/).
@@ -2616,6 +2838,26 @@ document.getElementById("btnExportClip").addEventListener("click", async () => {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       body: JSON.stringify({ id: record.id, path: record.path || "", start: range.in.toFixed(3), duration: (range.out - range.in).toFixed(3) })
+    });
+    const data = await res.json();
+    toast(data.ok ? tf("toast.clipDone", { path: data.path }) : tf("toast.clipFail", { err: data.error || "" }));
+  } catch {
+    toast(t("toast.clipOffline"));
+  }
+});
+document.getElementById("btnExportClipBurn").addEventListener("click", async () => {
+  const record = selectedRecord();
+  const range = rangeOf(record);
+  if (!record || !range || !Number.isFinite(range.in) || !Number.isFinite(range.out) || range.out <= range.in) {
+    toast(t("toast.noRange"));
+    return;
+  }
+  const exhibit = window.prompt(t("clip.exhibitPrompt"), t("clip.exhibitDefault")) ?? "";
+  try {
+    const res = await fetch("/api/export-clip", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ id: record.id, path: record.path || "", start: range.in.toFixed(3), duration: (range.out - range.in).toFixed(3), burn_in: "true", exhibit })
     });
     const data = await res.json();
     toast(data.ok ? tf("toast.clipDone", { path: data.path }) : tf("toast.clipFail", { err: data.error || "" }));
@@ -3016,6 +3258,29 @@ document.getElementById("btnDownloadFiles").addEventListener("click", () => {
     toast(tf("toast.downloads", { n: started }));
   }
 });
+document.getElementById("btnTranscodeQueue").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  const ids = selectedRecords().map(r => r.id).join(",");
+  btn.disabled = true;
+  toast(t("toast.queueRunning"));
+  try {
+    const res = await fetch("/api/transcode-queue", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ ids })
+    });
+    const data = await res.json();
+    if (data.ok && data.summary) {
+      toast(tf("toast.queueDone", { t: data.summary.total ?? 0, p: data.summary.proxied ?? 0, c: data.summary.skipped_existing ?? 0, f: data.summary.failed ?? 0 }));
+    } else {
+      toast(tf("toast.queueFail", { err: data.error || "" }));
+    }
+  } catch {
+    toast(t("toast.queueOffline"));
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // --- 케이스 타임라인 패널: db/timeline.jsonl을 읽어 시간순 이벤트를 표시 ---
 async function loadTimeline(regenerate) {
@@ -3136,3 +3401,68 @@ document.getElementById("btnLang")?.addEventListener("click", () => {
 });
 applyLayout();
 render();
+})();
+
+/* Data loading order:
+ * 1. window.__FRAMETRACE_DATA__ already set — legacy single-file bundle
+ *    (older make-review output) — use it directly.
+ * 2. Served by the frametrace workstation — page the case index through
+ *    /api/records + /api/records-meta so the HTML never carries a
+ *    multi-hundred-MB inline payload for large cases.
+ * 3. Opened as a plain file (or a server without the API) — the
+ *    generated sibling data-bundle.js, which a plain <script> tag can
+ *    load even under file:// where fetch() is blocked. */
+async function loadViewerData() {
+  if (window.__FRAMETRACE_DATA__ && window.__FRAMETRACE_DATA__.manifest) {
+    return window.__FRAMETRACE_DATA__;
+  }
+  const note = document.createElement("div");
+  note.id = "ft-load-note";
+  note.style.cssText = "position:fixed;inset:0;display:grid;place-items:center;background:rgba(14,21,19,.92);color:#8fa79e;font:14px/1.5 system-ui,sans-serif;z-index:9999";
+  note.textContent = "증거 목록을 불러오는 중…";
+  document.body.appendChild(note);
+  const done = () => note.remove();
+  try {
+    const probe = await fetch("/api/records?offset=0&limit=500");
+    if (probe.ok) {
+      const first = await probe.json();
+      if (first && first.ok) {
+        const metaResp = await fetch("/api/records-meta");
+        const meta = metaResp.ok ? await metaResp.json() : {};
+        const videos = Array.isArray(first.videos) ? first.videos.slice() : [];
+        const total = first.total || videos.length;
+        while (videos.length < total) {
+          note.textContent = `증거 목록을 불러오는 중… ${videos.length}/${total}`;
+          const r = await (await fetch(`/api/records?offset=${videos.length}&limit=500`)).json();
+          if (!r || !r.ok || !Array.isArray(r.videos) || !r.videos.length) break;
+          videos.push(...r.videos);
+        }
+        const scan = (meta && meta.scan) || {};
+        scan.videos = videos;
+        done();
+        return {
+          manifest: meta.manifest || {},
+          scan,
+          carveLog: meta.carveLog,
+          filesystemLog: meta.filesystemLog,
+          validationLog: meta.validationLog,
+          anomalyLog: meta.anomalyLog,
+          flsEntries: meta.flsEntries,
+          thumbs: meta.thumbs,
+          annotations: meta.annotations,
+          deepfake: meta.deepfake,
+          telemetry: meta.telemetry,
+        };
+      }
+    }
+  } catch { /* API unavailable — fall through to the bundle */ }
+  await new Promise((resolve) => {
+    const s = document.createElement("script");
+    s.src = "data-bundle.js";
+    s.onload = resolve;
+    s.onerror = resolve;
+    document.head.appendChild(s);
+  });
+  done();
+  return window.__FRAMETRACE_DATA__ || {};
+}

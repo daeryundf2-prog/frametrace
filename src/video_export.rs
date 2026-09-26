@@ -29,6 +29,17 @@ impl ExportFormat {
     }
 }
 
+/// Court-submission burn-in request: draw the exhibit label, case id,
+/// and a short source-hash prefix onto every frame plus a millisecond
+/// timecode, so a derived clip stays self-identifying when detached
+/// from the case report.
+#[derive(Debug, Clone)]
+pub struct BurnInSpec {
+    /// Exhibit label such as "갑 제3호증" — empty still burns the
+    /// case id, hash prefix, and timecode.
+    pub exhibit: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExportOptions {
     pub format: ExportFormat,
@@ -36,6 +47,7 @@ pub struct ExportOptions {
     pub duration_seconds: Option<f64>,
     pub output_path: Option<PathBuf>,
     pub timeout_secs: Option<u64>,
+    pub burn_in: Option<BurnInSpec>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +103,7 @@ pub fn export_video(
             .map_err(|err| format!("failed to create output directory: {err}"))?;
     }
 
-    run_ffmpeg_export(&source_path, &output_path, options)?;
+    run_ffmpeg_export(case_dir, &source_path, &output_path, options)?;
     write_export_log(case_dir, selector, &source_path, &output_path, options)?;
 
     Ok(ExportResult {
@@ -102,15 +114,45 @@ pub fn export_video(
 }
 
 fn run_ffmpeg_export(
+    case_dir: &Path,
     source_path: &Path,
     output_path: &Path,
     options: &ExportOptions,
 ) -> Result<(), String> {
-    let args = ffmpeg_export_args(source_path, output_path, options);
+    let args = ffmpeg_export_args(case_dir, source_path, output_path, options);
     let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
         .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    // Windows ffmpeg builds neither accept non-ASCII argv text nor resolve
+    // absolute font paths inside filter options (any scheme — C:/, /c/ —
+    // silently falls back to a Latin-only font, boxing Hangul). The label
+    // is written to a UTF-8 sidecar and Malgun Gothic is copied beside the
+    // clip; both are referenced by relative name with ffmpeg's cwd pinned
+    // to the clips dir, so no path or label byte crosses argv at all.
+    let label_cwd = if let Some(spec) = &options.burn_in {
+        let info = burn_in_info_text(case_dir, source_path, spec);
+        let label_path = burn_in_label_path(output_path);
+        // A UTF-8 BOM keeps every drawtext build on the UTF-8 path.
+        std::fs::write(&label_path, format!("\u{feff}{info}"))
+            .map_err(|err| format!("failed to write burn-in label file: {err}"))?;
+        let clips_dir = label_path.parent().map(Path::to_path_buf);
+        if burn_in_font_available()
+            && let Some(dir) = &clips_dir
+        {
+            let font_dest = dir.join(BURN_IN_FONT_NAME);
+            if !font_dest.exists() {
+                std::fs::copy(BURN_IN_FONT_SOURCE, &font_dest)
+                    .map_err(|err| format!("failed to stage burn-in font: {err}"))?;
+            }
+        }
+        clips_dir
+    } else {
+        None
+    };
     let mut command = Command::new(&ffmpeg);
     command.args(&args);
+    if let Some(dir) = &label_cwd {
+        command.current_dir(dir);
+    }
     let output =
         crate::util::run_with_timeout(&mut command, options.timeout_secs).map_err(|err| {
             if err.contains("os error 2") {
@@ -144,6 +186,7 @@ fn run_ffmpeg_export(
 }
 
 fn ffmpeg_export_args(
+    case_dir: &Path,
     source_path: &Path,
     output_path: &Path,
     options: &ExportOptions,
@@ -172,6 +215,17 @@ fn ffmpeg_export_args(
         "-map".to_string(),
         "0:a?".to_string(),
     ]);
+
+    if let Some(burn_in) = &options.burn_in {
+        let label_name = burn_in_label_path(output_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        args.extend([
+            "-vf".to_string(),
+            burn_in_filter(case_dir, source_path, burn_in, Some(&label_name)),
+        ]);
+    }
 
     match options.format {
         ExportFormat::Mp4 => {
@@ -204,6 +258,104 @@ fn ffmpeg_export_args(
     }
     args.push(audit::path_string(output_path));
     args
+}
+
+/// The UTF-8 sidecar that carries the burn-in info line to drawtext's
+/// `textfile=` option. Sits next to the exported clip inside the case dir.
+fn burn_in_label_path(output_path: &Path) -> PathBuf {
+    let mut name = output_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "clip".to_string());
+    name.push_str(".burn-in.txt");
+    output_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(name)
+}
+
+/// The human-readable burn-in info line: optional exhibit label, case id,
+/// and the source's sha256 prefix.
+fn burn_in_info_text(case_dir: &Path, source_path: &Path, spec: &BurnInSpec) -> String {
+    let case_id = read_to_string(&case_dir.join("case.json"))
+        .ok()
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| {
+                    v.get("case_id")
+                        .and_then(|id| id.as_str().map(str::to_string))
+                })
+        })
+        .unwrap_or_else(|| "case".to_string());
+    let hash_prefix = audit::indexed_source_hash(case_dir, "", source_path)
+        .map(|hash| hash.chars().take(8).collect::<String>())
+        .unwrap_or_else(|| "unhashed".to_string());
+    if spec.exhibit.trim().is_empty() {
+        format!("{case_id} · sha256:{hash_prefix}")
+    } else {
+        format!("{} · {case_id} · sha256:{hash_prefix}", spec.exhibit.trim())
+    }
+}
+
+/// Builds the drawtext chain for court-submission burn-in: an info line
+/// (exhibit label · case id · sha256 prefix) at the top-left and a
+/// millisecond pts:hms timecode at the bottom-left. Malgun Gothic is
+/// used when present so Korean exhibit labels do not render as boxes.
+///
+/// `label_file` is the basename of the UTF-8 sidecar written beside the
+/// output — drawtext reads it via `textfile=` because Windows ffmpeg
+/// builds mangle non-ASCII argv. When absent (tests), the info line is
+/// inlined into `text=`.
+const BURN_IN_FONT_SOURCE: &str = "C:/Windows/Fonts/malgun.ttf";
+const BURN_IN_FONT_NAME: &str = "malgun.ttf";
+
+fn burn_in_font_available() -> bool {
+    Path::new(BURN_IN_FONT_SOURCE).is_file()
+}
+
+fn burn_in_filter(
+    case_dir: &Path,
+    source_path: &Path,
+    spec: &BurnInSpec,
+    label_file: Option<&str>,
+) -> String {
+    // The font is staged next to the clip and referenced by basename —
+    // absolute font paths inside filter options silently fail to load on
+    // Windows ffmpeg builds, boxing every Hangul glyph.
+    let font_arg = if burn_in_font_available() {
+        ":fontfile='malgun.ttf'"
+    } else {
+        ""
+    };
+    let label_arg = match label_file {
+        Some(name) => format!("textfile='{}'", escape_drawtext(name)),
+        None => format!(
+            "text='{}'",
+            escape_drawtext(&burn_in_info_text(case_dir, source_path, spec))
+        ),
+    };
+    format!(
+        "drawtext={label_arg}:x=12:y=10:fontsize=22:fontcolor=white:borderw=2:bordercolor=black@0.85{font_arg},\
+         drawtext=text='%{{pts\\:hms}}':x=12:y=h-th-12:fontsize=24:fontcolor=white:borderw=2:bordercolor=black@0.85{font_arg}"
+    )
+}
+
+/// Escapes text for the drawtext `text='...'` option: `\`, `'`, `:`,
+/// `,`, and `%` all have filter-graph or expansion meaning.
+fn escape_drawtext(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            ':' => out.push_str("\\:"),
+            ',' => out.push_str("\\,"),
+            '%' => out.push_str("%%"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, String> {
@@ -257,9 +409,9 @@ fn write_export_log(
     let exported_unix = now_unix()?;
     let source_sha256 = audit::indexed_source_hash(case_dir, selector, source_path);
     let output_sha256 = audit::digest_file(output_path)?;
-    let args = ffmpeg_export_args(source_path, output_path, options);
+    let args = ffmpeg_export_args(case_dir, source_path, output_path, options);
     let line = format!(
-        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
+        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"burn_in\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
         exported_unix,
         json_escape(selector),
         json_escape(&source_path.to_string_lossy()),
@@ -269,6 +421,11 @@ fn write_export_log(
         options.format.extension(),
         optional_f64(options.start_seconds),
         optional_f64(options.duration_seconds),
+        options
+            .burn_in
+            .as_ref()
+            .map(|spec| format!("{{\"exhibit\":\"{}\"}}", json_escape(&spec.exhibit)))
+            .unwrap_or_else(|| "null".to_string()),
         json_escape(&command_version("ffmpeg", &["ffmpeg"], "-version")),
         audit::json_string_array(&args)
     );
@@ -347,8 +504,14 @@ mod tests {
             duration_seconds: Some(2.0),
             output_path: None,
             timeout_secs: None,
+            burn_in: None,
         };
-        let args = ffmpeg_export_args(Path::new("in.mp4"), Path::new("out.mp4"), &options);
+        let args = ffmpeg_export_args(
+            Path::new("."),
+            Path::new("in.mp4"),
+            Path::new("out.mp4"),
+            &options,
+        );
         assert!(args.contains(&"-y".to_string()));
         assert!(!args.contains(&"-n".to_string()));
         assert!(args.contains(&"libx264".to_string()));
@@ -358,5 +521,35 @@ mod tests {
     #[test]
     fn unescapes_tsv_paths() {
         assert_eq!(tsv_unescape("a\\tb\\\\c"), "a\tb\\c");
+    }
+
+    #[test]
+    fn burn_in_filter_stamps_label_hash_and_timecode() {
+        let spec = super::BurnInSpec {
+            exhibit: "갑 제3호증".to_string(),
+        };
+        let filter = super::burn_in_filter(
+            Path::new("."),
+            Path::new("in.mp4"),
+            &spec,
+            Some("clip.burn-in.txt"),
+        );
+        assert!(filter.contains("drawtext"));
+        assert!(filter.contains("pts\\:hms"), "ms timecode: {filter}");
+        assert!(
+            filter.contains("textfile='clip.burn-in.txt'"),
+            "label rides a UTF-8 sidecar so non-ASCII argv never mangles it: {filter}"
+        );
+        let info = super::burn_in_info_text(Path::new("."), Path::new("in.mp4"), &spec);
+        assert!(info.contains("갑 제3호증"), "exhibit label: {info}");
+        assert!(info.contains("sha256:"), "hash prefix: {info}");
+    }
+
+    #[test]
+    fn drawtext_escapes_filter_graph_chars() {
+        assert_eq!(
+            super::escape_drawtext("a:b,c'd\\e%f"),
+            "a\\:b\\,c\\'d\\\\e%%f"
+        );
     }
 }
