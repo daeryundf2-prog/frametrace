@@ -162,6 +162,37 @@ impl JobState {
     }
 }
 
+/// RAII busy-flag guard for handlers that run a synchronous `run_step`
+/// child. The previous check-then-act pattern (`read busy → early-return
+/// → run`) let two concurrent POSTs both observe `busy=false` and start
+/// overlapping CLI jobs — the audit chain itself can't fork (appends take
+/// an fs2 byte-range lock), but a second scan/transcode pass could rewrite
+/// the index while the first queue was still reading it.
+struct BusyGuard<'a> {
+    state: &'a SharedState,
+}
+
+/// Atomically takes `busy` or returns the standard in-progress error.
+fn try_acquire_busy(state: &SharedState) -> Result<BusyGuard<'_>, String> {
+    let mut guard = state_lock(state);
+    if guard.busy {
+        return Err("분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.".to_string());
+    }
+    guard.busy = true;
+    Ok(BusyGuard { state })
+}
+
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        state_lock(self.state).busy = false;
+    }
+}
+
+/// Convenience for the many `{"ok":false,"error":...}` early returns.
+fn api_err(message: &str) -> String {
+    format!("{{\"ok\":false,\"error\":{}}}", json_string(message))
+}
+
 /// Random 128-bit hex nonce identifying this server process.
 fn new_instance_id() -> String {
     let mut bytes = [0u8; 16];
@@ -2069,16 +2100,14 @@ fn api_import_marks(request: &Request, state: &SharedState) -> String {
             return "{\"ok\":false,\"error\":\"마크 JSON이 비어 있습니다.\"}".to_string();
         }
     };
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"작업이 진행 중입니다.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let marks_path = case_dir.join("marks-imported.json");
     let preflight =
         crate::selection::parse_marks_text(&marks_body, &marks_path).and_then(|marks| {
@@ -2204,17 +2233,15 @@ fn api_capture_frame(request: &Request, state: &SharedState) -> String {
 /// through `export-video`, producing a deliverable clip under
 /// artifacts/clips/ with its own chained export-log entry.
 fn api_export_clip(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
             .to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let id = body_value(&request.body, "id").unwrap_or_default();
     let start = body_value(&request.body, "start")
         .and_then(|v| v.parse::<f64>().ok())
@@ -2321,17 +2348,15 @@ fn api_export_clip(request: &Request, state: &SharedState) -> String {
 /// extracting it lazily via `extract-telemetry` when absent. Same
 /// selector/path confinement rules as export-clip.
 fn api_telemetry(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
             .to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let id = body_value(&request.body, "id").unwrap_or_default();
     if id.trim().is_empty() {
         return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
@@ -2400,17 +2425,15 @@ fn api_telemetry(request: &Request, state: &SharedState) -> String {
 /// `ids` (comma-separated) restricts the queue; `force` re-runs even when
 /// a proxy already exists.
 fn api_transcode_queue(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
             .to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(err) => {
@@ -2458,17 +2481,15 @@ fn api_transcode_queue(request: &Request, state: &SharedState) -> String {
 /// review proxy for an indexed video so the viewer can offer smooth
 /// playback of heavy originals without forcing a full proxy pass.
 fn api_proxy(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
             .to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let id = body_value(&request.body, "id").unwrap_or_default();
     if id.trim().is_empty() {
         return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
@@ -2555,17 +2576,15 @@ fn api_proxy(request: &Request, state: &SharedState) -> String {
 /// (hash list for known-hash, peer case dir for merge/compare) that is
 /// validated to exist — never a free-form command line.
 fn api_advanced(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
             .to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let tool = body_value(&request.body, "tool").unwrap_or_default();
     let extra = body_value(&request.body, "extra").unwrap_or_default();
     let case_text = case_dir.to_string_lossy().to_string();

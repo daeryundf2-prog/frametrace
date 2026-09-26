@@ -16,7 +16,7 @@ use crate::serve::{self, ServeOptions};
 use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
@@ -28,11 +28,12 @@ use windows::Win32::Foundation::{E_POINTER, HWND, LPARAM, LRESULT, RECT, WPARAM}
 use windows::Win32::Graphics::Gdi::UpdateWindow;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::{PROCESS_PER_MONITOR_DPI_AWARE, SetProcessDpiAwareness};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetMessageW,
-    MSG, PostQuitMessage, RegisterClassW, SW_SHOW, ShowWindow, TranslateMessage, WINDOW_EX_STYLE,
-    WM_CLOSE, WM_DESTROY, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetClientRect,
+    GetMessageW, MSG, PostQuitMessage, RegisterClassW, SW_SHOW, ShowWindow, TranslateMessage,
+    WINDOW_EX_STYLE, WM_APP, WM_CLOSE, WM_DESTROY, WM_SIZE, WNDCLASSW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::w;
 use windows::core::{HSTRING, PCWSTR};
@@ -41,10 +42,12 @@ thread_local! {
     static CONTROLLER: RefCell<Option<ICoreWebView2Controller>> = const { RefCell::new(None) };
 }
 
-/// Frame HWND shared with the server-watcher thread: if the embedded
+/// UI thread id shared with the server-watcher thread: if the embedded
 /// server dies while the window is still open (external shutdown, crash),
-/// the watcher posts WM_CLOSE so the window can't outlive its UI.
-static FRAME_HWND: AtomicIsize = AtomicIsize::new(0);
+/// the watcher posts a thread message that ends the message pump. A
+/// thread message avoids HWND reuse hazards — a posted WM_CLOSE could
+/// otherwise land on an unrelated window that recycled our handle.
+static FRAME_THREAD: AtomicU32 = AtomicU32::new(0);
 
 /// Runs the workstation in a native WebView2 window. Returns when the
 /// window (or the fallback browser session) ends.
@@ -72,12 +75,12 @@ pub fn run_hosted() -> Result<(), String> {
         // error), close the frame rather than leaving a dead page open.
         let watcher = std::thread::spawn(move || {
             let _ = server.join();
-            let hwnd = FRAME_HWND.load(Ordering::SeqCst);
-            if hwnd != 0 {
+            let thread_id = FRAME_THREAD.load(Ordering::SeqCst);
+            if thread_id != 0 {
                 unsafe {
-                    let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
-                        Some(HWND(hwnd as *mut _)),
-                        windows::Win32::UI::WindowsAndMessaging::WM_CLOSE,
+                    let _ = windows::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                        thread_id,
+                        windows::Win32::UI::WindowsAndMessaging::WM_APP,
                         WPARAM::default(),
                         LPARAM::default(),
                     );
@@ -197,8 +200,24 @@ fn host_window(url: &str) -> Result<(), String> {
         if hwnd.0.is_null() {
             return Err("CreateWindowExW returned a null window handle".to_string());
         }
-        FRAME_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
 
+        // The watcher needs our thread id so it can end the pump with a
+        // thread message if the server dies while the window is open.
+        FRAME_THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
+        let result = host_webview(hwnd, url);
+        FRAME_THREAD.store(0, Ordering::SeqCst);
+        if let Err(err) = result {
+            // Browser fallback happens at the caller — the dead frame must
+            // not linger on screen looking like a broken app.
+            let _ = DestroyWindow(hwnd);
+            return Err(err);
+        }
+        Ok(())
+    }
+}
+
+unsafe fn host_webview(hwnd: HWND, url: &str) -> Result<(), String> {
+    unsafe {
         // WebView2 user data lives under LOCALAPPDATA — the default
         // "<exe>.WebView2" beside the binary is not writable when the app
         // is installed under Program Files.
@@ -288,6 +307,9 @@ fn host_window(url: &str) -> Result<(), String> {
             match result {
                 -1 => break,
                 0 => break,
+                // Thread message from the server watcher: the server is
+                // gone, so close the frame instead of serving a dead page.
+                _ if msg.hwnd.0.is_null() && msg.message == WM_APP => break,
                 _ => {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
