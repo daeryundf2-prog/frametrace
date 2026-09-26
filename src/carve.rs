@@ -27,6 +27,15 @@ pub struct CarveOptions {
     /// `reassembled-*` candidate artifacts alongside (never instead of)
     /// the original fragments.
     pub reassemble: bool,
+    /// First byte offset the signature scan reads (default 0). Bounds the
+    /// scan window — unlike `max_bytes`, which only caps each artifact's
+    /// extent.
+    pub scan_offset: Option<u64>,
+    /// Maximum bytes the signature scan reads past `scan_offset`
+    /// (default: to EOF). A bounded window is the honest way to probe a
+    /// large image: the result records the window and `scan_complete`
+    /// only claims completeness for the scanned range.
+    pub scan_length: Option<u64>,
 }
 
 impl Default for CarveOptions {
@@ -35,6 +44,8 @@ impl Default for CarveOptions {
             max_bytes: DEFAULT_MAX_BYTES,
             max_candidates: DEFAULT_MAX_CANDIDATES,
             reassemble: false,
+            scan_offset: None,
+            scan_length: None,
         }
     }
 }
@@ -93,7 +104,13 @@ pub struct CarveResult {
     pub resumed_scan_offset: u64,
     pub warnings: Vec<String>,
     pub candidate_limit_reached: bool,
+    /// The signature scan reached the end of its window (EOF, or the
+    /// `--scan-length` bound) without stopping at the candidate cap.
+    /// With a bounded window it says nothing about bytes outside it.
     pub scan_complete: bool,
+    /// Absolute scan window actually covered, [start, end).
+    pub scan_start_offset: u64,
+    pub scan_end_offset: u64,
     pub options: CarveOptions,
 }
 
@@ -123,6 +140,10 @@ impl CarveResult {
             "  \"candidate_limit_reached\": {},\n  \"scan_complete\": {},\n",
             self.candidate_limit_reached, self.scan_complete
         ));
+        out.push_str(&format!(
+            "  \"scan_start_offset\": {},\n  \"scan_end_offset\": {},\n",
+            self.scan_start_offset, self.scan_end_offset
+        ));
         out.push_str("  \"options\": {\n");
         out.push_str(&format!("    \"max_bytes\": {},\n", self.options.max_bytes));
         out.push_str(&format!(
@@ -130,8 +151,19 @@ impl CarveResult {
             self.options.max_candidates
         ));
         out.push_str(&format!(
-            "    \"reassemble\": {}\n",
+            "    \"reassemble\": {},\n",
             self.options.reassemble
+        ));
+        out.push_str(&format!(
+            "    \"scan_offset\": {},\n    \"scan_length\": {}\n",
+            self.options
+                .scan_offset
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string()),
+            self.options
+                .scan_length
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "null".to_string())
         ));
         out.push_str("  },\n");
         out.push_str("  \"warnings\": [\n");
@@ -184,9 +216,24 @@ pub fn carve_file(
     let metadata = std::fs::metadata(&source_path)
         .map_err(|err| format!("failed to read source metadata: {err}"))?;
     let source_size = metadata.len();
+    // Scan window: --scan-offset/--scan-length bound which bytes the
+    // signature walk reads; anything outside was never inspected and the
+    // result must not imply it was.
+    let scan_start = options.scan_offset.unwrap_or(0).min(source_size);
+    let scan_end = options
+        .scan_length
+        .map(|length| scan_start.saturating_add(length))
+        .unwrap_or(u64::MAX)
+        .min(source_size);
+    if scan_end <= scan_start && source_size > 0 {
+        return Err(format!(
+            "scan window is empty: --scan-offset {} with --scan-length {:?} covers no bytes of a {}-byte source",
+            scan_start, options.scan_length, source_size
+        ));
+    }
     // The fingerprint covers source identity AND the option set, so a
-    // checkpoint from a different image or different --max-* values never
-    // silently skips work.
+    // checkpoint from a different image or different --max-*/window
+    // values never silently skips work.
     let fingerprint = carve_fingerprint(&source_path, &metadata, options);
     let mut checkpoint = RunCheckpoint::begin(
         &case_dir.join("db/carve-progress.jsonl"),
@@ -195,7 +242,9 @@ pub fn carve_file(
         resume,
     )?;
     let prior = load_carve_checkpoint(&checkpoint)?;
-    let resume_offset = prior.scan_offset;
+    // A checkpointed offset inside the window resumes there; anything at
+    // or before the window start begins at the window start.
+    let resume_offset = prior.scan_offset.max(scan_start);
     let carved_map = prior.carved;
 
     // Early preflight: if the volume cannot hold even one --max-bytes
@@ -207,23 +256,37 @@ pub fn carve_file(
         &carve_dir,
         options
             .max_bytes
-            .min(source_size.saturating_sub(resume_offset)),
+            .min(scan_end.saturating_sub(resume_offset)),
         "carve-file",
     )?;
 
     let hits = scan_signatures(
         &source_path,
-        resume_offset,
+        ScanWindow {
+            start: scan_start,
+            resume: resume_offset,
+            end: scan_end,
+        },
         prior.hits,
         options.max_candidates,
         &mut checkpoint,
-        source_size,
         progress,
     )?;
     let mut warnings = Vec::new();
     if checkpoint.reset_stale() {
         warnings.push(
             "previous carve checkpoint was recorded for different inputs; started fresh"
+                .to_string(),
+        );
+    }
+    if scan_start > 0 || scan_end < source_size {
+        warnings.push(format!(
+            "scan window limited to [{scan_start}, {scan_end}) of {source_size} bytes by --scan-offset/--scan-length; bytes outside the window were not scanned"
+        ));
+    }
+    if is_ewf_container(&source_path) {
+        warnings.push(
+            "source is an EWF (E01) container: hit offsets are container offsets, not disk offsets, and chunks that span EWF segment boundaries produce damaged candidates; for evidentiary carving run import-e01 first and carve the exported raw image"
                 .to_string(),
         );
     }
@@ -355,6 +418,8 @@ pub fn carve_file(
         warnings,
         candidate_limit_reached,
         scan_complete,
+        scan_start_offset: scan_start,
+        scan_end_offset: scan_end,
         options: options.clone(),
     };
     write_carve_outputs(case_dir, &result)?;
@@ -393,6 +458,14 @@ fn carve_fingerprint(
         &options.max_bytes.to_string(),
         &options.max_candidates.to_string(),
         &options.reassemble.to_string(),
+        &options
+            .scan_offset
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
+        &options
+            .scan_length
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
     ])
 }
 
@@ -467,15 +540,25 @@ fn scan_progress_line(offset: u64, hits: &[CarveHit]) -> String {
 /// callers can pass closures over the case DB path without 'static.
 pub type CarveProgress<'a> = dyn Fn(u64, u64) + Send + Sync + 'a;
 
+/// Absolute scan window: [start, end) is the declared coverage, `resume`
+/// is where this run picks up (>= start, from a same-window checkpoint).
+struct ScanWindow {
+    start: u64,
+    resume: u64,
+    end: u64,
+}
+
 fn scan_signatures(
     source_path: &Path,
-    resume_offset: u64,
+    window: ScanWindow,
     prior_hits: Vec<CarveHit>,
     max_candidates: usize,
     checkpoint: &mut RunCheckpoint,
-    source_size: u64,
     progress: Option<&CarveProgress<'_>>,
 ) -> Result<Vec<CarveHit>, String> {
+    let scan_start = window.start;
+    let resume_offset = window.resume;
+    let scan_end = window.end;
     let mut hits = prior_hits;
     hits.sort_by_key(|hit| hit.offset);
     hits.dedup_by_key(|hit| hit.offset);
@@ -495,8 +578,9 @@ fn scan_signatures(
     let mut offset = resume_offset;
     let mut since_checkpoint = 0usize;
 
-    loop {
-        let mut chunk = vec![0u8; CHUNK_SIZE];
+    while offset < scan_end {
+        let want = CHUNK_SIZE.min((scan_end - offset) as usize);
+        let mut chunk = vec![0u8; want];
         let read = file
             .read(&mut chunk)
             .map_err(|err| format!("failed to read carve source: {err}"))?;
@@ -525,18 +609,35 @@ fn scan_signatures(
         if since_checkpoint >= CHECKPOINT_CHUNK_INTERVAL {
             checkpoint.append_line(&scan_progress_line(offset, &hits))?;
             if let Some(report) = progress {
-                report(offset, source_size);
+                report(offset, scan_end);
             }
             since_checkpoint = 0;
         }
     }
     checkpoint.append_line(&scan_progress_line(offset, &hits))?;
     if let Some(report) = progress {
-        report(offset, source_size);
+        report(offset, scan_end);
     }
+    // The overlap window exists to catch signatures straddling a resume
+    // boundary — but a hit anchored before the declared window start is
+    // outside the scan scope the result claims to cover.
+    hits.retain(|hit| hit.offset >= scan_start);
     hits.sort_by_key(|hit| hit.offset);
     hits.dedup_by_key(|hit| hit.offset);
     Ok(hits)
+}
+
+/// EWF segment files begin with the libewf file signature
+/// ("EVF\x09\x0d\x0a\xff\x00"). Carving the container directly means hit
+/// offsets are container offsets and candidates can be damaged at
+/// segment boundaries — a warning the result must carry.
+fn is_ewf_container(path: &Path) -> bool {
+    const EWF_MAGIC: [u8; 8] = [b'E', b'V', b'F', 0x09, 0x0d, 0x0a, 0xff, 0x00];
+    let mut head = [0u8; 8];
+    File::open(path)
+        .and_then(|mut file| file.read_exact(&mut head))
+        .map(|_| head == EWF_MAGIC)
+        .unwrap_or(false)
 }
 
 fn validation_note_for_signature(signature: &str) -> &'static str {
@@ -2369,5 +2470,53 @@ mod tests {
         assert_eq!(joined.artifacts.len(), 3);
         assert_eq!(joined.artifacts[2].signature, "reassembled-ts-cc");
         let _ = fs::remove_dir_all(case_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn scan_window_limits_hits_and_reports_coverage() {
+        let root =
+            std::env::temp_dir().join(format!("frametrace-carve-window-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let case_dir = root.join("case");
+        fs::create_dir_all(case_dir.join("artifacts/carved")).unwrap();
+        fs::create_dir_all(case_dir.join("db")).unwrap();
+        let source = root.join("image.raw");
+        // ftyp signatures at 64 (inside the window), 640 and 2048
+        // (outside it) — only the in-window anchor may be reported.
+        let mut content = vec![0u8; 4096];
+        let ftyp = b"\0\0\0\x18ftypisom\0\0\0\0isommp42";
+        for offset in [64usize, 640, 2048] {
+            content[offset..offset + ftyp.len()].copy_from_slice(ftyp);
+        }
+        fs::write(&source, &content).unwrap();
+
+        let options = super::CarveOptions {
+            scan_offset: Some(512),
+            scan_length: Some(1024),
+            ..Default::default()
+        };
+        let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();
+        assert_eq!(result.scan_start_offset, 512);
+        assert_eq!(result.scan_end_offset, 1536);
+        assert!(result.scan_complete);
+        assert_eq!(result.artifacts.len(), 1);
+        assert_eq!(result.artifacts[0].offset, 640);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("scan window limited to [512, 1536)")),
+            "window scope must be stated: {:?}",
+            result.warnings
+        );
+
+        // A window that covers no source bytes is a caller error, not an
+        // empty result that could be mistaken for "scanned, found nothing".
+        let empty = super::CarveOptions {
+            scan_offset: Some(99999),
+            ..Default::default()
+        };
+        assert!(carve_file(&case_dir, &source, &empty, ResumeMode::Auto, None).is_err());
+        let _ = fs::remove_dir_all(&root);
     }
 }

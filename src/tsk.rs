@@ -19,14 +19,19 @@ pub struct TskInspectOptions {
     pub max_entries: usize,
     pub mmls_bin: String,
     pub fls_bin: String,
-    /// Bound for mmls/fls runs. Listing tools read a whole filesystem; a
-    /// hostile or corrupt image can otherwise hang the workstation step
-    /// forever. `None` means the probe default (120s), matching F2-2.
+    /// Bound for mmls/fls runs in seconds; `None` runs unbounded
+    /// (`--timeout 0`). The default applies TSK_PROBE_TIMEOUT_SECS — fls
+    /// walking a ~230GiB NTFS image through libewf decompression takes
+    /// ~25 minutes on real hardware, so the default must not assume
+    /// folder-scale images.
     pub timeout_secs: Option<u64>,
 }
 
 /// Probe-class default for listing tools (seconds), shared with the e01 lane.
-pub const TSK_PROBE_TIMEOUT_SECS: u64 = 120;
+/// mmls finishes in seconds; the bound exists for fls's full-filesystem
+/// walk — a real 232GiB seized-disk E01 measured ~25 min, so the default
+/// covers images an order of magnitude larger.
+pub const TSK_PROBE_TIMEOUT_SECS: u64 = 3600;
 
 impl Default for TskInspectOptions {
     fn default() -> Self {

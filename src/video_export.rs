@@ -48,6 +48,12 @@ pub struct ExportOptions {
     pub output_path: Option<PathBuf>,
     pub timeout_secs: Option<u64>,
     pub burn_in: Option<BurnInSpec>,
+    /// Digest the source at export time so the clip's recorded identity
+    /// does not rest solely on a possibly-stale index entry. The live
+    /// digest is logged as `source_sha256` and a disagreement with the
+    /// indexed hash is logged as `source_hash_mismatch` rather than
+    /// silently preferring either value.
+    pub hash_source: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,8 +109,31 @@ pub fn export_video(
             .map_err(|err| format!("failed to create output directory: {err}"))?;
     }
 
-    run_ffmpeg_export(case_dir, &source_path, &output_path, options)?;
-    write_export_log(case_dir, selector, &source_path, &output_path, options)?;
+    let indexed_sha256 = audit::indexed_source_hash(case_dir, selector, &source_path);
+    // --hash-source asks for a live digest so a stale index cannot carry
+    // the deliverable's identity; burn-in auto-digests rather than stamp
+    // "unhashed" on a court submission.
+    let export_sha256 =
+        if options.hash_source || (options.burn_in.is_some() && indexed_sha256.is_none()) {
+            Some(audit::digest_file(&source_path)?)
+        } else {
+            None
+        };
+    // A fresh digest is the honest current-state identity, so it wins the
+    // burn-in label when present; otherwise the acquisition-time indexed
+    // hash is the evidence identity.
+    let label_sha256 = export_sha256.as_deref().or(indexed_sha256.as_deref());
+
+    run_ffmpeg_export(case_dir, &source_path, &output_path, options, label_sha256)?;
+    write_export_log(
+        case_dir,
+        selector,
+        &source_path,
+        &output_path,
+        options,
+        indexed_sha256.as_deref(),
+        export_sha256.as_deref(),
+    )?;
 
     Ok(ExportResult {
         source_path,
@@ -118,8 +147,9 @@ fn run_ffmpeg_export(
     source_path: &Path,
     output_path: &Path,
     options: &ExportOptions,
+    source_sha256: Option<&str>,
 ) -> Result<(), String> {
-    let args = ffmpeg_export_args(case_dir, source_path, output_path, options);
+    let args = ffmpeg_export_args(case_dir, source_path, output_path, options, source_sha256);
     let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
         .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
     // Windows ffmpeg builds neither accept non-ASCII argv text nor resolve
@@ -129,7 +159,7 @@ fn run_ffmpeg_export(
     // clip; both are referenced by relative name with ffmpeg's cwd pinned
     // to the clips dir, so no path or label byte crosses argv at all.
     let label_cwd = if let Some(spec) = &options.burn_in {
-        let info = burn_in_info_text(case_dir, source_path, spec);
+        let info = burn_in_info_text(case_dir, source_path, spec, source_sha256);
         let label_path = burn_in_label_path(output_path);
         // A UTF-8 BOM keeps every drawtext build on the UTF-8 path.
         std::fs::write(&label_path, format!("\u{feff}{info}"))
@@ -190,6 +220,7 @@ fn ffmpeg_export_args(
     source_path: &Path,
     output_path: &Path,
     options: &ExportOptions,
+    source_sha256: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         // The output path was claimed exclusively by unique_path's O_EXCL
@@ -223,7 +254,13 @@ fn ffmpeg_export_args(
             .unwrap_or_default();
         args.extend([
             "-vf".to_string(),
-            burn_in_filter(case_dir, source_path, burn_in, Some(&label_name)),
+            burn_in_filter(
+                case_dir,
+                source_path,
+                burn_in,
+                Some(&label_name),
+                source_sha256,
+            ),
         ]);
     }
 
@@ -276,7 +313,12 @@ fn burn_in_label_path(output_path: &Path) -> PathBuf {
 
 /// The human-readable burn-in info line: optional exhibit label, case id,
 /// and the source's sha256 prefix.
-fn burn_in_info_text(case_dir: &Path, source_path: &Path, spec: &BurnInSpec) -> String {
+fn burn_in_info_text(
+    case_dir: &Path,
+    source_path: &Path,
+    spec: &BurnInSpec,
+    source_sha256: Option<&str>,
+) -> String {
     let case_id = read_to_string(&case_dir.join("case.json"))
         .ok()
         .and_then(|text| {
@@ -288,8 +330,12 @@ fn burn_in_info_text(case_dir: &Path, source_path: &Path, spec: &BurnInSpec) -> 
                 })
         })
         .unwrap_or_else(|| "case".to_string());
-    let hash_prefix = audit::indexed_source_hash(case_dir, "", source_path)
+    let hash_prefix = source_sha256
         .map(|hash| hash.chars().take(8).collect::<String>())
+        .or_else(|| {
+            audit::indexed_source_hash(case_dir, "", source_path)
+                .map(|hash| hash.chars().take(8).collect::<String>())
+        })
         .unwrap_or_else(|| "unhashed".to_string());
     if spec.exhibit.trim().is_empty() {
         format!("{case_id} · sha256:{hash_prefix}")
@@ -319,6 +365,7 @@ fn burn_in_filter(
     source_path: &Path,
     spec: &BurnInSpec,
     label_file: Option<&str>,
+    source_sha256: Option<&str>,
 ) -> String {
     // The font is staged next to the clip and referenced by basename —
     // absolute font paths inside filter options silently fail to load on
@@ -332,7 +379,12 @@ fn burn_in_filter(
         Some(name) => format!("textfile='{}'", escape_drawtext(name)),
         None => format!(
             "text='{}'",
-            escape_drawtext(&burn_in_info_text(case_dir, source_path, spec))
+            escape_drawtext(&burn_in_info_text(
+                case_dir,
+                source_path,
+                spec,
+                source_sha256
+            ))
         ),
     };
     format!(
@@ -404,18 +456,27 @@ fn write_export_log(
     source_path: &Path,
     output_path: &Path,
     options: &ExportOptions,
+    source_index_sha256: Option<&str>,
+    source_export_sha256: Option<&str>,
 ) -> Result<(), String> {
     let path = case_dir.join("artifacts/clips/export-log.jsonl");
     let exported_unix = now_unix()?;
-    let source_sha256 = audit::indexed_source_hash(case_dir, selector, source_path);
     let output_sha256 = audit::digest_file(output_path)?;
-    let args = ffmpeg_export_args(case_dir, source_path, output_path, options);
+    let args = ffmpeg_export_args(case_dir, source_path, output_path, options, None);
+    let source_hash_mismatch = match (source_index_sha256, source_export_sha256) {
+        (Some(indexed), Some(live)) => Some(indexed != live),
+        _ => None,
+    };
     let line = format!(
-        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"burn_in\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
+        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"source_sha256\":{},\"source_hash_mismatch\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"burn_in\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
         exported_unix,
         json_escape(selector),
         json_escape(&source_path.to_string_lossy()),
-        audit::optional_string(source_sha256.as_deref()),
+        audit::optional_string(source_index_sha256),
+        audit::optional_string(source_export_sha256),
+        source_hash_mismatch
+            .map(|flag| flag.to_string())
+            .unwrap_or_else(|| "null".to_string()),
         json_escape(&output_path.to_string_lossy()),
         json_escape(&output_sha256),
         options.format.extension(),
@@ -505,12 +566,14 @@ mod tests {
             output_path: None,
             timeout_secs: None,
             burn_in: None,
+            hash_source: false,
         };
         let args = ffmpeg_export_args(
             Path::new("."),
             Path::new("in.mp4"),
             Path::new("out.mp4"),
             &options,
+            None,
         );
         assert!(args.contains(&"-y".to_string()));
         assert!(!args.contains(&"-n".to_string()));
@@ -533,6 +596,7 @@ mod tests {
             Path::new("in.mp4"),
             &spec,
             Some("clip.burn-in.txt"),
+            Some("0123456789abcdef"),
         );
         assert!(filter.contains("drawtext"));
         assert!(filter.contains("pts\\:hms"), "ms timecode: {filter}");
@@ -540,9 +604,32 @@ mod tests {
             filter.contains("textfile='clip.burn-in.txt'"),
             "label rides a UTF-8 sidecar so non-ASCII argv never mangles it: {filter}"
         );
-        let info = super::burn_in_info_text(Path::new("."), Path::new("in.mp4"), &spec);
+        let info = super::burn_in_info_text(
+            Path::new("."),
+            Path::new("in.mp4"),
+            &spec,
+            Some("0123456789abcdef"),
+        );
         assert!(info.contains("갑 제3호증"), "exhibit label: {info}");
-        assert!(info.contains("sha256:"), "hash prefix: {info}");
+        assert!(info.contains("sha256:01234567"), "hash prefix: {info}");
+    }
+
+    #[test]
+    fn burn_in_prefers_fresh_digest_over_unhashed() {
+        let spec = super::BurnInSpec {
+            exhibit: String::new(),
+        };
+        let info = super::burn_in_info_text(
+            Path::new("."),
+            Path::new("in.mp4"),
+            &spec,
+            Some("feedface01234567"),
+        );
+        assert!(
+            info.contains("sha256:feedface"),
+            "export-time digest should label the clip: {info}"
+        );
+        assert!(!info.contains("unhashed"), "{info}");
     }
 
     #[test]

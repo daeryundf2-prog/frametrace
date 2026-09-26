@@ -1355,6 +1355,7 @@ pub fn export_batch(case_dir: &Path, selection_path: &Path, dry_run: bool) -> Re
                             )?),
                             timeout_secs: None,
                             burn_in: None,
+                            hash_source: false,
                         };
                         let selector = resolved.display().to_string();
                         let result = video_export::export_video(case_dir, &selector, &options)?;
@@ -2608,21 +2609,35 @@ fn e01_options_json(options: &E01Options) -> String {
 
 fn carve_options_json(options: &CarveOptions) -> String {
     format!(
-        "{{\"max_bytes\":{},\"max_candidates\":{},\"reassemble\":{}}}",
-        options.max_bytes, options.max_candidates, options.reassemble
+        "{{\"max_bytes\":{},\"max_candidates\":{},\"reassemble\":{},\"scan_offset\":{},\"scan_length\":{}}}",
+        options.max_bytes,
+        options.max_candidates,
+        options.reassemble,
+        options
+            .scan_offset
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string()),
+        options
+            .scan_length
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string())
     )
 }
 
 fn tsk_inspect_options_json(options: &TskInspectOptions) -> String {
     format!(
-        "{{\"partition_offset\":{},\"max_entries\":{},\"mmls_bin\":\"{}\",\"fls_bin\":\"{}\"}}",
+        "{{\"partition_offset\":{},\"max_entries\":{},\"mmls_bin\":\"{}\",\"fls_bin\":\"{}\",\"timeout_secs\":{}}}",
         options
             .partition_offset
             .map(|value| value.to_string())
             .unwrap_or_else(|| "null".to_string()),
         options.max_entries,
         crate::util::json_escape(&options.mmls_bin),
-        crate::util::json_escape(&options.fls_bin)
+        crate::util::json_escape(&options.fls_bin),
+        options
+            .timeout_secs
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "null".to_string())
     )
 }
 

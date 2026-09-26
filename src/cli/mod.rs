@@ -177,6 +177,10 @@ pub enum Commands {
         /// Exhibit label for burn-in, e.g. "갑 제3호증"
         #[arg(long)]
         exhibit: Option<String>,
+        /// Digest the source at export time and log it as source_sha256;
+        /// a disagreement with the indexed hash is flagged, not hidden
+        #[arg(long)]
+        hash_source: bool,
     },
     /// Remux a Dahua DAV export to MP4 without re-encoding (real-sample validation pending)
     ExportDav {
@@ -250,6 +254,15 @@ pub enum Commands {
         /// candidate artifacts alongside the original fragments
         #[arg(long)]
         reassemble: bool,
+        /// Start the signature scan at this byte offset (default 0).
+        /// Bounds which bytes are scanned — unlike --max-bytes, which
+        /// only caps each carved artifact's extent.
+        #[arg(long)]
+        scan_offset: Option<u64>,
+        /// Scan at most this many bytes past --scan-offset (default: to
+        /// EOF). The result records the scanned window explicitly.
+        #[arg(long)]
+        scan_length: Option<u64>,
     },
     /// List active/deleted files in a raw forensic image with Sleuth Kit mmls/fls
     InspectImage {
@@ -263,7 +276,8 @@ pub enum Commands {
         mmls: Option<String>,
         #[arg(long)]
         fls: Option<String>,
-        /// Bound for the mmls/fls runs in seconds (default 120)
+        /// Bound for the mmls/fls runs in seconds (default 3600 — a
+        /// ~230GiB image needs ~25 min for a full fls listing)
         #[arg(long)]
         timeout: Option<u64>,
     },
@@ -664,6 +678,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             timeout,
             burn_in,
             exhibit,
+            hash_source,
         } => {
             let fmt = ExportFormat::parse(&format)?;
             let options = ExportOptions {
@@ -672,6 +687,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 duration_seconds: duration,
                 output_path: output,
                 timeout_secs: timeout,
+                hash_source,
                 burn_in: if burn_in || exhibit.is_some() {
                     Some(crate::video_export::BurnInSpec {
                         exhibit: exhibit.unwrap_or_default(),
@@ -724,6 +740,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             resume,
             no_resume,
             reassemble,
+            scan_offset,
+            scan_length,
         } => {
             let mut options = CarveOptions::default();
             if let Some(mb) = max_bytes {
@@ -733,6 +751,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 options.max_candidates = mc;
             }
             options.reassemble = reassemble;
+            options.scan_offset = scan_offset;
+            options.scan_length = scan_length;
             carve_file(
                 &case_dir,
                 &source_file,

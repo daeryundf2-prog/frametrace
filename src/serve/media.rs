@@ -174,6 +174,9 @@ pub(crate) fn api_export_clip(request: &Request, state: &SharedState) -> String 
             args.push(exhibit);
         }
     }
+    if body_value(&request.body, "hash_source").as_deref() == Some("true") {
+        args.push("--hash-source".into());
+    }
     match run_step(&exe, &args, state) {
         Ok(_) => {
             let rel = output

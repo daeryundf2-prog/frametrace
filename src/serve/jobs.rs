@@ -699,16 +699,14 @@ pub(crate) fn api_import_marks(request: &Request, state: &SharedState) -> String
 }
 
 pub(crate) fn api_finalize(state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석이 아직 진행 중입니다.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(err) => {
@@ -773,16 +771,14 @@ pub(crate) fn api_finalize(state: &SharedState) -> String {
 /// image from the latest filesystem inspection, then regenerate the
 /// review bundle so the recovered items appear in the viewer.
 pub(crate) fn api_recover_deleted(state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"분석이 아직 진행 중입니다.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let Some((image_path, partition_offset)) = newest_tsk_inspection(&case_dir) else {
         return "{\"ok\":false,\"error\":\"파일시스템 조사 결과가 없습니다 — 먼저 E01/이미지 분석을 실행하십시오.\"}"
             .to_string();
@@ -850,16 +846,14 @@ pub(crate) fn api_recover_deleted(state: &SharedState) -> String {
 /// review bundle so carved candidates show up in the viewer. Requires the
 /// full E01 pipeline (direct triage never exports a raw image).
 pub(crate) fn api_carve(request: &Request, state: &SharedState) -> String {
-    let (case_dir, busy) = {
-        let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
-    };
+    let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
     };
-    if busy {
-        return "{\"ok\":false,\"error\":\"작업이 진행 중입니다.\"}".to_string();
-    }
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
     let raw = case_dir.join("evidence/images/evidence.raw");
     if !raw.is_file() {
         return "{\"ok\":false,\"error\":\"카빙할 raw 이미지가 없습니다 — E01을 '빠른 검토' 없이 분석(전체 export)하면 사용할 수 있습니다.\"}".to_string();
@@ -890,6 +884,19 @@ pub(crate) fn api_carve(request: &Request, state: &SharedState) -> String {
     ];
     if query_value(&request.query, "reassemble").as_deref() == Some("1") {
         args.push("--reassemble".into());
+    }
+    for (param, flag) in [
+        ("scan_offset", "--scan-offset"),
+        ("scan_length", "--scan-length"),
+    ] {
+        if let Some(value) = query_value(&request.query, param)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            && value.parse::<u64>().is_ok()
+        {
+            args.push(flag.into());
+            args.push(value);
+        }
     }
     let carve = run_step(&exe, &args, state);
     let review = if carve.is_ok() {
