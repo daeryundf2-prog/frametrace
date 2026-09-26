@@ -270,6 +270,7 @@ pub(crate) fn api_status(state: &SharedState) -> String {
         "instance": guard.instance,
         "has_job": guard.phase != "idle",
         "phase": guard.phase,
+        "restored": guard.restored,
         "busy": guard.busy,
         "steps": steps,
         "step_names": guard.step_names,
@@ -401,6 +402,9 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
     }
     guard.case_dir = Some(case_dir.clone());
     guard.media_roots = vec![case_dir.clone()];
+    // An explicit open is a deliberate choice — the restored-session
+    // prompt must not reappear over it.
+    guard.restored = false;
     if has_review {
         guard.phase = "review-ready";
         guard.steps = [StepStatus::Done; 5];

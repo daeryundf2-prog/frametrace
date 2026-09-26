@@ -103,6 +103,13 @@ pub(crate) struct JobState {
     /// value). A large index re-parses only when the file actually
     /// changes, not on every page fetch.
     pub(crate) index_cache: Option<(PathBuf, SystemTime, serde_json::Value)>,
+    /// True when the current case binding came from the startup
+    /// workstation-session file rather than an explicit user action.
+    /// The UI pauses its auto-jump to the review stage and offers
+    /// "이어서 검토 / 새 분석" instead of silently landing the examiner
+    /// inside a previous case. Cleared by open-case and by a new
+    /// analysis start.
+    pub(crate) restored: bool,
 }
 
 impl JobState {
@@ -123,6 +130,7 @@ impl JobState {
             shutdown_requested: false,
             instance: new_instance_id(),
             index_cache: None,
+            restored: false,
         }
     }
 }

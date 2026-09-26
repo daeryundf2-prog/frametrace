@@ -201,7 +201,7 @@ pub enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Extract dashcam GPS telemetry (NMEA tracks) into artifacts/telemetry; binary IMU tracks are detected, not decoded
+    /// Extract dashcam GPS telemetry (NMEA + camm GPS per the public spec, sample-unvalidated) into artifacts/telemetry; proprietary IMU tracks are detected, not decoded
     ExtractTelemetry {
         case_dir: PathBuf,
         /// Indexed id (vid_*) or media file path

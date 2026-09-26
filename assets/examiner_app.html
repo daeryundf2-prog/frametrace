@@ -257,6 +257,17 @@
         <span class="muted" style="font-size:12px">이 안내는 한 번만 표시됩니다 — 아래 '안내 다시 보기'로 언제든 다시 열 수 있습니다.</span>
       </div>
     </div>
+    <div class="onboard" id="restoreNotice" hidden>
+      <b class="ob-title">이전 세션의 케이스가 복원되었습니다</b>
+      <ul>
+        <li>케이스: <code id="restoreCase"></code></li>
+        <li>마지막 검토 상태가 그대로 남아 있습니다 — 이어서 검토하거나 새 분석을 시작할 수 있습니다.</li>
+      </ul>
+      <div class="ob-foot">
+        <button class="primary" id="btnRestoreReview">이어서 검토</button>
+        <button class="ghost" id="btnRestoreNew">새 분석 시작</button>
+      </div>
+    </div>
     <p class="hint">분석할 증거를 선택하십시오. 원본은 읽기 전용으로만 접근되며 모든 산출물은 케이스 폴더에 생성됩니다.</p>
     <div class="seg">
       <label><input type="radio" name="inputKind" value="folder" checked> 증거 폴더 / 드라이브</label>
@@ -483,6 +494,29 @@ document.querySelectorAll(".navstep").forEach(b => b.addEventListener("click", (
 // auto-navigation happens once per state so it never yanks the examiner
 // away from a screen they deliberately opened
 let jobSeen = false, reviewReady = false, autoProgress = false, autoReviewed = false;
+// A session-restored case pauses the auto-jump to review until the
+// examiner picks "이어서 검토" or "새 분석" on the stage-1 notice.
+let restoreHandled = false;
+
+function enableReviewStage() {
+  reviewReady = true;
+  $("s3").disabled = false;
+  $("s4").disabled = false;
+  ensureReviewFrame();
+}
+
+$("btnRestoreReview").addEventListener("click", () => {
+  restoreHandled = true;
+  $("restoreNotice").hidden = true;
+  if (!autoReviewed) autoReviewed = true;
+  if (!reviewReady) enableReviewStage();
+  showView(3);
+});
+$("btnRestoreNew").addEventListener("click", () => {
+  restoreHandled = true;
+  $("restoreNotice").hidden = true;
+  showView(1);
+});
 
 function setInputsDisabled(disabled) {
   document.querySelectorAll("#inputCard input, #inputCard select, #inputCard button").forEach(el => { el.disabled = disabled; });
@@ -574,10 +608,16 @@ async function poll() {
     if (!running && !cancelRequested) { $("btnCancel").disabled = false; $("btnCancel").textContent = "분석 중단"; }
     $("btnNew").style.display = (!running && (st.error || st.phase !== "running")) ? "" : "none";
     if (running && !autoProgress) { autoProgress = true; showView(2); }
+    const restorePending = st.restored && !restoreHandled;
+    const wantNew = sessionStorage.getItem("ft_want_new") === "1";
+    if (wantNew) sessionStorage.removeItem("ft_want_new");
+    const rn = $("restoreNotice");
+    rn.hidden = !restorePending || wantNew;
+    if (restorePending) $("restoreCase").textContent = st.case_dir || "";
     if (st.phase === "review-ready" || st.phase === "done" || st.phase === "finalized") {
       if (!auditVerified) { auditVerified = true; verifyAudit(); }
       if (!reviewReady) { reviewReady = true; $("s3").disabled = false; $("s4").disabled = false; ensureReviewFrame(); }
-      if (!autoReviewed) { autoReviewed = true; showView(3); }
+      if (!autoReviewed && !restorePending && !wantNew) { autoReviewed = true; showView(3); }
       setStep(st.phase === "running" ? 4 : 4, 3);
       $("finalHint").textContent = st.case_dir ? ("케이스: " + st.case_dir) : "";
       if ((st.phase === "done" || st.phase === "finalized") && st.package_dir) {
@@ -709,7 +749,12 @@ $("btnCancel").addEventListener("click", async () => {
   $("btnCancel").textContent = "중단 요청 중…";
   await jpost("/api/cancel", {});
 });
-$("btnNew").addEventListener("click", () => location.reload());
+// Reload alone lands back on the review stage (the poll auto-jumps on a
+// completed case); the flag keeps stage 1 on this load only.
+$("btnNew").addEventListener("click", () => {
+  sessionStorage.setItem("ft_want_new", "1");
+  location.reload();
+});
 
 $("directE01").addEventListener("change", syncDirectE01);
 // popup=yes + dimensions asks the browser for a real separate window

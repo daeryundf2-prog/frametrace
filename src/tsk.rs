@@ -1147,11 +1147,13 @@ Units are in 512-byte sectors
 
     #[test]
     fn streaming_capture_preserves_partial_output_on_timeout() {
-        // 5s sleep: the kill lands at ~1s, and cmd's grandchild (ping on
-        // Windows) keeps the stdout pipe open until it exits — enough to
-        // prove partial capture without a minute-long test.
+        // 5s sleep with a 3s timeout: cmd's own startup latency must not
+        // race the kill (it did at 1s under parallel test load), and the
+        // grandchild (ping on Windows) keeps the stdout pipe open until
+        // it exits — enough to prove partial capture without a
+        // minute-long test.
         let child = spawn_line_printer(&["partial-entry"], 5);
-        let result = drain_streaming(child, Some(1), None).expect("drained");
+        let result = drain_streaming(child, Some(3), None).expect("drained");
         assert!(result.timed_out);
         assert!(!result.output.status_success);
         // The line emitted before the kill must survive in the partial

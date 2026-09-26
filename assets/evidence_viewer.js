@@ -138,6 +138,7 @@ const I18N = {
     "btn.telemetry": "추출",
     "telemetry.summary": "{n}개 궤적점 (상대 개략도 — 지도 아님)",
     "telemetry.maxSpeed": "최고 {v}km/h",
+    "telemetry.cammCaveat": "camm 스펙 디코딩 — 실기기 샘플 미검증",
     "telemetry.noPoints": "추출된 궤적점 없음",
     "toast.telemetryDone": "텔레메트리 {n}개 궤적점 추출",
     "toast.telemetryFail": "텔레메트리 추출 실패: {err}",
@@ -461,6 +462,7 @@ const I18N = {
     "btn.telemetry": "Extract",
     "telemetry.summary": "{n} track points (relative sketch — no basemap)",
     "telemetry.maxSpeed": "max {v}km/h",
+    "telemetry.cammCaveat": "camm spec decode — unvalidated on real samples",
     "telemetry.noPoints": "No track points extracted",
     "toast.telemetryDone": "Telemetry: {n} track points",
     "toast.telemetryFail": "Telemetry extraction failed: {err}",
@@ -1766,7 +1768,8 @@ function drawTelemetry(report) {
   const last = pts[pts.length - 1];
   ctx.beginPath(); ctx.arc(X(last), Y(last), 3.5, 0, 7); ctx.fill();
   const speed = Number.isFinite(report.max_speed_kmh) ? ` · ${tf("telemetry.maxSpeed", { v: report.max_speed_kmh.toFixed(0) })}` : "";
-  note.textContent = tf("telemetry.summary", { n: pts.length }) + speed;
+  const camm = report.camm ? ` · ${t("telemetry.cammCaveat")}` : "";
+  note.textContent = tf("telemetry.summary", { n: pts.length }) + speed + camm;
 }
 
 function renderDetails() {

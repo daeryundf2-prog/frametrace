@@ -65,6 +65,7 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
         if case_dir.join("review/index.html").is_file() {
             guard.phase = "review-ready";
             guard.steps = [StepStatus::Done; 5];
+            guard.restored = true;
             guard.logs.push(format!(
                 "이전 세션의 케이스를 복원했습니다: {}",
                 case_dir.display()

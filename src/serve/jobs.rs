@@ -54,6 +54,7 @@ pub(crate) fn api_start(request: &Request, state: &SharedState) -> String {
         }
         guard.busy = true;
         guard.phase = "running";
+        guard.restored = false;
         guard.cancel_requested = false;
         guard.steps = [StepStatus::Pending; 5];
         guard.step_names = job.kind.step_names().to_vec();
