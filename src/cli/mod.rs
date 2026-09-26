@@ -148,6 +148,9 @@ pub enum Commands {
         #[arg(long)]
         redact_paths: bool,
     },
+    /// Generate reports/custody-statement.html — a printable chain-of-custody
+    /// document (sources, job ledger, live audit-chain verification)
+    MakeCustody { case_dir: PathBuf },
     /// Build a checksummed report/review package directory with manifest files
     PackageCase {
         case_dir: PathBuf,
@@ -646,6 +649,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             rehash,
             redact_paths,
         } => make_report(&case_dir, rehash, redact_paths),
+        Commands::MakeCustody { case_dir } => make_custody(&case_dir),
         Commands::PackageCase { case_dir, output } => {
             let options = PackageOptions { output_dir: output };
             package_case(&case_dir, options)

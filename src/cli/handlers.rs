@@ -805,6 +805,13 @@ pub fn make_report(case_dir: &Path, rehash: bool, redact_paths: bool) -> Result<
     Ok(())
 }
 
+pub fn make_custody(case_dir: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let path = crate::custody::generate(case_dir)?;
+    println!("custody statement written: {}", path.display());
+    Ok(())
+}
+
 /// Reads every db/scan_runs/*.json snapshot and returns them joined into a
 /// JSON array literal for the report script.
 fn read_scan_runs_json(case_dir: &Path) -> String {
@@ -835,6 +842,13 @@ fn read_scan_runs_json(case_dir: &Path) -> String {
 
 pub fn package_case(case_dir: &Path, options: PackageOptions) -> Result<(), String> {
     ensure_case(case_dir)?;
+    // A package should never ship without its custody statement; refresh it
+    // best-effort so a stale statement can't be sealed into a checksum
+    // manifest. Generation failure must not block packaging — the missing
+    // file is itself disclosed by the package README.
+    if let Err(err) = crate::custody::generate(case_dir) {
+        eprintln!("warning: custody statement not refreshed: {err}");
+    }
     let result = package::package_case(case_dir, options.output_dir.as_deref())?;
     println!("case package written");
     println!("output: {}", result.output_dir.display());

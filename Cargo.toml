@@ -27,3 +27,7 @@ sha2 = "0.10"
 rusqlite = { version = "0.39.0", features = ["bundled", "backup"] }
 wait-timeout = "0.2"
 getrandom = "0.4.3"
+
+[target."cfg(windows)".dependencies]
+webview2-com = "0.38.0"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }

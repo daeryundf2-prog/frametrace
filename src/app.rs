@@ -15,6 +15,7 @@ fn app_main() -> i32 {
             if let Err(error) = frametrace::serve::run(frametrace::serve::ServeOptions {
                 case_dir: None,
                 port: Some(port),
+                open_browser: true,
             }) {
                 eprintln!("error: {error}");
                 return 1;
@@ -27,10 +28,7 @@ fn app_main() -> i32 {
         }
         return 0;
     }
-    if let Err(error) = frametrace::serve::run(frametrace::serve::ServeOptions {
-        case_dir: None,
-        port: None,
-    }) {
+    if let Err(error) = run_workstation() {
         // No console is attached in windowed mode; surface fatal startup
         // errors through a message box so the examiner is never left with a
         // silently missing window.
@@ -64,6 +62,24 @@ fn app_main() -> i32 {
         return 1;
     }
     0
+}
+
+/// No-argument launch. On Windows the native WebView2 shell hosts the
+/// workstation window itself; everywhere else (and as the shell's own
+/// fallback) the server runs and the URL opens in a browser.
+fn run_workstation() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        frametrace::shell::run_hosted()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        frametrace::serve::run(frametrace::serve::ServeOptions {
+            case_dir: None,
+            port: None,
+            open_browser: true,
+        })
+    }
 }
 
 fn main() {

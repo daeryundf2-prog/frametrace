@@ -31,6 +31,10 @@ const MAX_CONNECTIONS: usize = 64;
 pub struct ServeOptions {
     pub case_dir: Option<PathBuf>,
     pub port: Option<u16>,
+    /// Whether to open the workstation URL in a browser once bound. The
+    /// WebView2 shell passes `false` — it hosts the UI itself; the
+    /// `FRAMETRACE_NO_BROWSER=1` env override still wins for tests.
+    pub open_browser: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -271,7 +275,7 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
         println!("FrameTrace workstation is already running — reusing it.");
         println!("  {url}");
         let _ = std::io::stdout().flush();
-        if std::env::var("FRAMETRACE_NO_BROWSER").as_deref() != Ok("1") {
+        if should_open_browser(&options) {
             open_in_browser(&url);
         }
         return Ok(());
@@ -295,8 +299,9 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     println!("Close this window to stop the workstation.");
     let _ = std::io::stdout().flush();
     // Test harnesses set FRAMETRACE_NO_BROWSER=1 so spawning the server
-    // never steals focus with a real browser window.
-    if std::env::var("FRAMETRACE_NO_BROWSER").as_deref() != Ok("1") {
+    // never steals focus with a real browser window; the WebView2 shell
+    // suppresses it via `open_browser: false` because it hosts the UI.
+    if should_open_browser(&options) {
         open_in_browser(&url);
     }
     serve_on(listener, state);
@@ -444,7 +449,7 @@ fn probe_status_body(port: u16) -> Option<Vec<u8>> {
 /// knows. When no instance file exists (server started by an older build),
 /// fall back to the structural scan — but require the full status shape
 /// (`app` + `has_job` + `case_dir` keys), not just the spoofable marker.
-fn find_running_server() -> Option<u16> {
+pub(crate) fn find_running_server() -> Option<u16> {
     if let Some((port, instance)) = read_instance_file()
         && let Some(body) = probe_status_body(port)
     {
@@ -466,7 +471,11 @@ fn find_running_server() -> Option<u16> {
     None
 }
 
-fn open_in_browser(url: &str) {
+fn should_open_browser(options: &ServeOptions) -> bool {
+    options.open_browser && std::env::var("FRAMETRACE_NO_BROWSER").as_deref() != Ok("1")
+}
+
+pub(crate) fn open_in_browser(url: &str) {
     // Windows-first: prefer Edge app mode so the workstation opens as a
     // dedicated chromeless window instead of a tab inside the examiner's
     // browsing session. Falls back to the default browser when Edge is

@@ -8,6 +8,7 @@ pub mod case_db;
 pub mod case_merge;
 pub mod checkpoint;
 pub mod cli;
+pub mod custody;
 pub mod dav;
 pub mod deepfake;
 pub mod detector;
@@ -28,6 +29,8 @@ pub mod scan;
 pub mod selection;
 pub mod serve;
 pub mod sha256;
+#[cfg(target_os = "windows")]
+pub mod shell;
 pub mod telemetry;
 pub mod timeline;
 pub mod tool_policy;

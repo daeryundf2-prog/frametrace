@@ -8,6 +8,7 @@ fn cli_main() -> i32 {
         if let Err(error) = serve::run(serve::ServeOptions {
             case_dir: None,
             port: None,
+            open_browser: true,
         }) {
             eprintln!("error: {error}");
             return 1;
