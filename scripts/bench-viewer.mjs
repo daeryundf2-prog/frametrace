@@ -38,7 +38,7 @@ const state = {
   sortBy: "time-desc", tags: {}, marks: {},
 };
 
-// Mirrors filteredRecords() in assets/evidence_viewer.js — keep in sync.
+// Mirrors filteredRecords() in assets/viewer/40-grid.js — keep in sync.
 function filteredRecords() {
   const list = records.filter(record => {
     if (state.kind && record.kind !== state.kind) return false;

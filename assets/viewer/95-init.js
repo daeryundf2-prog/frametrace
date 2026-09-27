@@ -1,0 +1,48 @@
+const examinerInput = document.getElementById("examinerName");
+if (examinerInput) {
+  examinerInput.value = state.examiner || "";
+  examinerInput.addEventListener("input", () => {
+    state.examiner = examinerInput.value;
+    storageSet(EXAMINER_KEY, state.examiner);
+  });
+}
+// Embedded mode (inside the examiner workstation iframe): drop the
+// viewer's own chrome — case title, stat badges, locale toggle, view
+// menu — because the host already shows them. Grid/media keep full
+// functionality. The host flips it off over postMessage when the
+// iframe goes fullscreen, so the full UI returns there.
+const setEmbed = on => document.body.classList.toggle("embed", on);
+setEmbed(new URLSearchParams(location.search).has("embed") || window.self !== window.top);
+const exitFsBtn = document.getElementById("btnExitFs");
+window.addEventListener("message", event => {
+  if (!event.data || event.data.type !== "ft-embed") return;
+  setEmbed(!!event.data.embed);
+  // Framed + embed off = the host fullscreened us: show a way back.
+  if (exitFsBtn) exitFsBtn.hidden = event.data.embed || window.self === window.top;
+});
+if (exitFsBtn) {
+  exitFsBtn.addEventListener("click", () => {
+    try { window.parent.postMessage({ type: "ft-exit-fullscreen" }, "*"); } catch (e) {}
+  });
+}
+setupHeightSplitter();
+setupColumnSplitter();
+setupGridDelegation();
+document.getElementById("btnLang")?.addEventListener("click", () => {
+  state.locale = state.locale === "ko" ? "en" : "ko";
+  storageSet(LOCALE_KEY, state.locale);
+  render();
+});
+applyLayout();
+render();
+})();
+
+/* Data loading order:
+ * 1. window.__FRAMETRACE_DATA__ already set — legacy single-file bundle
+ *    (older make-review output) — use it directly.
+ * 2. Served by the frametrace workstation — page the case index through
+ *    /api/records + /api/records-meta so the HTML never carries a
+ *    multi-hundred-MB inline payload for large cases.
+ * 3. Opened as a plain file (or a server without the API) — the
+ *    generated sibling data-bundle.js, which a plain <script> tag can
+ *    load even under file:// where fetch() is blocked. */

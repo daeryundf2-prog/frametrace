@@ -217,7 +217,10 @@ async function unitTests() {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
   const { default: assert } = await import('node:assert/strict');
-  const source = readFileSync(new URL('../assets/evidence_viewer.js', import.meta.url), 'utf8');
+  const { readdirSync } = await import('node:fs');
+  const viewerDir = new URL('../assets/viewer/', import.meta.url);
+  const source = readdirSync(viewerDir, 'utf8').filter(f => f.endsWith('.js')).sort()
+    .map(f => readFileSync(new URL(f, viewerDir), 'utf8')).join('\n');
   const fn = name => source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'))?.[0];
   const label = { textContent: '' };
   const state = { activeId: 'a', ranges: { a: { in: 1, out: null } }, proxies: {} };
@@ -243,7 +246,7 @@ async function unitTests() {
   runInNewContext(fn('renderGrid') + '\nrenderGrid(records);', grid);
   assert.ok(!els.recordGrid.innerHTML.includes('<card>'));
   state.groupBy = 'none'; state.activeId = 'a';
-  Object.assign(grid, { MARKS_KEY: 'marks', ANNOTATIONS_KEY: 'annotations', storageSet: () => {}, filteredRecords: () => records.filter(r => !state.marks[r.id]), render: () => runInNewContext(fn('renderGrid') + '\nrenderGrid(filteredRecords());', grid), moveActive: () => { state.activeId = 'c'; } });
+  Object.assign(grid, { MARKS_KEY: 'marks', ANNOTATIONS_KEY: 'annotations', storageSet: () => {}, markReviewDirty: () => {}, filteredRecords: () => records.filter(r => !state.marks[r.id]), render: () => runInNewContext(fn('renderGrid') + '\nrenderGrid(filteredRecords());', grid), moveActive: () => { state.activeId = 'c'; } });
   Object.assign(state, { drafts: {}, deletedIds: [], examiners: {}, notes: {}, tags: {} });
   const touch = fn('touchAnnotation');
   runInNewContext(touch + '\n' + fn('markActive') + '\nmarkActive("reviewed");', grid);

@@ -1,0 +1,525 @@
+const videos = Array.isArray(scan.videos) ? scan.videos : [];
+
+const flsEntryByInode = new Map();
+(DATA.flsEntries || []).forEach(entry => {
+  if (entry.inode != null) flsEntryByInode.set(String(entry.inode), entry);
+});
+
+const TIME_PATTERNS = [
+  { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])[:_.\-]?([0-5]\d)[:_.\-]?([0-5]\d)/, hasTime: true },
+  { re: /(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])([0-5]\d)([0-5]\d)/, hasTime: true },
+  { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])(?!\d)/, hasTime: false }
+];
+
+function parseTimeFromName(name) {
+  const text = String(name || "");
+  for (const pattern of TIME_PATTERNS) {
+    const match = text.match(pattern.re);
+    if (!match) continue;
+    const [year, month, day] = [match[1], match[2], match[3]];
+    const hh = match[4] ?? "00";
+    const mm = match[5] ?? "00";
+    const ss = match[6] ?? "00";
+    const ts = new Date(+year, +month - 1, +day, +hh, +mm, +ss).getTime() / 1000;
+    if (Number.isFinite(ts)) {
+      return { ts, date: `${year}-${month}-${day}`, source: "name" };
+    }
+  }
+  return null;
+}
+
+function recordingTimeFor(record) {
+  for (const candidate of [record.originalPath, record.name, record.path]) {
+    const parsed = parseTimeFromName(candidate);
+    if (parsed) return parsed;
+  }
+  if (record.kind === "video" && record.modifiedUnix) {
+    const day = new Date(record.modifiedUnix * 1000).toLocaleDateString("sv-SE");
+    return { ts: record.modifiedUnix, date: day, source: "mtime" };
+  }
+  return null;
+}
+
+function recTypeFor(record) {
+  const text = `${record.originalPath || ""} ${record.originalPath ? "" : record.name || ""}`.toLowerCase();
+  if (/(event|충격|사고|impact)/.test(text)) return "event";
+  if (/(parking|주차)/.test(text)) return "parking";
+  if (/(driving|주행|상시|continuous|normal)/.test(text)) return "driving";
+  return "";
+}
+
+function recTypeLabel(recType) {
+  return ({ driving: t("rectype.driving"), event: t("rectype.event"), parking: t("rectype.parking"), unclassified: t("rectype.unclassified") })[recType] || t("rectype.unclassified");
+}
+
+function channelCodeOf(record) {
+  const name = `${record.originalPath || ""} ${record.name || ""}`;
+  let match = name.match(/[_\-. ]([FRIB])(?:[_.\- ]|[a-z0-9]*$)/i);
+  if (match) return match[1].toUpperCase();
+  if (/front/i.test(name)) return "F";
+  if (/rear/i.test(name)) return "R";
+  if (/interior|inside/i.test(name)) return "I";
+  return null;
+}
+
+function channelLabel(code) {
+  return ({ F: t("chan.front"), R: t("chan.rear"), I: t("chan.interior"), B: t("chan.rear2") })[code] || code;
+}
+
+function channelFor(record) {
+  const code = channelCodeOf(record);
+  return code ? channelLabel(code) : null;
+}
+
+// Channel pairing for dual sync playback: two records mate when their
+// filenames differ only by a channel token (_F/_R/_I/_B or front/rear/
+// interior) inside the same folder. The channel token is stripped to form
+// a shared key — `20240101_1200_F.mp4` and `20240101_1200_R.mp4` pair.
+function pairKeyOf(record) {
+  const p = String(record.originalPath || record.name || "").replace(/\\/g, "/");
+  const dir = p.split("/").slice(0, -1).join("/").toLowerCase();
+  let base = (p.split("/").pop() || "").replace(/\.[^.]*$/, "").toLowerCase();
+  base = base
+    .replace(/front|rear|interior|inside/g, "")
+    .replace(/[_\-. ][frib](?=$|[_\-. ])/g, "")
+    .replace(/^[ _\-.]+|[ _\-.]+$/g, "");
+  return base ? `${dir}|${base}` : "";
+}
+
+function matesOf(record) {
+  const code = channelCodeOf(record);
+  const key = pairKeyOf(record);
+  if (!code || !key) return [];
+  return records.filter(r =>
+    r.id !== record.id &&
+    pairKeyOf(r) === key &&
+    channelCodeOf(r) && channelCodeOf(r) !== code &&
+    mediaSrcFor(r)
+  );
+}
+
+// Dual-channel panes: any pane can drive — user events are mirrored to the
+// others. A suppress flag stops echo loops, and a drift poll re-locks
+// panes that wander (>0.3s) without a user event (decoder jitter,
+// background tab throttling).
+function wireDualSync(videos) {
+  const list = Array.from(videos);
+  if (list.length < 2) return;
+  let suppress = false;
+  const release = () => setTimeout(() => { suppress = false; }, 250);
+  list.forEach(src => {
+    src.addEventListener("play", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) { v.currentTime = src.currentTime; v.play().catch(() => {}); } });
+      release();
+    });
+    src.addEventListener("pause", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.pause(); });
+      release();
+    });
+    src.addEventListener("seeked", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.currentTime = src.currentTime; });
+      release();
+    });
+    src.addEventListener("ratechange", () => {
+      if (suppress) return;
+      suppress = true;
+      list.forEach(v => { if (v !== src) v.playbackRate = src.playbackRate; });
+      release();
+    });
+  });
+  const drift = setInterval(() => {
+    if (!list[0].isConnected) { clearInterval(drift); return; }
+    const driver = list.find(v => !v.paused) || list[0];
+    list.forEach(v => {
+      if (v !== driver && Math.abs(v.currentTime - driver.currentTime) > 0.3) {
+        v.currentTime = driver.currentTime;
+      }
+    });
+  }, 500);
+}
+
+function prefixFor(record) {
+  const name = String(record.originalPath || record.name || "");
+  const match = name.match(/[A-Za-z가-힣_\-]+/);
+  return match ? match[0].replace(/[_\-]+$/, "") || t("misc.other") : t("misc.other");
+}
+
+function originalNameFor(record) {
+  const path = originalPathFor(record);
+  if (path) {
+    const base = path.replace(/\\/g, "/").split("/").pop();
+    if (base && base.includes(".")) return base;
+  }
+  return record.name || "";
+}
+
+function originalPathFor(record) {
+  if (record.inode && flsEntryByInode.has(String(record.inode))) {
+    return flsEntryByInode.get(String(record.inode)).path || "";
+  }
+  // Recovered outputs are named inode_<num>.bin; map that back to the
+  // original path recorded by inspect-image.
+  const match = String(record.name || "").match(/inode_(\d+)/);
+  if (match && flsEntryByInode.has(match[1])) {
+    return flsEntryByInode.get(match[1]).path || "";
+  }
+  return "";
+}
+
+function fmtUnix(value) {
+  if (!Number.isFinite(value)) return "-";
+  return new Date(value * 1000).toLocaleString();
+}
+
+function normalizePath(value) {
+  let text = String(value || "");
+  if (text.slice(0, 4).toLowerCase() === EXT_PREFIX) text = text.slice(4);
+  return text.split(BS).join("/").toLowerCase();
+}
+
+function fileUrl(path) {
+  if (!path) return "";
+  let value = String(path);
+  if (value.startsWith("file:")) return value;
+  if (value.slice(0, 8).toLowerCase() === EXT_UNC) value = BS + BS + value.slice(8);
+  else if (value.slice(0, 4).toLowerCase() === EXT_PREFIX) value = value.slice(4);
+  const normalized = value.split(BS).join("/");
+  // encodeURI leaves #, ?, and & unescaped, which truncates file URLs whose
+  // evidence paths contain them; encode per segment instead, keeping the
+  // drive-letter colon literal.
+  const encodeSegment = segment => (/^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment));
+  const encoded = normalized.split("/").map(encodeSegment).join("/");
+  if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encoded;
+  if (normalized.startsWith("//")) return "file:" + encoded;
+  if (normalized.startsWith("/")) return "file://" + encoded;
+  return encoded;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+// When the viewer is served by the local examiner workstation (http://127.0.0.1),
+// file:// video sources are blocked by the browser; route playback through the
+// server's Range-enabled /media endpoint instead. Opening the page directly
+// from disk keeps the original file:// URL.
+function mediaSrcFor(record) {
+  if (location.protocol === "http:" || location.protocol === "https:") {
+    // An examiner-requested review proxy wins over the original for playback.
+    const proxy = state.proxies?.[record.id];
+    if (proxy) return "/media?path=" + encodeURIComponent(proxy);
+    if (record.path) return "/media?path=" + encodeURIComponent(record.path);
+    return "";
+  }
+  if (!record.fileUrl) return "";
+  return record.fileUrl;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightEscape(value, query) {
+  const safe = escapeHtml(value);
+  if (!query) return safe;
+  try {
+    return safe.replaceAll(new RegExp("(" + escapeRegExp(escapeHtml(query)) + ")", "gi"), "<mark>$1</mark>");
+  } catch (error) {
+    return safe;
+  }
+}
+
+function fmtBytes(value) {
+  if (!Number.isFinite(value)) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let current = value;
+  let unit = 0;
+  while (current >= 1024 && unit < units.length - 1) { current /= 1024; unit += 1; }
+  return `${current.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function fmtDuration(value) {
+  if (!Number.isFinite(value)) return "-";
+  const seconds = Math.round(value);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function statusLabel(status) {
+  if (status === "ffprobe-video-stream-confirmed") return t("status.verified");
+  if (status === "ffprobe-confirmed") return t("status.confirmed");
+  if (status === "validation-failed") return t("status.failed");
+  if (status === "candidate-unvalidated") return t("status.candidate");
+  if (status === "duplicate-candidate") return t("status.duplicate");
+  return status;
+}
+
+function statusClass(status) {
+  if (status === "ffprobe-video-stream-confirmed" || status === "ffprobe-confirmed") return "ok";
+  if (status === "validation-failed") return "failed";
+  return "candidate";
+}
+
+function toast(message) {
+  const host = document.getElementById("toastHost");
+  const item = document.createElement("div");
+  item.className = "toast";
+  item.textContent = message;
+  host.appendChild(item);
+  setTimeout(() => item.remove(), 3200);
+}
+
+function storageGet(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (error) {
+    toast(tf("toast.storageFail", { err: error.message }));
+    return false;
+  }
+}
+
+const validationsByPath = new Map(validationLog.map(item => [normalizePath(item.target_path), item]));
+const recoveredFilesystemLog = filesystemLog.filter(item => item.event === "recover-inode" && item.output_path);
+// Case-level warnings recorded on inspection events (e.g. a truncated
+// fls listing means the deleted-file list is incomplete) — the reviewer
+// must see them, not just the CLI.
+const inspectionWarnings = filesystemLog
+  .filter(item => item.event === "inspect-image-filesystem" && Array.isArray(item.warnings) && item.warnings.length)
+  .flatMap(item => item.warnings);
+
+const records = [
+  ...videos.map(video => {
+    const validation = validationsByPath.get(normalizePath(video.source_path));
+    return {
+      id: video.id,
+      kind: "video",
+      name: video.relative_path || video.id,
+      path: video.source_path,
+      fileUrl: video.file_url,
+      parser: video.source_profile?.parser || "-",
+      vendor: video.source_profile?.vendor || "-",
+      status: validation?.validation_status || (video.ffprobe_ok ? "ffprobe-confirmed" : "candidate-unvalidated"),
+      sha256: validation?.target_sha256 || video.sha256 || video.hash_status || "-",
+      duration: validation?.duration_seconds ?? video.duration_seconds,
+      codec: validation?.video_codec || video.video_codec || "-",
+      size: video.size_bytes,
+      note: validation?.validation_note || video.source_profile?.recommended_action || "-",
+      indexStatus: video.index_status || "active",
+      modifiedUnix: video.modified_unix,
+      inode: video.inode,
+      validation
+    };
+  }),
+  ...carveLog.map(item => {
+    const validation = validationsByPath.get(normalizePath(item.output_path));
+    return {
+      id: item.id || item.output_path,
+      kind: "carved",
+      name: item.output_path ? item.output_path.split(/[\\\/]/).pop() : item.id,
+      path: item.output_path,
+      fileUrl: fileUrl(item.output_path),
+      parser: item.signature || "carve",
+      vendor: "Recovered candidate",
+      status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
+      sha256: validation?.target_sha256 || item.sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || item.extension || "-",
+      size: item.size_bytes,
+      note: validation?.validation_note || item.validation_note || "-",
+      offset: item.offset,
+      indexStatus: "active",
+      validation
+    };
+  }),
+  ...(DATA.flsEntries || [])
+    .filter(entry => entry.deleted && entry.video_candidate)
+    .map(entry => {
+      const inode = entry.inode != null ? String(entry.inode) : "";
+      return {
+        id: `fls:${inode || entry.raw_line || "unknown"}`,
+        kind: "candidate",
+        name: entry.path || entry.raw_line || `inode ${inode}`,
+        path: "",
+        fileUrl: "",
+        parser: "fls listing",
+        vendor: t("cand.vendor"),
+        status: "candidate-unvalidated",
+        sha256: "-",
+        duration: null,
+        codec: "-",
+        size: null,
+        note: t("cand.note"),
+        indexStatus: "recovery-pending",
+        modifiedUnix: null,
+        inode: entry.inode,
+        originalPath: entry.path || "",
+        validation: null
+      };
+    }),
+  ...recoveredFilesystemLog.map(item => {
+    const original = item.inode && flsEntryByInode.get(String(item.inode));
+    const validation = validationsByPath.get(normalizePath(item.output_path));
+    return {
+      id: `inode:${item.partition_offset ?? 0}:${item.inode || item.output_path}`,
+      kind: "filesystem",
+      name: item.output_path ? item.output_path.split(/[\\\/]/).pop() : item.inode,
+      path: item.output_path,
+      fileUrl: fileUrl(item.output_path),
+      parser: "tsk/icat",
+      vendor: "Filesystem recovery",
+      status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
+      sha256: validation?.target_sha256 || item.sha256 || "-",
+      duration: validation?.duration_seconds,
+      codec: validation?.video_codec || "-",
+      size: item.size_bytes,
+      note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
+      offset: item.partition_offset,
+      inode: item.inode,
+      originalPath: original?.path || "",
+      warnings: Array.isArray(item.warnings) ? item.warnings : [],
+      indexStatus: "active",
+      validation
+    };
+  })
+];
+
+records.forEach(record => {
+  record.originalPath = record.originalPath || originalPathFor(record);
+  const rec = recordingTimeFor(record);
+  record.recTime = rec ? rec.ts : null;
+  record.recDay = rec ? rec.date : null;
+  record.recSource = rec ? rec.source : null;
+  record.channel = channelFor(record);
+  record.prefix = prefixFor(record);
+  record.recType = recTypeFor(record);
+    record.originalName = originalNameFor(record);
+  record.thumb = DATA.thumbs?.[record.id] || null;
+  // Artifact filenames sanitize record ids (inode:<off>:<ino> →
+  // inode_<off>_<ino>) — mirror the same mapping for the lookup.
+  record.dfl = DATA.deepfake?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
+  record.telemetry = DATA.telemetry?.[String(record.id).replace(/[:\\\/]/g, "_")] || null;
+  const fromId = anomaliesBySelector.get(record.id) || [];
+  const fromValidation = Array.isArray(record.validation?.anomaly_flags)
+    ? record.validation.anomaly_flags.map(kind => ({ kind, selector: record.id, detail: "validation anomaly_flags" }))
+    : [];
+  const merged = [...fromId];
+  for (const item of fromValidation) {
+    if (!merged.some(existing => existing.kind === item.kind)) merged.push(item);
+  }
+  record.anomalies = merged;
+  record.hasAnomaly = record.anomalies.length > 0;
+});
+// Carve-log and inode records duplicate indexed files under different ids;
+// reuse the indexed video's thumbnail through the shared file name.
+const thumbByName = new Map(records.filter(record => record.thumb).map(record => [record.name, record.thumb]));
+records.forEach(record => {
+  if (!record.thumb && record.name) record.thumb = thumbByName.get(record.name) || null;
+});
+
+const state = {
+  activeId: records[0]?.id || null,
+  selectedIds: new Set(),
+  lastCheckedKey: null,
+  drafts: storageGet(ANNOTATIONS_KEY, {}),
+  deletedIds: [],
+  examiners: {},
+  marks: storageGet(MARKS_KEY, {}),
+  notes: storageGet(NOTES_KEY, {}),
+  ranges: storageGet(RANGES_KEY, {}),
+  proxies: storageGet(PROXIES_KEY, {}),
+  examiner: storageGet(EXAMINER_KEY, ""),
+  tags: storageGet(TAGS_KEY, {}),
+  tagPresets: storageGet(TAG_PRESETS_KEY, null),
+  locale: storageGet(LOCALE_KEY, "ko") === "en" ? "en" : "ko",
+  layout: Object.assign({ videoMode: "fit", videoZoom: 100, theater: false, dual: false, playerH: 0, colSplit: 0, rate: 1 }, storageGet(LAYOUT_KEY, {})),
+  currentPage: 1,
+  pageSize: 100,
+  query: "",
+  kind: "",
+  status: "",
+  chip: "",
+  sortBy: "id",
+  groupBy: "none",
+  dateFrom: "",
+  dateTo: "",
+  recType: "",
+  collapsedGroups: new Set()
+};
+
+function touchAnnotation(id) {
+  state.examiners[id] = (state.examiner || "").trim() || state.examiners[id] || null;
+  const draft = {
+    mark: state.marks[id] || null,
+    note: state.notes[id] || "",
+    tags: state.tags[id] || [],
+    examiner: state.examiners[id]
+  };
+  state.drafts[id] = draft;
+  state.deletedIds = [...new Set([...state.deletedIds, id])];
+  storageSet(ANNOTATIONS_KEY, state.drafts);
+  markReviewDirty();
+}
+
+function hydrateAnnotations(annotations) {
+  state.marks = {}; state.notes = {}; state.tags = {}; state.examiners = {};
+  for (const mark of annotations.marks || []) {
+    if (mark.status !== "noted") state.marks[mark.id] = { status: mark.status, marked_unix: mark.marked_unix };
+    state.notes[mark.id] = mark.note || "";
+    state.examiners[mark.id] = mark.examiner || null;
+  }
+  for (const entry of annotations.tags || []) state.tags[entry.id] = entry.tags;
+  state.deletedIds = [];
+  for (const [id, draft] of Object.entries(state.drafts)) {
+    if (draft.mark) state.marks[id] = draft.mark;
+    else delete state.marks[id];
+    state.notes[id] = draft.note;
+    state.tags[id] = draft.tags;
+    state.examiners[id] = draft.examiner;
+    state.deletedIds.push(id);
+  }
+}
+
+hydrateAnnotations(DATA.annotations || { marks: [], tags: [] });
+
+// null = never customized → seed from defaults; an empty array is a
+// deliberate "no presets" choice and must not reseed.
+if (!Array.isArray(state.tagPresets)) state.tagPresets = [...DEFAULT_TAG_PRESETS];
+
+// Same-origin hosts (e.g. the examiner workstation iframe) read live case
+// stats through this getter instead of re-parsing the embedded data.
+window.__frametraceSummary = () => {
+  const byKind = {};
+  const byStatus = {};
+  let warned = 0;
+  records.forEach(r => {
+    byKind[r.kind || "video"] = (byKind[r.kind || "video"] || 0) + 1;
+    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    if ((r.warnings || []).length) warned += 1;
+  });
+  return {
+    total: records.length,
+    byKind,
+    byStatus,
+    warned,
+    marked: Object.keys(state.marks).length,
+    noted: records.filter(r => (state.notes[r.id] || "").trim()).length
+  };
+};
