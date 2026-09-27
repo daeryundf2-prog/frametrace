@@ -205,10 +205,14 @@ fn scan_nmea_bytes(bytes: &[u8], points: &mut Vec<TelemetryPoint>) {
 }
 
 fn run_tool(binary: &str, args: &[&str]) -> Result<Vec<u8>, String> {
+    run_tool_timed(binary, args, TOOL_TIMEOUT)
+}
+
+fn run_tool_timed(binary: &str, args: &[&str], timeout_secs: u64) -> Result<Vec<u8>, String> {
     let bin = resolve_tool_binary(binary, &[binary])?;
     let mut cmd = Command::new(&bin);
     cmd.args(args);
-    let out = run_with_timeout(&mut cmd, Some(TOOL_TIMEOUT))?;
+    let out = run_with_timeout(&mut cmd, Some(timeout_secs))?;
     if !out.status.success() {
         return Err(format!(
             "{binary} failed: {}",
@@ -216,6 +220,15 @@ fn run_tool(binary: &str, args: &[&str]) -> Result<Vec<u8>, String> {
         ));
     }
     Ok(out.stdout)
+}
+
+/// Full-file demux passes (`-show_packets`, `-f data`) read every byte of
+/// the container, so a fixed probe budget can kill legitimate multi-gigabyte
+/// telemetry sources. Scale the budget with file size — ~25 MiB/s floor for
+/// slow external/NASD media — capped so a hung tool still dies.
+fn demux_timeout(path: &Path) -> u64 {
+    let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    (TOOL_TIMEOUT + bytes / (25 * 1024 * 1024)).min(3600)
 }
 
 /// Data/other stream indexes from ffprobe, split by payload kind:
@@ -343,37 +356,27 @@ fn parse_camm_packet(packet: &[u8], points: &mut Vec<TelemetryPoint>, stats: &mu
 /// boundaries must come from the demuxer, not the byte stream itself.
 fn packet_sizes(path: &Path, stream_index: u32) -> Result<Vec<usize>, String> {
     let idx = stream_index.to_string();
-    let bytes = run_tool(
+    // One size per row keeps the output small — the default packet dump
+    // emits a dozen fields per packet for a stream we only need lengths for.
+    let bytes = run_tool_timed(
         "ffprobe",
         &[
             "-v",
             "error",
             "-select_streams",
             &idx,
-            "-show_packets",
+            "-show_entries",
+            "packet=size",
             "-of",
-            "json",
+            "csv=p=0",
             &path.to_string_lossy(),
         ],
+        demux_timeout(path),
     )?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|err| format!("failed to parse ffprobe packets json: {err}"))?;
-    Ok(json
-        .get("packets")
-        .and_then(|p| p.as_array())
-        .map(|packets| {
-            packets
-                .iter()
-                .filter_map(|p| {
-                    p.get("size").and_then(|s| {
-                        s.as_str()
-                            .and_then(|v| v.parse::<usize>().ok())
-                            .or_else(|| s.as_u64().map(|v| v as usize))
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default())
+    Ok(String::from_utf8_lossy(&bytes)
+        .lines()
+        .filter_map(|line| line.rsplit(',').next()?.trim().parse::<usize>().ok())
+        .collect())
 }
 
 /// Decodes one camm data stream into track points + coverage stats.
@@ -390,7 +393,7 @@ fn extract_camm_stream(
         return Err(format!("stream #{stream_index} — no packets reported"));
     }
     let idx = stream_index.to_string();
-    let dump = run_tool(
+    let dump = run_tool_timed(
         "ffmpeg",
         &[
             "-v",
@@ -405,6 +408,7 @@ fn extract_camm_stream(
             "data",
             "-",
         ],
+        demux_timeout(path),
     )?;
     let mut stats = CammStats {
         packets: 0,
@@ -867,5 +871,200 @@ mod tests {
         let mut points = Vec::new();
         scan_nmea_bytes(&bytes, &mut points);
         assert!(points.is_empty());
+    }
+
+    /// Minimal MP4 box (`size`,`type`,payload).
+    fn mp4_box(typ: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(8 + payload.len());
+        v.extend_from_slice(&((8 + payload.len()) as u32).to_be_bytes());
+        v.extend_from_slice(typ);
+        v.extend_from_slice(payload);
+        v
+    }
+
+    /// A synthetically valid MP4 with one `camm` sample-entry data track.
+    /// ffmpeg has no camm muxer, so the container is built by hand: a
+    /// `meta`-handler track whose stsd entry is `camm` — exactly how the
+    /// mov demuxer reports real recorder files (`bin_data`/`camm` tag).
+    /// stco is patched after moov is assembled since it is an absolute
+    /// file offset into mdat.
+    fn synthetic_camm_mp4(packets: &[Vec<u8>]) -> Vec<u8> {
+        let mut mdat_payload = Vec::new();
+        for p in packets {
+            mdat_payload.extend_from_slice(p);
+        }
+
+        let mut ftyp_payload = b"isom".to_vec();
+        ftyp_payload.extend_from_slice(&512u32.to_be_bytes());
+        ftyp_payload.extend_from_slice(b"isomiso2mp41");
+        let ftyp = mp4_box(b"ftyp", &ftyp_payload);
+
+        let mut mvhd_p = vec![0, 0, 0, 0];
+        mvhd_p.extend_from_slice(&0u32.to_be_bytes()); // creation
+        mvhd_p.extend_from_slice(&0u32.to_be_bytes()); // modification
+        mvhd_p.extend_from_slice(&1000u32.to_be_bytes()); // timescale
+        mvhd_p.extend_from_slice(&120u32.to_be_bytes()); // duration
+        mvhd_p.extend_from_slice(&0x0001_0000u32.to_be_bytes()); // rate 1.0
+        mvhd_p.extend_from_slice(&0x0100u16.to_be_bytes()); // volume
+        mvhd_p.extend_from_slice(&[0u8; 10]);
+        mvhd_p.extend_from_slice(
+            &[0x0001_0000u32, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000]
+                .iter()
+                .flat_map(|v| v.to_be_bytes())
+                .collect::<Vec<u8>>(),
+        );
+        mvhd_p.extend_from_slice(&[0u8; 24]);
+        mvhd_p.extend_from_slice(&3u32.to_be_bytes()); // next_track_id
+        let mvhd = mp4_box(b"mvhd", &mvhd_p);
+
+        let mut tkhd_p = vec![0, 0, 0, 7]; // enabled|in_movie|in_preview
+        tkhd_p.extend_from_slice(&0u32.to_be_bytes());
+        tkhd_p.extend_from_slice(&0u32.to_be_bytes());
+        tkhd_p.extend_from_slice(&2u32.to_be_bytes()); // track_id
+        tkhd_p.extend_from_slice(&[0u8; 4]);
+        tkhd_p.extend_from_slice(&120u32.to_be_bytes()); // duration
+        tkhd_p.extend_from_slice(&[0u8; 8]);
+        tkhd_p.extend_from_slice(&[0u8; 8]); // layer/alt/volume/reserved
+        tkhd_p.extend_from_slice(
+            &[0x0001_0000u32, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000]
+                .iter()
+                .flat_map(|v| v.to_be_bytes())
+                .collect::<Vec<u8>>(),
+        );
+        tkhd_p.extend_from_slice(&0u32.to_be_bytes());
+        tkhd_p.extend_from_slice(&0u32.to_be_bytes());
+        let tkhd = mp4_box(b"tkhd", &tkhd_p);
+
+        let mut mdhd_p = vec![0, 0, 0, 0];
+        mdhd_p.extend_from_slice(&0u32.to_be_bytes());
+        mdhd_p.extend_from_slice(&0u32.to_be_bytes());
+        mdhd_p.extend_from_slice(&1000u32.to_be_bytes());
+        mdhd_p.extend_from_slice(&120u32.to_be_bytes());
+        mdhd_p.extend_from_slice(&0x55c4u16.to_be_bytes()); // und
+        mdhd_p.extend_from_slice(&0u16.to_be_bytes());
+        let mdhd = mp4_box(b"mdhd", &mdhd_p);
+
+        let mut hdlr_p = vec![0, 0, 0, 0];
+        hdlr_p.extend_from_slice(&[0u8; 4]);
+        hdlr_p.extend_from_slice(b"meta");
+        hdlr_p.extend_from_slice(&[0u8; 12]);
+        hdlr_p.extend_from_slice(b"camm\x00");
+        let hdlr = mp4_box(b"hdlr", &hdlr_p);
+
+        let nmhd = mp4_box(b"nmhd", &[0, 0, 0, 0]);
+        let url = mp4_box(b"url ", &[0, 0, 0, 1]);
+        let mut dref_p = vec![0, 0, 0, 0];
+        dref_p.extend_from_slice(&1u32.to_be_bytes());
+        dref_p.extend_from_slice(&url);
+        let dinf = mp4_box(b"dinf", &mp4_box(b"dref", &dref_p));
+
+        let mut stsd_entry_p = vec![0u8; 6];
+        stsd_entry_p.extend_from_slice(&1u16.to_be_bytes()); // data_ref_idx
+        let stsd_entry = mp4_box(b"camm", &stsd_entry_p);
+        let mut stsd_p = vec![0, 0, 0, 0];
+        stsd_p.extend_from_slice(&1u32.to_be_bytes());
+        stsd_p.extend_from_slice(&stsd_entry);
+        let stsd = mp4_box(b"stsd", &stsd_p);
+
+        let mut stts_p = vec![0, 0, 0, 0];
+        stts_p.extend_from_slice(&1u32.to_be_bytes());
+        stts_p.extend_from_slice(&(packets.len() as u32).to_be_bytes());
+        stts_p.extend_from_slice(&40u32.to_be_bytes());
+        let stts = mp4_box(b"stts", &stts_p);
+
+        let mut stsc_p = vec![0, 0, 0, 0];
+        stsc_p.extend_from_slice(&1u32.to_be_bytes());
+        stsc_p.extend_from_slice(&1u32.to_be_bytes());
+        stsc_p.extend_from_slice(&(packets.len() as u32).to_be_bytes());
+        stsc_p.extend_from_slice(&1u32.to_be_bytes());
+        let stsc = mp4_box(b"stsc", &stsc_p);
+
+        let mut stsz_p = vec![0, 0, 0, 0];
+        stsz_p.extend_from_slice(&0u32.to_be_bytes());
+        stsz_p.extend_from_slice(&(packets.len() as u32).to_be_bytes());
+        for p in packets {
+            stsz_p.extend_from_slice(&(p.len() as u32).to_be_bytes());
+        }
+        let stsz = mp4_box(b"stsz", &stsz_p);
+
+        let build_moov = |chunk_offset: u32| -> Vec<u8> {
+            let mut stco_p = vec![0, 0, 0, 0];
+            stco_p.extend_from_slice(&1u32.to_be_bytes());
+            stco_p.extend_from_slice(&chunk_offset.to_be_bytes());
+            let stco = mp4_box(b"stco", &stco_p);
+            let mut stbl_p = Vec::new();
+            for b in [&stsd, &stts, &stsc, &stsz, &stco] {
+                stbl_p.extend_from_slice(b);
+            }
+            let mut minf_p = Vec::new();
+            for b in [&nmhd, &dinf] {
+                minf_p.extend_from_slice(b);
+            }
+            minf_p.extend_from_slice(&mp4_box(b"stbl", &stbl_p));
+            let mut mdia_p = Vec::new();
+            for b in [&mdhd, &hdlr] {
+                mdia_p.extend_from_slice(b);
+            }
+            mdia_p.extend_from_slice(&mp4_box(b"minf", &minf_p));
+            let mut trak_p = tkhd.clone();
+            trak_p.extend_from_slice(&mp4_box(b"mdia", &mdia_p));
+            let mut moov_p = mvhd.clone();
+            moov_p.extend_from_slice(&mp4_box(b"trak", &trak_p));
+            mp4_box(b"moov", &moov_p)
+        };
+
+        let moov = build_moov(0);
+        let chunk_offset = (ftyp.len() + moov.len() + 8) as u32;
+        let moov = build_moov(chunk_offset);
+        assert_eq!(ftyp.len() + moov.len() + 8, chunk_offset as usize);
+
+        let mut out = ftyp;
+        out.extend_from_slice(&moov);
+        out.extend_from_slice(&mp4_box(b"mdat", &mdat_payload));
+        out
+    }
+
+    /// End-to-end: hand-built MP4 with a `camm` sample-entry track through
+    /// the real ffprobe/ffffmpeg path. Still a spec-based synthetic fixture —
+    /// this validates the extraction pipeline, not recorder conformance.
+    #[test]
+    fn camm_stream_extracts_points_end_to_end() {
+        if resolve_tool_binary("ffprobe", &["ffprobe"]).is_err()
+            || resolve_tool_binary("ffmpeg", &["ffmpeg"]).is_err()
+        {
+            eprintln!("skipping camm E2E — ffmpeg/ffprobe not installed");
+            return;
+        }
+        let mut p5 = vec![0u8, 0, 5, 0];
+        p5.extend_from_slice(&37.2636f64.to_le_bytes());
+        p5.extend_from_slice(&127.0286f64.to_le_bytes());
+        let p7 = camm_case7(1_400_000_000.0, 3, 37.2637, 127.0287, 42.0, 13.8, 0.0, 0.0);
+        let mut p5b = vec![0u8, 0, 5, 0];
+        p5b.extend_from_slice(&37.2638f64.to_le_bytes());
+        p5b.extend_from_slice(&127.0288f64.to_le_bytes());
+        let mp4 = synthetic_camm_mp4(&[p5, p7, p5b]);
+
+        let dir = std::env::temp_dir().join(format!("frametrace-camm-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("synthetic-camm.mp4");
+        fs::write(&file, &mp4).unwrap();
+
+        let report = extract_file(&file).expect("extract_file failed on synthetic camm mp4");
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(report.source.contains("camm-gps"), "{}", report.source);
+        let camm = report.camm.expect("camm stats missing");
+        assert_eq!(camm.packets, 3);
+        assert_eq!(camm.gps_points, 3);
+        assert_eq!(report.point_count, 3);
+        // The case-7 point carries timestamp, altitude, and km/h speed.
+        let fixed = report
+            .points
+            .iter()
+            .find(|p| p.ts_unix.is_some())
+            .expect("no timestamped camm point");
+        assert!((fixed.lat - 37.2637).abs() < 1e-9);
+        assert_eq!(fixed.alt_m, Some(42.0));
+        assert!((fixed.speed_kmh.unwrap() - 49.68).abs() < 0.01);
     }
 }
