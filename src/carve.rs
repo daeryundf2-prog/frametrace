@@ -17,6 +17,34 @@ const MIN_CARVE_BYTES: u64 = 16;
 /// Signature-scan progress is checkpointed every this many 1 MiB chunks,
 /// so a resume repeats at most ~64 MiB of scanning on huge images.
 const CHECKPOINT_CHUNK_INTERVAL: usize = 64;
+/// Consecutive Annex-B SPS anchors closer than this are one stream —
+/// every anchor's carved extent already runs to the next container
+/// signature, so mid-run anchors can never produce a distinct artifact.
+/// Coalescing at scan time keeps `hits` (and every checkpoint line)
+/// from flooding with redundant anchors inside contiguous stream data.
+const ANNEXB_COALESCE_BYTES: u64 = 4 * 1024 * 1024;
+/// Upper bound on the span a single RIFF header may claim for
+/// embedded-payload suppression — a corrupt/false header cannot
+/// blind the fragment scan beyond this.
+const MAX_RIFF_CLAIM_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Scan-time suppression state for fragment-prone signatures (Annex-B
+/// anchors, JPEG SOIs). Carve-time suppression cannot run during the
+/// scan itself: tens of GB of contiguous AVIs would emit an SPS anchor
+/// per GOP — tens of thousands of hits — exhausting the candidate cap
+/// mid-scan and bloating every checkpoint line. Two rules keep `hits`
+/// honest without losing coverage:
+///  - anchors inside a span a RIFF header already declared are that
+///    container's payload, never independent files;
+///  - Annex-B anchors closer than ANNEXB_COALESCE_BYTES are redundant
+///    mid-stream re-sends of SPS/VPS.
+#[derive(Default)]
+struct ScanSuppress {
+    /// Absolute offset through which RIFF-declared container payload runs.
+    embedded_until: u64,
+    /// Next absolute offset at which an Annex-B anchor may emit.
+    annexb_next_emit: u64,
+}
 
 #[derive(Debug, Clone)]
 pub struct CarveOptions {
@@ -591,6 +619,7 @@ fn scan_signatures(
         .map_err(|err| format!("failed to seek carve source to resume offset: {err}"))?;
     let mut offset = resume_offset;
     let mut since_checkpoint = 0usize;
+    let mut suppress = ScanSuppress::default();
 
     while offset < scan_end {
         let want = CHUNK_SIZE.min((scan_end - offset) as usize);
@@ -607,7 +636,7 @@ fn scan_signatures(
         scan.extend_from_slice(&overlap);
         scan.extend_from_slice(&chunk);
         let scan_start = offset.saturating_sub(overlap.len() as u64);
-        scan_buffer(&scan, scan_start, offset, &mut hits);
+        scan_buffer_state(&scan, scan_start, offset, &mut hits, &mut suppress);
         hits.sort_by_key(|hit| hit.offset);
         hits.dedup_by_key(|hit| hit.offset);
         if hits.len() >= max_candidates {
@@ -1584,6 +1613,7 @@ pub fn find_video_signatures_in(
     let mut hits = Vec::new();
     let mut offset = 0u64;
     let mut overlap = Vec::<u8>::new();
+    let mut suppress = ScanSuppress::default();
 
     loop {
         let mut chunk = vec![0u8; CHUNK_SIZE];
@@ -1599,7 +1629,7 @@ pub fn find_video_signatures_in(
         scan.extend_from_slice(&overlap);
         scan.extend_from_slice(&chunk);
         let scan_start = offset.saturating_sub(overlap.len() as u64);
-        scan_buffer(&scan, scan_start, offset, &mut hits);
+        scan_buffer_state(&scan, scan_start, offset, &mut hits, &mut suppress);
         hits.sort_by_key(|hit| hit.offset);
         hits.dedup_by_key(|hit| hit.offset);
         if hits.len() >= max_candidates {
@@ -1618,7 +1648,24 @@ pub fn find_video_signatures_in(
     Ok(hits)
 }
 
+#[cfg(test)]
 fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mut Vec<CarveHit>) {
+    scan_buffer_state(
+        scan,
+        scan_start,
+        current_chunk_start,
+        hits,
+        &mut ScanSuppress::default(),
+    );
+}
+
+fn scan_buffer_state(
+    scan: &[u8],
+    scan_start: u64,
+    current_chunk_start: u64,
+    hits: &mut Vec<CarveHit>,
+    suppress: &mut ScanSuppress,
+) {
     for index in 0..scan.len() {
         let absolute = scan_start + index as u64;
         if absolute < current_chunk_start.saturating_sub(OVERLAP_SIZE as u64) {
@@ -1640,6 +1687,26 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                 signature: "riff-avi".to_string(),
                 extension: "avi".to_string(),
             });
+            // The RIFF header declares its own file extent: the size
+            // field counts bytes after it, so the payload ends at
+            // absolute + 8 + declared. Fragment-prone signatures inside
+            // that span are this container's payload, not candidates —
+            // suppress them at scan time or embedded SPS anchors/JPEG
+            // thumbnails flood `hits` and exhaust the candidate cap.
+            // The strict "AVI " check keeps suppression off weaker
+            // near-matches; the claim is also capped so a corrupt
+            // header cannot blind the scan beyond a bounded span.
+            if scan.get(index + 8..index + 12) == Some(b"AVI ") {
+                let declared = scan
+                    .get(index + 4..index + 8)
+                    .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64)
+                    .unwrap_or(0);
+                if declared > 8 {
+                    suppress.embedded_until = suppress.embedded_until.max(
+                        absolute + 8 + declared.min(MAX_RIFF_CLAIM_BYTES),
+                    );
+                }
+            }
         }
         if scan.get(index..index + 4) == Some(b"DHAV") {
             hits.push(CarveHit {
@@ -1655,8 +1722,11 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                 extension: "mpg".to_string(),
             });
         }
-        // JPEG stills: dashcam snapshots / embedded thumbnails.
-        if scan.get(index..index + 3) == Some(&[0xff, 0xd8, 0xff][..]) {
+        // JPEG stills: dashcam snapshots / embedded thumbnails —
+        // thumbnails inside a declared container span are payload.
+        if scan.get(index..index + 3) == Some(&[0xff, 0xd8, 0xff][..])
+            && absolute >= suppress.embedded_until
+        {
             hits.push(CarveHit {
                 offset: absolute,
                 signature: "jpeg".to_string(),
@@ -1712,10 +1782,17 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
         // in-progress temp files, and overwritten/deleted recording bodies
         // survive only as headerless stream runs — no container signature
         // exists to find them. Anchor on SPS (0x67) or H.265 VPS/SPS
-        // (0x40/0x42) and require another start code within 512 bytes;
-        // mid-stream anchors inside carved container spans are suppressed
-        // later at carve time.
-        if scan.get(index..index + 4) == Some(&[0, 0, 0, 1][..]) {
+        // (0x40/0x42) and require another start code within 512 bytes.
+        // Anchors inside a RIFF-declared payload are suppressed here at
+        // scan time; anchors inside spans of other containers and
+        // mid-stream re-anchors are suppressed at carve time, and
+        // consecutive anchors within ANNEXB_COALESCE_BYTES are one
+        // stream — a mid-run anchor can never yield a distinct artifact
+        // because every anchor's extent runs to the next container hit.
+        if scan.get(index..index + 4) == Some(&[0, 0, 0, 1][..])
+            && absolute >= suppress.embedded_until
+            && absolute >= suppress.annexb_next_emit
+        {
             let nal = scan.get(index + 4).copied().unwrap_or(0);
             let (signature, extension) = match nal {
                 0x67 => ("h264-annexb", "h264"),
@@ -1734,6 +1811,7 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                         signature: signature.to_string(),
                         extension: extension.to_string(),
                     });
+                    suppress.annexb_next_emit = absolute + ANNEXB_COALESCE_BYTES;
                 }
             }
         }
@@ -1824,13 +1902,16 @@ mod tests {
         assert_eq!(h[0].offset, 100);
         assert_eq!(h[0].extension, "h264");
 
-        // H.265 VPS also anchors.
-        buf[2000..2004].copy_from_slice(&[0, 0, 0, 1]);
-        buf[2004] = 0x40;
-        buf[2100..2104].copy_from_slice(&[0, 0, 0, 1]);
-        buf[2104] = 0x42;
+        // H.265 VPS also anchors — separate buffer: an anchor within
+        // ANNEXB_COALESCE_BYTES of an emitted hit is a mid-run anchor
+        // and correctly suppressed, so it can't share this buffer.
+        let mut buf_h265 = vec![0u8; 4096];
+        buf_h265[2000..2004].copy_from_slice(&[0, 0, 0, 1]);
+        buf_h265[2004] = 0x40;
+        buf_h265[2100..2104].copy_from_slice(&[0, 0, 0, 1]);
+        buf_h265[2104] = 0x42;
         let mut hits2 = Vec::new();
-        scan_buffer(&buf, 0, 0, &mut hits2);
+        scan_buffer(&buf_h265, 0, 0, &mut hits2);
         assert!(hits2.iter().any(|h| h.signature == "h265-annexb"));
 
         // Lone SPS with no second start code in lookahead: rejected.
@@ -1840,6 +1921,57 @@ mod tests {
         let mut hits3 = Vec::new();
         scan_buffer(&lone, 0, 0, &mut hits3);
         assert!(hits3.iter().all(|h| !h.signature.ends_with("-annexb")));
+    }
+
+    #[test]
+    fn annexb_inside_riff_declared_span_is_suppressed_at_scan_time() {
+        let mut buf = vec![0u8; 8192];
+        buf[0..4].copy_from_slice(b"RIFF");
+        buf[4..8].copy_from_slice(&(4096u32).to_le_bytes());
+        buf[8..12].copy_from_slice(b"AVI ");
+        // SPS-anchored run inside the declared span: payload, suppressed.
+        buf[100..104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[104] = 0x67;
+        buf[140..144].copy_from_slice(&[0, 0, 0, 1]);
+        buf[144] = 0x68;
+        // Second run past the declared end (0 + 8 + 4096 = 4104): real.
+        buf[5000..5004].copy_from_slice(&[0, 0, 0, 1]);
+        buf[5004] = 0x67;
+        buf[5100..5104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[5104] = 0x65;
+        let mut hits = Vec::new();
+        scan_buffer(&buf, 0, 0, &mut hits);
+        assert!(hits.iter().any(|h| h.signature == "riff-avi"));
+        let annexb: Vec<_> = hits
+            .iter()
+            .filter(|h| h.signature == "h264-annexb")
+            .collect();
+        assert_eq!(annexb.len(), 1);
+        assert_eq!(annexb[0].offset, 5000);
+    }
+
+    #[test]
+    fn annexb_anchors_coalesce_within_one_stream_run() {
+        // Two SPS anchors 100 KB apart are one stream — the first
+        // anchor's carved extent already reaches the next container
+        // signature, so the second can never yield a distinct artifact.
+        let mut buf = vec![0u8; 200_000];
+        buf[100..104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[104] = 0x67;
+        buf[140..144].copy_from_slice(&[0, 0, 0, 1]);
+        buf[144] = 0x68;
+        buf[100_000..100_004].copy_from_slice(&[0, 0, 0, 1]);
+        buf[100_004] = 0x67;
+        buf[100_100..100_104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[100_104] = 0x65;
+        let mut hits = Vec::new();
+        scan_buffer(&buf, 0, 0, &mut hits);
+        let annexb: Vec<_> = hits
+            .iter()
+            .filter(|h| h.signature == "h264-annexb")
+            .collect();
+        assert_eq!(annexb.len(), 1);
+        assert_eq!(annexb[0].offset, 100);
     }
 
     #[test]
