@@ -48,28 +48,42 @@ pub fn needs_transcode(video: &serde_json::Value) -> Option<String> {
         .unwrap_or("")
         .rsplit('.')
         .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+        .unwrap_or("");
+    unplayable_reason(
+        ext,
+        video.get("ffprobe_ok").and_then(|v| v.as_bool()),
+        video
+            .get("format_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        video
+            .get("video_codec")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+    )
+}
+
+/// Field-level playability check shared by the index-driven queue and by
+/// callers that only have a probed file (recovered/carved outputs that
+/// never entered the video index).
+pub fn unplayable_reason(
+    ext: &str,
+    probe_ok: Option<bool>,
+    format_name: &str,
+    video_codec: &str,
+) -> Option<String> {
+    let ext = ext.to_ascii_lowercase();
     if PROPRIETARY_EXTS.contains(&ext.as_str()) {
         return Some(format!("proprietary extension .{ext}"));
     }
-    let probe_ok = video.get("ffprobe_ok").and_then(|v| v.as_bool());
     if probe_ok == Some(false) {
         return Some("ffprobe parse failed — proprietary or corrupt container".to_string());
     }
-    let format = video
-        .get("format_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let format = format_name.to_ascii_lowercase();
     if !format.is_empty() && !BROWSER_CONTAINERS.iter().any(|c| format.contains(c)) {
         return Some(format!("container '{format}' not browser-playable"));
     }
-    let codec = video
-        .get("video_codec")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let codec = video_codec.to_ascii_lowercase();
     if !codec.is_empty() && !BROWSER_CODECS.contains(&codec.as_str()) {
         return Some(format!("codec '{codec}' not browser-playable"));
     }

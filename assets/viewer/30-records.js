@@ -205,18 +205,72 @@ function escapeHtml(value) {
   return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
+// --- Browser playability gate: mirrors transcode::unplayable_reason so the
+// viewer never hands a container Chromium cannot decode (AVI, DAV, .264 …)
+// to <video> and silently shows a dead player. ---
+const BROWSER_CODECS = ["h264", "vp8", "vp9", "av1", "theora"];
+const BROWSER_CONTAINERS = ["mp4", "mov", "webm", "matroska", "ogg"];
+const PROPRIETARY_EXTS = ["dav", "nov", "ave", "h264", "264", "h265", "sec", "ts"];
+// Extension allowlist for records with no probe data (carved/recovered
+// outputs): anything else (bin, avi, dat, tmp …) cannot be decoded.
+const PLAYABLE_EXTS = ["mp4", "m4v", "mov", "webm", "mkv", "ogv", "ogg", "mp3", "m4a", "wav"];
+
+function extOfPath(path) {
+  const name = String(path || "").split(/[\\\/]/).pop() || "";
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+function needsProxy(record) {
+  const ext = record.ext || "";
+  if (PROPRIETARY_EXTS.includes(ext)) return "proprietary extension ." + ext;
+  if (record.probeOk === false) return "ffprobe parse failed — proprietary or corrupt container";
+  const format = String(record.container || "").toLowerCase();
+  if (format && !BROWSER_CONTAINERS.some(c => format.includes(c))) return "container '" + format + "' not browser-playable";
+  const codec = String(record.codec || "").toLowerCase();
+  if (codec && codec !== "-" && !BROWSER_CODECS.includes(codec)) return "codec '" + codec + "' not browser-playable";
+  // Extension allowlist is the last line for records with no positive
+  // probe evidence (carved/recovered outputs, unprobed files): a playable
+  // container inside an odd extension (e.g. mp4 bytes in a .dat) still
+  // plays, so only flag when the probe didn't already prove playability.
+  const probedPlayable = record.probeOk === true
+    && (!format || BROWSER_CONTAINERS.some(c => format.includes(c)))
+    && (!codec || codec === "-" || BROWSER_CODECS.includes(codec));
+  if (ext && !PLAYABLE_EXTS.includes(ext) && !probedPlayable) return "extension '." + ext + "' not browser-playable";
+  return "";
+}
+
+// Artifact filenames sanitize selectors (video_export::sanitize_filename) —
+// mirror that mapping so a stored proxy can be matched back to its record.
+function sanitizeSelector(value) {
+  return String(value || "").replace(/[^A-Za-z0-9_-]/g, "_") || "clip";
+}
+
+function proxyPathFor(record) {
+  // Session-stored choice wins; otherwise fall back to a proxy that already
+  // existed on disk when the review bundle was generated.
+  return state.proxies?.[record.id] || record.proxyPath || "";
+}
+
 // When the viewer is served by the local examiner workstation (http://127.0.0.1),
 // file:// video sources are blocked by the browser; route playback through the
 // server's Range-enabled /media endpoint instead. Opening the page directly
-// from disk keeps the original file:// URL.
+// from disk keeps the original file:// URL. An unplayable container prefers
+// its generated proxy in both modes — the original would never decode.
 function mediaSrcFor(record) {
+  const proxy = proxyPathFor(record);
+  const unplayable = needsProxy(record);
+  const preferProxy = !!proxy && (!!state.proxies?.[record.id] || !!unplayable);
+  // An unplayable record without a proxy returns "" so the detail pane
+  // renders the auto-build/offline-guidance fallback instead of a player
+  // that can never decode the source.
+  if (unplayable && !proxy) return "";
   if (location.protocol === "http:" || location.protocol === "https:") {
-    // An examiner-requested review proxy wins over the original for playback.
-    const proxy = state.proxies?.[record.id];
-    if (proxy) return "/media?path=" + encodeURIComponent(proxy);
+    if (preferProxy) return "/media?path=" + encodeURIComponent(proxy);
     if (record.path) return "/media?path=" + encodeURIComponent(record.path);
     return "";
   }
+  if (preferProxy) return fileUrl(proxy);
   if (!record.fileUrl) return "";
   return record.fileUrl;
 }
@@ -320,6 +374,9 @@ const records = [
       sha256: validation?.target_sha256 || video.sha256 || video.hash_status || "-",
       duration: validation?.duration_seconds ?? video.duration_seconds,
       codec: validation?.video_codec || video.video_codec || "-",
+      ext: video.extension || extOfPath(video.relative_path || video.source_path),
+      container: video.format_name || "",
+      probeOk: video.ffprobe_ok ?? validation?.ffprobe_ok,
       size: video.size_bytes,
       note: validation?.validation_note || video.source_profile?.recommended_action || "-",
       indexStatus: video.index_status || "active",
@@ -342,6 +399,9 @@ const records = [
       sha256: validation?.target_sha256 || item.sha256 || "-",
       duration: validation?.duration_seconds,
       codec: validation?.video_codec || item.extension || "-",
+      ext: item.extension || extOfPath(item.output_path),
+      container: "",
+      probeOk: undefined,
       size: item.size_bytes,
       note: validation?.validation_note || item.validation_note || "-",
       offset: item.offset,
@@ -361,6 +421,7 @@ const records = [
         fileUrl: "",
         parser: "fls listing",
         vendor: t("cand.vendor"),
+        ext: extOfPath(entry.path),
         status: "candidate-unvalidated",
         sha256: "-",
         duration: null,
@@ -389,6 +450,9 @@ const records = [
       sha256: validation?.target_sha256 || item.sha256 || "-",
       duration: validation?.duration_seconds,
       codec: validation?.video_codec || "-",
+      ext: extOfPath(item.output_path),
+      container: "",
+      probeOk: undefined,
       size: item.size_bytes,
       note: validation?.validation_note || "Recovered inode output; validate before final reporting.",
       offset: item.partition_offset,
@@ -432,6 +496,18 @@ records.forEach(record => {
 const thumbByName = new Map(records.filter(record => record.thumb).map(record => [record.name, record.thumb]));
 records.forEach(record => {
   if (!record.thumb && record.name) record.thumb = thumbByName.get(record.name) || null;
+});
+// Pre-built proxies embedded in the bundle (artifacts/proxies listing):
+// match a record by the sanitized filename prefix its proxy was written
+// under — sanitize(id) for indexed videos, sanitize(path) for the rest.
+const proxyFiles = Array.isArray(DATA.proxies) ? DATA.proxies : [];
+records.forEach(record => {
+  if (!proxyFiles.length) { record.proxyPath = ""; return; }
+  const keys = [record.id, record.path].filter(Boolean).map(sanitizeSelector);
+  record.proxyPath = proxyFiles.find(path => {
+    const name = String(path).split(/[\\\/]/).pop() || "";
+    return name.endsWith(".mp4") && keys.some(key => name.startsWith(`${key}_proxy_`));
+  }) || "";
 });
 
 const state = {

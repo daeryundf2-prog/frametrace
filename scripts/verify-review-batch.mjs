@@ -341,6 +341,50 @@ async function unitTests() {
   assert.equal(dom.s3.disabled, true);
   assert.equal(dom.s4.disabled, true);
   console.log('PASS VM examiner open-case success clears stale results');
+  // Browser-playability gate: AVI/bin/proprietary records must prefer a
+  // proxy and never reach a dead <video>; playable mp4 keeps the original.
+  const consts = [...source.matchAll(/^const (BROWSER_CODECS|BROWSER_CONTAINERS|PROPRIETARY_EXTS|PLAYABLE_EXTS) = .*$/gm)].map(m => m[0]).join('\n');
+  const mediaFns = consts + '\n' + [fn('extOfPath'), fn('needsProxy'), fn('sanitizeSelector'), fn('proxyPathFor'), fn('fileUrl'), fn('mediaSrcFor')].join('\n');
+  const media = {
+    state: { proxies: {} },
+    location: { protocol: 'http:' },
+    DATA: { proxies: ['D:\\case\\artifacts\\proxies\\vid_000001_proxy_1.mp4'] },
+    BS: '\\', EXT_PREFIX: '\\\\?\\', EXT_UNC: '\\\\?\\unc\\',
+  };
+  const runMedia = expr => runInNewContext('{' + mediaFns + '\n' + expr + '}', media);
+  const avi = { id: 'v1', kind: 'video', path: 'D:/e/x.avi', fileUrl: 'file:///D:/e/x.avi', ext: 'avi', container: 'avi', codec: 'h264', probeOk: true, proxyPath: '' };
+  media.avi = avi;
+  assert.ok(runMedia('needsProxy(avi)').includes('container'), 'avi container flagged');
+  assert.equal(runMedia('mediaSrcFor(avi)'), '', 'unplayable without proxy yields no src');
+  avi.proxyPath = 'D:\\case\\artifacts\\proxies\\v1_proxy_9.mp4';
+  assert.equal(runMedia('mediaSrcFor(avi)'), '/media?path=' + encodeURIComponent('D:\\case\\artifacts\\proxies\\v1_proxy_9.mp4'), 'proxy wins for avi');
+  const mp4 = { id: 'v2', kind: 'video', path: 'D:/e/x.mp4', fileUrl: 'file:///D:/e/x.mp4', ext: 'mp4', container: 'mov,mp4', codec: 'h264', probeOk: true, proxyPath: 'D:\\p\\x.mp4' };
+  media.mp4 = mp4;
+  assert.equal(runMedia('needsProxy(mp4)'), '', 'mp4 playable');
+  assert.equal(runMedia('mediaSrcFor(mp4)'), '/media?path=' + encodeURIComponent('D:/e/x.mp4'), 'playable keeps original');
+  const fsRec = { id: 'inode:32768:18440', kind: 'filesystem', path: 'D:/e/inode.bin', fileUrl: 'file:///D:/e/inode.bin', ext: 'bin', codec: '-', proxyPath: '' };
+  media.fsRec = fsRec;
+  assert.ok(runMedia('needsProxy(fsRec)'), '.bin recovered output flagged');
+  media.location = { protocol: 'file:' };
+  mp4.proxyPath = '';
+  assert.equal(runMedia('mediaSrcFor(mp4)'), 'file:///D:/e/x.mp4', 'file:// keeps original');
+  assert.equal(runMedia('mediaSrcFor(avi)'), 'file:///D:/case/artifacts/proxies/v1_proxy_9.mp4', 'file:// proxy via fileUrl');
+  // Standalone download: file:// mode falls back to the original's fileUrl
+  // (the browser saves unrenderable types like .bin/.avi instead of playing).
+  const dl = { location: { protocol: 'file:' }, BS: '\\', EXT_PREFIX: '\\\\?\\', EXT_UNC: '\\\\?\\unc\\' };
+  runInNewContext('{' + fn('fileUrl') + '\n' + fn('downloadHref') + '\nthis.__dl = downloadHref; }', dl);
+  assert.equal(
+    runInNewContext(`this.__dl(${JSON.stringify(avi)})`, dl),
+    'file:///D:/e/x.avi',
+    'file:// download falls back to fileUrl',
+  );
+  dl.location = { protocol: 'http:' };
+  assert.equal(
+    runInNewContext(`this.__dl(${JSON.stringify(avi)})`, dl),
+    '/media?path=' + encodeURIComponent('D:/e/x.avi') + '&download=1',
+    'http download uses /media',
+  );
+  console.log('PASS VM unplayable gate, proxy preference, file:// fallback');
 }
 
 (process.argv.includes('--unit') ? unitTests() : main()).catch(err => { console.error('DRIVER ERROR:', err); process.exit(2); });

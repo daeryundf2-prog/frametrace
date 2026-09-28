@@ -38,6 +38,7 @@ async function loadViewerData() {
           annotations: meta.annotations,
           deepfake: meta.deepfake,
           telemetry: meta.telemetry,
+          proxies: meta.proxies,
         };
       }
     }

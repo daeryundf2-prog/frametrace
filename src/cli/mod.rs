@@ -133,6 +133,10 @@ pub enum Commands {
         /// Rewrite absolute source paths as <case>/… or <redacted:hash> tokens
         #[arg(long)]
         redact_paths: bool,
+        /// Pre-build H.264 proxies for browser-unplayable records so the
+        /// standalone review bundle plays them immediately
+        #[arg(long)]
+        build_proxies: bool,
     },
     /// Print the manufacturer/source parser plugin catalog as JSON
     ListParsers,
@@ -653,7 +657,8 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         Commands::MakeReview {
             case_dir,
             redact_paths,
-        } => make_review(&case_dir, redact_paths),
+            build_proxies,
+        } => make_review(&case_dir, redact_paths, build_proxies),
         Commands::ListParsers => {
             println!("{}", crate::detector::parser_catalog_json());
             Ok(())

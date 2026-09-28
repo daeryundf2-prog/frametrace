@@ -58,19 +58,40 @@ function renderDetails() {
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
   const dualMates = state.layout.dual ? matesOf(record) : [];
-  const mediaKey = `${record.id}:${record.fileUrl}:${state.proxies[record.id] || ""}:dual:${state.layout.dual ? dualMates.map(m => m.id).join(",") : "off"}`;
+  const mediaKey = `${record.id}:${record.fileUrl}:${proxyPathFor(record)}:dual:${state.layout.dual ? dualMates.map(m => m.id).join(",") : "off"}`;
   if (mediaRenderedFor !== mediaKey) {
     const mediaSrc = mediaSrcFor(record);
+    const why = needsProxy(record);
+    const online = location.protocol === "http:" || location.protocol === "https:";
     if (mediaSrc && dualMates.length) {
       els.mediaStage.innerHTML = `<div class="dual-stage">${[record, ...dualMates].map(r =>
         `<div class="dual-pane"><video controls preload="metadata" src="${escapeHtml(mediaSrcFor(r))}"></video>` +
         `<span class="dual-label">${escapeHtml(`${channelLabel(channelCodeOf(r))} · ${r.originalName || r.name || r.id}`)}</span></div>`
       ).join("")}</div>`;
       wireDualSync(els.mediaStage.querySelectorAll("video"));
+    } else if (mediaSrc) {
+      els.mediaStage.innerHTML = `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`;
+    } else if (why && online) {
+      // Unplayable container + workstation present: build the proxy once per
+      // record automatically instead of leaving a dead <video> element.
+      const auto = proxyAutoState.get(record.id) || "";
+      if (!auto) autoRequestProxy(record);
+      const href = record.fileUrl || "";
+      els.mediaStage.innerHTML = `<div class="fallback">` +
+        (auto.startsWith("failed:")
+          ? escapeHtml(tf("media.proxyAutoFail", { err: auto.slice(7), why }))
+          : escapeHtml(tf("media.proxyAuto", { why }))) +
+        (href ? ` <a href="${escapeHtml(href)}" target="_blank">${escapeHtml(t("media.openOriginal"))}</a>` : "") +
+        `</div>`;
+    } else if (why) {
+      // Standalone bundle with no proxy yet — offer the original for
+      // download/open rather than a player that can never decode it.
+      const href = record.fileUrl || (record.proxyPath ? fileUrl(record.proxyPath) : "");
+      els.mediaStage.innerHTML = `<div class="fallback">${escapeHtml(tf("media.unplayable", { why }))}` +
+        (href ? ` <a href="${escapeHtml(href)}" target="_blank">${escapeHtml(t("media.openOriginal"))}</a>` : "") +
+        `</div>`;
     } else {
-      els.mediaStage.innerHTML = mediaSrc
-        ? `<video controls preload="metadata" src="${escapeHtml(mediaSrc)}"></video>`
-        : `<div class="fallback">${t("empty.play")}</div>`;
+      els.mediaStage.innerHTML = `<div class="fallback">${t("empty.play")}</div>`;
     }
     els.mediaStage.querySelectorAll("video").forEach(v => {
       v.playbackRate = state.layout.rate || 1;

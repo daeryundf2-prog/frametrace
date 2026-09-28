@@ -218,11 +218,17 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
 });
 
 // --- 원본 파일 다운로드: /media?path&download=1이 Content-Disposition으로
-// 저장을 유도. file:// 스탠드얼론에서는 서버가 없으므로 지원하지 않음 ---
+// 저장을 유도. file:// 스탠드얼론 번들에서는 서버가 없으므로 원본/프록시의
+// file:// 경로로 폴백한다 — 브라우저가 렌더할 수 없는 형식(AVI/.bin/DAV)은
+// 네비게이션 대신 그대로 저장되고, 재생 가능한 파일은 새 탭에서 열린다. ---
 function downloadHref(record) {
-  if (location.protocol !== "http:" && location.protocol !== "https:") return "";
-  if (!record.path) return "";
-  return "/media?path=" + encodeURIComponent(record.path) + "&download=1";
+  if (location.protocol === "http:" || location.protocol === "https:") {
+    if (!record.path) return "";
+    return "/media?path=" + encodeURIComponent(record.path) + "&download=1";
+  }
+  if (record.fileUrl) return record.fileUrl;
+  if (record.proxyPath) return fileUrl(record.proxyPath);
+  return "";
 }
 function triggerDownload(record) {
   const href = downloadHref(record);
@@ -230,6 +236,9 @@ function triggerDownload(record) {
   const a = document.createElement("a");
   a.href = href;
   a.download = record.originalName || record.name || record.id;
+  // Standalone file:// fallback navigates instead of downloading for
+  // renderable types — keep the viewer alive by opening a new tab.
+  if (location.protocol !== "http:" && location.protocol !== "https:") a.target = "_blank";
   document.body.appendChild(a);
   a.click();
   a.remove();

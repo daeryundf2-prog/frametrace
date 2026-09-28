@@ -257,7 +257,7 @@ pub fn register_source(
     Ok(())
 }
 
-pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
+pub fn make_review(case_dir: &Path, redact_paths: bool, build_proxies: bool) -> Result<(), String> {
     ensure_case(case_dir)?;
     let index_path = case_dir.join("db/video_index.json");
     let index_json = read_to_string(&index_path).map_err(|err| {
@@ -301,6 +301,13 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &read_to_string(&case_dir.join("evidence/logs/anomaly-log.jsonl")).unwrap_or_default(),
     );
     let fls_entries = redact(&latest_fls_entries_jsonl(case_dir));
+    // Optional proxy pre-build: browser-unplayable containers (AVI, DAV,
+    // proprietary recorder exports) can't decode in the review page at all,
+    // so an examiner who needs the standalone bundle to just play asks for
+    // proxies up front instead of per-file through the workstation button.
+    if build_proxies {
+        build_unplayable_proxies(case_dir, &carve_log, &filesystem_log)?;
+    }
     let videos = collect_index_videos(&index_json);
     let (thumbs_json, thumb_stats) = generate_review_thumbnails(case_dir, &videos)?;
     let annotations_json = serde_json::to_string(&serde_json::json!({
@@ -310,6 +317,9 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
     .map_err(|err| err.to_string())?;
     let deepfake_reports = crate::deepfake::collect_reports(case_dir).to_string();
     let telemetry_reports = crate::telemetry::collect_reports(case_dir).to_string();
+    // Proxies already on disk are embedded so the viewer (including the
+    // standalone file:// bundle) can prefer them for unplayable originals.
+    let proxies_json = collect_proxies_json(case_dir);
     // The viewer page stays slim; the (potentially huge) record payload
     // lives in data-bundle.js beside it. Standalone file:// use loads the
     // bundle through a script tag; workstation serving pages the same
@@ -326,6 +336,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool) -> Result<(), String> {
         &annotations_json,
         &deepfake_reports,
         &telemetry_reports,
+        &proxies_json,
     );
     write_text(&case_dir.join("review/data-bundle.js"), &data_bundle)
         .map_err(|err| format!("failed to write review data bundle: {err}"))?;
@@ -589,6 +600,131 @@ fn collect_index_videos(index_json: &str) -> Vec<(String, String)> {
         }
     }
     out
+}
+
+/// Absolute paths of every generated review proxy under
+/// artifacts/proxies, as a JSON array literal for the data bundle.
+fn collect_proxies_json(case_dir: &Path) -> String {
+    let mut paths: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(case_dir.join("artifacts/proxies")) {
+        for entry in entries.flatten() {
+            // Canonicalize so the bundle carries absolute paths — a
+            // relative case_dir arg would otherwise produce file://-broken
+            // relative URLs in the standalone viewer.
+            let path = crate::audit::canonical_or_original(&entry.path());
+            if path.extension().and_then(|ext| ext.to_str()) == Some("mp4") {
+                paths.push(crate::audit::path_string(&path));
+            }
+        }
+    }
+    paths.sort();
+    serde_json::to_string(&paths).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Generates proxies for every record the viewer can list but a browser
+/// cannot decode: indexed videos that trip `needs_transcode`, plus carved
+/// and filesystem-recovered outputs (which bypass the index, so they are
+/// probed directly). Failures are reported per item, never hidden.
+fn build_unplayable_proxies(
+    case_dir: &Path,
+    carve_log: &str,
+    filesystem_log: &str,
+) -> Result<(), String> {
+    // Indexed videos: the existing queue applies the shared playability gate.
+    let queue = crate::transcode::run_queue(case_dir, None, false)?;
+    println!(
+        "proxy build (indexed): {} candidates · {} proxied · {} cached · {} failed",
+        queue.total, queue.proxied, queue.skipped_existing, queue.failed
+    );
+
+    // Non-indexed outputs: carved candidates and recover-inode artifacts.
+    let mut outputs: Vec<String> = Vec::new();
+    for line in carve_log
+        .lines()
+        .chain(filesystem_log.lines())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+    {
+        let Ok(item) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let is_recover = item.get("event").and_then(|v| v.as_str()) == Some("recover-inode")
+            || item.get("output_path").is_some();
+        let Some(path) = item.get("output_path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !is_recover
+            || path.is_empty()
+            || item.get("size_bytes").and_then(|v| v.as_u64()) == Some(0)
+            || !Path::new(path).is_file()
+        {
+            continue;
+        }
+        if !outputs.iter().any(|p| p == path) {
+            outputs.push(path.to_string());
+        }
+    }
+
+    let mut proxied = 0usize;
+    let mut skipped_existing = 0usize;
+    let mut skipped_playable = 0usize;
+    let mut failed = 0usize;
+    for path in outputs {
+        let ext = Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        let probe = crate::ffprobe::probe(Path::new(&path));
+        // A probe counts as failed only when ffprobe itself errored or the
+        // output carried no usable media identification at all.
+        let probe_ok = Some(probe.ok && probe.video_codec.is_some());
+        let Some(why) = crate::transcode::unplayable_reason(
+            ext,
+            probe_ok,
+            probe.format_name.as_deref().unwrap_or(""),
+            probe.video_codec.as_deref().unwrap_or(""),
+        ) else {
+            skipped_playable += 1;
+            continue;
+        };
+        let prefix = format!("{}_proxy_", crate::video_export::sanitize_filename(&path));
+        let exists = std::fs::read_dir(case_dir.join("artifacts/proxies"))
+            .ok()
+            .map(|entries| {
+                entries.flatten().any(|entry| {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    name.starts_with(&prefix) && name.ends_with(".mp4")
+                })
+            })
+            .unwrap_or(false);
+        if exists {
+            skipped_existing += 1;
+            continue;
+        }
+        match crate::artifacts::generate_proxy(
+            case_dir,
+            &path,
+            &crate::artifacts::ProxyOptions::default(),
+        ) {
+            Ok(result) => {
+                proxied += 1;
+                println!(
+                    "proxy built: {} ← {} ({why})",
+                    result.output_path.display(),
+                    path
+                );
+            }
+            Err(err) => {
+                failed += 1;
+                println!("proxy failed: {path} ({why}) — {err}");
+            }
+        }
+    }
+    println!(
+        "proxy build (recovered/carved): {} proxied · {} cached · {} already playable · {} failed",
+        proxied, skipped_existing, skipped_playable, failed
+    );
+    Ok(())
 }
 
 #[derive(Debug, Default)]

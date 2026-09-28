@@ -364,9 +364,10 @@ fn evidence_viewer_data(
     annotations_json: &str,
     deepfake_json: &str,
     telemetry_json: &str,
+    proxies_json: &str,
 ) -> String {
     format!(
-        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map},telemetry:{telemetry_map}}};",
+        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map},telemetry:{telemetry_map},proxies:{proxies_map}}};",
         manifest = json_for_script(manifest_json),
         index = json_for_script(index_json),
         carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl)),
@@ -381,6 +382,7 @@ fn evidence_viewer_data(
         annotations_lines = json_for_script(annotations_json),
         deepfake_map = json_for_script(deepfake_json),
         telemetry_map = json_for_script(telemetry_json),
+        proxies_map = json_for_script(proxies_json),
     )
 }
 
@@ -397,6 +399,7 @@ pub fn render_evidence_viewer_html(
     annotations_json: &str,
     deepfake_json: &str,
     telemetry_json: &str,
+    proxies_json: &str,
 ) -> String {
     // The layout/markup lives in assets/evidence_viewer.* and is embedded at
     // compile time, keeping the generated page a single serverless file.
@@ -412,6 +415,7 @@ pub fn render_evidence_viewer_html(
         annotations_json,
         deepfake_json,
         telemetry_json,
+        proxies_json,
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)
@@ -436,6 +440,7 @@ pub fn render_data_bundle_js(
     annotations_json: &str,
     deepfake_json: &str,
     telemetry_json: &str,
+    proxies_json: &str,
 ) -> String {
     evidence_viewer_data(
         manifest_json,
@@ -449,6 +454,7 @@ pub fn render_data_bundle_js(
         annotations_json,
         deepfake_json,
         telemetry_json,
+        proxies_json,
     )
 }
 
@@ -491,7 +497,7 @@ mod tests {
         let index = r#"{"videos":[]}"#;
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
         let html = render_evidence_viewer_html(
-            manifest, index, "", filesystem, "", "", "", "{}", "{}", "{}", "{}",
+            manifest, index, "", filesystem, "", "", "", "{}", "{}", "{}", "{}", "[]",
         );
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
@@ -509,7 +515,7 @@ mod tests {
         let deepfake =
             r#"{"vid_1":{"band":"high","score":88,"note":"</script><script>alert(1)</script>"}}"#;
         let html = render_evidence_viewer_html(
-            manifest, index, "", "", "", "", "", "{}", "{}", deepfake, "{}",
+            manifest, index, "", "", "", "", "", "{}", "{}", deepfake, "{}", "[]",
         );
         assert!(html.contains("deepfake:{\"vid_1\""));
         assert!(html.contains("vid_1"));
@@ -587,6 +593,7 @@ mod tests {
                 r#"{"marks":[{"id":"vid_000001","status":"reviewed","marked_unix":100,"note":"db memo","examiner":"Alice"}],"tags":[{"id":"vid_000001","tags":["DB태그"]}]}"#,
                 "{}",
                 "{}",
+                "[]",
             ),
         );
         assert_script_blocks_parse_with_node(

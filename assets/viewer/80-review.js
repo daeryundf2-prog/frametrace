@@ -250,6 +250,36 @@ function setRangePoint(which) {
 }
 document.getElementById("btnSetIn").addEventListener("click", () => setRangePoint("in"));
 document.getElementById("btnSetOut").addEventListener("click", () => setRangePoint("out"));
+// Shared proxy request used by the manual toggle and by the automatic
+// fallback when the selected record's container can't decode in-browser.
+// Returns the proxy path on success; throws with the server error text.
+async function requestReviewProxy(record) {
+  const res = await fetch("/api/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ id: record.id, path: record.path || "" })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "proxy failed");
+  state.proxies[record.id] = data.path;
+  storageSet(PROXIES_KEY, state.proxies);
+  mediaRenderedFor = null;
+  render();
+  return data.path;
+}
+
+// id → "building" | "failed:<err>" — one automatic attempt per record per
+// page session; a failure is shown honestly, never retried in a loop.
+const proxyAutoState = new Map();
+function autoRequestProxy(record) {
+  proxyAutoState.set(record.id, "building");
+  requestReviewProxy(record).catch(err => {
+    proxyAutoState.set(record.id, "failed:" + (err?.message || ""));
+    mediaRenderedFor = null;
+    render();
+  });
+}
+
 // Review proxy toggle: heavy originals (4K/HEVC) stutter on exam machines,
 // so the viewer can lazily ask the server for a low-bitrate proxy.
 document.getElementById("btnProxy").addEventListener("click", async () => {
@@ -267,23 +297,10 @@ document.getElementById("btnProxy").addEventListener("click", async () => {
   btn.disabled = true;
   toast(t("toast.proxyBuilding"));
   try {
-    const res = await fetch("/api/proxy", {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify({ id: record.id, path: record.path || "" })
-    });
-    const data = await res.json();
-    if (data.ok) {
-      state.proxies[record.id] = data.path;
-      storageSet(PROXIES_KEY, state.proxies);
-      mediaRenderedFor = null;
-      render();
-      toast(t("toast.proxyPlaying"));
-    } else {
-      toast(tf("toast.proxyFail", { err: data.error || "" }));
-    }
-  } catch {
-    toast(t("toast.proxyOffline"));
+    await requestReviewProxy(record);
+    toast(t("toast.proxyPlaying"));
+  } catch (err) {
+    toast(tf("toast.proxyFail", { err: err?.message || "" }));
   } finally {
     btn.disabled = false;
   }

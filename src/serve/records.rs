@@ -158,6 +158,18 @@ pub(crate) fn api_records_meta(state: &SharedState) -> String {
             }
         }
     }
+    // Proxies already on disk so the viewer can prefer them for
+    // browser-unplayable containers without a redundant generate pass.
+    let mut proxies: Vec<serde_json::Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(case_dir.join("artifacts/proxies")) {
+        for entry in entries.flatten() {
+            let path = crate::audit::canonical_or_original(&entry.path());
+            if path.extension().and_then(|e| e.to_str()) == Some("mp4") {
+                proxies.push(serde_json::Value::String(crate::audit::path_string(&path)));
+            }
+        }
+    }
+    proxies.sort_by(|a, b| a.as_str().unwrap_or("").cmp(b.as_str().unwrap_or("")));
     let annotations = serde_json::json!({
         "marks": crate::case_db::load_review_marks(&case_dir).unwrap_or_default(),
         "tags": crate::case_db::load_review_tags(&case_dir).unwrap_or_default(),
@@ -175,6 +187,7 @@ pub(crate) fn api_records_meta(state: &SharedState) -> String {
         "annotations": annotations,
         "deepfake": crate::deepfake::collect_reports(&case_dir),
         "telemetry": crate::telemetry::collect_reports(&case_dir),
+        "proxies": proxies,
     });
     serde_json::to_string(&body).unwrap_or_else(|_| "{\"ok\":false}".to_string())
 }
