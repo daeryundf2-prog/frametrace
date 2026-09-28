@@ -302,20 +302,21 @@ pub fn carve_file(
     let mut artifacts = Vec::new();
     let mut resumed_artifacts = 0usize;
     let mut first_by_hash = HashMap::<String, String>::new();
-    let is_annexb = |sig: &str| sig.ends_with("-annexb");
-    // Stream hits inside a span already claimed by an earlier candidate are
-    // the same stream continuing (or an AVI's embedded Annex-B NALs) —
-    // suppress them instead of shredding one file into fragments.
+    // Fragment-prone signatures (elementary streams, embeddable JPEGs)
+    // inside a span already claimed by an earlier candidate are the same
+    // file's payload — suppress them instead of shredding one file into
+    // fragments. Container signatures are never suppressed.
+    let is_fragment_sig = |sig: &str| sig.ends_with("-annexb") || sig == "jpeg";
     let mut covered_until = 0u64;
     for hit in &hits {
-        if is_annexb(&hit.signature) && hit.offset < covered_until {
+        if is_fragment_sig(&hit.signature) && hit.offset < covered_until {
             continue;
         }
-        // Extents run to the next container signature; mid-stream Annex-B
-        // anchors inside the same run would otherwise truncate it.
+        // Extents run to the next container signature; mid-run fragment-sig
+        // anchors inside the same span would otherwise truncate it.
         let next_offset = hits
             .iter()
-            .filter(|candidate| !is_annexb(&candidate.signature))
+            .filter(|candidate| !is_fragment_sig(&candidate.signature))
             .map(|candidate| candidate.offset)
             .filter(|offset| offset > &hit.offset)
             .min()
@@ -672,6 +673,15 @@ fn validation_note_for_signature(signature: &str) -> &'static str {
         }
         "h265-annexb" => {
             "H.265 Annex-B elementary-stream run (no container header) — deleted-recording body or recorder stream temp file; remux with ffmpeg -f hevc for playback; original filename/metadata unrecoverable."
+        }
+        "jpeg" => {
+            "JPEG signature found; carved contiguously to the next signature — verify EOI marker (FF D9) and decode before reporting."
+        }
+        "mpeg-ps" => {
+            "MPEG program-stream pack header found; carved contiguously — verify pack alignment and playback before reporting."
+        }
+        "ebml-mkv" => {
+            "EBML (Matroska/WebM) header found; carved contiguously — verify segment structure and playback before reporting."
         }
         "mpegts-sync" => {
             "MPEG-TS sync-aligned packet run (188-byte packets, 0x47 sync); a fragmented TS file may appear as multiple separate run candidates."
@@ -1643,6 +1653,34 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                 offset: absolute,
                 signature: "hikvision-imkh".to_string(),
                 extension: "mpg".to_string(),
+            });
+        }
+        // JPEG stills: dashcam snapshots / embedded thumbnails.
+        if scan.get(index..index + 3) == Some(&[0xff, 0xd8, 0xff][..]) {
+            hits.push(CarveHit {
+                offset: absolute,
+                signature: "jpeg".to_string(),
+                extension: "jpg".to_string(),
+            });
+        }
+        // MPEG program-stream pack start (DVR exports): 00 00 01 BA
+        // followed by the MPEG-1/MPEG-2 pack-header marker 0x21 or 0x44.
+        if scan.get(index..index + 4) == Some(&[0, 0, 1, 0xba][..]) {
+            let marker = scan.get(index + 4).copied().unwrap_or(0);
+            if marker == 0x21 || marker == 0x44 {
+                hits.push(CarveHit {
+                    offset: absolute,
+                    signature: "mpeg-ps".to_string(),
+                    extension: "mpg".to_string(),
+                });
+            }
+        }
+        // EBML header — Matroska/WebM containers.
+        if scan.get(index..index + 4) == Some(&[0x1a, 0x45, 0xdf, 0xa3][..]) {
+            hits.push(CarveHit {
+                offset: absolute,
+                signature: "ebml-mkv".to_string(),
+                extension: "mkv".to_string(),
             });
         }
         // MPEG-TS: 188-byte packets with a 0x47 sync byte. Require 3 more
