@@ -481,9 +481,24 @@ pub fn render_carve_report_html(
     carve_results_json: &str,
     proxies_json: &str,
     case_dir: &std::path::Path,
+    index_json: &str,
 ) -> String {
     let manifest = json_for_script(manifest_json);
     let artifacts = json_for_script(&carve_artifacts_json(case_dir, carve_log_jsonl));
+    // Indexed (live-filesystem) sha256 set — a carved artifact whose hash
+    // matches is a re-carve of an allocated file; everything else is
+    // content that exists only as carved data (deleted / overwritten).
+    let index_shas: Vec<String> = serde_json::from_str::<serde_json::Value>(index_json)
+        .ok()
+        .and_then(|v| v.get("videos").cloned())
+        .and_then(|v| serde_json::from_value::<Vec<serde_json::Value>>(v).ok())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| v.get("sha256").and_then(|s| s.as_str()))
+        .map(str::to_string)
+        .collect();
+    let index_shas_json = serde_json::to_string(&index_shas).unwrap_or_else(|_| "[]".to_string());
+    let index_shas_lit = json_for_script(&index_shas_json);
     let results = json_for_script(carve_results_json);
     let proxies = json_for_script(proxies_json);
     // Embedded so detail links stay honest if every absolutization fails.
@@ -544,7 +559,7 @@ pub fn render_carve_report_html(
   <table>
     <thead><tr>
       <th data-k="id">ID</th><th data-k="extension">확장자</th><th data-k="size_bytes">크기</th>
-      <th data-k="offset">오프셋</th><th data-k="validation_status">검증 상태</th>
+      <th data-k="offset">오프셋</th><th>라이브FS</th><th data-k="validation_status">검증 상태</th>
       <th>SHA-256</th><th>비고</th><th></th>
     </tr></thead>
     <tbody id="rows"></tbody>
@@ -557,6 +572,7 @@ const ARTIFACTS = {artifacts};
 const RESULTS = {results};
 const PROXIES = {proxies};
 const CASE_ROOT = {root};
+const INDEXED_SHAS = new Set({index_shas});
 
 const EXT_PREFIX = "\\\\?\\";
 const EXT_UNC = "\\\\?\\UNC\\";
@@ -626,8 +642,12 @@ document.getElementById("sourceInfo").textContent =
   (R.source_path || "") + (R.carved_unix ? "  ·  " + new Date(R.carved_unix*1000).toLocaleString() : "");
 const exts = [...new Set(ARTIFACTS.map(a => a.extension || "?"))].sort();
 const warnN = (R.warnings || []).length;
+const dupN = ARTIFACTS.filter(a => INDEXED_SHAS.has(a.sha256)).length;
+const newN = ARTIFACTS.length - dupN;
 document.getElementById("metrics").innerHTML = [
   ["아티팩트", ARTIFACTS.length, ""],
+  ["라이브FS 미존재", newN, newN ? "warn" : ""],
+  ["인덱스 동일", dupN, ""],
   ["스캔 완료", R.scan_complete ? "전체 완료" : "부분 스캔", R.scan_complete ? "ok" : "fail"],
   ["상한 도달", R.candidate_limit_reached ? "예" : "아니오", R.candidate_limit_reached ? "fail" : ""],
   ["원본 크기", fmtSize(R.source_size_bytes), ""],
@@ -635,12 +655,13 @@ document.getElementById("metrics").innerHTML = [
 ].map(([k,v,c]) => `<div class="metric ${{c}}"><b>${{v}}</b>${{k}}</div>`).join("");
 
 // filters
-const state = {{ ext: "", status: "", big: false, q: "", sort: "offset", asc: true }};
+const state = {{ ext: "", status: "", big: false, newOnly: false, q: "", sort: "offset", asc: true }};
 const filtersEl = document.getElementById("filters");
 filtersEl.innerHTML =
   `<button class="chip on" data-ext="">전체</button>` +
   exts.map(e => `<button class="chip" data-ext="${{esc(e)}}">${{esc(e.toUpperCase())}}</button>`).join("") +
   `<button class="chip" data-big="1">> 50MB</button>` +
+  `<button class="chip" data-new="1">라이브FS 미존재만</button>` +
   `<select id="fStatus"><option value="">상태 전체</option>` +
   [...new Set(ARTIFACTS.map(a => a.validation_status || "?"))].sort()
     .map(s => `<option>${{esc(s)}}</option>`).join("") + `</select>` +
@@ -648,7 +669,8 @@ filtersEl.innerHTML =
 filtersEl.addEventListener("click", e => {{
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.ext !== undefined) {{ state.ext = b.dataset.ext; }}
-  if (b.dataset.big) {{ state.big = !state.big; b.classList.toggle("on", state.big); return; }}
+  if (b.dataset.new) {{ state.newOnly = !state.newOnly; b.classList.toggle("on", state.newOnly); render(); return; }}
+  if (b.dataset.big) {{ state.big = !state.big; b.classList.toggle("on", state.big); render(); return; }}
   filtersEl.querySelectorAll("[data-ext]").forEach(x => x.classList.toggle("on", x.dataset.ext === state.ext));
   render();
 }});
@@ -668,6 +690,7 @@ function rows() {{
     (!state.ext || (a.extension || "?") === state.ext) &&
     (!state.status || (a.validation_status || "?") === state.status) &&
     (!state.big || (a.size_bytes || 0) > 50_000_000) &&
+    (!state.newOnly || !INDEXED_SHAS.has(a.sha256)) &&
     (!state.q || [a.id, a.output_path, a.validation_note].join(" ").toLowerCase().includes(state.q)));
   list.sort((a, b) => {{
     const x = a[state.sort], y = b[state.sort];
@@ -682,6 +705,7 @@ function render() {{
   tbody.innerHTML = list.map(a => `<tr data-id="${{esc(a.id)}}">
     <td>${{esc(a.id)}}</td><td>${{esc(a.extension || "-")}}</td><td>${{fmtSize(a.size_bytes)}}</td>
     <td title="${{a.offset}}">${{hex(a.offset)}}</td>
+    <td>${{INDEXED_SHAS.has(a.sha256) ? '<span class="badge">중복</span>' : '<span class="badge ok">신규</span>'}}</td>
     <td><span class="badge ${{(a.validation_status||"").includes("failed") ? "failed" : (a.validation_status||"").includes("confirmed") ? "ok" : ""}}">${{esc(a.validation_status || "-")}}</span></td>
     <td class="muted">${{esc((a.sha256 || "").slice(0, 12))}}</td>
     <td class="muted" title="${{esc(a.validation_note)}}">${{esc((a.validation_note || "").slice(0, 60))}}</td>
@@ -724,6 +748,7 @@ render();
         results = results,
         proxies = proxies,
         root = root,
+        index_shas = index_shas_lit,
     )
 }
 
@@ -810,6 +835,7 @@ mod tests {
             r#"{"scan_complete":true,"artifact_count":1}"#,
             "[]",
             &dir,
+            r#"{"videos":[{"sha256":"aa"}]}"#,
         );
         assert!(html.contains("carve_1"));
         assert!(html.contains("카빙 결과"));

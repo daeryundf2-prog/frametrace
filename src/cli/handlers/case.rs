@@ -359,6 +359,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool, build_proxies: bool) -> 
             &carve_results,
             &proxies_json,
             case_dir,
+            &index_json,
         );
         let carve_report_path = case_dir.join("review/carve-report.html");
         write_text(
