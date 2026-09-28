@@ -593,12 +593,20 @@ function downloadHref(path) {{
     return "/media?path=" + encodeURIComponent(absPath(path)) + "&download=1";
   return fileUrl(absPath(path));
 }}
-const sanitizeSelector = s => String(s || "").replace(/[^A-Za-z0-9._-]+/g, "_");
+// Mirrors video_export::sanitize_filename — every non-alphanumeric char
+// (including '.') becomes '_', so ft-951sd\...\carve_1.avi maps to
+// ft-951sd_..._carve_1_avi_proxy_*.
+const sanitizeSelector = s => String(s || "").replace(/[^A-Za-z0-9_-]+/g, "_");
 function proxyFor(a) {{
-  const keys = [a.id, a.output_path].filter(Boolean).map(sanitizeSelector);
+  // Proxy filenames embed sanitize(selector) where the selector was the
+  // carve-log path at build time (often case-relative), while output_path
+  // here is absolutized — so match on id, output_path, AND basename.
+  const base = String(a.output_path || "").split(/[\\/]/).pop() || "";
+  const keys = [a.id, a.output_path, base].filter(Boolean).map(sanitizeSelector);
   return PROXIES.find(p => {{
     const name = String(p).split(/[\\/]/).pop() || "";
-    return name.endsWith(".mp4") && keys.some(k => name.startsWith(k + "_proxy_"));
+    return name.endsWith(".mp4") && keys.some(k =>
+      name.startsWith(k + "_proxy_") || name.includes(k + "_proxy_"));
   }}) || "";
 }}
 function unplayable(a) {{
