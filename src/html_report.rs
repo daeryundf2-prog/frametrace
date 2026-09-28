@@ -469,6 +469,295 @@ pub fn render_evidence_viewer_html_slim() -> String {
         .replace("__JS__", VIEWER_JS)
 }
 
+/// Standalone carve-results page (`review/carve-report.html`): a raw
+/// carve can recover hundreds of artifacts that would drown the evidence
+/// grid, so carving gets its own view — sortable/filterable table plus a
+/// detail pane that prefers generated proxies for browser-unplayable
+/// containers. Works identically under http (workstation /media) and
+/// file:// (file:/// URLs).
+pub fn render_carve_report_html(
+    manifest_json: &str,
+    carve_log_jsonl: &str,
+    carve_results_json: &str,
+    proxies_json: &str,
+    case_dir: &std::path::Path,
+) -> String {
+    let manifest = json_for_script(manifest_json);
+    let artifacts = json_for_script(&carve_artifacts_json(case_dir, carve_log_jsonl));
+    let results = json_for_script(carve_results_json);
+    let proxies = json_for_script(proxies_json);
+    // Embedded so detail links stay honest if every absolutization fails.
+    let root_json = serde_json::to_string(&crate::audit::path_string(case_dir))
+        .unwrap_or_else(|_| "\"\"".to_string());
+    let root = json_for_script(&root_json);
+    format!(
+        r#"<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>FrameTrace — 카빙 결과</title>
+  <style>
+    :root {{ font-family: "Segoe UI", Arial, sans-serif; color: #1f2933; background: #f6f7f9; }}
+    body {{ margin: 0; }}
+    header {{ background: #fff; border-bottom: 1px solid #d9dee7; padding: 14px 22px; position: sticky; top: 0; z-index: 5; }}
+    h1 {{ font-size: 18px; margin: 0 0 4px; }}
+    .subtle {{ color: #667085; font-size: 12px; }}
+    .metrics {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }}
+    .metric {{ background: #fff; border: 1px solid #d9dee7; border-radius: 8px; padding: 6px 12px; font-size: 12px; }}
+    .metric b {{ font-size: 15px; display: block; }}
+    .warn {{ border-color: #f0b429; }}
+    .fail {{ border-color: #d64545; }}
+    .ok {{ border-color: #2f9e44; }}
+    main {{ padding: 14px 22px 40px; }}
+    .filters {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }}
+    .chip {{ border: 1px solid #d9dee7; border-radius: 999px; background: #fff; padding: 4px 12px; font-size: 12px; cursor: pointer; }}
+    .chip.on {{ background: #1f6feb; color: #fff; border-color: #1f6feb; }}
+    .search {{ padding: 4px 10px; border: 1px solid #d9dee7; border-radius: 6px; font-size: 13px; min-width: 220px; }}
+    table {{ border-collapse: collapse; width: 100%; background: #fff; font-size: 12px; }}
+    th, td {{ border-bottom: 1px solid #e4e7ee; padding: 6px 8px; text-align: left; white-space: nowrap; }}
+    th {{ position: sticky; top: 0; background: #eef1f6; cursor: pointer; user-select: none; }}
+    tr[data-id] {{ cursor: pointer; }}
+    tr[data-id]:hover {{ background: #f0f5ff; }}
+    tr.sel {{ background: #dbe7ff; }}
+    .badge {{ display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: #e4e7ee; }}
+    .badge.failed {{ background: #ffd8d8; }}
+    .badge.ok {{ background: #d3f9d8; }}
+    .detail {{ margin-top: 14px; background: #fff; border: 1px solid #d9dee7; border-radius: 8px; padding: 14px; }}
+    .detail video {{ max-width: 640px; width: 100%; background: #000; }}
+    .kv {{ font-size: 12px; margin: 3px 0; word-break: break-all; }}
+    .kv b {{ display: inline-block; min-width: 110px; color: #667085; }}
+    .muted {{ color: #98a2b3; }}
+    a {{ color: #1f6feb; }}
+  </style>
+</head>
+<body>
+<header>
+  <h1>카빙 결과 <span class="subtle" id="caseTitle"></span></h1>
+  <div class="subtle" id="sourceInfo"></div>
+  <div class="metrics" id="metrics"></div>
+</header>
+<main>
+  <div class="filters" id="filters"></div>
+  <div class="subtle" id="countLine"></div>
+  <table>
+    <thead><tr>
+      <th data-k="id">ID</th><th data-k="extension">확장자</th><th data-k="size_bytes">크기</th>
+      <th data-k="offset">오프셋</th><th data-k="validation_status">검증 상태</th>
+      <th>SHA-256</th><th>비고</th><th></th>
+    </tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="detail" id="detail" hidden></div>
+</main>
+<script>
+const MANIFEST = {manifest};
+const ARTIFACTS = {artifacts};
+const RESULTS = {results};
+const PROXIES = {proxies};
+const CASE_ROOT = {root};
+
+const EXT_PREFIX = "\\\\?\\";
+const EXT_UNC = "\\\\?\\UNC\\";
+const BS = "\\";
+const BROWSER_EXTS = new Set(["mp4","m4v","webm","mov","mpg","mpeg","m2v"]);
+const UNPLAYABLE_EXTS = new Set(["avi","dav","hik","h264","h265","heic","bin","dat","ps","ts","m2ts"]);
+
+function fileUrl(path) {{
+  if (!path) return "";
+  let value = String(path);
+  if (value.startsWith("file:")) return value;
+  if (value.slice(0, 8).toLowerCase() === EXT_UNC.toLowerCase()) value = BS + BS + value.slice(8);
+  else if (value.slice(0, 4).toLowerCase() === EXT_PREFIX.toLowerCase()) value = value.slice(4);
+  const normalized = value.split(BS).join("/");
+  const enc = s => (/^[A-Za-z]:$/.test(s) ? s : encodeURIComponent(s));
+  const encoded = normalized.split("/").map(enc).join("/");
+  if (normalized.length > 2 && normalized[1] === ":" && normalized[2] === "/") return "file:///" + encoded;
+  return "file://" + encoded;
+}}
+function absPath(path) {{
+  if (!path) return "";
+  const p = String(path);
+  if (/^([A-Za-z]:[\\/]|\\\\|\/|file:)/.test(p)) return p;
+  return CASE_ROOT ? CASE_ROOT.replace(/[\\/]+$/, "") + "/" + p.replace(/^[\\/]+/, "") : p;
+}}
+function mediaHref(path) {{
+  if (!path) return "";
+  if (location.protocol === "http:" || location.protocol === "https:") return "/media?path=" + encodeURIComponent(absPath(path));
+  return fileUrl(absPath(path));
+}}
+function downloadHref(path) {{
+  if (!path) return "";
+  if (location.protocol === "http:" || location.protocol === "https:")
+    return "/media?path=" + encodeURIComponent(absPath(path)) + "&download=1";
+  return fileUrl(absPath(path));
+}}
+const sanitizeSelector = s => String(s || "").replace(/[^A-Za-z0-9._-]+/g, "_");
+function proxyFor(a) {{
+  const keys = [a.id, a.output_path].filter(Boolean).map(sanitizeSelector);
+  return PROXIES.find(p => {{
+    const name = String(p).split(/[\\/]/).pop() || "";
+    return name.endsWith(".mp4") && keys.some(k => name.startsWith(k + "_proxy_"));
+  }}) || "";
+}}
+function unplayable(a) {{
+  const ext = String(a.extension || "").toLowerCase();
+  if (BROWSER_EXTS.has(ext)) return false;
+  if (UNPLAYABLE_EXTS.has(ext)) return true;
+  return !BROWSER_EXTS.has(ext) && !!ext;
+}}
+const fmtSize = n => n >= 1e9 ? (n/1e9).toFixed(2)+" GB" : n >= 1e6 ? (n/1e6).toFixed(1)+" MB" : (n||0)+" B";
+const hex = n => "0x" + (n||0).toString(16);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}})[c]);
+
+// header
+document.getElementById("caseTitle").textContent = MANIFEST.case_id ? "— " + MANIFEST.case_id : "";
+const R = RESULTS || {{}};
+document.getElementById("sourceInfo").textContent =
+  (R.source_path || "") + (R.carved_unix ? "  ·  " + new Date(R.carved_unix*1000).toLocaleString() : "");
+const exts = [...new Set(ARTIFACTS.map(a => a.extension || "?"))].sort();
+const warnN = (R.warnings || []).length;
+document.getElementById("metrics").innerHTML = [
+  ["아티팩트", ARTIFACTS.length, ""],
+  ["스캔 완료", R.scan_complete ? "전체 완료" : "부분 스캔", R.scan_complete ? "ok" : "fail"],
+  ["상한 도달", R.candidate_limit_reached ? "예" : "아니오", R.candidate_limit_reached ? "fail" : ""],
+  ["원본 크기", fmtSize(R.source_size_bytes), ""],
+  ["경고", warnN, warnN ? "warn" : ""],
+].map(([k,v,c]) => `<div class="metric ${{c}}"><b>${{v}}</b>${{k}}</div>`).join("");
+
+// filters
+const state = {{ ext: "", status: "", big: false, q: "", sort: "offset", asc: true }};
+const filtersEl = document.getElementById("filters");
+filtersEl.innerHTML =
+  `<button class="chip on" data-ext="">전체</button>` +
+  exts.map(e => `<button class="chip" data-ext="${{esc(e)}}">${{esc(e.toUpperCase())}}</button>`).join("") +
+  `<button class="chip" data-big="1">> 50MB</button>` +
+  `<select id="fStatus"><option value="">상태 전체</option>` +
+  [...new Set(ARTIFACTS.map(a => a.validation_status || "?"))].sort()
+    .map(s => `<option>${{esc(s)}}</option>`).join("") + `</select>` +
+  `<input class="search" id="fQ" placeholder="ID / 경로 / 비고 검색">`;
+filtersEl.addEventListener("click", e => {{
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.ext !== undefined) {{ state.ext = b.dataset.ext; }}
+  if (b.dataset.big) {{ state.big = !state.big; b.classList.toggle("on", state.big); return; }}
+  filtersEl.querySelectorAll("[data-ext]").forEach(x => x.classList.toggle("on", x.dataset.ext === state.ext));
+  render();
+}});
+filtersEl.addEventListener("input", e => {{
+  if (e.target.id === "fQ") state.q = e.target.value.toLowerCase();
+  if (e.target.id === "fStatus") state.status = e.target.value;
+  render();
+}});
+document.querySelector("thead").addEventListener("click", e => {{
+  const k = e.target.dataset?.k; if (!k) return;
+  state.asc = state.sort === k ? !state.asc : true; state.sort = k; render();
+}});
+
+const tbody = document.getElementById("rows");
+function rows() {{
+  let list = ARTIFACTS.filter(a =>
+    (!state.ext || (a.extension || "?") === state.ext) &&
+    (!state.status || (a.validation_status || "?") === state.status) &&
+    (!state.big || (a.size_bytes || 0) > 50_000_000) &&
+    (!state.q || [a.id, a.output_path, a.validation_note].join(" ").toLowerCase().includes(state.q)));
+  list.sort((a, b) => {{
+    const x = a[state.sort], y = b[state.sort];
+    const c = typeof x === "number" && typeof y === "number" ? x - y : String(x ?? "").localeCompare(String(y ?? ""));
+    return state.asc ? c : -c;
+  }});
+  return list;
+}}
+function render() {{
+  const list = rows();
+  document.getElementById("countLine").textContent = `${{list.length}} / ${{ARTIFACTS.length}} 표시`;
+  tbody.innerHTML = list.map(a => `<tr data-id="${{esc(a.id)}}">
+    <td>${{esc(a.id)}}</td><td>${{esc(a.extension || "-")}}</td><td>${{fmtSize(a.size_bytes)}}</td>
+    <td title="${{a.offset}}">${{hex(a.offset)}}</td>
+    <td><span class="badge ${{(a.validation_status||"").includes("failed") ? "failed" : (a.validation_status||"").includes("confirmed") ? "ok" : ""}}">${{esc(a.validation_status || "-")}}</span></td>
+    <td class="muted">${{esc((a.sha256 || "").slice(0, 12))}}</td>
+    <td class="muted" title="${{esc(a.validation_note)}}">${{esc((a.validation_note || "").slice(0, 60))}}</td>
+    <td><a href="${{esc(downloadHref(a.output_path))}}" onclick="event.stopPropagation()">저장</a></td>
+  </tr>`).join("");
+}}
+tbody.addEventListener("click", e => {{
+  const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+  tbody.querySelectorAll("tr.sel").forEach(x => x.classList.remove("sel"));
+  tr.classList.add("sel");
+  showDetail(ARTIFACTS.find(a => a.id === tr.dataset.id));
+}});
+function showDetail(a) {{
+  const el = document.getElementById("detail");
+  if (!a) {{ el.hidden = true; return; }}
+  const proxy = proxyFor(a);
+  const needs = unplayable(a);
+  const src = proxy ? mediaHref(proxy) : needs ? "" : mediaHref(a.output_path);
+  el.innerHTML = `
+    <div class="kv"><b>ID</b>${{esc(a.id)}}</div>
+    <div class="kv"><b>출력 경로</b>${{esc(a.output_path)}}</div>
+    <div class="kv"><b>오프셋 / 크기</b>${{hex(a.offset)}} (${{a.offset}}) / ${{fmtSize(a.size_bytes)}}</div>
+    <div class="kv"><b>SHA-256</b>${{esc(a.sha256)}}</div>
+    <div class="kv"><b>검증 상태</b>${{esc(a.validation_status)}}</div>
+    <div class="kv"><b>검증 비고</b>${{esc(a.validation_note)}}</div>
+    ${{proxy ? `<div class="kv"><b>프록시</b>${{esc(proxy)}}</div>` : ""}}
+    ${{src
+      ? `<video controls preload="metadata" src="${{esc(src)}}"></video>` + (proxy ? `<div class="subtle">프록시 재생 (원본 컨테이너 재생불가)</div>` : "")
+      : `<div class="subtle">${{needs ? "브라우저 재생불가 — 프록시가 없습니다. make-review --build-proxies 또는 워크스테이션의 프록시 요청을 사용하십시오." : "재생할 소스가 없습니다."}}</div>`}}
+    <div class="kv"><a href="${{esc(downloadHref(a.output_path))}}">원본 저장</a>${{proxy ? ` · <a href="${{esc(downloadHref(proxy))}}">프록시 저장</a>` : ""}}</div>`;
+  el.hidden = false;
+  el.scrollIntoView({{ block: "nearest" }});
+}}
+render();
+</script>
+</body>
+</html>"#,
+        manifest = manifest,
+        artifacts = artifacts,
+        results = results,
+        proxies = proxies,
+        root = root,
+    )
+}
+
+/// Carve-log JSONL → JSON array literal with `output_path` absolutized.
+/// Carve entries may record paths relative to the invocation cwd rather
+/// than the case dir, so each candidate root is existence-checked before
+/// falling back to `case_dir`-relative resolution.
+fn carve_artifacts_json(case_dir: &std::path::Path, jsonl: &str) -> String {
+    let mut items: Vec<serde_json::Value> = jsonl
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect();
+    for item in &mut items {
+        let Some(raw) = item.get("output_path").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let path = std::path::Path::new(raw);
+        if path.is_absolute() || raw.starts_with("file:") {
+            continue;
+        }
+        let candidates = [
+            case_dir.join(path),
+            case_dir
+                .parent()
+                .map(|p| p.join(path))
+                .unwrap_or_else(|| path.to_path_buf()),
+            path.file_name()
+                .map(|n| case_dir.join("artifacts/carved").join(n))
+                .unwrap_or_else(|| path.to_path_buf()),
+        ];
+        let resolved = candidates
+            .iter()
+            .find(|c| c.exists())
+            .cloned()
+            .unwrap_or_else(|| candidates[0].clone());
+        item["output_path"] = serde_json::Value::String(crate::audit::path_string(&resolved));
+    }
+    serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
+}
+
 fn jsonl_to_array(jsonl: &str) -> String {
     // A torn final line (the documented crash survivability mode) is not
     // valid JSON; feeding it into the embedded array literal would be a
@@ -487,9 +776,48 @@ fn jsonl_to_array(jsonl: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_evidence_viewer_html;
+    use super::{render_carve_report_html, render_evidence_viewer_html};
     use std::path::PathBuf;
     use std::process::Command;
+
+    #[test]
+    fn carve_report_renders_summary_and_absolutizes_relative_paths() {
+        let dir = std::env::temp_dir().join(format!("ft-carve-report-{}", std::process::id()));
+        let carved = dir.join("artifacts/carved");
+        std::fs::create_dir_all(&carved).unwrap();
+        std::fs::write(carved.join("carve_1_00001000.avi"), b"x").unwrap();
+        // Relative-to-cwd-style path: <case-name>\artifacts/carved\file —
+        // resolved via the case-parent candidate.
+        let rel = format!(
+            "{}\\artifacts/carved\\carve_1_00001000.avi",
+            dir.file_name().unwrap().to_str().unwrap()
+        );
+        let carve_log = format!(
+            "{{\"id\":\"carve_1\",\"extension\":\"avi\",\"offset\":4096,\"size_bytes\":1,\"output_path\":\"{}\",\"sha256\":\"aa\",\"validation_status\":\"candidate-unvalidated\"}}\n",
+            rel.replace('\\', "\\\\")
+        );
+        let html = render_carve_report_html(
+            r#"{"case_id":"FT-C"}"#,
+            &carve_log,
+            r#"{"scan_complete":true,"artifact_count":1}"#,
+            "[]",
+            &dir,
+        );
+        assert!(html.contains("carve_1"));
+        assert!(html.contains("카빙 결과"));
+        assert!(html.contains("CASE_ROOT"));
+        // The relative path was resolved to an absolute one — assert the
+        // serialized output_path carries a drive-qualified prefix.
+        let drive = dir
+            .components()
+            .next()
+            .and_then(|c| c.as_os_str().to_str())
+            .unwrap_or("C:")
+            .to_string();
+        assert!(html.contains(&format!("\"output_path\":\"{}\\\\", drive)));
+        assert!(html.contains("carve_1_00001000.avi"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn evidence_viewer_includes_filesystem_recovery_records() {

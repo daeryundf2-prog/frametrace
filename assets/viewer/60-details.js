@@ -278,6 +278,9 @@ function renderMetrics() {
   els.caseLine.textContent = `${manifest.case_id || "case"} · ${manifest.title || "Untitled"} · ${scan.source_path || "-"}`;
   els.metricVideos.textContent = tf("metric.indexed", { n: videos.length });
   els.metricCarved.textContent = carveLog.length + recoveredFilesystemLog.length;
+  const carveLink = document.getElementById("linkCarveReport");
+  // The standalone page exists only when make-review found a carve log.
+  if (carveLink) carveLink.hidden = carveLog.length === 0;
   els.metricVerified.textContent = records.filter(record => record.status === "ffprobe-video-stream-confirmed" || record.status === "ffprobe-confirmed").length;
   els.metricFailed.textContent = records.filter(record => record.status === "validation-failed").length;
   if (els.metricAnomaly) {

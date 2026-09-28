@@ -347,6 +347,27 @@ pub fn make_review(case_dir: &Path, redact_paths: bool, build_proxies: bool) -> 
         &inject_redaction_banner(evidence_viewer, redact_paths),
     )
     .map_err(|err| format!("failed to write evidence viewer html: {err}"))?;
+    // Dedicated carve view: a raw-image carve can return hundreds of
+    // artifacts that would drown the evidence grid, so carving results get
+    // their own page beside the viewer.
+    if !carve_log.trim().is_empty() {
+        let carve_results =
+            redact(&read_to_string(&case_dir.join("db/carve_results.json")).unwrap_or_default());
+        let carve_report = html_report::render_carve_report_html(
+            &manifest_json,
+            &carve_log,
+            &carve_results,
+            &proxies_json,
+            case_dir,
+        );
+        let carve_report_path = case_dir.join("review/carve-report.html");
+        write_text(
+            &carve_report_path,
+            &inject_redaction_banner(carve_report, redact_paths),
+        )
+        .map_err(|err| format!("failed to write carve report html: {err}"))?;
+        println!("carve report written: {}", carve_report_path.display());
+    }
     println!("review written: {}", review_path.display());
     println!(
         "evidence viewer written: {}",
