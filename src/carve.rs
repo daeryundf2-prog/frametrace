@@ -1702,9 +1702,9 @@ fn scan_buffer_state(
                     .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64)
                     .unwrap_or(0);
                 if declared > 8 {
-                    suppress.embedded_until = suppress.embedded_until.max(
-                        absolute + 8 + declared.min(MAX_RIFF_CLAIM_BYTES),
-                    );
+                    suppress.embedded_until = suppress
+                        .embedded_until
+                        .max(absolute + 8 + declared.min(MAX_RIFF_CLAIM_BYTES));
                 }
             }
         }

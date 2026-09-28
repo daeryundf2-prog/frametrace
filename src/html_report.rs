@@ -763,6 +763,29 @@ fn carve_artifacts_json(case_dir: &std::path::Path, jsonl: &str) -> String {
         .filter(|line| !line.is_empty())
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .collect();
+    // The audit log is append-only across runs: a recarve re-emits the
+    // same id space (carve_000001…), so every earlier entry for an id
+    // is superseded by the latest run's record for that id. Keep the
+    // last occurrence — the report must show one current artifact set,
+    // not the union of every run that ever wrote to the log. Lines
+    // without an id are run-level events (e.g. carve-resume), not
+    // artifacts, and are dropped.
+    {
+        use std::collections::HashMap;
+        let mut last: HashMap<String, usize> = HashMap::new();
+        for (i, item) in items.iter().enumerate() {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                last.insert(id.to_string(), i);
+            }
+        }
+        let keep: std::collections::HashSet<usize> = last.into_values().collect();
+        let mut i = 0usize;
+        items.retain(|item| {
+            let keep_it = item.get("id").is_some() && keep.contains(&i);
+            i += 1;
+            keep_it
+        });
+    }
     for item in &mut items {
         let Some(raw) = item.get("output_path").and_then(|v| v.as_str()) else {
             continue;
