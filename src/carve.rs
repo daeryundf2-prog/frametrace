@@ -302,9 +302,20 @@ pub fn carve_file(
     let mut artifacts = Vec::new();
     let mut resumed_artifacts = 0usize;
     let mut first_by_hash = HashMap::<String, String>::new();
+    let is_annexb = |sig: &str| sig.ends_with("-annexb");
+    // Stream hits inside a span already claimed by an earlier candidate are
+    // the same stream continuing (or an AVI's embedded Annex-B NALs) —
+    // suppress them instead of shredding one file into fragments.
+    let mut covered_until = 0u64;
     for hit in &hits {
+        if is_annexb(&hit.signature) && hit.offset < covered_until {
+            continue;
+        }
+        // Extents run to the next container signature; mid-stream Annex-B
+        // anchors inside the same run would otherwise truncate it.
         let next_offset = hits
             .iter()
+            .filter(|candidate| !is_annexb(&candidate.signature))
             .map(|candidate| candidate.offset)
             .filter(|offset| offset > &hit.offset)
             .min()
@@ -353,6 +364,7 @@ pub fn carve_file(
             resumed_artifacts += 1;
             let mut replayed = artifact.clone();
             replayed.validation_note = validation_note;
+            covered_until = covered_until.max(hit.offset + size_bytes);
             artifacts.push(replayed);
             continue;
         }
@@ -395,6 +407,7 @@ pub fn carve_file(
         // Checkpoint the artifact right after it lands on disk: a crash
         // before this line re-carves the range, a crash after it replays.
         checkpoint.append_line(&format!("{{\"carved\":{}}}", artifact.to_json()))?;
+        covered_until = covered_until.max(hit.offset + size_bytes);
         artifacts.push(artifact);
     }
 
@@ -653,6 +666,12 @@ fn validation_note_for_signature(signature: &str) -> &'static str {
         }
         "hikvision-imkh" => {
             "Hikvision IMKH signature found; strip the 40-byte header with export-hik and validate playback before reporting."
+        }
+        "h264-annexb" => {
+            "H.264 Annex-B elementary-stream run (no container header) — deleted-recording body or recorder stream temp file; remux with ffmpeg -f h264 for playback; original filename/metadata unrecoverable."
+        }
+        "h265-annexb" => {
+            "H.265 Annex-B elementary-stream run (no container header) — deleted-recording body or recorder stream temp file; remux with ffmpeg -f hevc for playback; original filename/metadata unrecoverable."
         }
         "mpegts-sync" => {
             "MPEG-TS sync-aligned packet run (188-byte packets, 0x47 sync); a fragmented TS file may appear as multiple separate run candidates."
@@ -1651,6 +1670,35 @@ fn scan_buffer(scan: &[u8], scan_start: u64, current_chunk_start: u64, hits: &mu
                 extension: "ts".to_string(),
             });
         }
+        // Annex-B elementary streams: dashcams write raw H.264/H.265 to
+        // in-progress temp files, and overwritten/deleted recording bodies
+        // survive only as headerless stream runs — no container signature
+        // exists to find them. Anchor on SPS (0x67) or H.265 VPS/SPS
+        // (0x40/0x42) and require another start code within 512 bytes;
+        // mid-stream anchors inside carved container spans are suppressed
+        // later at carve time.
+        if scan.get(index..index + 4) == Some(&[0, 0, 0, 1][..]) {
+            let nal = scan.get(index + 4).copied().unwrap_or(0);
+            let (signature, extension) = match nal {
+                0x67 => ("h264-annexb", "h264"),
+                0x40 | 0x42 => ("h265-annexb", "h265"),
+                _ => ("", ""),
+            };
+            if !signature.is_empty() {
+                let lookahead_end = (index + 517).min(scan.len());
+                let has_second = scan
+                    .get(index + 5..lookahead_end)
+                    .map(|tail| tail.windows(4).any(|w| w == [0, 0, 0, 1]))
+                    .unwrap_or(false);
+                if has_second {
+                    hits.push(CarveHit {
+                        offset: absolute,
+                        signature: signature.to_string(),
+                        extension: extension.to_string(),
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -1718,6 +1766,42 @@ mod tests {
         scan_buffer(b"padIMKHpayloaddatahere", 0, 0, &mut hits);
         assert!(hits.iter().any(|hit| hit.signature == "hikvision-imkh"));
         assert!(validation_note_for_signature("hikvision-imkh").contains("export-hik"));
+    }
+
+    #[test]
+    fn annexb_detects_sps_anchored_stream_start() {
+        let mut buf = vec![0u8; 4096];
+        // H.264 SPS at 100, second start code (PPS) at 140 — real run.
+        buf[100..104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[104] = 0x67;
+        buf[140..144].copy_from_slice(&[0, 0, 0, 1]);
+        buf[144] = 0x68;
+        let mut hits = Vec::new();
+        scan_buffer(&buf, 0, 0, &mut hits);
+        let h: Vec<_> = hits
+            .iter()
+            .filter(|h| h.signature == "h264-annexb")
+            .collect();
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0].offset, 100);
+        assert_eq!(h[0].extension, "h264");
+
+        // H.265 VPS also anchors.
+        buf[2000..2004].copy_from_slice(&[0, 0, 0, 1]);
+        buf[2004] = 0x40;
+        buf[2100..2104].copy_from_slice(&[0, 0, 0, 1]);
+        buf[2104] = 0x42;
+        let mut hits2 = Vec::new();
+        scan_buffer(&buf, 0, 0, &mut hits2);
+        assert!(hits2.iter().any(|h| h.signature == "h265-annexb"));
+
+        // Lone SPS with no second start code in lookahead: rejected.
+        let mut lone = vec![0u8; 2048];
+        lone[100..104].copy_from_slice(&[0, 0, 0, 1]);
+        lone[104] = 0x67;
+        let mut hits3 = Vec::new();
+        scan_buffer(&lone, 0, 0, &mut hits3);
+        assert!(hits3.iter().all(|h| !h.signature.ends_with("-annexb")));
     }
 
     #[test]
