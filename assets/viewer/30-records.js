@@ -410,7 +410,10 @@ const records = [
     };
   }),
   ...(DATA.flsEntries || [])
-    .filter(entry => entry.deleted && entry.video_candidate)
+    // Deleted entries are forensic evidence regardless of extension — a
+    // dashcam's in-progress recording temp files (20260917112038816) have
+    // no extension at all. Non-video candidates stay flagged honestly.
+    .filter(entry => entry.deleted)
     .map(entry => {
       const inode = entry.inode != null ? String(entry.inode) : "";
       return {
@@ -422,12 +425,13 @@ const records = [
         parser: "fls listing",
         vendor: t("cand.vendor"),
         ext: extOfPath(entry.path),
+        videoCandidate: !!entry.video_candidate,
         status: "candidate-unvalidated",
         sha256: "-",
         duration: null,
         codec: "-",
         size: null,
-        note: t("cand.note"),
+        note: entry.video_candidate ? t("cand.note") : t("cand.noteNonVideo"),
         indexStatus: "recovery-pending",
         modifiedUnix: null,
         inode: entry.inode,
