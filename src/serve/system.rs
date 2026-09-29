@@ -401,7 +401,18 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
         return "{\"ok\":false,\"error\":\"분석이 진행 중입니다.\"}".to_string();
     }
     guard.case_dir = Some(case_dir.clone());
-    guard.media_roots = vec![case_dir.clone()];
+    // Reopening the same case must keep extra media roots the earlier
+    // session recorded (e.g. a carving workspace linked into the case) —
+    // resetting to just the case dir would 403 artifacts that resolve
+    // through that root.
+    let prior_roots = restore_session()
+        .and_then(|(dir, roots)| (dir == case_dir).then_some(roots))
+        .unwrap_or_else(|| vec![case_dir.clone()]);
+    let extra_root = prior_roots
+        .iter()
+        .find(|root| **root != case_dir)
+        .cloned();
+    guard.media_roots = prior_roots;
     // An explicit open is a deliberate choice — the restored-session
     // prompt must not reappear over it.
     guard.restored = false;
@@ -424,7 +435,7 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
         ));
     }
     drop(guard);
-    save_session(&case_dir, None);
+    save_session(&case_dir, extra_root.as_deref());
     format!(
         "{{\"ok\":true,\"has_review\":{}}}",
         if has_review { "true" } else { "false" }

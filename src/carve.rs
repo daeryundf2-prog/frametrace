@@ -234,6 +234,13 @@ pub fn carve_file(
             source_path.display()
         ));
     }
+    // A relative case dir logs invocation-cwd-relative output_paths that
+    // no later consumer can resolve — anchor it before anything is
+    // derived from it (same treatment source_path already gets).
+    std::fs::create_dir_all(case_dir)
+        .map_err(|err| format!("failed to create case dir: {err}"))?;
+    let case_dir = &crate::util::canonicalize_display(case_dir)
+        .map_err(|err| format!("failed to canonicalize case dir: {err}"))?;
     if options.max_bytes < MIN_CARVE_BYTES {
         return Err(format!("--max-bytes must be at least {MIN_CARVE_BYTES}"));
     }
@@ -296,6 +303,10 @@ pub fn carve_file(
             end: scan_end,
         },
         prior.hits,
+        ScanSuppress {
+            embedded_until: prior.embedded_until,
+            annexb_next_emit: prior.annexb_next_emit,
+        },
         options.max_candidates,
         &mut checkpoint,
         progress,
@@ -522,6 +533,11 @@ struct CarveCheckpointState {
     hits: Vec<CarveHit>,
     /// Artifacts already carved, keyed by their hit's offset.
     carved: HashMap<u64, CarvedArtifact>,
+    /// Scan suppression state at the checkpoint: without these a resume
+    /// inside a RIFF-declared span forgets the container boundary and
+    /// re-floods `hits` with embedded Annex-B/JPEG anchors.
+    embedded_until: u64,
+    annexb_next_emit: u64,
 }
 
 /// Decodes a prior run's carve checkpoint lines into `CarveCheckpointState`.
@@ -541,6 +557,16 @@ fn load_carve_checkpoint(checkpoint: &RunCheckpoint) -> Result<CarveCheckpointSt
                 .get("offset")
                 .and_then(serde_json::Value::as_u64)
                 .ok_or_else(|| corrupt("scan record is missing offset".to_string()))?;
+            // Absent in checkpoints from before suppression persisted —
+            // resuming without it only risks hit flooding, not corruption.
+            state.embedded_until = scan
+                .get("embedded_until")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            state.annexb_next_emit = scan
+                .get("annexb_next_emit")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
             state.hits = serde_json::from_value(
                 scan.get("hits").cloned().unwrap_or(serde_json::Value::Null),
             )
@@ -554,8 +580,10 @@ fn load_carve_checkpoint(checkpoint: &RunCheckpoint) -> Result<CarveCheckpointSt
     Ok(state)
 }
 
-/// Serializes cumulative signature-scan progress for the checkpoint.
-fn scan_progress_line(offset: u64, hits: &[CarveHit]) -> String {
+/// Serializes cumulative signature-scan progress for the checkpoint,
+/// including suppression state so a resumed scan inside a container span
+/// does not forget the boundary it crossed.
+fn scan_progress_line(offset: u64, hits: &[CarveHit], suppress: &ScanSuppress) -> String {
     let hits_json = hits
         .iter()
         .map(|hit| {
@@ -568,7 +596,10 @@ fn scan_progress_line(offset: u64, hits: &[CarveHit]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
-    format!("{{\"scan\":{{\"offset\":{offset},\"hits\":[{hits_json}]}}}}")
+    format!(
+        "{{\"scan\":{{\"offset\":{offset},\"embedded_until\":{},\"annexb_next_emit\":{},\"hits\":[{hits_json}]}}}}",
+        suppress.embedded_until, suppress.annexb_next_emit
+    )
 }
 
 /// Signature scan over the source file that can resume mid-file: it
@@ -594,6 +625,7 @@ fn scan_signatures(
     source_path: &Path,
     window: ScanWindow,
     prior_hits: Vec<CarveHit>,
+    prior_suppress: ScanSuppress,
     max_candidates: usize,
     checkpoint: &mut RunCheckpoint,
     progress: Option<&CarveProgress<'_>>,
@@ -619,7 +651,9 @@ fn scan_signatures(
         .map_err(|err| format!("failed to seek carve source to resume offset: {err}"))?;
     let mut offset = resume_offset;
     let mut since_checkpoint = 0usize;
-    let mut suppress = ScanSuppress::default();
+    // Restored from the checkpoint: a resume offset inside a RIFF-declared
+    // span stays suppressed instead of flooding hits with embedded anchors.
+    let mut suppress = prior_suppress;
 
     while offset < scan_end {
         let want = CHUNK_SIZE.min((scan_end - offset) as usize);
@@ -650,14 +684,14 @@ fn scan_signatures(
         offset = offset.saturating_add(read as u64);
         since_checkpoint += 1;
         if since_checkpoint >= CHECKPOINT_CHUNK_INTERVAL {
-            checkpoint.append_line(&scan_progress_line(offset, &hits))?;
+            checkpoint.append_line(&scan_progress_line(offset, &hits, &suppress))?;
             if let Some(report) = progress {
                 report(offset, scan_end);
             }
             since_checkpoint = 0;
         }
     }
-    checkpoint.append_line(&scan_progress_line(offset, &hits))?;
+    checkpoint.append_line(&scan_progress_line(offset, &hits, &suppress))?;
     if let Some(report) = progress {
         report(offset, scan_end);
     }
@@ -1672,7 +1706,12 @@ fn scan_buffer_state(
             continue;
         }
 
-        if index >= 4 && scan.get(index..index + 4) == Some(b"ftyp") {
+        // Every signature is suppressed inside a RIFF-declared container
+        // span: those bytes are the outer container's payload, and no real
+        // file can begin there. The claim is capped (MAX_RIFF_CLAIM_BYTES)
+        // so a corrupt header cannot blind the scan beyond a bounded span.
+        let embedded = absolute < suppress.embedded_until;
+        if index >= 4 && scan.get(index..index + 4) == Some(b"ftyp") && !embedded {
             hits.push(CarveHit {
                 offset: absolute - 4,
                 signature: "mp4-ftyp".to_string(),
@@ -1681,6 +1720,7 @@ fn scan_buffer_state(
         }
         if scan.get(index..index + 4) == Some(b"RIFF")
             && scan.get(index + 8..index + 11) == Some(b"AVI")
+            && !embedded
         {
             hits.push(CarveHit {
                 offset: absolute,
@@ -1689,13 +1729,11 @@ fn scan_buffer_state(
             });
             // The RIFF header declares its own file extent: the size
             // field counts bytes after it, so the payload ends at
-            // absolute + 8 + declared. Fragment-prone signatures inside
-            // that span are this container's payload, not candidates —
-            // suppress them at scan time or embedded SPS anchors/JPEG
-            // thumbnails flood `hits` and exhaust the candidate cap.
-            // The strict "AVI " check keeps suppression off weaker
-            // near-matches; the claim is also capped so a corrupt
-            // header cannot blind the scan beyond a bounded span.
+            // absolute + 8 + declared. Signatures inside that span are
+            // this container's payload, not candidates — suppress them
+            // at scan time or embedded SPS anchors/JPEG thumbnails flood
+            // `hits` and exhaust the candidate cap. The strict "AVI "
+            // check keeps suppression off weaker near-matches.
             if scan.get(index + 8..index + 12) == Some(b"AVI ") {
                 let declared = scan
                     .get(index + 4..index + 8)
@@ -1708,14 +1746,14 @@ fn scan_buffer_state(
                 }
             }
         }
-        if scan.get(index..index + 4) == Some(b"DHAV") {
+        if scan.get(index..index + 4) == Some(b"DHAV") && !embedded {
             hits.push(CarveHit {
                 offset: absolute,
                 signature: "dahua-dhav".to_string(),
                 extension: "dav".to_string(),
             });
         }
-        if scan.get(index..index + 4) == Some(b"IMKH") {
+        if scan.get(index..index + 4) == Some(b"IMKH") && !embedded {
             hits.push(CarveHit {
                 offset: absolute,
                 signature: "hikvision-imkh".to_string(),
@@ -1735,7 +1773,11 @@ fn scan_buffer_state(
         }
         // MPEG program-stream pack start (DVR exports): 00 00 01 BA
         // followed by the MPEG-1/MPEG-2 pack-header marker 0x21 or 0x44.
-        if scan.get(index..index + 4) == Some(&[0, 0, 1, 0xba][..]) {
+        // Pack starts inside a declared container span are payload, not
+        // candidates — AVI payloads can carry PS/TS fragments.
+        if scan.get(index..index + 4) == Some(&[0, 0, 1, 0xba][..])
+            && absolute >= suppress.embedded_until
+        {
             let marker = scan.get(index + 4).copied().unwrap_or(0);
             if marker == 0x21 || marker == 0x44 {
                 hits.push(CarveHit {
@@ -1745,8 +1787,11 @@ fn scan_buffer_state(
                 });
             }
         }
-        // EBML header — Matroska/WebM containers.
-        if scan.get(index..index + 4) == Some(&[0x1a, 0x45, 0xdf, 0xa3][..]) {
+        // EBML header — Matroska/WebM containers. A full MKV cannot sit
+        // inside an AVI payload, so headers in a declared span are noise.
+        if scan.get(index..index + 4) == Some(&[0x1a, 0x45, 0xdf, 0xa3][..])
+            && absolute >= suppress.embedded_until
+        {
             hits.push(CarveHit {
                 offset: absolute,
                 signature: "ebml-mkv".to_string(),
@@ -1771,6 +1816,7 @@ fn scan_buffer_state(
             && scan.get(index + 376) == Some(&0x47)
             && scan.get(index + 564) == Some(&0x47)
             && run_start
+            && absolute >= suppress.embedded_until
         {
             hits.push(CarveHit {
                 offset: absolute,
@@ -1871,7 +1917,9 @@ mod tests {
     #[test]
     fn finds_avi_and_dhav_signatures() {
         let mut hits = Vec::new();
-        scan_buffer(b"RIFFxxxxAVI data DHAVmore", 0, 0, &mut hits);
+        // Declared RIFF size covers only the "AVI " fourCC — the DHAV
+        // signature sits beyond the container's claimed span.
+        scan_buffer(b"RIFF\x04\x00\x00\x00AVI data DHAVmore", 0, 0, &mut hits);
         assert!(hits.iter().any(|hit| hit.signature == "riff-avi"));
         assert!(hits.iter().any(|hit| hit.signature == "dahua-dhav"));
     }
@@ -2150,6 +2198,7 @@ mod tests {
             .append_line(&scan_progress_line(
                 super::CHUNK_SIZE as u64,
                 &[streamed[0].clone(), streamed[0].clone()],
+                &super::ScanSuppress::default(),
             ))
             .unwrap();
         drop(checkpoint);
@@ -2186,7 +2235,11 @@ mod tests {
             })
             .collect::<Vec<_>>();
         checkpoint
-            .append_line(&scan_progress_line(content.len() as u64, &hits))
+            .append_line(&scan_progress_line(
+                content.len() as u64,
+                &hits,
+                &super::ScanSuppress::default(),
+            ))
             .unwrap();
         checkpoint
             .append_line(&format!("{{\"carved\":{}}}", first.artifacts[0].to_json()))
@@ -2289,7 +2342,11 @@ mod tests {
                 },
             ];
             checkpoint
-                .append_line(&scan_progress_line(content.len() as u64, &hits))
+                .append_line(&scan_progress_line(
+                    content.len() as u64,
+                    &hits,
+                    &super::ScanSuppress::default(),
+                ))
                 .unwrap();
             checkpoint
                 .append_line(&format!("{{\"carved\":{}}}", first.artifacts[0].to_json()))
@@ -2329,7 +2386,11 @@ mod tests {
             )
             .unwrap();
             checkpoint
-                .append_line(&scan_progress_line(content.len() as u64, &[]))
+                .append_line(&scan_progress_line(
+                    content.len() as u64,
+                    &[],
+                    &super::ScanSuppress::default(),
+                ))
                 .unwrap();
         }
         let result = carve_file(&case_dir, &source, &options, ResumeMode::Auto, None).unwrap();

@@ -57,7 +57,11 @@ pub fn run(options: ServeOptions) -> Result<(), String> {
     if let Some(case_dir) = &options.case_dir {
         let mut guard = state_lock(&state);
         guard.case_dir = Some(case_dir.clone());
-        guard.media_roots = vec![case_dir.clone()];
+        // An explicit --case binding still honors extra media roots the
+        // session recorded for that case (linked carving workspaces).
+        guard.media_roots = restore_session()
+            .and_then(|(dir, roots)| (dir == *case_dir).then_some(roots))
+            .unwrap_or_else(|| vec![case_dir.clone()]);
     } else if let Some((case_dir, roots)) = restore_session() {
         let mut guard = state_lock(&state);
         guard.case_dir = Some(case_dir.clone());

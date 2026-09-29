@@ -302,6 +302,35 @@ pub fn read_to_string(path: &Path) -> io::Result<String> {
     fs::read_to_string(path)
 }
 
+/// Resolves an artifact `output_path` recorded in a carve/recover log.
+/// Logs written before `carve_file` canonicalized the case dir (or copied
+/// between cases) can hold paths relative to the invocation cwd — e.g.
+/// `<case-name>\artifacts\carved\file.avi` — so probe the same candidates
+/// every consumer uses: case-relative, case-parent-relative, then
+/// `artifacts/carved/<basename>` inside the case. Falls back to the raw
+/// path when nothing exists so callers surface an honest miss.
+pub fn resolve_case_artifact_path(case_dir: &Path, raw: &str) -> PathBuf {
+    let path = Path::new(raw);
+    if path.is_absolute() || raw.starts_with("file:") {
+        return path.to_path_buf();
+    }
+    let candidates = [
+        case_dir.join(path),
+        case_dir
+            .parent()
+            .map(|p| p.join(path))
+            .unwrap_or_else(|| path.to_path_buf()),
+        path.file_name()
+            .map(|n| case_dir.join("artifacts/carved").join(n))
+            .unwrap_or_else(|| path.to_path_buf()),
+    ];
+    candidates
+        .iter()
+        .find(|c| c.exists())
+        .cloned()
+        .unwrap_or_else(|| candidates[0].clone())
+}
+
 /// Canonicalizes a path and strips the Windows extended-length prefix (`\\?\`)
 /// so user-facing output and audit logs keep ordinary paths. `\\?\UNC\` maps
 /// back to the leading `\\server\share` form.

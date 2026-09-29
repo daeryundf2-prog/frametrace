@@ -6,7 +6,16 @@
 const DATA = await loadViewerData();
 const manifest = DATA.manifest || {};
 const scan = DATA.scan || {};
-const carveLog = Array.isArray(DATA.carveLog) ? DATA.carveLog : [];
+// The carve audit log is append-only across runs: a re-carve re-emits
+// the same id space, so earlier entries for an id are stale records of a
+// superseded run — keep the latest entry per id (the same rule the
+// standalone carve report applies) or the grid shows every generation of
+// artifacts that ever landed in the log.
+const carveLog = [...new Map(
+  (Array.isArray(DATA.carveLog) ? DATA.carveLog : [])
+    .filter(item => item && item.id)
+    .map(item => [String(item.id), item])
+).values()];
 const filesystemLog = Array.isArray(DATA.filesystemLog) ? DATA.filesystemLog : [];
 const validationLog = Array.isArray(DATA.validationLog) ? DATA.validationLog : [];
 const anomalyLog = Array.isArray(DATA.anomalyLog) ? DATA.anomalyLog : [];

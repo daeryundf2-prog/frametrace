@@ -678,12 +678,19 @@ fn build_unplayable_proxies(
         if !is_recover
             || path.is_empty()
             || item.get("size_bytes").and_then(|v| v.as_u64()) == Some(0)
-            || !Path::new(path).is_file()
         {
             continue;
         }
-        if !outputs.iter().any(|p| p == path) {
-            outputs.push(path.to_string());
+        // Logs can hold invocation-cwd-relative paths (pre-canonicalize
+        // carve runs, cross-case copies); resolve them the same way the
+        // carve report does or the artifact is silently skipped here.
+        let resolved = crate::util::resolve_case_artifact_path(case_dir, path);
+        if !resolved.is_file() {
+            continue;
+        }
+        let resolved = crate::audit::path_string(&resolved);
+        if !outputs.iter().any(|p| p == &resolved) {
+            outputs.push(resolved);
         }
     }
 

@@ -207,7 +207,9 @@ pub(crate) fn save_session(case_dir: &Path, source_path: Option<&Path>) {
         json_string(&case_dir.display().to_string()),
         source
     );
-    let _ = std::fs::write(file, body);
+    // A torn session file reads as "no session" — silently losing the
+    // case binding on next launch is a poor failure mode for one write.
+    let _ = crate::util::write_text_atomic(&file, &body);
 }
 
 /// Restore the last case binding from the session file. Returns the case

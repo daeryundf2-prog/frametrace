@@ -398,7 +398,11 @@ const records = [
       status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
       sha256: validation?.target_sha256 || item.sha256 || "-",
       duration: validation?.duration_seconds,
-      codec: validation?.video_codec || item.extension || "-",
+      // An extension is not a codec — falling back to it marks carved
+      // mp4/webm artifacts "codec not browser-playable" and kills inline
+      // playback of files Chromium could decode. Unprobed records rely on
+      // the PLAYABLE_EXTS allowlist in needsProxy instead.
+      codec: validation?.video_codec || "-",
       ext: item.extension || extOfPath(item.output_path),
       container: "",
       probeOk: undefined,

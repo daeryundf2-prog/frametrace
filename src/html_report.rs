@@ -790,25 +790,10 @@ fn carve_artifacts_json(case_dir: &std::path::Path, jsonl: &str) -> String {
         let Some(raw) = item.get("output_path").and_then(|v| v.as_str()) else {
             continue;
         };
-        let path = std::path::Path::new(raw);
-        if path.is_absolute() || raw.starts_with("file:") {
+        if std::path::Path::new(raw).is_absolute() || raw.starts_with("file:") {
             continue;
         }
-        let candidates = [
-            case_dir.join(path),
-            case_dir
-                .parent()
-                .map(|p| p.join(path))
-                .unwrap_or_else(|| path.to_path_buf()),
-            path.file_name()
-                .map(|n| case_dir.join("artifacts/carved").join(n))
-                .unwrap_or_else(|| path.to_path_buf()),
-        ];
-        let resolved = candidates
-            .iter()
-            .find(|c| c.exists())
-            .cloned()
-            .unwrap_or_else(|| candidates[0].clone());
+        let resolved = crate::util::resolve_case_artifact_path(case_dir, raw);
         item["output_path"] = serde_json::Value::String(crate::audit::path_string(&resolved));
     }
     serde_json::to_string(&items).unwrap_or_else(|_| "[]".to_string())
