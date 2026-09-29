@@ -149,6 +149,11 @@ pub(crate) fn serve_on(listener: TcpListener, state: SharedState) {
         }
         match listener.accept() {
             Ok((mut stream, _)) => {
+                // On Windows an accepted socket inherits the listener's
+                // nonblocking mode; a nonblocking write then fails with
+                // WouldBlock once the kernel send buffer fills, truncating
+                // large responses mid-stream. Force blocking explicitly.
+                let _ = stream.set_nonblocking(false);
                 let state = Arc::clone(&state);
                 let in_flight = Arc::clone(&in_flight);
                 if in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
