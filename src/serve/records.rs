@@ -177,6 +177,9 @@ pub(crate) fn api_records_meta(state: &SharedState) -> String {
     let body = serde_json::json!({
         "ok": true,
         "manifest": read_json(case_dir.join("case.json")),
+        // The viewer absolutizes relative carve/recovery artifact paths
+        // against this — same field name as the standalone data bundle.
+        "caseDir": crate::audit::path_string(&case_dir),
         "scan": scan,
         "carveLog": read_jsonl(case_dir.join("artifacts/carved/carve-log.jsonl")),
         "filesystemLog": read_jsonl(case_dir.join("evidence/logs/tsk-audit.jsonl")),

@@ -399,9 +399,15 @@ fn evidence_viewer_data(
     deepfake_json: &str,
     telemetry_json: &str,
     proxies_json: &str,
+    case_dir: &std::path::Path,
 ) -> String {
+    // Carve/recovery logs may carry relative artifact paths; the viewer
+    // absolutizes them against this directory.
+    let case_dir_json =
+        serde_json::to_string(&crate::audit::path_string(case_dir)).unwrap_or_default();
     format!(
-        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map},telemetry:{telemetry_map},proxies:{proxies_map}}};",
+        "window.__FRAMETRACE_DATA__ = {{manifest:{manifest},caseDir:{case_dir},scan:{index},carveLog:{carve_lines},filesystemLog:{filesystem_lines},validationLog:{validation_lines},anomalyLog:{anomaly_lines},flsEntries:{fls_lines},thumbs:{thumbs_lines},annotations:{annotations_lines},deepfake:{deepfake_map},telemetry:{telemetry_map},proxies:{proxies_map}}};",
+        case_dir = json_for_script(&case_dir_json),
         manifest = json_for_script(manifest_json),
         index = json_for_script(index_json),
         carve_lines = json_for_script(&jsonl_to_array(carve_log_jsonl)),
@@ -434,6 +440,7 @@ pub fn render_evidence_viewer_html(
     deepfake_json: &str,
     telemetry_json: &str,
     proxies_json: &str,
+    case_dir: &std::path::Path,
 ) -> String {
     // The layout/markup lives in assets/evidence_viewer.* and is embedded at
     // compile time, keeping the generated page a single serverless file.
@@ -450,6 +457,7 @@ pub fn render_evidence_viewer_html(
         deepfake_json,
         telemetry_json,
         proxies_json,
+        case_dir,
     );
     VIEWER_TEMPLATE
         .replace("__CSS__", VIEWER_CSS)
@@ -475,6 +483,7 @@ pub fn render_data_bundle_js(
     deepfake_json: &str,
     telemetry_json: &str,
     proxies_json: &str,
+    case_dir: &std::path::Path,
 ) -> String {
     evidence_viewer_data(
         manifest_json,
@@ -489,6 +498,7 @@ pub fn render_data_bundle_js(
         deepfake_json,
         telemetry_json,
         proxies_json,
+        case_dir,
     )
 }
 
@@ -885,7 +895,7 @@ fn jsonl_to_array(jsonl: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{render_carve_report_html, render_evidence_viewer_html};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     #[test]
@@ -935,6 +945,7 @@ mod tests {
         let filesystem = r#"{"event":"recover-inode","partition_offset":2048,"inode":"1304","output_path":"/case/artifacts/recovered/filesystem/inode_1304.bin","size_bytes":10,"sha256":"abc","validation_status":"candidate-unvalidated"}"#;
         let html = render_evidence_viewer_html(
             manifest, index, "", filesystem, "", "", "", "{}", "{}", "{}", "{}", "[]",
+            Path::new("C:\\case"),
         );
         assert!(html.contains("recoveredFilesystemLog"));
         assert!(html.contains("tsk/icat"));
@@ -953,6 +964,7 @@ mod tests {
             r#"{"vid_1":{"band":"high","score":88,"note":"</script><script>alert(1)</script>"}}"#;
         let html = render_evidence_viewer_html(
             manifest, index, "", "", "", "", "", "{}", "{}", deepfake, "{}", "[]",
+            Path::new("C:\\case"),
         );
         assert!(html.contains("deepfake:{\"vid_1\""));
         assert!(html.contains("vid_1"));
@@ -1031,6 +1043,7 @@ mod tests {
                 "{}",
                 "{}",
                 "[]",
+                Path::new("C:\\case"),
             ),
         );
         assert_script_blocks_parse_with_node(

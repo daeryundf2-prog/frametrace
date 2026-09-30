@@ -337,6 +337,7 @@ pub fn make_review(case_dir: &Path, redact_paths: bool, build_proxies: bool) -> 
         &deepfake_reports,
         &telemetry_reports,
         &proxies_json,
+        case_dir,
     );
     write_text(&case_dir.join("review/data-bundle.js"), &data_bundle)
         .map_err(|err| format!("failed to write review data bundle: {err}"))?;

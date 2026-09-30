@@ -28,6 +28,7 @@ async function loadViewerData() {
         done();
         return {
           manifest: meta.manifest || {},
+          caseDir: meta.caseDir || "",
           scan,
           carveLog: meta.carveLog,
           filesystemLog: meta.filesystemLog,

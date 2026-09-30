@@ -183,6 +183,26 @@ function normalizePath(value) {
   return text.split(BS).join("/").toLowerCase();
 }
 
+// Carve/recovery logs can carry paths relative to the case dir or its
+// parent ("<case-name>\artifacts\..."). Absolutize against the case dir so
+// downloads, /media playback, and export resolve identically under file://
+// and served modes — a relative path would otherwise produce a dead
+// file:/// URL or a 404 against the server's cwd.
+const caseDirPath = String(DATA.caseDir || "").replace(/[\\\/]+$/, "");
+const caseDirName = caseDirPath.split(/[\\\/]/).filter(Boolean).pop() || "";
+function absolutizeArtifactPath(path) {
+  const norm = String(path || "").split("/").join(BS);
+  if (!norm) return norm;
+  // Already absolute: "C:\…", "\\?\C:\…", or UNC "\\host\share".
+  if (/^[A-Za-z]:[\\\/]/.test(norm) || norm.startsWith(BS + BS)) return norm;
+  if (!caseDirPath) return norm;
+  // "<case-name>\…" was logged relative to the case directory's parent.
+  if (caseDirName && (norm === caseDirName || norm.startsWith(caseDirName + BS))) {
+    return caseDirPath.slice(0, caseDirPath.length - caseDirName.length - 1) + BS + norm;
+  }
+  return caseDirPath + BS + norm;
+}
+
 function fileUrl(path) {
   if (!path) return "";
   let value = String(path);
@@ -391,8 +411,8 @@ const records = [
       id: item.id || item.output_path,
       kind: "carved",
       name: item.output_path ? item.output_path.split(/[\\\/]/).pop() : item.id,
-      path: item.output_path,
-      fileUrl: fileUrl(item.output_path),
+      path: absolutizeArtifactPath(item.output_path),
+      fileUrl: fileUrl(absolutizeArtifactPath(item.output_path)),
       parser: item.signature || "carve",
       vendor: "Recovered candidate",
       status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
@@ -450,8 +470,8 @@ const records = [
       id: `inode:${item.partition_offset ?? 0}:${item.inode || item.output_path}`,
       kind: "filesystem",
       name: item.output_path ? item.output_path.split(/[\\\/]/).pop() : item.inode,
-      path: item.output_path,
-      fileUrl: fileUrl(item.output_path),
+      path: absolutizeArtifactPath(item.output_path),
+      fileUrl: fileUrl(absolutizeArtifactPath(item.output_path)),
       parser: "tsk/icat",
       vendor: "Filesystem recovery",
       status: validation?.validation_status || item.validation_status || "candidate-unvalidated",
