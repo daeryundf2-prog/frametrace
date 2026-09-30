@@ -37,7 +37,7 @@ body.embed .main { grid-template-columns: minmax(0, 58%) 10px minmax(0, 1fr); }
 h1 { font-size: 16px; margin: 0; }
 .case-line { color: var(--muted); font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header-actions { display: flex; align-items: center; gap: 8px; }
-.badge { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 11px; border: 1px solid var(--line); background: #f6f9f8; color: var(--muted); }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 11px; border: 1px solid var(--line); background: #f6f9f8; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
 .badge.ok { background: #e8f4ee; border-color: #bcd9c9; color: var(--ok); }
 .badge.candidate { background: #f1eef8; border-color: #d5cde8; color: var(--candidate); }
 .badge.failed { background: #f8ece9; border-color: #e0c0ba; color: var(--danger); }
@@ -233,8 +233,8 @@ body.theater .player { grid-template-rows: 34px minmax(0, 1fr) 34px; }
 .channel-badge { display: inline-block; border-radius: 3px; padding: 0 5px; font-size: 11px; font-weight: 800; background: #e9eff6; color: #344054; }
 .name-row { display: flex; align-items: center; gap: 4px; overflow: hidden; }
 .name-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.time-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin: 2px 0; }
-.time-text { font-size: 11px; color: var(--muted); }
+.time-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin: 2px 0; flex-wrap: wrap; }
+.time-text { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-row { display: flex; align-items: center; gap: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
