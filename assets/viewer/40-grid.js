@@ -376,8 +376,9 @@ function renderHistogram(filtered) {
     || `<span class="muted">${t("hist.empty")}</span>`;
   els.dayHistogram.querySelectorAll("button[data-day]").forEach(button => {
     button.addEventListener("click", () => {
-      state.dateFrom = button.dataset.day;
-      state.dateTo = button.dataset.day;
+      const already = state.dateFrom === button.dataset.day && state.dateTo === button.dataset.day;
+      state.dateFrom = already ? "" : button.dataset.day;
+      state.dateTo = already ? "" : button.dataset.day;
       els.dateFrom.value = state.dateFrom;
       els.dateTo.value = state.dateTo;
       state.currentPage = 1;

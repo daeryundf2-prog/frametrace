@@ -84,7 +84,7 @@ body.theater .vsplitter { display: none; }
 .hist { display: flex; align-items: flex-end; gap: 2px; height: 38px; overflow-x: auto; }
 .hist button { flex: 0 0 auto; width: 22px; height: 100%; display: grid; align-items: end; justify-items: center; border: none; background: transparent; padding: 0; cursor: pointer; }
 .hist button .bar { width: 100%; min-height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; }
-.hist button.selected .bar { background: var(--danger); }
+.hist button.selected .bar { background: var(--ink); }
 .hist button .lbl { font-size: 11px; color: var(--muted); }
 .period { padding: 0 2px; }
 .midrow { flex: 1 1 auto; display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 8px; min-height: 0; }
