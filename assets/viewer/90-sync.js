@@ -244,16 +244,69 @@ function triggerDownload(record) {
   a.remove();
   return true;
 }
-document.getElementById("btnDownloadFile").addEventListener("click", () => {
+// Folder-pick saves need a fetchable source: /media over http(s). file://
+// pages cannot fetch file:// URLs (CORS), so standalone falls back to
+// browser downloads below.
+function canFolderSave() {
+  return typeof window.showDirectoryPicker === "function" &&
+    (location.protocol === "http:" || location.protocol === "https:");
+}
+function safeFileName(name) {
+  return String(name || "evidence").replace(/[\\/:*?"<>|]/g, "_") || "evidence";
+}
+async function writeRecordTo(dir, record) {
+  const href = downloadHref(record);
+  if (!href) return false;
+  const res = await fetch(href);
+  if (!res.ok || !res.body) return false;
+  const handle = await dir.getFileHandle(safeFileName(record.originalName || record.name || record.id), { create: true });
+  const writable = await handle.createWritable();
+  await res.body.pipeTo(writable);
+  return true;
+}
+document.getElementById("btnDownloadFile").addEventListener("click", async () => {
   const record = selectedRecord();
   if (!record) { toast(t("toast.selectFirst")); return; }
+  if (canFolderSave() && typeof window.showSaveFilePicker === "function") {
+    try {
+      const handle = await showSaveFilePicker({ suggestedName: safeFileName(record.originalName || record.name || record.id) });
+      const href = downloadHref(record);
+      if (!href) { toast(t("toast.fileOnly")); return; }
+      const res = await fetch(href);
+      if (!res.ok || !res.body) { toast(t("toast.fileOnly")); return; }
+      const writable = await handle.createWritable();
+      await res.body.pipeTo(writable);
+      toast(tf("toast.fileSaved", { name: handle.name }));
+    } catch (error) {
+      if (error.name !== "AbortError") toast(tf("toast.folderFail", { err: error.message }));
+    }
+    return;
+  }
   if (!triggerDownload(record)) {
     toast(t("toast.fileOnly"));
   }
 });
-document.getElementById("btnDownloadFiles").addEventListener("click", () => {
+document.getElementById("btnDownloadFiles").addEventListener("click", async () => {
   const selected = selectedRecords();
   if (!selected.length) { toast(t("toast.selectFirst")); return; }
+  if (canFolderSave()) {
+    try {
+      const dir = await showDirectoryPicker({ mode: "readwrite" });
+      let saved = 0, failed = 0;
+      for (const record of selected) {
+        try {
+          if (await writeRecordTo(dir, record)) saved += 1;
+          else failed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      toast(failed ? tf("toast.folderPartial", { n: saved, f: failed }) : tf("toast.folderSaved", { n: saved }));
+    } catch (error) {
+      if (error.name !== "AbortError") toast(tf("toast.folderFail", { err: error.message }));
+    }
+    return;
+  }
   let started = 0;
   selected.forEach((record, index) => {
     if (!downloadHref(record)) return;
