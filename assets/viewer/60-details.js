@@ -130,7 +130,9 @@ function renderDetails() {
     record.indexStatus === "stale" ? '<span class="muted">stale</span>' : ""
   ].join(" ");
   els.summaryList.innerHTML = [
-    [t("detail.recTime"), record.recTime ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : " " + t("detail.est")) : t("detail.unknown")],
+    [t("detail.recTime"), record.recTime
+      ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : record.recSource === "name-date" ? " " + t("detail.dateOnly") : " " + t("detail.est"))
+      : t("detail.unknown")],
     [t("detail.channel"), record.channel || "-"],
     [t("detail.mark"), mark ? markLabel(mark.status) : t("detail.unmarked")],
     [t("detail.len"), fmtDuration(record.duration)],

@@ -335,7 +335,9 @@ function renderCard(record) {
     ? record.originalName
     : record.name;
   const recTime = record.recTime
-    ? new Date(record.recTime * 1000).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    ? record.recSource === "name-date"
+      ? record.recDay
+      : new Date(record.recTime * 1000).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     : "";
   const tagsHtml = tagListFor(record).length
     ? `<div class="tag-row">${tagListFor(record).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")}</div>`

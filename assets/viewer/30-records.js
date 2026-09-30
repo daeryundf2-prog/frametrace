@@ -6,6 +6,8 @@ const flsEntryByInode = new Map();
 });
 
 const TIME_PATTERNS = [
+  // Dashcam style: 20260916-13h41m15s / 2026_09_16 13h41m15s
+  { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])h([0-5]\d)m([0-5]\d)s/i, hasTime: true },
   { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])[:_.\-]?([0-5]\d)[:_.\-]?([0-5]\d)/, hasTime: true },
   { re: /(20\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])[ T_\-]+([01]\d|2[0-3])([0-5]\d)([0-5]\d)/, hasTime: true },
   { re: /(20\d{2})[_.\-]?(0[1-9]|1[0-2])[_.\-]?(0[1-9]|[12]\d|3[01])(?!\d)/, hasTime: false }
@@ -22,7 +24,9 @@ function parseTimeFromName(name) {
     const ss = match[6] ?? "00";
     const ts = new Date(+year, +month - 1, +day, +hh, +mm, +ss).getTime() / 1000;
     if (Number.isFinite(ts)) {
-      return { ts, date: `${year}-${month}-${day}`, source: "name" };
+      // hasTime:false means only the date part matched — the 00:00:00
+      // time is synthetic and must not be presented as a recording time.
+      return { ts, date: `${year}-${month}-${day}`, source: pattern.hasTime ? "name" : "name-date" };
     }
   }
   return null;
