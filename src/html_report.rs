@@ -16,6 +16,9 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
+  <script>
+    try {{ document.documentElement.dataset.theme = localStorage.getItem("ft-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }} catch (e) {{}}
+  </script>
   <title>FrameTrace Review</title>
   <style>
     :root {{
@@ -31,14 +34,18 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     header {{
       background: #ffffff;
       border-bottom: 1px solid #d9dee7;
-      padding: 18px 24px;
+      padding: 12px 24px;
       position: sticky;
       top: 0;
       z-index: 10;
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      flex-wrap: wrap;
     }}
     h1 {{
-      font-size: 20px;
-      margin: 0 0 6px;
+      font-size: 18px;
+      margin: 0 0 2px;
       letter-spacing: 0;
     }}
     .subtle {{
@@ -169,12 +176,33 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
       color: #98a2b3;
       background: #f2f4f7;
     }}
+    #btnTheme {{ margin-left: auto; }}
+    html[data-theme="dark"] {{
+      color-scheme: dark; background: #101514; color: #dfe8e4;
+    }}
+    html[data-theme="dark"] :root, html[data-theme="dark"] body {{ background: #101514; }}
+    html[data-theme="dark"] header {{ background: #1a211e; border-bottom-color: #2c3a34; }}
+    html[data-theme="dark"] .subtle {{ color: #8fa79e; }}
+    html[data-theme="dark"] .metric {{ background: #1a211e; border-color: #2c3a34; }}
+    html[data-theme="dark"] input, html[data-theme="dark"] select {{ background: #161d1a; border-color: #3a4f48; color: #dfe8e4; }}
+    html[data-theme="dark"] table {{ background: #1a211e; border-color: #2c3a34; }}
+    html[data-theme="dark"] th, html[data-theme="dark"] td {{ border-bottom-color: #26302c; }}
+    html[data-theme="dark"] th {{ background: #232c28; color: #b8ccc4; }}
+    html[data-theme="dark"] tr:hover td {{ background: #1d2926; }}
+    html[data-theme="dark"] .badge {{ background: #26344a; color: #a8c4e0; }}
+    html[data-theme="dark"] .actions a {{ color: #7ab8f5; }}
+    html[data-theme="dark"] .empty {{ background: #1a211e; border-color: #2c3a34; }}
+    html[data-theme="dark"] .warnings {{ background: #3a2e1a; border-color: #5c4a28; color: #d9b45b; }}
+    html[data-theme="dark"] .table-status {{ color: #8fa79e; }}
+    html[data-theme="dark"] button {{ background: #232c28; border-color: #3a4f48; color: #dfe8e4; }}
+    html[data-theme="dark"] button:disabled {{ color: #5a6b64; background: #1a211e; }}
   </style>
 </head>
 <body>
   <header>
     <h1 id="title">FrameTrace Review</h1>
     <div class="subtle" id="subtitle"></div>
+    <button id="btnTheme" type="button" title="테마 전환">◐ 테마</button>
   </header>
   <main>
     <section class="metrics" aria-label="scan metrics">
@@ -208,6 +236,12 @@ pub fn render_review_html(manifest_json: &str, index_json: &str) -> String {
     const scan = {index};
     const videos = Array.isArray(scan.videos) ? scan.videos : [];
     const warnings = Array.isArray(scan.warnings) ? scan.warnings : [];
+
+    document.getElementById("btnTheme").addEventListener("click", () => {{
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      try {{ localStorage.setItem("ft-theme", next); }} catch (e) {{}}
+    }});
 
     const fmtBytes = value => {{
       if (!Number.isFinite(value)) return "-";
@@ -512,11 +546,38 @@ pub fn render_carve_report_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
+  <script>
+    try {{ document.documentElement.dataset.theme = localStorage.getItem("ft-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }} catch (e) {{}}
+  </script>
   <title>FrameTrace — 카빙 결과</title>
   <style>
     :root {{ font-family: "Segoe UI", Arial, sans-serif; color: #1f2933; background: #f6f7f9; }}
     body {{ margin: 0; }}
-    header {{ background: #fff; border-bottom: 1px solid #d9dee7; padding: 14px 22px; position: sticky; top: 0; z-index: 5; }}
+    header {{ background: #fff; border-bottom: 1px solid #d9dee7; padding: 12px 22px; position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }}
+    header .metrics {{ margin-top: 0; margin-left: auto; }}
+    #btnTheme {{ border: 1px solid #d9dee7; border-radius: 6px; background: #fff; padding: 4px 10px; font-size: 12px; cursor: pointer; }}
+    html[data-theme="dark"] :root, html[data-theme="dark"] body {{ background: #101514; color: #dfe8e4; color-scheme: dark; }}
+    html[data-theme="dark"] header {{ background: #1a211e; border-bottom-color: #2c3a34; }}
+    html[data-theme="dark"] .subtle {{ color: #8fa79e; }}
+    html[data-theme="dark"] .metric {{ background: #1a211e; border-color: #2c3a34; }}
+    html[data-theme="dark"] .metric.warn {{ border-color: #5c4a28; }}
+    html[data-theme="dark"] .metric.fail {{ border-color: #5c3733; }}
+    html[data-theme="dark"] .metric.ok {{ border-color: #2a5245; }}
+    html[data-theme="dark"] .chip {{ background: #232c28; border-color: #3a4f48; color: #dfe8e4; }}
+    html[data-theme="dark"] .chip.on {{ background: #3fa08e; border-color: #3fa08e; color: #0b1411; }}
+    html[data-theme="dark"] .search, html[data-theme="dark"] select {{ background: #161d1a; border-color: #3a4f48; color: #dfe8e4; }}
+    html[data-theme="dark"] table {{ background: #1a211e; }}
+    html[data-theme="dark"] th, html[data-theme="dark"] td {{ border-bottom-color: #26302c; }}
+    html[data-theme="dark"] th {{ background: #232c28; }}
+    html[data-theme="dark"] tr[data-id]:hover {{ background: #1d2926; }}
+    html[data-theme="dark"] tr.sel {{ background: #20333a; }}
+    html[data-theme="dark"] .badge {{ background: #26302c; }}
+    html[data-theme="dark"] .badge.failed {{ background: #3d2422; }}
+    html[data-theme="dark"] .badge.ok {{ background: #16382c; }}
+    html[data-theme="dark"] .detail {{ background: #1a211e; border-color: #2c3a34; }}
+    html[data-theme="dark"] .kv b {{ color: #8fa79e; }}
+    html[data-theme="dark"] a {{ color: #7ab8f5; }}
+    html[data-theme="dark"] #btnTheme {{ background: #232c28; border-color: #3a4f48; color: #dfe8e4; }}
     h1 {{ font-size: 18px; margin: 0 0 4px; }}
     .subtle {{ color: #667085; font-size: 12px; }}
     .metrics {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }}
@@ -552,6 +613,7 @@ pub fn render_carve_report_html(
   <h1>카빙 결과 <span class="subtle" id="caseTitle"></span></h1>
   <div class="subtle" id="sourceInfo"></div>
   <div class="metrics" id="metrics"></div>
+  <button id="btnTheme" type="button" title="테마 전환 (라이트/다크)">◐ 테마</button>
 </header>
 <main>
   <div class="filters" id="filters"></div>
@@ -636,6 +698,11 @@ const hex = n => "0x" + (n||0).toString(16);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}})[c]);
 
 // header
+document.getElementById("btnTheme").addEventListener("click", () => {{
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try {{ localStorage.setItem("ft-theme", next); }} catch (e) {{}}
+}});
 document.getElementById("caseTitle").textContent = MANIFEST.case_id ? "— " + MANIFEST.case_id : "";
 const R = RESULTS || {{}};
 document.getElementById("sourceInfo").textContent =

@@ -33,6 +33,22 @@ document.getElementById("btnLang")?.addEventListener("click", () => {
   storageSet(LOCALE_KEY, state.locale);
   render();
 });
+// Shared ft-theme key — same choice as the workstation shell. When this
+// page is the embedded iframe the host also retags this document
+// directly, so both paths land on the same attribute.
+const themeBtn = document.getElementById("btnTheme");
+const syncThemeBtn = () => {
+  if (!themeBtn) return;
+  const dark = document.documentElement.dataset.theme === "dark";
+  themeBtn.textContent = dark ? "☀ " + t("theme.light") : "◐ " + t("theme.dark");
+};
+themeBtn?.addEventListener("click", () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("ft-theme", next); } catch (e) {}
+  syncThemeBtn();
+});
+syncThemeBtn();
 applyLayout();
 render();
 })();

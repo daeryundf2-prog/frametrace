@@ -3,7 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <script>
+    // Theme resolves before first paint (no flash): the shared ft-theme
+    // key falls back to the OS preference. Same key as the workstation
+    // shell, so the examiner's choice follows into this iframe.
+    try {
+      document.documentElement.dataset.theme =
+        localStorage.getItem("ft-theme") ||
+        (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    } catch (e) {}
+  </script>
   <link rel="icon" href="data:,">
   <title>FrameTrace Evidence Viewer</title>
   <style>
@@ -21,6 +30,7 @@ __CSS__
       <span class="badge failed" title="validation failed"><span data-i18n="header.failed">실패</span> <span id="metricFailed">0</span></span>
       <span class="badge anomaly" title="candidate anomaly findings"><span data-i18n="header.anomaly">이상 후보</span> <span id="metricAnomaly">0</span></span>
       <a id="linkCarveReport" href="carve-report.html" hidden data-i18n="link.carve">카빙 결과</a>
+      <button id="btnTheme" type="button" data-i18n-title="theme.toggle" title="테마 전환">◐</button>
       <button id="btnLang" type="button" title="Switch language" data-i18n-title="lang.switch">EN</button>
       <div class="menu menu-down">
         <button id="btnViewMenu" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="viewMenuList" data-i18n="menu.view">보기 ▾</button>
