@@ -561,6 +561,7 @@ const state = {
   kind: "",
   status: "",
   chip: "",
+  chipsExpanded: false,
   sortBy: "id",
   groupBy: "none",
   dateFrom: "",

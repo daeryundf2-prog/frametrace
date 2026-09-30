@@ -310,12 +310,22 @@ function renderChips() {
   // Status/mark chips stay inline; tag filters live in the 정렬·표시
   // panel's tag select so the chip row stays a single group.
   const parts = [`<span class="chip-label">${t("filter.label")}</span>`];
-  for (const [value, label] of PRESET_CHIPS) {
+  let hidden = 0;
+  for (const [value, label, secondary] of PRESET_CHIPS) {
     if (value.startsWith("tag:")) continue;
-    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}">${escapeHtml(t(label))}</button>`);
+    if (secondary && !state.chipsExpanded && state.chip !== value) { hidden += 1; continue; }
+    const tip = t(`chip.tip.${label.slice(5)}`);
+    parts.push(`<button type="button" class="chip ${state.chip === value ? "active" : ""}" data-chip="${escapeHtml(value)}" title="${escapeHtml(tip)}">${escapeHtml(t(label))}</button>`);
+  }
+  if (hidden || state.chipsExpanded) {
+    parts.push(`<button type="button" class="chip chip-more" id="chipMore">${escapeHtml(t(state.chipsExpanded ? "chip.less" : "chip.more"))}</button>`);
   }
   els.presetChips.innerHTML = parts.join("");
-  els.presetChips.querySelectorAll(".chip").forEach(chip => {
+  document.getElementById("chipMore")?.addEventListener("click", () => {
+    state.chipsExpanded = !state.chipsExpanded;
+    renderChips();
+  });
+  els.presetChips.querySelectorAll(".chip[data-chip]").forEach(chip => {
     chip.addEventListener("click", () => {
       const value = chip.dataset.chip;
       state.chip = value;

@@ -78,6 +78,7 @@ body.theater .vsplitter { display: none; }
 .chip-label:first-child { margin-left: 0; }
 .chip { height: 26px; border-radius: 999px; padding: 0 10px; font-size: 12px; background: #eef3f1; border: 1px solid #cdd8d4; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip-more { border-style: dashed; color: var(--muted); }
 .histline { display: flex; align-items: center; gap: 10px; }
 .histline .period { flex: 0 0 auto; }
 .histline .hist { flex: 1 1 auto; min-width: 0; }

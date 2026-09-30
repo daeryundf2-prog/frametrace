@@ -68,10 +68,10 @@ __CSS__
         </select>
         <select id="status" title="검증 상태" data-i18n-title="filter.status">
           <option value="" data-i18n="filter.status.all">전체 검증 상태</option>
-          <option value="ffprobe-video-stream-confirmed">ffprobe-video-stream-confirmed</option>
-          <option value="validation-failed">validation-failed</option>
-          <option value="candidate-unvalidated">candidate-unvalidated</option>
-          <option value="duplicate-candidate">duplicate-candidate</option>
+          <option value="ffprobe-video-stream-confirmed" data-i18n="status.verified">검증됨</option>
+          <option value="validation-failed" data-i18n="status.failed">검증 실패</option>
+          <option value="candidate-unvalidated" data-i18n="status.candidate">미검증 후보</option>
+          <option value="duplicate-candidate" data-i18n="status.duplicate">중복 후보</option>
         </select>
         <button id="btnMoreFilters" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="filtersExtra" title="정렬, 그룹화, 페이지 크기, 기간 필터" data-i18n="menu.filters">정렬·표시 ▾</button>
       </div>

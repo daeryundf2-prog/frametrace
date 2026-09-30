@@ -40,18 +40,20 @@ const els = {
   caseWarnings: document.getElementById("caseWarnings")
 };
 
+// [value, label key, secondary] — secondary chips hide behind the
+// "더보기" expander; their filters still work via the status/mark selects.
 const PRESET_CHIPS = [
   ["", "chip.all"],
   ["kind:recovery", "chip.recovery"],
-  ["marked:any", "chip.marked"],
-  ["anomaly", "chip.anomaly"],
-  ["warning", "chip.warning"],
-  ["status:validation-failed", "chip.failed"],
   ["status:candidate-unvalidated", "chip.candidate"],
-  ["status:duplicate-candidate", "chip.duplicate"],
   ["mark:important", "chip.markImportant"],
-  ["mark:reviewed", "chip.markReviewed"],
   ["mark:none", "chip.markNone"],
+  ["marked:any", "chip.marked", true],
+  ["anomaly", "chip.anomaly", true],
+  ["warning", "chip.warning", true],
+  ["status:validation-failed", "chip.failed", true],
+  ["status:duplicate-candidate", "chip.duplicate", true],
+  ["mark:reviewed", "chip.markReviewed", true],
 ];
 
 function filteredRecords() {
