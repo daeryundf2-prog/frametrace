@@ -363,30 +363,71 @@ function renderCard(record) {
   </div>`;
 }
 
+// Month-calendar rendering of per-day counts. Each cell shows the day
+// number and a count chip; intensity follows the count relative to the
+// month's max. Click selects the day as a date filter; clicking the
+// selected day clears it. Month nav steps through the recorded span.
 function renderHistogram(filtered) {
   const days = new Map();
   filtered.forEach(record => {
     if (record.recDay) days.set(record.recDay, (days.get(record.recDay) || 0) + 1);
   });
-  const top = [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).slice(-16);
-  const max = Math.max(1, ...top.map(entry => entry[1]));
-  els.dayHistogram.innerHTML = top.map(([day, count]) => `
-    <button type="button" class="${state.dateFrom === day && state.dateTo === day ? "selected" : ""}" data-day="${escapeHtml(day)}" title="${escapeHtml(tf("hist.item", { day, count }))}" aria-label="${escapeHtml(tf("hist.item", { day, count }))}">
-      <span class="bar" style="height:${Math.round((count * 40) / max)}px"></span>
-      <span class="lbl">${escapeHtml(day.slice(5))}</span>
-    </button>`).join("")
-    || `<span class="muted">${t("hist.empty")}</span>`;
-  els.dayHistogram.querySelectorAll("button[data-day]").forEach(button => {
-    button.addEventListener("click", () => {
-      const already = state.dateFrom === button.dataset.day && state.dateTo === button.dataset.day;
-      state.dateFrom = already ? "" : button.dataset.day;
-      state.dateTo = already ? "" : button.dataset.day;
+  const allDays = [...days.keys()].sort();
+  const months = [...new Set(allDays.map(d => d.slice(0, 7)))];
+  if (!months.length) {
+    els.dayHistogram.innerHTML = `<span class="muted">${t("hist.empty")}</span>`;
+    els.periodLabel.textContent = t("hist.none");
+    return;
+  }
+  // Default to the filtered day's month, else the latest recorded month.
+  if (!state.calMonth || !months.includes(state.calMonth)) {
+    const picked = state.dateFrom?.slice(0, 7);
+    state.calMonth = months.includes(picked) ? picked : months[months.length - 1];
+  }
+  const [cy, cm] = state.calMonth.split("-").map(Number);
+  const max = Math.max(1, ...months.includes(state.calMonth)
+    ? allDays.filter(d => d.startsWith(state.calMonth)).map(d => days.get(d))
+    : [1]);
+  const first = new Date(cy, cm - 1, 1);
+  const startWeekday = (first.getDay() + 6) % 7; // Monday-first
+  const dim = new Date(cy, cm, 0).getDate();
+  const loc = state.locale === "en" ? "en-US" : "ko-KR";
+  const weekdayNames = Array.from({ length: 7 }, (_, i) =>
+    new Date(2024, 0, 1 + i).toLocaleDateString(loc, { weekday: "narrow" })); // 2024-01-01 = Monday
+  const cells = weekdayNames.map(w => `<span class="cal-wd">${escapeHtml(w)}</span>`);
+  for (let i = 0; i < startWeekday; i++) cells.push(`<span class="cal-cell empty"></span>`);
+  for (let d = 1; d <= dim; d++) {
+    const day = `${state.calMonth}-${String(d).padStart(2, "0")}`;
+    const count = days.get(day) || 0;
+    const selected = state.dateFrom === day && state.dateTo === day;
+    const level = count ? Math.min(4, 1 + Math.floor((count * 3) / max)) : 0;
+    cells.push(count
+      ? `<button type="button" class="cal-cell l${level}${selected ? " selected" : ""}" data-day="${day}" title="${escapeHtml(tf("hist.item", { day, count }))}"><span class="cal-d">${d}</span><span class="cal-n">${count > 99 ? "99+" : count}</span></button>`
+      : `<span class="cal-cell l0${selected ? " selected" : ""}" data-day="${day}"><span class="cal-d">${d}</span></span>`);
+  }
+  const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString(loc, { year: "numeric", month: "long" });
+  const mi = months.indexOf(state.calMonth);
+  const nav = months.length > 1
+    ? `<div class="cal-nav">
+        <button type="button" class="cal-btn" id="calPrev" ${mi <= 0 ? "disabled" : ""} title="${escapeHtml(t("cal.prev"))}">‹</button>
+        <span class="cal-month">${escapeHtml(monthLabel)}</span>
+        <button type="button" class="cal-btn" id="calNext" ${mi >= months.length - 1 ? "disabled" : ""} title="${escapeHtml(t("cal.next"))}">›</button>
+      </div>`
+    : `<div class="cal-nav"><span class="cal-month">${escapeHtml(monthLabel)}</span></div>`;
+  els.dayHistogram.innerHTML = `<div class="cal">${nav}<div class="cal-grid">${cells.join("")}</div></div>`;
+  els.dayHistogram.querySelectorAll("[data-day]").forEach(cell => {
+    cell.addEventListener("click", () => {
+      const already = state.dateFrom === cell.dataset.day && state.dateTo === cell.dataset.day;
+      state.dateFrom = already ? "" : cell.dataset.day;
+      state.dateTo = already ? "" : cell.dataset.day;
       els.dateFrom.value = state.dateFrom;
       els.dateTo.value = state.dateTo;
       state.currentPage = 1;
       render();
     });
   });
+  document.getElementById("calPrev")?.addEventListener("click", () => { state.calMonth = months[mi - 1]; render(); });
+  document.getElementById("calNext")?.addEventListener("click", () => { state.calMonth = months[mi + 1]; render(); });
   const known = records.filter(record => record.recDay).map(record => record.recDay).sort();
   els.periodLabel.textContent = known.length
     ? tf("hist.range", { from: known[0], to: known[known.length - 1], known: known.length, total: records.length })

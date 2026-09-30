@@ -562,6 +562,7 @@ const state = {
   status: "",
   chip: "",
   chipsExpanded: false,
+  calMonth: "",
   sortBy: "id",
   groupBy: "none",
   dateFrom: "",
