@@ -306,6 +306,20 @@ function renderGrid(filtered) {
   els.recordGrid.innerHTML = cardsHtml.join("") || `<div class="fallback">${t("grid.empty")}</div>`;
 }
 
+// Tri-state audio flag: probed codec present → speaker, probed with no
+// audio stream → muted, unprobed (carved/candidate) → nothing so we never
+// claim audio state we haven't verified.
+function audioFlag(record) {
+  const codec = String(record.audioCodec || "").toLowerCase();
+  if (codec && codec !== "none" && codec !== "-") {
+    return `<span class="audio-flag has" title="${escapeHtml(record.audioCodec)}">🔊</span>`;
+  }
+  if (record.probeOk === true) {
+    return `<span class="audio-flag none" title="${escapeHtml(t("audio.absent"))}">🔇</span>`;
+  }
+  return "";
+}
+
 function renderCard(record) {
   const mark = markOf(record);
   const markChip = mark ? `<span class="mark-chip ${escapeHtml(mark.status)}">${escapeHtml(markLabel(mark.status))}</span>` : "";
@@ -342,7 +356,7 @@ function renderCard(record) {
       <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
       <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="badge ${statusClass(record.status)}" title="${escapeHtml(record.status)}">${escapeHtml(statusLabel(record.status))}</span>${anomalyChip}${warnChip}${dflChip}</div>
       ${tagsHtml}
-      <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${markChip}${staleTag}</span></div>
+      <div class="sub-row"><span class="sub">${fmtBytes(record.size)}${audioFlag(record)}${markChip}${staleTag}</span></div>
     </div>
   </div>`;
 }

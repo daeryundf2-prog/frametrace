@@ -37,6 +37,13 @@ function drawTelemetry(report) {
   note.textContent = tf("telemetry.summary", { n: pts.length }) + speed + camm;
 }
 
+function audioDetailText(record) {
+  const codec = String(record.audioCodec || "").toLowerCase();
+  if (codec && codec !== "none" && codec !== "-") return record.audioCodec;
+  if (record.probeOk === true) return t("audio.absent");
+  return t("audio.unknown");
+}
+
 function renderDetails() {
   const record = selectedRecord();
   const teleTitle = document.getElementById("telemetryTitle");
@@ -128,6 +135,7 @@ function renderDetails() {
     [t("detail.mark"), mark ? markLabel(mark.status) : t("detail.unmarked")],
     [t("detail.len"), fmtDuration(record.duration)],
     [t("detail.size"), fmtBytes(record.size)],
+    [t("detail.audio"), audioDetailText(record)],
     [t("detail.anomaly"), record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
     [t("detail.dfl"), record.dfl ? (record.dfl.band
         ? tf("detail.dflScore", { label: record.dfl.band_label || record.dfl.band, score: record.dfl.score ?? "?" }) + (record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : "")

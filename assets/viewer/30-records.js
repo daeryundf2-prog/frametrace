@@ -394,6 +394,7 @@ const records = [
       sha256: validation?.target_sha256 || video.sha256 || video.hash_status || "-",
       duration: validation?.duration_seconds ?? video.duration_seconds,
       codec: validation?.video_codec || video.video_codec || "-",
+      audioCodec: video.audio_codec || "",
       ext: video.extension || extOfPath(video.relative_path || video.source_path),
       container: video.format_name || "",
       probeOk: video.ffprobe_ok ?? validation?.ffprobe_ok,

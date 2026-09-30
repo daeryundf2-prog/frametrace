@@ -236,6 +236,8 @@ body.theater .player { grid-template-rows: 34px minmax(0, 1fr) 34px; }
 .time-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin: 2px 0; flex-wrap: wrap; }
 .time-text { font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub-row { display: flex; align-items: center; gap: 4px; }
+.audio-flag { font-size: 11px; line-height: 1; margin-left: 2px; }
+.audio-flag.none { opacity: .55; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
