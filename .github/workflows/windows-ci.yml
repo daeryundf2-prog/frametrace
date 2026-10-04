@@ -25,6 +25,8 @@ jobs:
           node-version: 22
       - name: Frontend asset checks
         run: node scripts/check-css.mjs
+      - name: Contract pin drift-check
+        run: node scripts/verify-contract-pin.mjs
       - name: Viewer JavaScript syntax
         run: |
           node --check gui/evidence-viewer/app.js

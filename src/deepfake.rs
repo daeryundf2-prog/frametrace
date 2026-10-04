@@ -470,7 +470,12 @@ mod tests {
     use std::path::PathBuf;
 
     fn temp_dir() -> PathBuf {
-        crate::util::unique_dir(Path::new("deepfake-test"))
+        // Root under the OS temp dir — a relative base would litter the
+        // repo root with `deepfake-test*` dirs on every `cargo test` run.
+        crate::util::unique_dir(&std::env::temp_dir().join(format!(
+            "frametrace-deepfake-test-{}",
+            std::process::id()
+        )))
     }
 
     /// A real executable masquerading as `deepfake-lens.exe` so
@@ -565,6 +570,7 @@ mod tests {
         assert_eq!(stats.skipped_missing, 1);
         assert_eq!(stats.screened, 0);
         assert!(!dir.join("artifacts/deepfake/vid_1.json").is_file());
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(windows)]
@@ -601,6 +607,7 @@ mod tests {
         assert_eq!(stats.failed, 1);
         let artifact = fs::read_to_string(dir.join("artifacts/deepfake/vid_1.json")).unwrap();
         assert!(artifact.contains("\"ok\":false"));
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(windows)]
@@ -636,6 +643,7 @@ mod tests {
         fs::write(&torn, "{\"ok\":tru").unwrap();
         assert!(artifact_failed(&torn));
         assert!(artifact_failed(&dir.join("missing.json")));
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -658,6 +666,7 @@ mod tests {
         assert!(map.get("ok_1").is_some());
         assert!(map.get("bad_1").is_none());
         assert_eq!(map.as_object().unwrap().len(), 1);
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -686,5 +695,6 @@ mod tests {
         let targets = collect_targets(&dir);
         let ids: Vec<&str> = targets.iter().map(|t| t.id.as_str()).collect();
         assert_eq!(ids, vec!["vid_1", "carve_1", "inode:2048:1304"]);
+        let _ = fs::remove_dir_all(dir);
     }
 }

@@ -61,6 +61,7 @@ Do not build the final GUI first; the CLI/engine contract is the source of truth
 - `docs/EVIDENCE_VIEWER_GUI.md` - viewer-first GUI plan, screen model, and production boundary.
 - `docs/OPENDESIGN_ADAPTATION.md` - OpenDesign-compatible FrameTrace design-system handoff notes.
 - `docs/VIEWER_UX_PLAN.md` - viewer UX plan phases and implementation status.
+- `docs/DEEPFAKE_LENS.md` - deepfake-lens sidecar contract and synthetic-media screening lane.
 - `docs/schema.md` - SQLite schema audit and migration contract.
 - `docs/security-review.md` - security review findings and remediation tracking.
 - `docs/static-analysis.md` - static-analysis baseline snapshot.
@@ -172,3 +173,16 @@ Export, proxy, thumbnail, validation, and carve logs include SHA-256 values and 
 
 E01 support requires libewf command-line tools in `PATH`: `ewfinfo`, `ewfverify`, and `ewfexport`. `import-e01` verifies the E01, exports a raw image, hashes the raw output, and writes `evidence/logs/e01-audit.jsonl`. To inspect file-system contents, mount the E01/raw image read-only with a forensic mounter and run `scan-folder` on the mounted volume. To recover contiguous embedded video candidates directly from the raw image, run `carve-file` against the exported `.raw`.
 For file-system-aware deleted-file triage, install Sleuth Kit tools in `PATH` and run `inspect-image`/`recover-inode` against the exported `.raw`. These outputs remain `candidate-unvalidated` until examiner playback/container validation is recorded.
+
+## Deepfake Screening (deepfake-lens sidecar)
+
+FrameTrace can screen evidence for synthetic-media signals through the optional deepfake-lens sidecar (`pip install deepfake-lens`, or point `FRAMETRACE_DEEPFAKE_LENS` at the binary). It runs as a local subprocess — the same boundary as ffprobe — and its scores are review-priority signals, not authenticity verdicts: `high` means "review first", never "confirmed synthetic".
+
+```bash
+cargo run -- scan-folder ./case-001 /path/to/evidence --deepfake
+cargo run -- deepfake-screen /path/to/file.mp4
+cargo run -- deepfake-scan ./case-001
+cargo run -- deepfake-scan ./case-001 --retry-failed
+```
+
+`scan-folder --deepfake` screens each indexed file during the scan; `deepfake-screen` prints one file's JSON report (add `--json-out` to save it); `deepfake-scan` covers every case record that lacks an artifact — indexed videos plus carved and filesystem-recovered files from E01 pipelines — and `--force`/`--retry-failed` control re-screening. Reports land in `case-001/artifacts/deepfake/<id>.json` and surface as band-colored badges in the evidence viewer after `make-review`. Full contract, tool resolution order, and framing rules: `docs/DEEPFAKE_LENS.md`.

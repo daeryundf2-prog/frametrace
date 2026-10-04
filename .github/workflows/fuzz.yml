@@ -1,0 +1,37 @@
+name: Fuzz smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fuzz
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned stable toolchain for rustfmt; rust-toolchain.toml keeps bare
+      # `cargo` on 1.94.0, matching the other CI jobs.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          components: rustfmt
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - name: Format fuzz targets
+        run: cargo fmt --check
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+        working-directory: .
+      - name: Build fuzz targets
+        run: cargo +nightly fuzz build
+      - name: Smoke-run each fuzz target for 60s
+        run: |
+          for target in audit_jsonl_verify index_jsonl_records carve_signature_scan creation_time_unix; do
+            echo "=== $target ==="
+            cargo +nightly fuzz run "$target" -- -max_total_time=60
+          done
