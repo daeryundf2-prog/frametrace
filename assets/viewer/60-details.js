@@ -39,12 +39,6 @@ function drawTelemetry(report) {
   note.textContent = tf("telemetry.summary", { n: pts.length }) + speed + camm;
 }
 
-function audioDetailText(record) {
-  const codec = String(record.audioCodec || "").toLowerCase();
-  if (codec && codec !== "none" && codec !== "-") return record.audioCodec;
-  if (record.probeOk === true) return t("audio.absent");
-  return t("audio.unknown");
-}
 
 function renderDetails() {
   if (ftSignal.aborted) return; // a frame queued before destroy()
@@ -69,6 +63,7 @@ function renderDetails() {
   els.mediaTitle.textContent = record.originalName || record.name || record.id;
   els.mediaStatus.textContent = record.status;
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
+  els.mediaStatus.title = statusTitle(record);
   const dualMates = state.layout.dual ? matesOf(record) : [];
   const mediaSrc = mediaSrcFor(record);
   // PERF-04: the stage (and its <video>) is rebuilt only when what it
@@ -144,7 +139,7 @@ function renderDetails() {
     }
   }
   document.getElementById("detailBadges").innerHTML = [
-    `<span class="badge ${statusClass(record.status)}">${ftIcon(statusIcon(record.status))}${escapeHtml(statusLabel(record.status))}</span>`,
+    statusBadgeHtml(record.status, record),
     (record.warnings || []).length ? `<span class="badge warn" title="${escapeHtml(record.warnings.join("\n"))}">${tf("warn.count", { n: record.warnings.length })}</span>` : "",
     record.hasAnomaly ? `<span class="badge anomaly">${ftIcon("warning")}${escapeHtml(t("header.anomaly"))}</span>` : "",
     record.dfl && record.dfl.band ? `<span class="badge dfl dfl-${escapeHtml(record.dfl.band)}">${escapeHtml(tf("dfl.badge", { band: record.dfl.band_label || record.dfl.band }))}</span>` : "",
@@ -154,13 +149,13 @@ function renderDetails() {
   ].join(" ");
   els.summaryList.innerHTML = [
     [t("detail.recTime"), record.recTime
-      ? fmtUnix(record.recTime) + (record.recSource === "name" ? "" : record.recSource === "name-date" ? " " + t("detail.dateOnly") : " " + t("detail.est"))
+      ? recTimeText(record)
       : t("detail.unknown")],
     [t("detail.channel"), record.channel || "-"],
     [t("detail.mark"), mark ? markLabel(mark.status) : t("detail.unmarked")],
     [t("detail.len"), fmtDuration(record.duration)],
     [t("detail.size"), fmtBytes(record.size)],
-    [t("detail.audio"), audioDetailText(record)],
+    [t("detail.audio"), audioDetailFor(record)],
     [t("detail.anomaly"), record.hasAnomaly ? record.anomalies.map(item => item.kind).join(", ") : "-"],
     [t("detail.dfl"), record.dfl ? (record.dfl.band
         ? tf("detail.dflScore", { label: record.dfl.band_label || record.dfl.band, score: record.dfl.score ?? "?" }) + (record.dfl.signal_titles?.length ? ": " + record.dfl.signal_titles.slice(0, 3).join(", ") : "")
@@ -175,10 +170,14 @@ function renderDetails() {
     [t("detail.offset"), record.offset != null ? String(record.offset) : "-"]
   ].map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("");
   // tag editor for the selected evidence
+  // R5 U1: read-only (annotations unreadable) — the annotation controls are
+  // shown but disabled, each with the reason as its tooltip.
+  const locked = annotationsLocked();
+  const lockAttr = locked ? ` disabled aria-disabled="true" title="${escapeHtml(t(lockKey("save.readonlyEdit")))}"` : "";
   const tagEditorHtml = `<div class="tag-editor">
-    ${tagPresets().map(preset => `<button type="button" class="quiet toggle tag-btn ${recordTags.includes(preset) ? "on" : ""}" aria-pressed="${recordTags.includes(preset)}" data-preset-tag="${escapeHtml(preset)}">${escapeHtml(preset)}</button>`).join("")}
-    <input type="text" class="tag-input" id="customTagInput" placeholder="${t("tag.input")}" aria-label="${escapeHtml(t("tag.input"))}" style="width:104px;height:28px;font-size:12px;">
-    <button type="button" class="quiet" id="btnAddCustomTag">${t("tag.apply")}</button>
+    ${tagPresets().map(preset => `<button type="button" class="quiet toggle tag-btn ${recordTags.includes(preset) ? "on" : ""}" aria-pressed="${recordTags.includes(preset)}" data-preset-tag="${escapeHtml(preset)}"${lockAttr}>${escapeHtml(preset)}</button>`).join("")}
+    <input type="text" class="tag-input" id="customTagInput" placeholder="${t("tag.input")}" aria-label="${escapeHtml(t("tag.input"))}" style="width:104px;height:28px;font-size:12px;"${lockAttr}>
+    <button type="button" class="quiet" id="btnAddCustomTag"${lockAttr}>${t("tag.apply")}</button>
     <button type="button" class="quiet" id="btnSaveCustomTag" title="${t("tag.presetSave.title")}">${t("tag.presetSave")}</button>
   </div>`;
   // replace existing tag editor if any
@@ -188,14 +187,14 @@ function renderDetails() {
   // one, so marking/tagging never needs a tab switch.
   const metaEl = els.summaryList;
   metaEl.insertAdjacentHTML("afterend", `<div class="tag-editor-wrap">${tagEditorHtml}
-    <textarea id="evidenceNote" class="note-input" rows="2" placeholder="${t("note.placeholder")}" aria-label="${escapeHtml(t("note.placeholder"))}">${escapeHtml(state.notes[record.id] || "")}</textarea>
+    <textarea id="evidenceNote" class="note-input" rows="2" placeholder="${t("note.placeholder")}" aria-label="${escapeHtml(t("note.placeholder"))}"${locked ? ` readonly aria-readonly="true" title="${escapeHtml(t(lockKey("save.readonlyEdit")))}"` : ""}>${escapeHtml(state.notes[record.id] || "")}</textarea>
   </div>`);
   document.getElementById("evidenceNote").addEventListener("input", e => {
+    if (refuseLockedEdit()) { e.target.value = state.notes[record.id] || ""; return; } // R5 U1
     const value = e.target.value;
     if (value.trim()) state.notes[record.id] = value;
     else state.notes[record.id] = "";
     touchAnnotation(record.id);
-    storageSet(NOTES_KEY, state.notes);
   });
   ftRoot.querySelectorAll(".tag-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -215,7 +214,7 @@ function renderDetails() {
       document.getElementById("customTagInput")?.focus();
     };
     customBtn.addEventListener("click", addCustom);
-    customInput.addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
+    customInput.addEventListener("keydown", e => { if (e.key === "Enter" && !imeComposing(e)) addCustom(); });
     const savePresetBtn = document.getElementById("btnSaveCustomTag");
     if (savePresetBtn) {
       savePresetBtn.addEventListener("click", () => {
@@ -230,8 +229,8 @@ function renderDetails() {
   }
   const related = validationLog.filter(item => normalizePath(item.target_path) === normalizePath(record.path) || item.selector === record.id);
   const anomalyRelated = (record.anomalies || []).map(item => `<div class="validation-item">
-    <strong>${escapeHtml(item.kind || "anomaly")}</strong>
-    <div class="muted">${escapeHtml(item.detail || "")}</div>
+    <strong>${escapeHtml(item.kind || "anomaly")}</strong>${logTrustTagHtml(item)}
+    <div class="muted">${escapeHtml(item.detail || "")}</div>${logTrustNoteHtml(item)}
     <code>candidate-finding</code>
   </div>`);
   const warningItems = (record.warnings || []).map(warning => `<div class="validation-item warn">
@@ -239,45 +238,63 @@ function renderDetails() {
     <div class="muted">${escapeHtml(warning)}</div>
     <code>recovery-warning</code>
   </div>`);
-  els.validationList.innerHTML = [
+  // A joined file lists the sources it was concatenated from, in order.
+  const joinItems = record.kind === "joined" ? [`<div class="validation-item join-sources">
+    <strong>${escapeHtml(tf("joined.sources", { n: record.joinSources.length }))}</strong>
+    <ol>${record.joinSources.map((id, i) => {
+      const src = recordById.get(id);
+      const sha = (record.joinInfo.source_sha256 || [])[i] || "";
+      return `<li><span>${escapeHtml(src ? (src.originalName || src.name) : t("joined.missing"))}</span> <code>${escapeHtml(id)}</code>${sha ? ` <code class="muted">${escapeHtml(sha)}</code>` : ""}</li>`;
+    }).join("")}</ol>
+    <div class="muted">${escapeHtml(record.note)}</div>
+  </div>`] : [];
+  // R10 U1: the record rests on a newer entry this PC could not use.
+  const newerItems = record.statusNewer ? [`<div class="validation-item warn status-newer">
+    <strong>${escapeHtml(t("status.tip.newer"))}</strong>
+    ${record.statusNote ? `<div class="muted">${escapeHtml(record.statusNote)}</div>` : ""}
+  </div>`] : [];
+  // R10 U3: the lanes' chain state heads the list.
+  els.validationList.innerHTML = logChainItems(logChains, logChainLanesOf(record)).join("") + newerItems.join("") + ([
+    ...joinItems,
     ...warningItems,
     ...related.map(item => `<div class="validation-item">
-    <strong>${escapeHtml(item.validation_status || "-")}</strong>
-    <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>
+    <strong>${escapeHtml(item.validation_status || "-")}</strong>${logTrustTagHtml(item)}
+    <div class="muted">${escapeHtml(item.validation_note || item.ffprobe_error || "-")}</div>${logTrustNoteHtml(item)}
     <code>${escapeHtml(item.target_sha256 || "-")}</code>
   </div>`),
     ...anomalyRelated
-  ].join("") || `<div class="validation-item">${t("validation.none")}</div>`;
+  ].join("") || `<div class="validation-item">${t("validation.none")}</div>`);
 }
 
 // Facet counts come from facetCounts() (40-grid.js): each dimension is
 // counted with its own filter excluded, computed once per render.
 function renderTree(facets) {
-  const { typeCounts, kindCounts, dayCounts } = facets || facetCounts();
-  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate") };
+  const { typeCounts, kindCounts, dayCounts, audioCounts } = facets || facetCounts();
+  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined") };
   const items = [];
-  const addItems = (title, entries, activeKey, onPick) => {
+  // `sec` + label identify an item across re-renders (focus restore).
+  const addItems = (sec, title, entries, activeKey, onPick) => {
     items.push({ header: title });
-    items.push({ label: t("tree.all"), count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
+    items.push({ sec, label: t("tree.all"), count: null, key: "", pick: () => onPick(""), active: activeKey === "" });
     [...entries.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).forEach(([key, count]) => {
-      items.push({ label: key, count, key, pick: () => onPick(key), active: key === activeKey });
+      items.push({ sec, label: key, count, key, pick: () => onPick(key), active: key === activeKey });
     });
   };
-  addItems(t("tree.rectype"), new Map([...typeCounts.entries()].map(([k, c]) => [recTypeLabel(k), c])),
+  addItems("rectype", t("tree.rectype"), new Map([...typeCounts.entries()].map(([k, c]) => [recTypeLabel(k), c])),
     state.recType ? recTypeLabel(state.recType) : "", label => {
       const match = [...typeCounts.entries()].find(([k]) => recTypeLabel(k) === label);
       state.recType = match ? match[0] : "";
       state.currentPage = 1;
       requestRender();
     });
-  addItems(t("tree.kind"), new Map([...kindCounts.entries()].map(([k, c]) => [kindLabels[k] || k, c])),
+  addItems("kind", t("tree.kind"), new Map([...kindCounts.entries()].map(([k, c]) => [kindLabels[k] || k, c])),
     kindLabels[state.kind] || "", label => {
       state.kind = Object.entries(kindLabels).find(([, kindLabel]) => kindLabel === label)?.[0] || "";
       els.kind.value = state.kind;
       state.currentPage = 1;
       requestRender();
     });
-  addItems(t("tree.date"), dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
+  addItems("date", t("tree.date"), dayCounts, state.dateFrom && state.dateFrom === state.dateTo ? state.dateFrom : "", day => {
     state.dateFrom = day;
     state.dateTo = day;
     els.dateFrom.value = day;
@@ -285,29 +302,47 @@ function renderTree(facets) {
     state.currentPage = 1;
     requestRender();
   });
+  // 소리 (§2.6): fixed value order (sound / silent / no track / unknown), not
+  // alphabetical; every value is listed so a zero count stays visible.
+  const pickAudio = value => {
+    state.audio = value;
+    state.currentPage = 1;
+    requestRender();
+  };
+  items.push({ header: t("tree.audio") });
+  items.push({ sec: "audio", label: t("tree.all"), count: null, key: "", pick: () => pickAudio(""), active: !state.audio, facet: "audio" });
+  AUDIO_FACETS.forEach(value => {
+    items.push({ sec: "audio", label: t("audio.f." + value), count: (audioCounts && audioCounts.get(value)) || 0, key: value, pick: () => pickAudio(value), active: state.audio === value, facet: "audio" });
+  });
   els.facetTree.innerHTML = items.map(item => item.header !== undefined
     ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
-    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" data-sec="${item.sec}"${item.facet ? ` data-facet="${item.facet}" data-key="${escapeHtml(item.key)}"` : ""} tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${escapeHtml(item.label)}</span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
   ).join("");
+  // Memo probe for harnesses: bumps only when the counts were recomputed.
+  els.facetTree.dataset.facetGen = String(facetMemo.gen);
   const pickers = items.filter(item => item.pick);
   const nodes = els.facetTree.querySelectorAll(".tree-item");
   let idx = 0;
-  // Picking re-renders the tree; keep keyboard focus on the same position.
-  const pickAndKeepFocus = (entry, node, at) => {
+  // Picking re-renders the tree; keep keyboard focus on the SAME item
+  // (section + value), not the same position — picking one facet changes
+  // the values listed in the others, so positions shift. A value that is
+  // gone falls back to its section's first item ("all").
+  const pickAndKeepFocus = (entry, node) => {
     const hadFocus = document.activeElement === node;
     entry.pick(node.dataset.pick);
     if (!hadFocus) return;
     render();
-    els.facetTree.querySelectorAll(".tree-item")[at]?.focus();
+    const all = [...els.facetTree.querySelectorAll(".tree-item")];
+    (all.find(el => el.dataset.sec === entry.sec && el.dataset.pick === entry.label)
+      || all.find(el => el.dataset.sec === entry.sec))?.focus();
   };
   nodes.forEach(node => {
     const entry = pickers[idx];
     if (!entry) return;
-    const at = idx;
     idx += 1;
-    node.addEventListener("click", () => pickAndKeepFocus(entry, node, at));
+    node.addEventListener("click", () => pickAndKeepFocus(entry, node));
     node.addEventListener("keydown", e => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickAndKeepFocus(entry, node, at); }
+      if ((e.key === "Enter" || e.key === " ") && !imeComposing(e)) { e.preventDefault(); pickAndKeepFocus(entry, node); }
     });
   });
 }
@@ -351,8 +386,9 @@ function renderMetrics() {
   if (els.metricAnomaly) {
     els.metricAnomaly.textContent = String(counts.anomaly);
   }
-  const markCount = Object.keys(state.marks).length;
+  const markCount = markTallyNow().all; // R7 U4: kept by changed id, not a walk of the mark map per render
   els.selectionCount.textContent = tf("sel.count", { n: state.selectedIds.size, m: markCount });
+  if (typeof syncJoinButton === "function") syncJoinButton();
   if (els.caseWarnings) {
     // FOR-09: a partial record list the examiner chose to continue with
     // stays flagged for the whole session, above inspection warnings.
@@ -446,7 +482,7 @@ function renderChips() {
 // Active filters as removable chips above the grid — visible only while the
 // rail (which shows the same state) is collapsed.
 function activeFilterList() {
-  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate") };
+  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined") };
   const list = [];
   const chip = state.chip || "";
   if (chip && !chip.startsWith("status:")) {
@@ -456,6 +492,7 @@ function activeFilterList() {
   if (state.status) list.push(["status", tf("layout.afStatus", { v: statusLabel(state.status) })]);
   if (state.kind) list.push(["kind", tf("layout.afKind", { v: kindLabels[state.kind] || state.kind })]);
   if (state.recType) list.push(["recType", tf("layout.afType", { v: recTypeLabel(state.recType) })]);
+  if (state.audio) list.push(["audio", tf("layout.afAudio", { v: t("audio.f." + state.audio) })]);
   if (state.dateFrom || state.dateTo) {
     const v = state.dateFrom === state.dateTo ? state.dateFrom : `${state.dateFrom || "…"} ~ ${state.dateTo || "…"}`;
     list.push(["date", tf("layout.afDate", { v })]);
@@ -482,6 +519,7 @@ function clearActiveFilter(key) {
   if (all || key === "status") { state.status = ""; els.status.value = ""; }
   if (all || key === "kind") { state.kind = ""; els.kind.value = ""; }
   if (all || key === "recType") state.recType = "";
+  if (all || key === "audio") state.audio = "";
   if (all || key === "date") { state.dateFrom = ""; state.dateTo = ""; els.dateFrom.value = ""; els.dateTo.value = ""; }
   if (all || key === "query") { state.query = ""; els.query.value = ""; }
   state.currentPage = 1;
@@ -551,7 +589,7 @@ function render() {
   const facets = facetCounts();
   renderHistogram(facets.dayCounts);
   renderTree(facets);
-  renderGrid(filtered);
+  renderGridKeepFocus(filtered);
   renderDetails();
   renderSaveState();
   syncSplitterAria();

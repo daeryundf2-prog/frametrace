@@ -124,6 +124,9 @@ function recentState(it, st) {
       const what = pct !== null ? `분석 중단 ${pct}%` : done ? `분석 중단 (${done.toLocaleString()}건 처리)` : "분석 중단";
       return { state: what, action: it.source_path ? "resume" : "open", label: it.source_path ? "이어서" : "열기" };
     }
+    // R11 U3: /api/recent-cases sends no package hint (recent.rs: phase_hint
+    // only) — the R10 "finalize-incomplete" branches were dead and are gone;
+    // the opened case says 최종화 미완료 from /api/status.
     case "finalized": return { state: "결과물 생성됨" + counts, action: "open", label: "열기" };
     case "review": return { state: (counts ? counts.slice(3) : "검토 가능"), action: "open", label: "열기" };
     case "partial": return { state: "색인 완료 · 보강 전" + counts, action: "open", label: "열기" };
