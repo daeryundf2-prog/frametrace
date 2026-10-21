@@ -90,7 +90,60 @@ It binds `http://127.0.0.1:8477/` (next free port if taken), opens the default b
 
 For the remaining Windows-only work, start with `docs/WINDOWS_IMPLEMENTATION_HANDOFF.md`. It is the handoff checklist for cloning the repo on Windows, validating the current engine, testing E01/raw-image workflows, and then implementing the production Windows GUI shell.
 
-Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available in `PATH`.
+Install Rust and FFmpeg first. `ffmpeg.exe` and `ffprobe.exe` must be available in `PATH` or in `tools\bin` next to `frametrace.exe`. (or run `frametrace tools install ffmpeg` after building — see below)
+
+### External tools (guided installs; nothing is bundled)
+
+The Windows zip (`scripts/make-portable.ps1`, also a Windows CI artifact)
+contains FrameTrace only — **no FFmpeg**. FrameTrace needs `ffmpeg.exe` /
+`ffprobe.exe` in `tools\bin` next to the executable or on `PATH`, and it can
+fetch a pinned build for you when you ask:
+
+```powershell
+.\frametrace.exe tools list                # what is installed, what can be installed here
+.\frametrace.exe tools install ffmpeg      # shows file, source, size, SHA-256, licence and notice, then asks
+.\frametrace.exe tools install ffmpeg --yes
+```
+
+Every tool is pinned in `tools/manifest.json` (version, URL, size and the
+publisher's SHA-256, compiled into the binary). The download goes **directly
+from the publisher to your machine** — for FFmpeg that is the BtbN
+FFmpeg-Builds GitHub release — and FrameTrace is not its distributor; the
+confirm step shows a notice saying so, together with the build's licence mix
+(the `win64-lgpl` variant mixes GPL-2.0-only (zvbi), LGPL-3.0 and Apache-2.0
+code; see `THIRD_PARTY_NOTICES.md`). FrameTrace makes no assurance that the
+file may be passed on to others: do not copy `tools\bin\ffmpeg.exe` to other
+PCs — let each user install it from BtbN. Downloads use Windows' own
+`curl.exe` (HTTPS only, every redirect checked against the manifest's host allowlist) and `tar.exe`; a
+size or hash mismatch, or an archive entry that is absolute, climbs with `..`
+or is a link, refuses the install and leaves nothing behind. Proxies:
+`curl.exe` honours `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY`; integrity never
+depends on the network path — the file must match the pinned size and SHA-256.
+Each attempt (including a refused one) appends one hash-chained line to
+`tools\install-audit.jsonl`; a cancel is honoured while downloading, verifying
+or extracting and refused (`not_cancellable`) once files are being moved into
+place. Tools without a published checksum (libewf, The Sleuth Kit,
+deepfake-lens today) show a manual-install hint instead. Binaries the manifest
+provides (ffmpeg, ffprobe, the libewf and Sleuth Kit tools) resolve from
+`tools\bin` first, then `PATH`; a different copy on `PATH` is reported as
+ignored by `doctor` and the home screen. Licence texts of an installed tool are
+copied to `tools\bin\licenses\`.
+
+The BtbN build has no libx264 (GPL). FrameTrace asks the resolved
+`ffmpeg -encoders` once, trial-encodes one frame, and encodes proxies and MP4
+clips with the best H.264 encoder that build really has — `libx264` →
+`h264_mf` (Windows Media Foundation) → `libopenh264` → `mpeg4` as a last resort
+(Media Foundation comes before openh264 because BtbN's openh264 is compiled
+from source, which Cisco's patent licence does not cover) — with `aac` audio
+(AVI clips: `libmp3lame`, else native `mp2`). The chosen encoders are written
+to each proxy/export audit line (`video_encoder`, `audio_encoder`), and
+`frametrace doctor` / `GET /api/tools` say when the build lacks libx264
+("libx264 없음 — H.264는 h264_mf 사용"). `h264_mf` cannot start on Windows N/KN
+without the Media Feature Pack, nor on Windows Server without the Media
+Foundation feature (`Server-Media-Foundation`); its trial encode then fails,
+the next encoder is used and the note says "h264_mf 사용 불가 — Windows
+N/KN(Media Feature Pack)·Windows Server(Media Foundation 기능 미설치)". Output
+names and containers (`.mp4`, `.avi`) do not change.
 
 ```powershell
 cargo build --release
@@ -177,7 +230,7 @@ For file-system-aware deleted-file triage, install Sleuth Kit tools in `PATH` an
 
 ## Deepfake Screening (deepfake-lens sidecar)
 
-FrameTrace can screen evidence for synthetic-media signals through the optional deepfake-lens sidecar (`pip install deepfake-lens`, or point `FRAMETRACE_DEEPFAKE_LENS` at the binary). It runs as a local subprocess — the same boundary as ffprobe — and its scores are review-priority signals, not authenticity verdicts: `high` means "review first", never "confirmed synthetic".
+FrameTrace can screen evidence for synthetic-media signals through the optional deepfake-lens sidecar. deepfake-lens is **not published on PyPI** (`pip install deepfake-lens` does not work): install the package you were given from its checkout or wheel (`pip install <path-to-deepfake-lens>`, which puts `deepfake-lens` on PATH), point `FRAMETRACE_DEEPFAKE_LENS` at the `deepfake-lens` executable, or set `FRAMETRACE_DEEPFAKE_LENS_HOME=<checkout root>` so FrameTrace can run `python -m deepfake_lens.cli`. It runs as a local subprocess — the same boundary as ffprobe — and its scores are review-priority signals, not authenticity verdicts: `high` means "review first", never "confirmed synthetic".
 
 ```bash
 cargo run -- scan-folder ./case-001 /path/to/evidence --deepfake

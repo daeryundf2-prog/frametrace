@@ -32,22 +32,159 @@ pub(crate) const PROBED_TOOLS: &[(&str, &str)] = &[
 /// single-flight lock), and a result with a timed-out probe is not cached
 /// — the next call re-probes instead of pinning "timed out" for the
 /// session.
+///
+/// Fix round 11 L3: the entry also carries a fingerprint of
+/// `<exe>/tools/bin` (file names, sizes, mtimes — one directory read), so
+/// an install made outside this server (`frametrace tools install ffmpeg`
+/// from a console while the workstation runs) invalidates it at the next
+/// `/api/env` or `/api/tools` instead of "ffmpeg 없음" until a restart.
+///
+/// Fix round 12 L1: it also covers `<exe>/tools/python` (each venv's name
+/// and mtime plus its `Scripts`/`bin` directory mtime), where an on-demand
+/// pip tool (deepfake-lens) lands — `/api/env` reports that one through
+/// `private_venv_executable`, so a console install must miss the cache too.
+static ENV_CACHE: Mutex<Option<EnvCacheEntry>> = Mutex::new(None);
+
+pub(crate) struct EnvCacheEntry {
+    fingerprint: String,
+    body: String,
+}
+
+/// Drops the cached env probe (a guided tool install just changed what is
+/// installed — track S4), so the next `/api/env` re-probes.
+pub(crate) fn invalidate_env_cache() {
+    *ENV_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Names, sizes and mtimes of the files directly in `dir` (sorted), as
+/// one string; empty when the directory is missing or unreadable.
+pub(crate) fn tools_bin_fingerprint(dir: &Path) -> String {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return String::new();
+    };
+    let mut rows: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| {
+            let meta = entry.metadata().ok();
+            let len = meta.as_ref().map_or(0, |meta| meta.len());
+            let modified = meta
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |since| since.as_nanos());
+            format!(
+                "{}\u{0}{len}\u{0}{modified}",
+                entry.file_name().to_string_lossy()
+            )
+        })
+        .collect();
+    rows.sort();
+    rows.join("\n")
+}
+
+fn mtime_nanos(path: &Path) -> u128 {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_nanos())
+}
+
+/// The private venvs directly under `dir` (`tools/python`): each entry's
+/// name and mtime, and the mtime of its console-script directory
+/// (`Scripts` on Windows, `bin` elsewhere — a pip install adds the tool's
+/// script there), sorted; empty when `dir` is missing or unreadable.
+pub(crate) fn tools_python_fingerprint(dir: &Path) -> String {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return String::new();
+    };
+    let scripts = if cfg!(windows) { "Scripts" } else { "bin" };
+    let mut rows: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        // Fix round 13 H2: transient sweep names (`.<tool>.old-*` while a
+        // venv is rebuilt, `….rm` while one is removed) are not the
+        // resolution's business and must not cause cache misses.
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            !(name.starts_with('.') || name.ends_with(".rm"))
+        })
+        .map(|entry| {
+            let path = entry.path();
+            format!(
+                "{}\u{0}{}\u{0}{}",
+                entry.file_name().to_string_lossy(),
+                mtime_nanos(&path),
+                mtime_nanos(&path.join(scripts))
+            )
+        })
+        .collect();
+    rows.sort();
+    rows.join("\n")
+}
+
+/// One fingerprint over `tools/bin` and `tools/python`.
+pub(crate) fn tools_fingerprint(bin: &Path, python: &Path) -> String {
+    format!(
+        "{}\n\u{1}python\n{}",
+        tools_bin_fingerprint(bin),
+        tools_python_fingerprint(python)
+    )
+}
+
+/// The fingerprint of this executable's `tools/bin` and `tools/python`.
+fn current_tools_fingerprint() -> String {
+    crate::tool_install::InstallDirs::for_current_exe()
+        .map(|dirs| tools_fingerprint(&dirs.bin(), &dirs.python_root()))
+        .unwrap_or_default()
+}
+
+/// The cached body when its fingerprint is `fingerprint`; a stale entry
+/// (tools/bin changed since the probe) is dropped.
+pub(crate) fn env_cache_hit(
+    cache: &Mutex<Option<EnvCacheEntry>>,
+    fingerprint: &str,
+) -> Option<String> {
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    match guard.as_ref() {
+        Some(entry) if entry.fingerprint == fingerprint => Some(entry.body.clone()),
+        Some(_) => {
+            *guard = None;
+            None
+        }
+        None => None,
+    }
+}
+
+pub(crate) fn env_cache_store(
+    cache: &Mutex<Option<EnvCacheEntry>>,
+    fingerprint: String,
+    body: String,
+) {
+    *cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(EnvCacheEntry { fingerprint, body });
+}
+
+/// `/api/tools`: drops the env cache when tools/bin changed under it.
+pub(crate) fn revalidate_env_cache() {
+    let _ = env_cache_hit(&ENV_CACHE, &current_tools_fingerprint());
+}
+
 pub(crate) fn api_env(request: &Request) -> String {
-    static ENV_CACHE: Mutex<Option<String>> = Mutex::new(None);
     static PROBING: Mutex<()> = Mutex::new(());
     let refresh = query_value(&request.query, "refresh").as_deref() == Some("1");
-    let cached = || ENV_CACHE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if !refresh && let Some(hit) = cached() {
+    let fingerprint = current_tools_fingerprint();
+    if !refresh && let Some(hit) = env_cache_hit(&ENV_CACHE, &fingerprint) {
         return hit;
     }
     let _single_flight = PROBING.lock().unwrap_or_else(|e| e.into_inner());
     // Another caller may have finished the probe while this one waited.
-    if !refresh && let Some(hit) = cached() {
+    if !refresh && let Some(hit) = env_cache_hit(&ENV_CACHE, &fingerprint) {
         return hit;
     }
+    // Taken before the probe: a change during it leaves a stale
+    // fingerprint, so the next call re-probes (never the other way round).
     let (body, cacheable) = probe_env_outcome();
     if cacheable {
-        *ENV_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some(body.clone());
+        env_cache_store(&ENV_CACHE, fingerprint, body.clone());
     }
     body
 }
@@ -101,8 +238,8 @@ pub(crate) fn probe_env_outcome() -> (String, bool) {
     let media = has("ffmpeg") && has("ffprobe");
     let ewf = has("ewfinfo") && has("ewfverify") && has("ewfexport");
     let tsk = has("mmls") && has("fls") && has("icat");
-    // deepfake-lens resolves via FRAMETRACE_DEEPFAKE_LENS first, then PATH /
-    // tools/bin — mirror that order so the badge matches what the pipeline
+    // deepfake-lens resolves via FRAMETRACE_DEEPFAKE_LENS first, then tools/bin /
+    // PATH — mirror that order so the badge matches what the pipeline
     // would actually run.
     let deepfake = std::env::var("FRAMETRACE_DEEPFAKE_LENS")
         .ok()
@@ -110,7 +247,9 @@ pub(crate) fn probe_env_outcome() -> (String, bool) {
         .filter(|v| !v.is_empty())
         .map(|v| PathBuf::from(&v).is_file() || tool_available(&v, ""))
         .unwrap_or(false)
-        || has("deepfake-lens");
+        || has("deepfake-lens")
+        // Track S: the private venv of an on-demand install.
+        || crate::tool_install::private_venv_executable("deepfake-lens").is_some();
     let tools_map: serde_json::Map<String, serde_json::Value> = tools
         .iter()
         .map(|(name, ok)| (name.to_string(), serde_json::Value::Bool(*ok)))
@@ -758,11 +897,72 @@ pub(crate) fn byte_progress_json(
     })
 }
 
-/// `POST /api/verify-audit`: verify every chained audit log under
-/// `case_dir/evidence/logs/*.jsonl` in-process and report per-log and
-/// overall integrity (keyed vs structural-only vs failed).
+/// `POST /api/cancel`: stops whatever holds `busy` — a guided tool install
+/// through its own latch (`cancelled: "tool-install"` with `requested` —
+/// false when the worker had already ended and nothing was asked — or
+/// `ok:false` `code: "not_cancellable"` while files move into place), any other job
+/// through `cancel_requested` (`cancelled: "job"`) — else the running clip
+/// exports / write ops.
 pub(crate) fn api_cancel(state: &SharedState) -> String {
     let mut guard = state_lock(state);
+    // Fix round 11 M1: a guided tool install holds `busy` but never reads
+    // `cancel_requested` — it watches its own Progress latch. Ask that
+    // latch (the same as POST /api/tools/install-cancel) instead of the
+    // job path, which would log a false "중단 요청" line and never stop it.
+    let install = guard
+        .tool_install
+        .as_ref()
+        .filter(|job| guard.busy && job.state == "running")
+        .map(|job| {
+            (
+                job.name.clone(),
+                Arc::clone(&job.progress),
+                super::tools::install_job_json(job),
+            )
+        });
+    if let Some((name, progress, snapshot)) = install {
+        let finishing = matches!(
+            progress.stage(),
+            crate::tool_install::Stage::Done | crate::tool_install::Stage::Failed
+        );
+        // A worker that already ended releases `busy` momentarily: nothing
+        // to ask, nothing to log.
+        let asked = if finishing {
+            Ok(false)
+        } else {
+            progress.request_cancel().map(|()| true)
+        };
+        return match asked {
+            Ok(asked) => {
+                if asked {
+                    guard
+                        .logs
+                        .push(format!("도구 설치({name}) 중단 요청을 받았습니다."));
+                }
+                serde_json::json!({
+                    "ok": true,
+                    "cancelled": "tool-install",
+                    "job_kind": "tool-install",
+                    // Fix round 15: false when the install had already
+                    // ended (Done/Failed) and nothing was asked — the quit
+                    // dialog must not then say it was cancelled.
+                    "requested": asked,
+                    "install": snapshot,
+                    "clips_cancelled": 0,
+                    "clips_running": 0,
+                })
+                .to_string()
+            }
+            Err(message) => serde_json::json!({
+                "ok": false,
+                "code": "not_cancellable",
+                "error": message,
+                "job_kind": "tool-install",
+                "install": snapshot,
+            })
+            .to_string(),
+        };
+    }
     if guard.busy {
         // Cancel only the job that holds `busy` (finding 2): a clip export
         // runs beside it and is unrelated — stopping a re-hash must not
@@ -989,6 +1189,9 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
     serde_json::json!({"ok": true, "has_review": has_review, "has_index": has_index}).to_string()
 }
 
+/// `POST /api/verify-audit`: verify every chained audit log under
+/// `case_dir/evidence/logs/*.jsonl` in-process and report per-log and
+/// overall integrity (keyed vs structural-only vs failed).
 pub(crate) fn api_verify_audit(state: &SharedState) -> String {
     let case_dir = {
         let guard = state_lock(state);

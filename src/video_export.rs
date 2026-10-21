@@ -137,14 +137,28 @@ pub fn export_video(
     // C4: ffmpeg writes a pid-tagged `.part`; only a complete, non-empty
     // clip ever gets the deliverable's name (a killed export leaves the
     // `.part`, which the server sweeps).
+    let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
+    // The resolved ffmpeg may lack libx264 (the BtbN build the guided
+    // installer fetches does; FrameTrace bundles none): pick the encoders
+    // this build really has, and log the same pick (reproducible command
+    // line).
+    let codecs = export_codecs(&crate::ffmpeg_encoders::for_binary(&ffmpeg), options.format);
+    // Fix round 11 H5: the version of the binary that encodes, asked
+    // BEFORE encoding from the same resolved path — asked afterwards, a
+    // guided install finishing meanwhile would record the new build's
+    // version for a clip made with the old one.
+    let ffmpeg_version = command_version(&ffmpeg, &["ffmpeg"], "-version");
     let part = crate::join::pid_part_path(&output_path, std::process::id());
     if let Err(err) = run_ffmpeg_export(
+        &ffmpeg,
         case_dir,
         &source_path,
         &output_path,
         &part,
         options,
         label_sha256,
+        &codecs,
     ) {
         let _ = crate::join::remove_file_retry(&part);
         return Err(err);
@@ -171,6 +185,8 @@ pub fn export_video(
         options,
         indexed_sha256.as_deref(),
         export_sha256.as_deref(),
+        &codecs,
+        &ffmpeg_version,
     )?;
 
     Ok(ExportResult {
@@ -180,15 +196,40 @@ pub fn export_video(
     })
 }
 
+/// The encoders for one export: MP4 = best H.264 (libx264 -> h264_mf ->
+/// libopenh264 -> mpeg4) + aac; AVI = mpeg4 + MP3 (libmp3lame) or native MP2.
+fn export_codecs(
+    encoders: &crate::ffmpeg_encoders::Encoders,
+    format: ExportFormat,
+) -> crate::ffmpeg_encoders::CodecChoice {
+    match format {
+        ExportFormat::Mp4 => encoders.choice(encoders.video(), encoders.aac()),
+        ExportFormat::Avi => encoders.choice(
+            crate::ffmpeg_encoders::VideoEncoder::Mpeg4,
+            encoders.avi_audio(),
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_ffmpeg_export(
+    ffmpeg: &str,
     case_dir: &Path,
     source_path: &Path,
     output_path: &Path,
     write_path: &Path,
     options: &ExportOptions,
     source_sha256: Option<&str>,
+    codecs: &crate::ffmpeg_encoders::CodecChoice,
 ) -> Result<(), String> {
-    let mut args = ffmpeg_export_args(case_dir, source_path, output_path, options, source_sha256);
+    let mut args = ffmpeg_export_args(
+        case_dir,
+        source_path,
+        output_path,
+        options,
+        source_sha256,
+        codecs,
+    );
     // The container is named by `-f` (the `.part` name has no usable
     // extension); ffmpeg writes to the in-progress name.
     if let Some(last) = args.last_mut() {
@@ -196,8 +237,6 @@ fn run_ffmpeg_export(
     }
     let final_path = output_path;
     let output_path = write_path;
-    let ffmpeg = resolve_tool_binary("ffmpeg", &["ffmpeg"])
-        .map_err(|err| format!("{err} (install FFmpeg and ensure ffmpeg is in PATH)"))?;
     // Windows ffmpeg builds neither accept non-ASCII argv text nor resolve
     // absolute font paths inside filter options (any scheme — C:/, /c/ —
     // silently falls back to a Latin-only font, boxing Hangul). The label
@@ -224,7 +263,7 @@ fn run_ffmpeg_export(
     } else {
         None
     };
-    let mut command = Command::new(&ffmpeg);
+    let mut command = Command::new(ffmpeg);
     command.args(&args);
     if let Some(dir) = &label_cwd {
         command.current_dir(dir);
@@ -267,6 +306,7 @@ fn ffmpeg_export_args(
     output_path: &Path,
     options: &ExportOptions,
     source_sha256: Option<&str>,
+    codecs: &crate::ffmpeg_encoders::CodecChoice,
 ) -> Vec<String> {
     let mut args = vec![
         // The output path was claimed exclusively by unique_path's O_EXCL
@@ -312,28 +352,18 @@ fn ffmpeg_export_args(
 
     match options.format {
         ExportFormat::Mp4 => {
+            args.extend(codecs.video_args(crate::ffmpeg_encoders::Purpose::Export));
             args.extend(
-                [
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "20",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-c:a",
-                    "aac",
-                    "-movflags",
-                    "+faststart",
-                ]
-                .iter()
-                .map(|arg| arg.to_string()),
+                ["-c:a", codecs.audio, "-movflags", "+faststart"]
+                    .iter()
+                    .map(|arg| arg.to_string()),
             );
         }
         ExportFormat::Avi => {
+            // Historical AVI line (no -pix_fmt); only the audio encoder
+            // depends on the build.
             args.extend(
-                ["-c:v", "mpeg4", "-q:v", "3", "-c:a", "libmp3lame"]
+                ["-c:v", "mpeg4", "-q:v", "3", "-c:a", codecs.audio]
                     .iter()
                     .map(|arg| arg.to_string()),
             );
@@ -653,6 +683,7 @@ fn resolve_through_records(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_export_log(
     case_dir: &Path,
     selector: &str,
@@ -661,17 +692,19 @@ fn write_export_log(
     options: &ExportOptions,
     source_index_sha256: Option<&str>,
     source_export_sha256: Option<&str>,
+    codecs: &crate::ffmpeg_encoders::CodecChoice,
+    ffmpeg_version: &str,
 ) -> Result<(), String> {
     let path = case_dir.join("artifacts/clips/export-log.jsonl");
     let exported_unix = now_unix()?;
     let output_sha256 = audit::digest_file(output_path)?;
-    let args = ffmpeg_export_args(case_dir, source_path, output_path, options, None);
+    let args = ffmpeg_export_args(case_dir, source_path, output_path, options, None, codecs);
     let source_hash_mismatch = match (source_index_sha256, source_export_sha256) {
         (Some(indexed), Some(live)) => Some(indexed != live),
         _ => None,
     };
     let line = format!(
-        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"source_sha256\":{},\"source_hash_mismatch\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"burn_in\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}}}",
+        "{{\"schema_version\":2,\"event\":\"export-video\",\"exported_unix\":{},\"selector\":\"{}\",\"source_path\":\"{}\",\"source_index_sha256\":{},\"source_sha256\":{},\"source_hash_mismatch\":{},\"output_path\":\"{}\",\"output_sha256\":\"{}\",\"format\":\"{}\",\"start_seconds\":{},\"duration_seconds\":{},\"burn_in\":{},\"ffmpeg_version\":\"{}\",\"command\":\"ffmpeg\",\"command_args\":{}{}}}",
         exported_unix,
         json_escape(selector),
         json_escape(&source_path.to_string_lossy()),
@@ -690,8 +723,9 @@ fn write_export_log(
             .as_ref()
             .map(|spec| format!("{{\"exhibit\":\"{}\"}}", json_escape(&spec.exhibit)))
             .unwrap_or_else(|| "null".to_string()),
-        json_escape(&command_version("ffmpeg", &["ffmpeg"], "-version")),
-        audit::json_string_array(&args)
+        json_escape(ffmpeg_version),
+        audit::json_string_array(&args),
+        codecs.audit_fields()
     );
     audit::append_chained_jsonl(&path, &line)
 }
@@ -803,11 +837,116 @@ mod tests {
             Path::new("out.mp4"),
             &options,
             None,
+            &crate::ffmpeg_encoders::CodecChoice::legacy_h264(),
         );
         assert!(args.contains(&"-y".to_string()));
         assert!(!args.contains(&"-n".to_string()));
         assert!(args.contains(&"libx264".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("out.mp4"));
+    }
+
+    /// Fix round 11 H5: the export log records the version the caller
+    /// asked before encoding (from the binary that encoded), never a fresh
+    /// query made after the clip was written.
+    #[test]
+    fn export_log_records_the_version_asked_before_encoding() {
+        let case = std::env::temp_dir().join(format!("ft-export-ver-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&case);
+        let clips = case.join("artifacts/clips");
+        std::fs::create_dir_all(&clips).unwrap();
+        let output = clips.join("clip.mp4");
+        std::fs::write(&output, b"clip").unwrap();
+        let options = ExportOptions {
+            format: ExportFormat::Mp4,
+            start_seconds: None,
+            duration_seconds: None,
+            output_path: None,
+            timeout_secs: None,
+            burn_in: None,
+            hash_source: false,
+        };
+        super::write_export_log(
+            &case,
+            "vid-1",
+            Path::new("in.mp4"),
+            &output,
+            &options,
+            None,
+            None,
+            &crate::ffmpeg_encoders::CodecChoice::legacy_h264(),
+            "ffmpeg version OLD-BUILD-before-install",
+        )
+        .unwrap();
+        let log = std::fs::read_to_string(clips.join("export-log.jsonl")).unwrap();
+        let line: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
+        assert_eq!(
+            line["ffmpeg_version"], "ffmpeg version OLD-BUILD-before-install",
+            "{line}"
+        );
+        let _ = std::fs::remove_dir_all(&case);
+    }
+
+    /// LGPL-like fake ffmpeg -> h264_mf + aac; full -> libx264 unchanged;
+    /// no H.264 -> mpeg4 (still mp4). AVI uses MP2 when libmp3lame is absent.
+    #[test]
+    fn export_args_follow_detected_encoders() {
+        use crate::ffmpeg_encoders::{self as enc, tests as fixtures};
+        let dir = std::env::temp_dir().join(format!("ft-export-enc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut options = ExportOptions {
+            format: ExportFormat::Mp4,
+            start_seconds: None,
+            duration_seconds: None,
+            output_path: None,
+            timeout_secs: None,
+            burn_in: None,
+            hash_source: false,
+        };
+        let args_for = |name: &str, listing: &str, options: &ExportOptions| {
+            let encoders = enc::for_binary(&fixtures::fake_ffmpeg(&dir.join(name), listing));
+            assert!(encoders.probed());
+            let codecs = super::export_codecs(&encoders, options.format);
+            ffmpeg_export_args(
+                Path::new("."),
+                Path::new("in.mp4"),
+                Path::new("out.mp4"),
+                options,
+                None,
+                &codecs,
+            )
+        };
+        let lgpl = args_for("lgpl", fixtures::LGPL, &options);
+        assert!(
+            lgpl.windows(2).any(|w| w == ["-c:v", "h264_mf"]),
+            "{lgpl:?}"
+        );
+        assert!(lgpl.windows(2).any(|w| w == ["-rate_control", "quality"]));
+        assert!(!lgpl.contains(&"libx264".to_string()) && !lgpl.contains(&"-crf".to_string()));
+        assert!(lgpl.windows(2).any(|w| w == ["-c:a", "aac"]));
+        assert!(lgpl.windows(2).any(|w| w == ["-f", "mp4"]));
+        let full = args_for("full", fixtures::FULL, &options);
+        assert_eq!(
+            full,
+            ffmpeg_export_args(
+                Path::new("."),
+                Path::new("in.mp4"),
+                Path::new("out.mp4"),
+                &options,
+                None,
+                &enc::CodecChoice::legacy_h264(),
+            )
+        );
+        assert!(full.windows(2).any(|w| w == ["-crf", "20"]));
+        let bare = args_for("bare", fixtures::BARE, &options);
+        assert!(bare.windows(2).any(|w| w == ["-c:v", "mpeg4"]), "{bare:?}");
+        assert!(bare.windows(2).any(|w| w == ["-f", "mp4"]));
+
+        options.format = ExportFormat::Avi;
+        let avi = args_for("lgpl", fixtures::LGPL, &options);
+        assert!(avi.windows(2).any(|w| w == ["-c:a", "mp2"]), "{avi:?}");
+        let avi_full = args_for("full", fixtures::FULL, &options);
+        assert!(avi_full.windows(2).any(|w| w == ["-c:a", "libmp3lame"]));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -900,11 +1039,16 @@ mod tests {
             path
         } else {
             let path = dir.join("hang.sh");
-            std::fs::write(&path, "#!/bin/sh\nexec sleep 60\n").unwrap();
+            std::fs::write(
+                &path,
+                "#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\nexec sleep 60\n",
+            )
+            .unwrap();
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+                crate::test_support::warm_unix_script(&path);
             }
             path
         };

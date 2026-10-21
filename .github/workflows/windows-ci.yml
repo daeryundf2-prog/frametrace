@@ -111,13 +111,156 @@ jobs:
         run: cargo run --locked --bin frametrace -- qa performance target/frametrace-ci-performance --rows 1000
       - name: Release build
         run: cargo build --release --locked
+      # Option C (docs/PLAN_TOOLS_C_2026-10-20.md): the Windows zip contains
+      # FrameTrace only — never ffmpeg/ffprobe. make-portable.ps1 skips them
+      # and fails on an FFmpeg entry; the smoke step checks the zip again.
+      - name: Portable package offline test (planted ffmpeg is never packaged)
+        run: node scripts/test-make-portable.mjs
+        shell: pwsh
+      # -AllowUnconfirmedNotices: THIRD_PARTY_NOTICES.md still has the
+      # "(Owner to confirm this paragraph.)" marker (owner item M2,
+      # docs/PLAN_TOOLS_2026-10-20.md §Fix round 5). This CI zip is a test
+      # artifact, not a release; a run without the switch fails until the
+      # owner confirms the paragraph and removes the marker — and, since
+      # §Fix round 11 M2, sets "notice_confirmed": true on every installable
+      # tool in tools/manifest.json (same switch). While either
+      # is there the zip is FrameTrace-<ver>-win64-UNCONFIRMED.zip with
+      # SHA256SUMS.unconfirmed (no SHA256SUMS) and the artifact is
+      # FrameTrace-win64-unconfirmed (§Fix round 6, L-CI).
       - name: Portable package smoke (make-portable.ps1)
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-portable.ps1
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-portable.ps1 -SkipBuild -AllowUnconfirmedNotices
           if ($LASTEXITCODE -ne 0) { throw "make-portable.ps1 failed ($LASTEXITCODE)" }
-          if (-not (Get-ChildItem dist -Filter *.zip)) { throw 'no zip produced in dist/' }
-          $bytes = [System.IO.File]::ReadAllBytes('dist/SHA256SUMS')
-          if ($bytes.Length -eq 0) { throw 'SHA256SUMS is empty' }
-          if ($bytes -contains 13) { throw 'SHA256SUMS contains CR' }
-          Get-Content dist/SHA256SUMS
+          $ver = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          $unconfirmed = (Get-Content -Raw -Encoding UTF8 THIRD_PARTY_NOTICES.md) -match '(?i)Owner\s+to\s+confirm'
+          # §Fix round 11 M2: an installable tool whose notice is not confirmed.
+          # §Fix round 12 L4: the exact rule of scripts/make-portable.ps1 —
+          # installable = a sha256 property that is not null and not '';
+          # confirmed = notice_confirmed is the boolean true (the string
+          # "true" is not; `-ne $true` would have accepted it).
+          $noticePending = @()
+          foreach ($tool in @((Get-Content -Raw -Encoding UTF8 tools/manifest.json | ConvertFrom-Json).tools)) {
+            $pinned = $tool.PSObject.Properties['sha256']
+            if (-not $pinned -or $null -eq $pinned.Value -or "$($pinned.Value)" -eq '') { continue }
+            $confirmed = $tool.PSObject.Properties['notice_confirmed']
+            if (-not $confirmed -or $confirmed.Value -isnot [bool] -or -not $confirmed.Value) { $noticePending += "$($tool.name)" }
+          }
+          if ($noticePending.Count -gt 0) { $unconfirmed = $true }
+          $zips = @(Get-ChildItem -File dist -Filter "FrameTrace-$ver-win64*.zip")
+          if ($zips.Count -ne 1) { throw "expected one FrameTrace-$ver-win64*.zip in dist/, found: $(@($zips | ForEach-Object Name) -join ', ')" }
+          $zip = $zips[0].FullName
+          $want = if ($unconfirmed) { "FrameTrace-$ver-win64-UNCONFIRMED.zip" } else { "FrameTrace-$ver-win64.zip" }
+          if ($zips[0].Name -ne $want) { throw "the package is $($zips[0].Name), expected $want" }
+          $sums = if ($unconfirmed) { 'dist/SHA256SUMS.unconfirmed' } else { 'dist/SHA256SUMS' }
+          if ($unconfirmed -and (Test-Path dist/SHA256SUMS)) { throw 'an unconfirmed package must not come with SHA256SUMS' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try { $names = @($archive.Entries | ForEach-Object { $_.FullName }) } finally { $archive.Dispose() }
+          $bad = @($names | Where-Object { (($_ -split '[/\\]')[-1]) -match '(?i)ffmpeg|ffprobe|ffplay|av(codec|format|util|device|filter)|swscale|swresample|postproc' })
+          if ($bad) { throw "the package contains FFmpeg: $($bad -join ', ')" }
+          $slash = @($names | Where-Object { $_.Contains('\') })
+          if ($slash) { throw "backslash entry names: $($slash -join ', ')" }
+          if ($names -notcontains "FrameTrace-$ver-win64/THIRD_PARTY_NOTICES.md") { throw 'THIRD_PARTY_NOTICES.md is missing from the package' }
+          $bytes = [System.IO.File]::ReadAllBytes($sums)
+          if ($bytes.Length -eq 0) { throw "$sums is empty" }
+          if ($bytes -contains 13) { throw "$sums contains CR" }
+          Get-Content $sums
         shell: pwsh
+      - name: Upload portable package (unconfirmed notices — test package, not a release)
+        if: hashFiles('dist/FrameTrace-*-win64-UNCONFIRMED.zip') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: FrameTrace-win64-unconfirmed
+          path: |
+            dist/FrameTrace-*-win64-UNCONFIRMED.zip
+            dist/SHA256SUMS.unconfirmed
+          if-no-files-found: error
+      - name: Upload portable package
+        if: hashFiles('dist/FrameTrace-*-win64-UNCONFIRMED.zip') == ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: FrameTrace-win64
+          path: |
+            dist/FrameTrace-*-win64.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+      # The guided install path, run once for real (verification only — not a
+      # distribution): a COPY of the unpacked package in RUNNER_TEMP (dist/ and
+      # the uploaded artifact never see ffmpeg) installs the pinned BtbN asset
+      # with PATH reduced to System32 (choco's ffmpeg out of the way). Checks
+      # the installed files, the pinned GPLv3 text, the audit line and the
+      # encoder pick, and records -buildconf (round-2 B-6: --enable-version3
+      # must be there, --enable-gpl / --enable-nonfree must not, so a re-pin
+      # cannot make the licence mix worse unnoticed). Only a text file is
+      # uploaded; the binary never leaves the runner.
+      - name: "Install-path smoke: tools install ffmpeg (real BtbN asset, verification only)"
+        timeout-minutes: 20
+        shell: pwsh
+        run: |
+          $ver = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          $manifest = Get-Content -Raw -Encoding UTF8 tools/manifest.json | ConvertFrom-Json
+          $pin = $manifest.tools | Where-Object { $_.name -eq 'ffmpeg' }
+          $copy = Join-Path $env:RUNNER_TEMP 'ft-install-smoke'
+          Remove-Item -Recurse -Force $copy -ErrorAction SilentlyContinue
+          Copy-Item -Recurse "dist/FrameTrace-$ver-win64" $copy
+          $report = Join-Path $env:RUNNER_TEMP 'ffmpeg-install-smoke.txt'
+          $log = { param($line) Write-Host $line; Add-Content -Encoding utf8 -Path $report -Value $line }
+          Set-Content -Encoding utf8 -Path $report -Value "FrameTrace $ver install-path smoke ($($pin.url))"
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $exe = Join-Path $copy 'frametrace.exe'
+          & $exe tools install ffmpeg --yes
+          if ($LASTEXITCODE -ne 0) { throw "tools install ffmpeg failed ($LASTEXITCODE)" }
+          $bin = Join-Path $copy 'tools/bin'
+          foreach ($f in @('ffmpeg.exe', 'ffprobe.exe', 'licenses/ffmpeg-LICENSE.txt', 'licenses/ffmpeg-COPYING.GPLv3.txt')) {
+            if (-not (Test-Path (Join-Path $bin $f))) { throw "missing tools/bin/$f after the install" }
+          }
+          $gpl = (Get-FileHash -Algorithm SHA256 (Join-Path $bin 'licenses/ffmpeg-COPYING.GPLv3.txt')).Hash.ToLowerInvariant()
+          if ($gpl -ne $pin.bundled_licenses[0].sha256) { throw "installed GPLv3 text $gpl does not match the manifest pin" }
+          if (Get-ChildItem -Force (Join-Path $copy 'tools') -Filter '.staging-*' -ErrorAction SilentlyContinue) { throw 'a tools/.staging-* directory was left behind' }
+          $auditLine = @(Get-Content (Join-Path $copy 'tools/install-audit.jsonl'))[-1]
+          $audit = $auditLine | ConvertFrom-Json
+          if ($audit.result -ne 'ok') { throw "last audit line is not ok: $auditLine" }
+          if ($audit.sha256 -ne $pin.sha256) { throw "audit sha256 $($audit.sha256) is not the pinned $($pin.sha256)" }
+          & $log "audit: result=$($audit.result) sha256=$($audit.sha256) size=$($audit.size) host=$($audit.host)"
+          $list = & $exe tools list --json | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'tools list --json failed' }
+          $tool = $list.tools | Where-Object { $_.name -eq 'ffmpeg' }
+          $ff = (Resolve-Path (Join-Path $bin 'ffmpeg.exe')).Path
+          $resolved = $tool.paths.ffmpeg
+          if (-not $resolved -or ((Resolve-Path $resolved).Path -ne $ff)) { throw "FrameTrace did not resolve the installed ffmpeg ($resolved)" }
+          $enc = $tool.encoders
+          & $log "h264 pick: $($enc.h264) (probed: $($enc.probed); trial_failed: [$(@($enc.trial_failed) -join ', ')]; note: $($enc.note))"
+          if (-not $enc.probed) { throw 'the encoder probe did not run against the installed ffmpeg' }
+          if ($enc.h264 -eq 'libopenh264') { throw 'FrameTrace would encode H.264 with the source-built libopenh264 (not covered by the Cisco patent licence)' }
+          if (@($enc.trial_failed).Count -ne 0) { throw "trial encodes failed: $(@($enc.trial_failed) -join ', ')" }
+          $buildconf = @(& $ff -hide_banner -buildconf | ForEach-Object { $_.Trim() })
+          if ($LASTEXITCODE -ne 0) { throw 'ffmpeg -buildconf failed' }
+          & $log '--- buildconf (selected):'
+          $buildconf | Where-Object { $_ -match 'enable-(version3|gpl|nonfree|libopenh264|chromaprint|libzvbi)' } | ForEach-Object { & $log "  $_" }
+          & $log '--- H.264 encoders:'
+          & $ff -hide_banner -encoders | Select-String -Pattern '\(codec h264\)' | ForEach-Object { & $log "  $($_.Line.Trim())" }
+          # §Fix round 11 H2 (informational, never fails the job): evidence
+          # that zvbi's GPL-2.0-only objects are linked. packet-830.c has no
+          # string literals (its symbols are stripped), so the probe is two
+          # format strings of zvbi src/pdc.c (_vbi_pil_dump /
+          # _vbi_program_id_dump). "no" is not proof of absence (the linker
+          # may drop unused functions).
+          try {
+            $text = [System.Text.Encoding]::GetEncoding(28591).GetString([System.IO.File]::ReadAllBytes($ff))
+            $markers = @('pcs=%s pty=%02x tape_delayed=%u', 'ch=%u cni=%04x (%s) pil=')
+            $found = @($markers | Where-Object { $text.Contains($_) })
+            $text = $null
+            & $log "zvbi packet-830/pdc linked: $(if ($found.Count -gt 0) { 'yes' } else { 'no' }) (pdc.c strings found $($found.Count)/$($markers.Count): $($found -join ' | '); packet-830.c has no strings to probe)"
+          } catch {
+            & $log "zvbi packet-830/pdc linked: unknown (probe failed: $($_.Exception.Message))"
+          }
+          if ($buildconf -notcontains '--enable-version3') { throw 'buildconf lacks --enable-version3' }
+          $forbidden = @($buildconf | Where-Object { $_ -eq '--enable-gpl' -or $_ -eq '--enable-nonfree' })
+          if ($forbidden) { throw "buildconf has $($forbidden -join ', ') — the pinned asset's licence mix got worse" }
+      - name: Upload install-path smoke record (text only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffmpeg-install-smoke
+          path: ${{ runner.temp }}/ffmpeg-install-smoke.txt
+          if-no-files-found: warn
