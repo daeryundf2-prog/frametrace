@@ -342,16 +342,14 @@ pub fn recover_inode(
     let output_path = match &options.output_path {
         Some(path) => {
             if path.exists() {
-                return Err(format!(
-                    "output already exists: {} (choose a new --output path)",
-                    path.display()
-                ));
+                // If it already exists, remove it or let File::create overwrite it
+                let _ = fs::remove_file(path);
             }
             path.to_path_buf()
         }
         None => unique_path(
             &case_dir
-                .join("artifacts/recovered/filesystem")
+                .join("artifacts/Recovery/Filesystem")
                 .join(format!("inode_{}.bin", sanitize_filename(&options.inode))),
         ),
     };

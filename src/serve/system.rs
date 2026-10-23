@@ -70,9 +70,9 @@ pub(crate) fn probe_env() -> String {
         "tools": tools_map,
         "workflows": {"media": media, "e01": ewf, "filesystem": tsk},
         "hints": {
-            "media": "FFmpeg 설치 후 ffmpeg/ffprobe가 PATH에 있어야 합니다. portable 배포본은 tools/bin에 복사하면 자동 인식됩니다.",
-            "e01": "libewf(ewfinfo/ewfverify/ewfexport) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
-            "filesystem": "Sleuth Kit(mmls/fls/icat) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+            "media": "상단 '도구'에서 FFmpeg [설치]를 누르거나, ffmpeg/ffprobe를 PATH 또는 tools/bin에 두십시오.",
+            "e01": "상단 '도구'에서 libewf [설치]를 누르거나, ewfinfo/ewfverify/ewfexport를 PATH 또는 tools/bin에 두십시오.",
+            "filesystem": "상단 '도구'에서 Sleuth Kit [설치]를 누르거나, mmls/fls/icat을 PATH 또는 tools/bin에 두십시오.",
         }
     })
     .to_string()
@@ -196,11 +196,14 @@ pub(crate) fn browse_json(raw: &str, want_files: bool) -> String {
             let is_case = crate::case_db::case_db_path(Path::new(full)).is_file();
             browse_entry_json(name, full, true, is_case)
         })
-        .chain(
-            files
-                .iter()
-                .map(|(name, full)| browse_entry_json(name, full, false, false)),
-        )
+        .chain(files.iter().map(|(name, full)| {
+            let mut entry = browse_entry_json(name, full, false, false);
+            // Size lets the picker tell a 2 GB segment from an empty stub.
+            if let (Ok(meta), Some(map)) = (std::fs::metadata(full), entry.as_object_mut()) {
+                map.insert("size".to_string(), serde_json::Value::from(meta.len()));
+            }
+            entry
+        }))
         .collect();
     let mut body = serde_json::json!({
         "ok": true, "exists": true, "is_dir": true, "kind": "folder",
