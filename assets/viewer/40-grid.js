@@ -82,7 +82,7 @@ let filteredMemo = { key: null, list: null };
 function filterMemoKey() {
   const chip = state.chip || "";
   if (chip === "marked:any" || chip.startsWith("mark:") || chip.startsWith("tag:")) return null;
-  return [state.kind, state.recType, state.status, chip, state.dateFrom, state.dateTo, state.query, state.sortBy].join("\u0001");
+  return [state.kind, state.recType, state.status, state.dirFilter || "", chip, state.dateFrom, state.dateTo, state.query, state.sortBy].join("\u0001");
 }
 
 function filteredRecords() {
@@ -104,6 +104,14 @@ function passesDate(record) {
   if (state.dateFrom && record.recDay < state.dateFrom) return false;
   if (state.dateTo && record.recDay > state.dateTo) return false;
   return true;
+}
+function passesDir(record) {
+  if (!state.dirFilter) return true;
+  const rDir = record.dirPath || "Root";
+  if (state.dirFilter === "Root") {
+    return rDir === "Root";
+  }
+  return rDir === state.dirFilter || rDir.startsWith(state.dirFilter + "/");
 }
 function passesRest(record, chip, query) {
   if (state.status && record.status !== state.status) return false;
@@ -130,19 +138,23 @@ function passesRest(record, chip, query) {
 let facetMemo = { key: null, value: null };
 function facetCounts() {
   const base = filterMemoKey();
-  const key = base === null ? null : base.split("\u0001").slice(0, 7).join("\u0001") + "\u0001" + records.length;
+  const key = base === null ? null : base.split("\u0001").slice(0, 8).join("\u0001") + "\u0001" + records.length;
   if (key !== null && facetMemo.key === key) return facetMemo.value;
   const chip = state.chip || "";
   const query = state.query || "";
-  const typeCounts = new Map(), kindCounts = new Map(), dayCounts = new Map();
+  const typeCounts = new Map(), kindCounts = new Map(), dayCounts = new Map(), dirCounts = new Map();
   records.forEach(record => {
     if (!passesRest(record, chip, query)) return;
-    const k = passesKind(record), ty = passesRecType(record), d = passesDate(record);
-    if (k && d) { const tk = record.recType || "unclassified"; typeCounts.set(tk, (typeCounts.get(tk) || 0) + 1); }
-    if (ty && d) kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
-    if (k && ty && record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
+    const k = passesKind(record), ty = passesRecType(record), d = passesDate(record), dir = passesDir(record);
+    if (k && d && dir) { const tk = record.recType || "unclassified"; typeCounts.set(tk, (typeCounts.get(tk) || 0) + 1); }
+    if (ty && d && dir) kindCounts.set(record.kind, (kindCounts.get(record.kind) || 0) + 1);
+    if (k && ty && dir && record.recDay) dayCounts.set(record.recDay, (dayCounts.get(record.recDay) || 0) + 1);
+    if (k && ty && d) {
+      const rDir = record.dirPath || "Root";
+      dirCounts.set(rDir, (dirCounts.get(rDir) || 0) + 1);
+    }
   });
-  const value = { typeCounts, kindCounts, dayCounts };
+  const value = { typeCounts, kindCounts, dayCounts, dirCounts };
   facetMemo = { key, value };
   return value;
 }
@@ -151,7 +163,7 @@ function computeFilteredRecords() {
   const chip = state.chip || "";
   const query = state.query || "";
   const list = records.filter(record =>
-    passesKind(record) && passesRecType(record) && passesDate(record) && passesRest(record, chip, query));
+    passesKind(record) && passesRecType(record) && passesDate(record) && passesDir(record) && passesRest(record, chip, query));
   const byId = (a, b) => idCollator.compare(String(a.id), String(b.id));
   switch (state.sortBy) {
     case "time-desc":
