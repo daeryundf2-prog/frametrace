@@ -7,9 +7,9 @@
 # fetches is not redistributable by us, docs/PLAN_TOOLS_C_2026-10-20.md T5),
 # not libewf, not The Sleuth Kit. The examiner installs them after unzipping
 # (`frametrace.exe tools install ffmpeg`, the home screen's install button,
-# or by hand into tools/bin / PATH — docs/WINDOWS_USAGE.md). THIRD_PARTY_
-# NOTICES.md states that the package holds no third-party executable; this
-# script keeps that true:
+# or by hand into tools/bin / PATH — docs/WINDOWS_USAGE.md).
+# THIRD_PARTY_NOTICES.md states that the package holds no third-party
+# executable; this script keeps that true:
 #   - the run FAILS while the repository's tools/bin or the release
 #     directory's tools/bin (the old bundling sources) holds any file — the
 #     allowlist of FrameTrace-owned files there is empty — so nobody expects
