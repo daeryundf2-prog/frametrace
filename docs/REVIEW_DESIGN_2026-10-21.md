@@ -76,7 +76,7 @@ check-css는 105쌍 × 2테마.
 검증(2차): `check-css`(105쌍 × 2테마 + DESIGN.md 양방향 대조), `check-js`, `cargo build --locked` 통과. 하네스: verify-buttons, verify-layout, check-a11y, verify-player-popup-escape, verify-viewer-dialogs 모두 통과(1회 실행, 재시도 없음).
 
 ### tools-bundle 03fd739(PR #6 포함) 병합 후 디자인 정리
-- PR #6 `81-picker-plus.css`는 이미 토큰만 사용(옛 청록·하드코딩 색·왼쪽 색줄 없음). 보강: 선택된 목록 행은 배경만이 아니라 1px `--accent` 외곽선(호버 행과 구분; 대비 6.89 / 5.79 on accent-soft), 바로 가기 활성 항목 inset 1px `--accent`, 고대비에서 둘 다 2px Highlight 외곽선, 끌어놓기 영역 테두리 Highlight, 경로 상태(ok/warn/err)는 연한 배경색 외에 글리프 ✓ / ! / ✕ 접두(읽기 제외, DOM 불변)와 고대비 테두리.
+- PR #6 `81-picker-plus.css`는 이미 토큰만 사용(옛 청록·하드코딩 색·왼쪽 색줄 없음). 보강: 선택된 목록 행은 배경만이 아니라 1px `--accent` 외곽선(호버 행과 구분; 대비 6.89 / 6.20 on accent-soft), 바로 가기 활성 항목 inset 1px `--accent`, 고대비에서 둘 다 2px Highlight 외곽선, 끌어놓기 영역 테두리 Highlight, 경로 상태(ok/warn/err)는 연한 배경색 외에 글리프 ✓ / ! / ✕ 접두(읽기 제외, DOM 불변)와 고대비 테두리.
 - 폴더 구조 트리(`60-details.js`): 이모지 📂📁🛡️(컬러 글리프, 인라인 `font-size:12px`)를 스프라이트 `#i-folder` 단색 아이콘(`.tree-ic`, 평소 `--muted`, 활성 시 글자색)으로 교체. 선택자·data 속성·들여쓰기 그대로.
 - 56-tools round 16(교체 확인문·감사 경고)은 기존 `.h-tool*` 토큰 스타일과 아이콘+sr-only 단어를 그대로 씀 — 변경 없음.
 - DESIGN.md 12px 예외 목록에 기존 `#customTagInput`(인라인 12px, 고정 104px) 추가.
