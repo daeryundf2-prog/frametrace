@@ -11,8 +11,14 @@ function normalizeTypedPath(raw, wsl) {
   let v = String(raw || "").trim();
   if (/^(["']).*\1$/.test(v)) v = v.slice(1, -1).trim();
   if (/^file:\/\//i.test(v)) {
-    try { v = decodeURIComponent(v.replace(/^file:\/\/(localhost)?/i, "")); } catch { /* keep as is */ }
-    if (/^\/[A-Za-z]:/.test(v)) v = v.slice(1).replace(/\//g, "\\");
+    // Merge review L3: `file://server/share/x.E01` names a network share.
+    // Keep it a `//server/share/...` path — never `server/share/...`
+    // (relative), which would slip past the network-path refusals below
+    // and on the server. Only an empty host or `localhost` is local.
+    const host = (v.match(/^file:\/\/([^/\\]*)/i) || [])[1] || "";
+    const local = host === "" || /^localhost$/i.test(host);
+    try { v = decodeURIComponent(v.replace(/^file:\/\/(localhost(?=[/\\]|$))?/i, local ? "" : "//")); } catch { v = local ? v : "//" + v.replace(/^file:\/\//i, ""); }
+    if (local && /^\/[A-Za-z]:/.test(v)) v = v.slice(1).replace(/\//g, "\\");
   }
   const m = wsl && v.match(/^([A-Za-z]):(?:[\\/](.*))?$/);
   if (m) v = `/mnt/${m[1].toLowerCase()}/${(m[2] || "").replace(/\\/g, "/")}`.replace(/\/+$/, "") || "/";

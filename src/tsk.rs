@@ -57,6 +57,27 @@ pub struct TskRecoverOptions {
     pub skip_sparse_holes: bool,
     pub icat_bin: String,
     pub timeout_secs: Option<u64>,
+    /// Merge review M2: a copy of an allocated (live) file
+    /// (`recover-batch --allocated-videos`) — logged as `extract-inode`, not
+    /// `recover-inode`, so a live file is never listed or counted as a
+    /// recovery (viewer Recovery tree, metrics, report techniques).
+    pub extract: bool,
+}
+
+/// The tsk-audit event a recovery / extraction writes.
+pub const RECOVER_EVENT: &str = "recover-inode";
+/// See [`TskRecoverOptions::extract`].
+pub const EXTRACT_EVENT: &str = "extract-inode";
+
+impl TskRecoverOptions {
+    /// [`EXTRACT_EVENT`] for an extraction, else [`RECOVER_EVENT`].
+    pub fn audit_event(&self) -> &'static str {
+        if self.extract {
+            EXTRACT_EVENT
+        } else {
+            RECOVER_EVENT
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -560,7 +581,8 @@ pub fn recover_inode(
     append_tsk_audit(
         case_dir,
         &format!(
-            "{{\"schema_version\":1,\"event\":\"recover-inode\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"warnings\":{}}}",
+            "{{\"schema_version\":1,\"event\":\"{}\",\"recovered_unix\":{},\"image_path\":\"{}\",\"partition_offset\":{},\"inode\":\"{}\",\"output_path\":\"{}\",\"size_bytes\":{},\"sha256\":\"{}\",\"validation_status\":\"{}\",\"recover_deleted\":{},\"include_slack\":{},\"skip_sparse_holes\":{},\"icat_version\":\"{}\",\"command\":\"{}\",\"command_args\":{},\"warnings\":{}}}",
+            options.audit_event(),
             recovered_unix,
             json_escape(&image_path.to_string_lossy()),
             options.partition_offset,
@@ -1192,11 +1214,27 @@ Units are in 512-byte sectors
             skip_sparse_holes: true,
             icat_bin: "icat".to_string(),
             timeout_secs: None,
+            extract: false,
         };
         assert_eq!(
             icat_args(image, &options),
             vec!["-h", "-r", "-o", "2048", "/cases/image.raw", "1304-128-1"]
         );
+        // Merge review M2: the audit event follows `extract`, not the icat
+        // `-r` flag (a manual recover-inode without -r is still a recovery).
+        assert_eq!(options.audit_event(), "recover-inode");
+        let live = TskRecoverOptions {
+            recover_deleted: false,
+            extract: true,
+            ..options.clone()
+        };
+        assert_eq!(live.audit_event(), "extract-inode");
+        assert!(!icat_args(image, &live).contains(&"-r".to_string()));
+        let manual = TskRecoverOptions {
+            recover_deleted: false,
+            ..options
+        };
+        assert_eq!(manual.audit_event(), "recover-inode");
     }
 
     /// Spawns a shell child that prints `lines` to stdout and then sleeps
@@ -1396,6 +1434,7 @@ Units are in 512-byte sectors
             skip_sparse_holes: false,
             icat_bin: bin,
             timeout_secs: Some(30),
+            extract: false,
         };
         let out_dir = case.join("artifacts/recovered/filesystem");
         let failing = icat("fail", "printf 'partial'; exit 1");
@@ -1419,6 +1458,22 @@ Units are in 512-byte sectors
             std::fs::read(&result.output_path).unwrap(),
             b"recovered-bytes"
         );
+        // Merge review M2: an extraction of a live file is logged as
+        // `extract-inode` (never counted as a recovery), a recovery as
+        // `recover-inode`.
+        let extracted = case.join("artifacts/extracted/DCIM/a.mp4");
+        let mut extract = options(icat("ok2", "printf 'live-bytes'"));
+        extract.extract = true;
+        extract.output_path = Some(extracted.clone());
+        super::recover_inode(&case, &image, &extract).unwrap();
+        let events: Vec<String> =
+            std::fs::read_to_string(case.join("evidence/logs/tsk-audit.jsonl"))
+                .unwrap()
+                .lines()
+                .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                .filter_map(|row| row["event"].as_str().map(str::to_string))
+                .collect();
+        assert_eq!(events, ["recover-inode", "extract-inode"], "{events:?}");
         let _ = std::fs::remove_dir_all(&case);
     }
 }

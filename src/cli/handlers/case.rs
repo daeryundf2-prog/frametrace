@@ -130,6 +130,53 @@ pub(crate) fn publish_case_manifest(
     Ok(())
 }
 
+/// Kind of the source row scan-folder registers for the case's own
+/// `artifacts/extracted` tree (hunch from the merge review): files
+/// `recover-batch --allocated-videos` copied out of a registered forensic
+/// image are a DERIVED artifact, never an original evidence source.
+pub(crate) const EXTRACTED_SOURCE_KIND: &str = "derived-extracted";
+
+/// The evidence-source row scan-folder registers for `source_dir`: an
+/// ordinary `folder`, or — for the case's `artifacts/extracted` tree (or a
+/// folder inside it) — an [`EXTRACTED_SOURCE_KIND`] row saying so.
+pub(crate) fn scan_folder_source_input(
+    case_dir: &Path,
+    source_dir: &Path,
+    metadata_json: String,
+) -> case_db::EvidenceSourceInput {
+    let canonical = |path: &Path| crate::audit::canonical_or_original(path);
+    let derived =
+        canonical(source_dir).starts_with(canonical(&case_dir.join("artifacts/extracted")));
+    if derived {
+        case_db::EvidenceSourceInput {
+            kind: EXTRACTED_SOURCE_KIND.to_string(),
+            path: source_dir.to_path_buf(),
+            source_id: None,
+            write_protect: Some(
+                "derived artifact in the case folder; the original is the forensic image".to_string(),
+            ),
+            acquisition_tool: Some("Sleuth Kit icat (recover-batch --allocated-videos)".to_string()),
+            evidence_hash: None,
+            notes: Some(
+                "Derived: allocated files extracted from a registered forensic image (extract-inode records in evidence/logs/tsk-audit.jsonl) — not an original evidence source"
+                    .to_string(),
+            ),
+            metadata_json: Some(metadata_json),
+        }
+    } else {
+        case_db::EvidenceSourceInput {
+            kind: "folder".to_string(),
+            path: source_dir.to_path_buf(),
+            source_id: None,
+            write_protect: None,
+            acquisition_tool: None,
+            evidence_hash: None,
+            notes: Some("Auto-registered by scan-folder".to_string()),
+            metadata_json: Some(metadata_json),
+        }
+    }
+}
+
 pub fn scan_folder(
     case_dir: &Path,
     source_dir: &Path,
@@ -146,16 +193,7 @@ pub fn scan_folder(
 
     let source = case_db::register_evidence_source(
         case_dir,
-        &case_db::EvidenceSourceInput {
-            kind: "folder".to_string(),
-            path: source_dir.to_path_buf(),
-            source_id: None,
-            write_protect: None,
-            acquisition_tool: None,
-            evidence_hash: None,
-            notes: Some("Auto-registered by scan-folder".to_string()),
-            metadata_json: Some(scan_options_json(&options)),
-        },
+        &scan_folder_source_input(case_dir, source_dir, scan_options_json(&options)),
     )?;
     let job = case_db::start_job(
         case_dir,
@@ -1663,8 +1701,11 @@ fn build_unplayable_proxies(
         let Ok(item) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        let is_recover = item.get("event").and_then(|v| v.as_str()) == Some("recover-inode")
-            || item.get("output_path").is_some();
+        let event = item.get("event").and_then(|v| v.as_str());
+        // Merge review M2: an `extract-inode` output is a live file the
+        // scan indexed — the indexed queue above already covers it.
+        let is_recover = event != Some(crate::tsk::EXTRACT_EVENT)
+            && (event == Some(crate::tsk::RECOVER_EVENT) || item.get("output_path").is_some());
         let Some(path) = item.get("output_path").and_then(|v| v.as_str()) else {
             continue;
         };

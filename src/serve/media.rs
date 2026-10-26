@@ -2477,7 +2477,14 @@ pub(crate) fn sweep_killed_step(args: &[String], pid: u32) -> Vec<Result<String,
         }
     }
     for dir in step_part_dirs(args) {
-        for (path, result) in crate::join::sweep_pid_parts(&dir, pid) {
+        // Merge review L1: extraction keeps the image's folder tree, so its
+        // `.part` files sit in subfolders of artifacts/extracted.
+        let swept = if dir.ends_with("artifacts/extracted") {
+            crate::join::sweep_pid_parts_recursive(&dir, pid)
+        } else {
+            crate::join::sweep_pid_parts(&dir, pid)
+        };
+        for (path, result) in swept {
             out.push(match result {
                 Ok(()) => Ok(format!(
                     "중단된 단계가 남긴 임시 파일을 지웠습니다: {}",

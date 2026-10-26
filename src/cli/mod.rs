@@ -1019,6 +1019,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
                 skip_sparse_holes,
                 icat_bin: icat.unwrap_or_else(|| "icat".to_string()),
                 timeout_secs: timeout,
+                extract: false,
             };
             recover_inode(&case_dir, &image_file, options)
         }

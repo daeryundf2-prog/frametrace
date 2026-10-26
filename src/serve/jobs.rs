@@ -593,6 +593,7 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
     set_step(&state, 3, StepStatus::Running);
 
     // E01 filesystem triage: extract allocated videos preserving folder hierarchy
+    let mut extracted_any = false;
     if let Some((image_path, partition_offset)) =
         crate::serve::records::newest_tsk_inspection(&job.case_dir)
     {
@@ -611,7 +612,10 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
             partition_offset.to_string(),
         ];
         match run_step(&exe, &extract_args, &state) {
-            Ok(output) => log(&state, output),
+            Ok(output) => {
+                extracted_any = extraction_left_files(&output);
+                log(&state, output);
+            }
             Err(err) => log(&state, format!("정상 영상 자동 추출 건너뜀: {err}")),
         }
     }
@@ -620,10 +624,10 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
     // something there — create_case_layout always makes the (empty)
     // folder, and without Sleuth Kit (or an inspection) nothing is
     // extracted, so the evidence tree stays the scan target then.
+    // Merge review L2: decided by THIS run's recover-batch result (files
+    // extracted or kept from an earlier run of the same sources), never by
+    // whatever the folder holds (an empty subfolder, a stale `.part`).
     let extracted_dir = job.case_dir.join("artifacts/extracted");
-    let extracted_any = std::fs::read_dir(&extracted_dir)
-        .map(|mut entries| entries.next().is_some())
-        .unwrap_or(false);
     let scan_target = if extracted_any {
         extracted_dir.to_string_lossy().to_string()
     } else {
@@ -683,6 +687,14 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
             fail(&state, &err);
         }
     }
+}
+
+/// Merge review L2: whether THIS recover-batch run left files in
+/// artifacts/extracted — its closing `recover batch result:` line counts
+/// new (`ok`) and kept (`skipped`, proven the same source) outputs.
+pub(crate) fn extraction_left_files(output: &str) -> bool {
+    crate::cli::handlers::forensic::parse_batch_result(output)
+        .is_some_and(|(ok, skipped)| ok + skipped > 0)
 }
 
 /// Folder pipeline, split in two stages (UX-02):
