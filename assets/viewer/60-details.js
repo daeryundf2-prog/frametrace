@@ -22,7 +22,7 @@ function drawTelemetry(report) {
   const X = p => pad + (p.lon - minLon) * s;
   const Y = p => canvas.height - pad - (p.lat - minLat) * s;
   const stride = Math.max(1, Math.floor(pts.length / 4000));
-  ctx.strokeStyle = "#0f7c71";
+  ctx.strokeStyle = "#5c9eff";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   for (let i = 0; i < pts.length; i += stride) {

@@ -1,0 +1,41 @@
+# 디자인 개선 작업 기능 리뷰 (2026-10-21, 작업 트리 미커밋 변경, 기준 849a5bf)
+
+## 2차 확인 (현재 상태 — 1차 지적은 해소됨)
+- 1차 리뷰 때(작업 중간본) 사라졌던 **class/id 149개 스타일이 모두 복구**됨. 지금은 HEAD 대비 선택자 집합이 같고(00-layout 237→237, controls 200→200, evidence_viewer 396→397, finalize·tools 동일), 지워진 선택자 0, 아직 쓰이는데 스타일 없는 이름 0.
+- 메뉴/시트/모달 z-index, 토스트 `pointer-events`, display 방식 변경 없음(1차 때 지적한 층 순서·클릭 가로채기 문제 없음).
+- 변경은 사실상 **재색칠**: 9개 파일, +186/−166. JS 3곳은 색 문자열만.
+
+### 기능 검사 (이 상태의 사본 `../ft-design`, 별도 빌드)
+- `check-css`(대비 88쌍 × 두 테마), `check-js`, `verify-contract-pin`, `verify-i18n`, `cargo build`, `cargo test` 통과.
+- 하네스 26종 중 CI 목록에 있는 것 전부 통과: verify-buttons, verify-layout, check-a11y(브라우저 필수), verify-embed, verify-viewer-dialogs, verify-finalize-sheet, verify-start-screen, verify-player-keys, verify-player-popup-escape, verify-range-sync, verify-marks-sync, verify-marks-roundtrip, verify-viewer-undo, verify-facets, verify-audio-facet, verify-jobs-e2e, verify-shell-jobs, verify-live-index, verify-progress, verify-rebuild-regressions, verify-review-batch --unit, verify-join --live.
+- `verify-virtual-grid` U17(5만 건 클릭·마크 200 ms): 첫 실행 실패(210/409 ms) → 재실행 통과(25/105 ms). 같은 시각 다른 빌드에서도 마크가 336 ms로 실패 — **PC 부하에 따른 흔들림**, 디자인 원인 아님.
+- 실행 안 된 4개(`verify-viewer-popup`·`verify-topfilters`·`verify-download`는 실제 포트 보호로 거부, `verify-dual`은 인자 필요) — CI 목록 밖, 디자인 무관.
+- 화면 갤러리 24장 × 두 테마(1366×768) 확인: 빈 상태·실행 중·프로젝트 메뉴·작업 시트·그리드·상세·인스펙터·단축키·클립·이어붙이기·다중 선택·토스트·결과물(차단 포함)·최종화 후·팝아웃. 깨진 배치 없음.
+
+## 1차 리뷰 (작업 중간본, 지금은 해당 없음)
+중간본에서는 CSS 재작성으로 class/id 149개 스타일이 사라지고 z-index 순서·토스트 클릭 통과가 바뀌어 있었음. 2차 확인 시점에 모두 원래 구조로 돌아옴.
+
+## 남은 권고
+- 이 작업은 PR #5 브랜치(`tools-bundle`) 작업 트리에서 **미커밋**으로 진행 중 — 별도 브랜치로 커밋해 PR #5와 섞이지 않게 할 것.
+- 적대적 리뷰 결과는 아래에 이어서 기록.
+
+## 적대적 리뷰 (Opus, `../ft-design` 사본, 대비 직접 계산 + 격리 서버 Playwright 1366×768·1920×1080 × 두 테마 + forced-colors + 요약 보고서 흑백 PDF)
+**판정: 조건부 머지 차단** — Blocker 없음, High 3건(토큰·문서 몇 줄)을 고치고 check-css에 새 쌍을 넣으면 머지 가능.
+
+| 심각도 | 위치 | 문제 | 수정 |
+|---|---|---|---|
+| High | `tokens.css:87,143` `--media-border` / `viewer/controls.css:110` | 미디어 툴바 버튼 테두리 대비 1.31·1.27:1 (기준 3:1, HEAD 2.47:1보다 나빠짐) — 버튼 경계가 안 보임 | 컨트롤 외곽선용 토큰 분리, 3:1 이상(예 `#6b737c`) |
+| High | `viewer/controls.css:123` | 툴바 비활성 버튼이 글자색만 다름(활성 대비 1.73배 차이, 배경·테두리 동일, `.muted` 라벨과 같은 색) — 재생 불가 파일에서 IN/OUT 등 비활성 구분 어려움 | 비활성 글자 더 어둡게(≈3:1) + 점선/투명 테두리 |
+| High | `DESIGN.md:19-47` | "Single Source of Truth"라면서 tokens.css와 값 대부분 불일치, 없는 토큰(`--surface-3`), **마크 의미 반대**(문서: 검토됨=초록·확인 필요=주황 / CSS: 검토됨=회색·중요=주황·확인 필요=보라) | tokens.css에서 표 재생성, 가능하면 check-css가 대조 |
+| Medium | `scripts/check-css.mjs:128-146` | 새 토큰 14개(media-*, cal-l1~3, mark-hl)가 88쌍에 없음 → 위 High가 게이트 통과 | 쌍 추가 + 계약 §5 토큰 표 갱신 |
+| Medium | `evidence_viewer.css:163,248` | 라이트 테마 영상 스테이지·썸네일 "다시 시도" 포커스 링 2.19/2.02:1 (`--media-ring`이 툴바에만 적용) | 미디어 영역 `:focus-visible`에 `--media-ring` |
+| Medium | `viewer/70-player.js:295-296` | 팝아웃 목록 선택 항목에 포커스 링 = 배경색 → 1:1, 안 보임(실측) | 다른 색(`#eef0f2`) + offset |
+| Medium | `app/00-layout.css:259-263` | 셸 토스트 정보·완료·경고·오류가 색으로만 구분, 고대비에서 동일; 뷰어 경고/오류 같은 "!" | 종류별 아이콘(✓ ! ✕) 또는 글자 접두어 |
+| Low | `evidence_viewer.css:237-239` + `kit.css:161` | 고대비에서 현재 카드·활성 항목 구분 약함(기존) | `@media (forced-colors:active)` Highlight 외곽선 |
+| Low | `evidence_viewer.css:317,319` | 카빙/후보 배지 휘도비 1.16 (적록색약 구분 어려움, 글자 있음) | 색상 차이 확대 |
+| Low | `tokens.css:92-94,148-150` | 달력 단계 색 차이 작음(숫자 표시로 정보 유지) | 다크 l1 밝게 |
+| Low | `viewer/70-player.js:286-307`, `evidence_viewer.css` 여러 곳 | 13px 미만 글자 남음 — DESIGN.md "13px 미만 금지"와 불일치; 팝아웃 영상 없는 항목 3.65:1 | 13px, `#8a8f95` 이상 |
+| Low | `evidence_viewer.css:42` vs `:372` | 다크에서 경고 검증 항목 연한 배경 사라짐(대비는 충분) | 다크 규칙에 `.warn` |
+| Low | `viewer/90-sync.js:2001-2004` | 요약 보고서 흑백 인쇄 읽힘·상태는 글자; 안내 상자 테두리 1.53:1, SHA 11px(기존) | `@media print` 테두리 검정, 12~13px |
+
+문제없음: 두 해상도·두 테마 잘림 없음, 배지·토스트·형광펜·종류 배지·텔레메트리 대비 기준 통과, 레거시 밖 왼쪽 색 줄·옛 청록색 0건, reduced-motion 정상, check-css 88쌍 통과.

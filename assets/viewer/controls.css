@@ -107,10 +107,10 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
    ====================================================================== */
 .player { grid-template-rows: 32px auto auto; }
 .ft-viewer.theater .player { grid-template-rows: 34px minmax(0, 1fr) auto; }
-#mediaToolbar { --tb-bg: #16231f; --tb-fg: #eaf3ef; --tb-line: #4b625a; --tb-hover: #22352f; --tb-ring: #7fd6c7;
+#mediaToolbar { --tb-bg: var(--media-surface); --tb-fg: var(--media-fg); --tb-line: var(--media-border); --tb-hover: var(--media-hover); --tb-ring: var(--media-ring);
   display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; padding: 0; background: var(--tb-bg); color: var(--tb-fg); }
 .tb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; min-width: 0; }
-.tb-row + .tb-row { border-top: 1px solid #2c3a34; }
+.tb-row + .tb-row { border-top: 1px solid var(--tb-line); }
 .tb-spacer { flex: 1 1 8px; }
 .tb-range { white-space: nowrap; }
 .tb-range:empty { display: none; }
@@ -118,9 +118,9 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 #mediaToolbar .muted { color: var(--media-muted); font-size: var(--fs-xs); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)) { background: var(--tb-bg); color: var(--tb-fg); border-color: var(--tb-line); padding: 0 8px; font-size: var(--fs-xs); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)):hover { background: var(--tb-hover); border-color: var(--tb-ring); }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)):active { background: #2c443c; border-color: var(--tb-ring); }
+#mediaToolbar .tb-row button:where(:not(.menu-list *)):active { background: var(--media-active); border-color: var(--tb-ring); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)).on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: var(--tb-bg); color: #8ea39b; border-color: #34463f; }
+#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: var(--tb-bg); color: var(--media-muted); border-color: var(--tb-line); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)).busy:disabled { background: var(--tb-hover); color: var(--tb-fg); border-color: var(--tb-ring); }
 #mediaToolbar button:where(:not(.menu-list *)):focus-visible, #mediaToolbar select:focus-visible, #mediaToolbar input:focus-visible { outline-color: var(--tb-ring); }
 #mediaToolbar kbd { background: rgba(255,255,255,.1); border-color: var(--tb-line); color: var(--media-muted); }
@@ -156,17 +156,17 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 /* Clicks pass through a toast's text to whatever is underneath; only its
    own buttons (close / action) take the pointer. A transient message must
    never block a control. */
-#toastHost > .toast { pointer-events: none; display: flex; align-items: flex-start; gap: 8px; max-width: none; padding: 8px 6px 8px 14px; border-radius: var(--radius); border-left: 4px solid var(--accent); background: #1f2724; color: #f2f7f5; font-size: var(--fs-sm); line-height: var(--lh-ctl); box-shadow: 0 6px 18px rgba(0,0,0,.28); }
-#toastHost .toast-text { flex: 1 1 auto; min-width: 0; padding-top: 3px; overflow-wrap: anywhere; }
-#toastHost .toast-error { border-left-color: #ff8a80; }
-#toastHost .toast-error::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: #ff8a80; color: #1f2724; font-weight: 800; font-size: var(--fs-xs); }
-#toastHost .toast-warn { border-left-color: #e6b450; }
-#toastHost .toast-warn::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: #e6b450; color: #1f2724; font-weight: 800; font-size: var(--fs-xs); }
-#toastHost .toast button { pointer-events: auto; flex: none; min-width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid transparent; background: transparent; color: #d8e4df; font: inherit; font-size: var(--fs-xs); cursor: pointer; padding: 0 8px; }
-#toastHost .toast button:hover { background: rgba(255,255,255,.14); }
-#toastHost .toast button:focus-visible { outline: 2px solid #7fd6c7; outline-offset: 1px; }
-#toastHost .toast button.toast-action { border-color: #8ea39b; color: #f2f7f5; }
-#toastHost .toast button:disabled { color: #9db0a8; cursor: not-allowed; }
+#toastHost > .toast { pointer-events: none; display: flex; align-items: flex-start; gap: 8px; max-width: none; padding: 8px 6px 8px 12px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-size: var(--fs-sm); line-height: var(--lh-ctl); box-shadow: var(--shadow-pop); }
+#toastHost .toast-text { flex: 1 1 auto; min-width: 0; padding-top: 3px; word-break: keep-all; overflow-wrap: break-word; }
+#toastHost .toast-error { border-color: var(--failed-fg); background: var(--failed-bg); color: var(--failed-fg); }
+#toastHost .toast-error::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--failed-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
+#toastHost .toast-warn { border-color: var(--warn-fg); background: var(--warn-bg); color: var(--warn-fg); }
+#toastHost .toast-warn::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--warn-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
+#toastHost .toast button { pointer-events: auto; flex: none; min-width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid transparent; background: transparent; color: inherit; font: inherit; font-size: var(--fs-xs); cursor: pointer; padding: 0 8px; }
+#toastHost .toast button:hover { background: var(--surface-2); }
+#toastHost .toast button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+#toastHost .toast button.toast-action { border-color: currentColor; color: inherit; font-weight: 600; }
+#toastHost .toast button:disabled { color: var(--disabled-fg); cursor: not-allowed; }
 #toastHost .toast .toast-close { padding: 0; }
 
 /* live index chip (99-loader.js keeps the id; it is moved into the header,
@@ -283,7 +283,7 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 .join-dlg td.join-file { overflow-wrap: anywhere; }
 /* Derived records (joined outputs): neutral info badge + kind chip. */
 .ft-viewer .badge.derived { background: var(--info-bg); border-color: var(--border-strong); color: var(--info-fg); }
-.ft-viewer .kind-badge.kind-joined { background: #4a5568; color: #fff; }
+.ft-viewer .kind-badge.kind-joined { background: #3d4654; color: #ffffff; }
 .validation-item.join-sources ol { margin: 4px 0; padding-left: 20px; }
 .validation-item.join-sources li { overflow-wrap: anywhere; }
 /* Sound flags: shape carries the state (sound / silent / none / track). */
