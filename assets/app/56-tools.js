@@ -61,6 +61,15 @@ const HT_STR = {
     "code.unknown_tool": "이 서버가 모르는 도구입니다",
     "code.spawn_failed": "설치를 시작하지 못했습니다",
     "code.manifest_invalid": "도구 목록이 손상되어 설치할 수 없습니다",
+    "code.install_running_elsewhere": "다른 곳(명령줄)에서 도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오",
+    replaceTitle: "{label} 설치 — 기존 파일 교체",
+    replaceBody: "tools/bin의 기존 파일을 교체하고 이전 파일은 지웁니다: {files}",
+    alreadyBody: "{label}은(는) 이미 설치돼 있습니다.",
+    replaceOk: "교체하고 설치",
+    replaceKept: "설치하지 않았습니다 — 기존 파일을 그대로 둡니다",
+    auditWarn: "감사 기록 경고: {warning}",
+    checkingEnc: "인코더 확인 중…",
+    checking: "도구 확인 중…",
     finReq: "{label} 없음 — 영상 검증·프록시를 만들 수 없음",
     finReqSub: "첫 화면 ‘도구’에서 설치하거나 tools/bin에 넣으십시오.",
     dfMissing: "합성 영상 검사에 필요한 도구가 없습니다",
@@ -121,6 +130,15 @@ const HT_STR = {
     "code.unknown_tool": "This server does not know the tool",
     "code.spawn_failed": "The install could not be started",
     "code.manifest_invalid": "The tool list is damaged — cannot install",
+    "code.install_running_elsewhere": "A tool install is running elsewhere (command line) — try again after it ends",
+    replaceTitle: "Install {label} — replace existing files",
+    replaceBody: "Replaces the existing files in tools/bin and deletes the previous ones: {files}",
+    alreadyBody: "{label} is already installed.",
+    replaceOk: "Replace and install",
+    replaceKept: "Not installed — the existing files were kept",
+    auditWarn: "Audit log warning: {warning}",
+    checkingEnc: "Checking encoders…",
+    checking: "Checking the tool…",
     finReq: "{label} missing — videos cannot be verified or proxied",
     finReqSub: "Install it from ‘Tools’ on the start screen or put it in tools/bin.",
     dfMissing: "The deepfake screening tool is not installed",
@@ -148,7 +166,11 @@ const HT_MAX_POLL_FAILS = 20;
 const HT_RECENT_S = 300;
 // busy: the tool whose install this tab follows (clicked here, or adopted
 // from the server after a refresh / in a second tab); job: its install id.
-const HT = { res: null, seq: 0, timer: 0, polling: false, busy: "", job: null, confirming: false, stopping: "", stopAsked: false, note: null, result: null, prompt: null, written: new Map(), live: "", fails: 0 };
+// confirming: true while a confirm dialog is open, "check" while [설치]
+// re-reads /api/tools before opening it (Fix round 16 M5); checking: the
+// tool just installed whose /api/tools refresh (encoder re-probe, up to
+// 45 s on the server) has not answered yet (Fix round 16 L-freeze).
+const HT = { res: null, seq: 0, timer: 0, polling: false, busy: "", job: null, confirming: false, checking: "", stopping: "", stopAsked: false, note: null, result: null, prompt: null, written: new Map(), live: "", fails: 0 };
 
 function htLocale() {
   const l = typeof hLocalePref === "function" ? hLocalePref() : "";
@@ -169,7 +191,10 @@ function htParseInstall(i, serverNow) {
   const fin = htNum(i.finished_unix), now = htNum(serverNow), age = htNum(i.age_s);
   const ageS = Number.isFinite(age) ? age : Number.isFinite(fin) && Number.isFinite(now) ? Math.max(0, now - fin) : null;
   return { id: i.id ?? null, state: String(i.state || "idle"), stage: i.stage || null, tool: i.tool || null, bytes: i.bytes ?? null, total: i.total ?? null, error: i.error || null,
-    finished_unix: Number.isFinite(fin) ? fin : null, age_s: ageS, cancelled: typeof i.cancelled === "boolean" ? i.cancelled : null };
+    finished_unix: Number.isFinite(fin) ? fin : null, age_s: ageS, cancelled: typeof i.cancelled === "boolean" ? i.cancelled : null,
+    // Fix round 16 L-audit: a successful install whose audit line could not
+    // be written (install-audit.jsonl) — shown, never dropped.
+    audit_warning: typeof i.audit_warning === "string" && i.audit_warning.trim() ? i.audit_warning.trim() : null };
 }
 // Pure: a `failed` job that ended on a cancel (any tab, the CLI). An older
 // server has no `cancelled` field: its INSTALL_CANCELLED error, or a stop
@@ -293,6 +318,22 @@ function htRefusal(res, t, locale) {
     title: known ? String(r.error || "") : "",
   };
 }
+// Pure: a refusal that a forced resend may override (Fix round 16 M5):
+// `would_replace` (files the install would replace — e.g. an ffmpeg.exe
+// put into tools/bin by hand) or `already_installed`. → { already, files }
+// or null.
+function htReplaceRefusal(res) {
+  const r = res || {};
+  if (r.ok !== false || (r.code !== "would_replace" && r.code !== "already_installed")) return null;
+  const files = Array.isArray(r.replaces) ? r.replaces.filter(f => typeof f === "string" && f.trim()).map(f => f.trim()) : [];
+  return { already: r.code === "already_installed", files };
+}
+// Pure: the second confirm dialog's body (the files replaced and deleted).
+function htReplaceHtml(label, rr, locale) {
+  const files = rr.files.length ? rr.files.join(", ") : htT("unknown", null, locale);
+  return (rr.already ? `<p>${esc(htT("alreadyBody", { label }, locale))}</p>` : "") +
+    `<p class="h-tool-replace">${esc(htT("replaceBody", { files }, locale))}</p>`;
+}
 // Pure: one panel row, or null when nothing needs saying.
 // action: "install" ([설치], or [중단] while it runs), "manual"
 // (manual_hint + homepage), "" (none).
@@ -310,7 +351,13 @@ function htRowModel(t, install, ctx, locale) {
   const rollback = t.rollback_incomplete === true ? { text: htT("rollback", null, locale), title: String(t.rollback_note || "") } : null;
   if (t.installed) {
     if (rollback) return { name: t.name, label, level: "warn", text: label, why: "", action: "", progress: "", busy: false, shadow, rollback };
-    if (res && res.ok) return { name: t.name, label, level: "ok", text: htT("done", { label }, locale), why: "", action: "", progress: "", busy: false, shadow };
+    if (res && res.ok) {
+      // Fix round 16 L-freeze: the encoder re-probe (/api/tools) is still
+      // running — a short hint, no button. L-audit: the audit warning.
+      const progress = c.checking === t.name ? htT(/ffmpeg/i.test(t.name) ? "checkingEnc" : "checking", null, locale) : "";
+      const audit = res.audit ? htT("auditWarn", { warning: res.audit }, locale) : "";
+      return { name: t.name, label, level: audit ? "warn" : "ok", text: htT("done", { label }, locale), why: "", action: "", progress, busy: false, shadow, audit };
+    }
     // Installed from tools/bin, but another copy sits on PATH: one short
     // line so the examiner can check it is not planted.
     if (shadow) return { name: t.name, label, level: "info", text: label, why: "", action: "", progress: "", busy: false, shadow };
@@ -353,6 +400,7 @@ function htRowHtml(m, locale) {
     `<span class="sr-only">${esc((HT_WORD[loc] || HT_WORD.ko)[m.level] || "")}: </span><b>${esc(m.text)}</b>` +
     (m.why ? `<small>${esc(m.why)}</small>` : "") + (m.progress ? `<small class="h-tool-prog">${esc(m.progress)}</small>` : "") +
     (m.note ? `<small>${esc(m.note)}</small>` : "") + htHintSmall(m, loc) +
+    (m.audit ? `<small class="h-tool-audit">${esc(m.audit)}</small>` : "") +
     // The paths are in the text too (sr-only), not only in a hover title.
     (m.shadow ? `<small class="h-tool-shadow" title="${esc(m.shadow.title)}">${esc(m.shadow.text)}<span class="sr-only"> — ${esc(m.shadow.title)}</span></small>` : "") +
     (m.rollback ? `<small class="h-tool-rollback"${m.rollback.title ? ` title="${esc(m.rollback.title)}"` : ""}>${esc(m.rollback.text)}${m.rollback.title ? `<span class="sr-only"> — ${esc(m.rollback.title)}</span>` : ""}</small>` : "") +
@@ -384,7 +432,7 @@ function htPromptModel(name, parsed, ctx, locale) {
   const text = name === "deepfake-lens" ? htT("dfMissing", null, locale) : htT("toolMissing", { label }, locale);
   const res = c.result && c.result.name === name ? c.result : null;
   if (!t) return { name, label, text, action: "", detail: htT("noApi", null, locale), busy: false };
-  if (t.installed || (res && res.ok)) return { name, label, text: htT("done", { label }, locale), action: "retry", detail: "", busy: false, ok: true };
+  if (t.installed || (res && res.ok)) return { name, label, text: htT("done", { label }, locale), action: "retry", detail: res && res.ok && res.audit ? htT("auditWarn", { warning: res.audit }, locale) : "", busy: false, ok: true };
   if (t.installable !== true) return { name, label, text, action: "", detail: "", hint: htHint(t) || htT("unavailable", null, locale), reason: htReason(t), homepage: htHomepage(t.homepage), busy: false };
   const install = p.install;
   const running = !!(install && install.tool === name && htActive(install));
@@ -419,7 +467,7 @@ function htFind(name) { return htParsed().tools.find(t => t.name === name) || nu
 // installed here keeps its control disabled (manual_hint as the tooltip).
 function htNeedsTool(name) { const t = htFind(name); return !!(t && !t.installed && t.installable === true); }
 function htToolHint(name) { return htHint(htFind(name)); }
-function htCtx() { return { busy: HT.busy, result: HT.result, stopping: HT.stopping, note: HT.note }; }
+function htCtx() { return { busy: HT.busy, result: HT.result, stopping: HT.stopping, note: HT.note, checking: HT.checking }; }
 // Writes markup only when it changed and keeps keyboard focus: the same
 // button again, or — when it is gone or disabled — that row's text
 // (tabindex=-1; also when focus was on a row's text), never <body>.
@@ -502,7 +550,7 @@ function htAdopt(p) {
   HT.busy = i.tool; HT.job = i.id; HT.result = null; HT.note = null; HT.stopping = ""; HT.stopAsked = false; HT.fails = 0;
   HT.timer = setTimeout(htPoll, HT_POLL_MS);
   // A confirm dialog is open here: its OK will not start a second install.
-  if (HT.confirming) htAnnounceBusy();
+  if (HT.confirming === true) htAnnounceBusy();
 }
 // "다른 설치가 진행 중입니다" — announced again even right after itself.
 function htAnnounceBusy() { HT.live = ""; htAnnounce(htT("busy"), false); }
@@ -572,20 +620,51 @@ async function htPoll() {
   if (ours) htSetInstall(install);
   await htFinish(name, ours ? install : null);
 }
+// Pure: a tools reply with `name` shown installed (the install-status job
+// said done; the /api/tools refresh that re-probes it may take a while).
+function htWithInstalled(p, name) {
+  if (!p || !p.supported) return p;
+  return Object.assign({}, p, { tools: p.tools.map(t => (t.name === name ? Object.assign({}, t, { installed: true, status: "installed" }) : t)) });
+}
 async function htFinish(name, install) {
   // Idle before reloading, so htLoad can adopt an install that is running
   // again (another tab) instead of leaving every button disabled.
   const asked = HT.stopAsked || HT.stopping === name;
   HT.busy = ""; HT.job = null; HT.stopping = ""; HT.stopAsked = false; HT.note = null; HT.fails = 0;
   htStopPoll();
+  const done = !!(install && install.state === "done");
+  const failed = !!(install && install.state === "failed");
+  if (done) {
+    // Fix round 16 L-freeze: the job says done — show the row installed
+    // now (no [중단], no "압축 푸는 중…"); /api/tools re-probes the encoders
+    // (up to 45 s on the server) in the background, with a short hint.
+    const t0 = htFind(name);
+    const label0 = t0 ? htLabel(t0) : name;
+    const text0 = htT("done", { label: label0 });
+    HT.res = htWithInstalled(HT.res, name);
+    HT.result = { name, ok: true, text: text0, audit: install.audit_warning || null };
+    HT.checking = name;
+    htRenderAll();
+    if (typeof toast === "function") toast(text0, "ok"); else htAnnounce(text0, false);
+    // L-audit: the install worked but its audit line was not written.
+    if (install.audit_warning) {
+      const w = htT("auditWarn", { warning: install.audit_warning });
+      if (typeof toast === "function") toast(w, "warn"); else htAnnounce(w, false);
+    }
+    try { await htLoad(); } finally {
+      if (HT.checking === name) HT.checking = "";
+      htRenderAll();
+    }
+    // The top-strip '도구 N/5', E01 hints and run buttons follow.
+    if (typeof loadEnv === "function") { try { await loadEnv(); } catch (e) {} htRenderAll(); }
+    return;
+  }
   // Lost: the last running record is no longer true.
   if (!install) htSetInstall(null);
   await htLoad();
   const t = htFind(name);
   const label = t ? htLabel(t) : name;
-  const done = !!(install && install.state === "done");
-  const failed = !!(install && install.state === "failed");
-  const ok = done || (!failed && !!(t && t.installed));
+  const ok = !failed && !!(t && t.installed);
   const stopped = failed && htCancelledJob(install, asked);
   const text = ok ? htT("done", { label }) : stopped ? htT("stopped", { label }) : failed ? htProgressText(install, label) : htT("lost");
   HT.result = { name, ok, text };
@@ -598,9 +677,23 @@ async function htFinish(name, install) {
 // Confirm (file · source · size · license), then POST; never sends
 // anything before the dialog's OK.
 async function htInstall(name) {
-  const t = htFind(name);
-  if (!t || t.installable !== true || t.installed) return false;
+  if (!htFind(name)) return false;
   if (HT.busy || HT.confirming || htActive(htParsed().install)) { htAnnounceBusy(); return false; }
+  // Fix round 16 M5: another tab (or the CLI) may have installed it since
+  // this list was drawn — ask the server first; an installed tool is shown
+  // installed, never offered again from a stale row.
+  HT.confirming = "check";
+  try { await htLoad(); } finally { HT.confirming = false; }
+  const t = htFind(name);
+  if (!t || t.installable !== true) return false;
+  if (t.installed) {
+    const text = htT("done", { label: htLabel(t) });
+    HT.result = { name, ok: true, text };
+    htRenderAll();
+    htAnnounce(text, false);
+    return false;
+  }
+  if (HT.busy || htActive(htParsed().install)) { htAnnounceBusy(); return false; }
   const label = htLabel(t);
   // A double click must not open (and so cancel) a second dialog.
   HT.confirming = true;
@@ -609,13 +702,37 @@ async function htInstall(name) {
     go = await askDialog({ title: htT("confirmTitle", { label }), html: htConfirmHtml(t), okLabel: htT("confirmOk"), cancelLabel: htT("cancel"), focus: "dlgCancel" });
   } finally { HT.confirming = false; }
   if (!go) return false;
-  // An install was adopted while the dialog was open (another tab, the
-  // CLI): OK does not start a second one — and says so.
-  if (HT.busy || htActive(htParsed().install)) { htAnnounceBusy(); return false; }
-  HT.busy = name; HT.job = null; HT.result = null; HT.note = null; HT.stopping = ""; HT.stopAsked = false; HT.fails = 0;
-  htRenderAll();
-  // Not announced: the POST reply's state follows within milliseconds.
-  const res = await jpost("/api/tools/install", { name });
+  let force = false;
+  for (;;) {
+    // An install was adopted while a dialog was open (another tab, the
+    // CLI): OK does not start a second one — and says so.
+    if (HT.busy || htActive(htParsed().install)) { htAnnounceBusy(); return false; }
+    HT.busy = name; HT.job = null; HT.result = null; HT.note = null; HT.stopping = ""; HT.stopAsked = false; HT.fails = 0;
+    htRenderAll();
+    // Not announced: the POST reply's state follows within milliseconds.
+    const res = await jpost("/api/tools/install", force ? { name, force: true } : { name });
+    const rr = force ? null : htReplaceRefusal(res);
+    if (!rr) return htInstallReply(name, t, label, res);
+    // Fix round 16 M5: the install would replace (and delete) files already
+    // in tools/bin — a second, explicit confirmation lists them; only its
+    // OK resends with force:true.
+    HT.busy = "";
+    htRenderAll();
+    HT.confirming = true;
+    let again = false;
+    try {
+      again = await askDialog({ title: htT("replaceTitle", { label }), html: htReplaceHtml(label, rr), okLabel: htT("replaceOk"), cancelLabel: htT("cancel"), focus: "dlgCancel", danger: true });
+    } finally { HT.confirming = false; }
+    if (!again) {
+      HT.result = { name, ok: false, text: htT("replaceKept") };
+      await htLoad();
+      return false;
+    }
+    force = true;
+  }
+}
+// The POST /api/tools/install reply: started, refused, or lost.
+async function htInstallReply(name, t, label, res) {
   if (htPostLost(res)) {
     // The reply was lost, not refused: the server may well have started
     // the install. Ask it, and follow what is running (or report it).
@@ -638,8 +755,12 @@ async function htInstall(name) {
     HT.result = Object.assign({ name, ok: false }, r);
     htRenderAll();
     htAnnounce(r.text, true);
-    // Someone else's install is running: follow it.
-    if (res && res.code === "install_running") await htLoad();
+    // Fix round 16 M6: a command-line install holds the lock — nothing to
+    // follow here; the row keeps [설치] with the message, and a toast says it.
+    if (res.code === "install_running_elsewhere" && typeof toast === "function") toast(r.text, "warn");
+    // Someone else's install is running (follow it), or a forced resend
+    // found the tool installed by another tab (show it).
+    if (res.code === "install_running" || res.code === "already_installed") await htLoad();
     return false;
   }
   const install = htParseInstall(res.install, res.now_unix);
