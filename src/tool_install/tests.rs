@@ -1433,6 +1433,67 @@ fn tool_json_flags_a_kept_rollback_backup() {
     );
 }
 
+/// Fix round 16 M5: what an archive install would replace in tools/bin —
+/// nothing → `None`; only an examiner's ffmpeg.exe → `would_replace`
+/// listing just it; every file present and the shipped license text
+/// intact → `already_installed`; a changed shipped license text or a kept
+/// rollback backup of the tool → `would_replace`; a pip tool → `None`.
+#[test]
+fn replace_check_lists_existing_files_and_spots_a_complete_install() {
+    let base = scratch("replace-check");
+    let dirs = InstallDirs {
+        tools_dir: base.join("tools"),
+    };
+    let manifest = manifest().unwrap();
+    let ffmpeg = find_tool(manifest, "ffmpeg").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs), None);
+    std::fs::create_dir_all(dirs.licenses()).unwrap();
+    std::fs::write(dirs.bin().join("ffmpeg.exe"), b"examiner's build").unwrap();
+    let check = replace_check(ffmpeg, &dirs).unwrap();
+    assert_eq!(check.code, WOULD_REPLACE);
+    assert_eq!(check.replaces, ["bin/ffmpeg.exe"]);
+    assert!(check.message("ffmpeg").contains("bin/ffmpeg.exe"));
+    // Every target present.
+    for map in &ffmpeg.files {
+        std::fs::write(dirs.bin().join(&map.to), b"MZ").unwrap();
+    }
+    for map in &ffmpeg.license_files {
+        std::fs::write(dirs.licenses().join(&map.to), b"license").unwrap();
+    }
+    for license in &ffmpeg.bundled_licenses {
+        std::fs::write(
+            dirs.licenses().join(&license.to),
+            bundled_license_text(&license.file).unwrap(),
+        )
+        .unwrap();
+    }
+    let check = replace_check(ffmpeg, &dirs).unwrap();
+    assert_eq!(check.code, ALREADY_INSTALLED, "{check:?}");
+    let total = ffmpeg.files.len() + ffmpeg.license_files.len() + ffmpeg.bundled_licenses.len();
+    assert_eq!(check.replaces.len(), total);
+    assert_eq!(check.replaces[0], format!("bin/{}", ffmpeg.files[0].to));
+    // A kept rollback backup of ffmpeg: not "healthy".
+    let kept = dirs.tools_dir.join("rollback-backup-00aa");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join(RESTORE_FILE), "tool: ffmpeg\n").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    std::fs::remove_dir_all(&kept).unwrap();
+    assert_eq!(
+        replace_check(ffmpeg, &dirs).unwrap().code,
+        ALREADY_INSTALLED
+    );
+    // An empty binary: not healthy either.
+    std::fs::write(dirs.bin().join(&ffmpeg.files[0].to), b"").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    std::fs::write(dirs.bin().join(&ffmpeg.files[0].to), b"MZ").unwrap();
+    if let Some(license) = ffmpeg.bundled_licenses.first() {
+        std::fs::write(dirs.licenses().join(&license.to), b"edited").unwrap();
+        assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    }
+    assert_eq!(replace_check(&pip_tool(), &dirs), None);
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// Fix round 16 M1: the move journal is written before the first move,
 /// removed after a success and after a completed rollback; when it cannot
 /// be written nothing is moved.

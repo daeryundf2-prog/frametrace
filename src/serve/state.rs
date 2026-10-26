@@ -98,6 +98,11 @@ pub(crate) struct JobState {
     /// acquisition it made, so a late drop can never free a newer job's
     /// flag.
     pub(crate) busy_epoch: u64,
+    /// Fix round 16 L-busy: what holds `busy` — `"job"` (every lease, set
+    /// by [`JobState::take_busy`]) or `"tool-install"` (set by the tool
+    /// install right after it took the lease). Meaningful only while
+    /// `busy`; /api/status `busy_kind`.
+    pub(crate) busy_kind: &'static str,
     /// Synchronous case writes running beside `busy` (S1): export-selected
     /// (a long batch — copies and hashes up to 5000 files) and
     /// capture-frame. Shutdown, finalize, open-case and a new analysis
@@ -340,14 +345,31 @@ impl JobState {
             return Err(refusal);
         }
         if self.busy {
-            return Err(BUSY_ERROR.to_string());
+            return Err(self.busy_refusal(BUSY_ERROR));
         }
         self.busy = true;
+        self.busy_kind = super::tools::BUSY_KIND_JOB;
         self.busy_epoch = self.busy_epoch.wrapping_add(1);
         // UX-07: a cancel aimed at a previous job must not kill this one —
         // every run starts with a fresh cancel flag.
         self.cancel_requested = false;
         Ok(self.busy_epoch)
+    }
+
+    /// The refusal while `busy` is held: `default` (the caller's "analysis
+    /// running" text), or — when a tool install holds it — that it is the
+    /// install (Fix round 16 L-busy).
+    pub(crate) fn busy_refusal(&self, default: &str) -> String {
+        if self.busy && self.busy_kind == super::tools::BUSY_KIND_TOOL_INSTALL {
+            TOOL_INSTALL_BUSY_ERROR.to_string()
+        } else {
+            default.to_string()
+        }
+    }
+
+    /// `busy_kind` for /api/status: null when idle.
+    pub(crate) fn status_busy_kind(&self) -> Option<&'static str> {
+        self.busy.then_some(self.busy_kind)
     }
 
     pub(crate) fn new() -> Self {
@@ -362,6 +384,7 @@ impl JobState {
             error: None,
             busy: false,
             busy_epoch: 0,
+            busy_kind: super::tools::BUSY_KIND_JOB,
             write_ops: 0,
             write_cancels: Vec::new(),
             next_write_op_id: 0,
@@ -394,7 +417,7 @@ impl JobState {
             finalize_recovered: None,
             finalize_recovering: None,
             tool_install: None,
-            tool_install_seq: 0,
+            tool_install_seq: super::tools::initial_install_seq(),
         }
     }
 }
@@ -412,6 +435,10 @@ pub(crate) struct BusyGuard<'a> {
 
 /// Standard refusal while another job holds `busy`.
 pub(crate) const BUSY_ERROR: &str = "분석 작업이 진행 중입니다 — 완료 후 다시 시도하십시오.";
+
+/// Fix round 16 L-busy: the refusal while a tool install holds `busy`.
+pub(crate) const TOOL_INSTALL_BUSY_ERROR: &str =
+    "도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오";
 
 /// Refusal for every job start once shutdown was requested (S7).
 pub(crate) const SHUTDOWN_ERROR: &str =

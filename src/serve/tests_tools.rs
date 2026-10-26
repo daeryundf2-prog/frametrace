@@ -117,6 +117,7 @@ fn install_refusals_carry_stable_codes_and_start_nothing() {
             &state,
             name,
             production_env(base.join("tools")),
+            false,
         ))
     };
     assert_eq!(refused("no-such-tool")["code"], "unknown_tool");
@@ -533,6 +534,61 @@ fn deepfake_start_without_the_tool_is_a_distinct_tool_missing_refusal() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// Fix round 16 L-busy: a tool install holding `busy` is named as such —
+/// `busy_kind` in /api/status and the refusal of another job start.
+#[test]
+fn a_busy_tool_install_is_named_in_status_and_refusals() {
+    let state = new_state();
+    let status = parse(&api_status(&state));
+    assert!(status["busy_kind"].is_null(), "{status}");
+    let lease = try_lease_busy(&state).unwrap();
+    let status = parse(&api_status(&state));
+    assert_eq!(status["busy_kind"], "job", "{status}");
+    assert_eq!(
+        try_lease_busy(&state).err().unwrap(),
+        super::state::BUSY_ERROR
+    );
+    // What start_install does right after it took the lease.
+    state_lock(&state).busy_kind = tools::BUSY_KIND_TOOL_INSTALL;
+    let status = parse(&api_status(&state));
+    assert_eq!(status["busy_kind"], "tool-install", "{status}");
+    let err = try_lease_busy(&state).err().unwrap();
+    assert_eq!(err, super::state::TOOL_INSTALL_BUSY_ERROR);
+    assert!(err.contains("도구 설치가 진행 중입니다"), "{err}");
+    assert!(!err.contains("분석"), "{err}");
+    assert_eq!(
+        state_lock(&state).busy_refusal("분석이 진행 중입니다."),
+        super::state::TOOL_INSTALL_BUSY_ERROR
+    );
+    drop(lease);
+    let status = parse(&api_status(&state));
+    assert!(status["busy_kind"].is_null(), "{status}");
+    // The next lease is a job again.
+    let _lease = try_lease_busy(&state).unwrap();
+    assert_eq!(parse(&api_status(&state))["busy_kind"], "job");
+    assert_eq!(
+        state_lock(&state).busy_refusal("분석이 진행 중입니다."),
+        "분석이 진행 중입니다."
+    );
+}
+
+/// Fix round 16 (job ids): each server process starts its install ids
+/// at a random 32-bit value, so job N of an earlier server is not job N
+/// of this one; the id stays a JSON number.
+#[test]
+fn install_job_ids_start_at_a_per_process_random_value() {
+    let seqs: Vec<u64> = (0..4).map(|_| JobState::new().tool_install_seq).collect();
+    assert!(
+        seqs.iter().all(|seq| *seq <= u64::from(u32::MAX)),
+        "{seqs:?}"
+    );
+    let mut unique = seqs.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert!(unique.len() >= 3, "random starts: {seqs:?}");
+    assert!(seqs.iter().any(|seq| *seq > 1), "{seqs:?}");
+}
+
 #[cfg(windows)]
 mod windows {
     use super::*;
@@ -572,6 +628,7 @@ mod windows {
             &state,
             "ffmpeg",
             production_env(base.join("tools")),
+            false,
         ));
         assert_eq!(refused["code"], "busy", "{refused}");
         assert!(state_lock(&state).tool_install.is_none());
@@ -597,6 +654,7 @@ mod windows {
             &state,
             "faketool",
             fake_env(base.join("tools"), tool.clone()),
+            false,
         ));
         assert_eq!(started["ok"], true, "{started}");
         assert_eq!(started["install"]["state"], "downloading", "never idle");
@@ -624,6 +682,7 @@ mod windows {
             &state,
             "faketool",
             fake_env(base.join("tools"), tool),
+            false,
         ));
         assert_eq!(second["code"], "install_running");
 
@@ -664,6 +723,7 @@ mod windows {
             &state,
             "faketool",
             fake_env(base.join("tools"), tool),
+            false,
         ));
         assert_eq!(started["ok"], true, "{started}");
         wait_until("download progress", || {
@@ -724,6 +784,7 @@ mod windows {
             &state,
             "faketool",
             fake_env(base.join("tools"), tool),
+            false,
         ));
         assert_eq!(started["ok"], true, "{started}");
         wait_until("download progress", || {
@@ -775,6 +836,7 @@ mod windows {
             &state,
             "faketool",
             fake_env(base.join("tools"), tool),
+            false,
         ));
         assert_eq!(started["ok"], true);
         wait_until("install finished", || {
@@ -795,6 +857,162 @@ mod windows {
         );
         assert!(!state_lock(&state).busy);
         assert!(!base.join("tools/bin/fake.exe").exists());
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// Fix round 16 M5: an install that would replace files already in
+    /// tools/bin is refused before any download unless `force` — a lone
+    /// examiner-placed fake.exe → `would_replace` listing it; with force
+    /// it is replaced; after a complete install → `already_installed`
+    /// (every file listed), again overridden by force.
+    #[test]
+    fn an_install_over_existing_files_needs_force() {
+        let bytes = fake::good_zip();
+        let source = fake::serve(HashMap::new());
+        source.route("/fake.zip", Reply::Body(bytes.clone()));
+        let tool = crate::tool_install::tests::test_archive_entry(&source.url("/fake.zip"), &bytes);
+        let base = scratch("replace");
+        let tools_dir = base.join("tools");
+        std::fs::create_dir_all(tools_dir.join("bin")).unwrap();
+        std::fs::write(tools_dir.join("bin/fake.exe"), b"examiner copy").unwrap();
+        let state = new_state();
+        let start = |force: bool| {
+            parse(&tools::start_install(
+                &state,
+                "faketool",
+                fake_env(tools_dir.clone(), tool.clone()),
+                force,
+            ))
+        };
+        let wait_done = || {
+            wait_until("install finished", || {
+                state_lock(&state)
+                    .tool_install
+                    .as_ref()
+                    .is_some_and(|job| job.state != "running")
+            });
+        };
+        let refused = start(false);
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["code"], "would_replace", "{refused}");
+        assert_eq!(refused["replaces"], serde_json::json!(["bin/fake.exe"]));
+        assert!(
+            refused["error"].as_str().unwrap().contains("bin/fake.exe"),
+            "{refused}"
+        );
+        assert_eq!(source.hits(), 0, "nothing downloaded");
+        assert!(state_lock(&state).tool_install.is_none());
+        assert!(!state_lock(&state).busy);
+        assert_eq!(
+            std::fs::read(tools_dir.join("bin/fake.exe")).unwrap(),
+            b"examiner copy"
+        );
+        let started = start(true);
+        assert_eq!(started["ok"], true, "{started}");
+        wait_done();
+        let status = parse(&tools::api_tools_install_status(&state));
+        assert_eq!(status["install"]["state"], "done", "{status}");
+        assert!(
+            status["install"]
+                .get("audit_warning")
+                .is_some_and(serde_json::Value::is_null),
+            "audit_warning stays in the job JSON: {status}"
+        );
+        assert_eq!(
+            std::fs::read(tools_dir.join("bin/fake.exe")).unwrap(),
+            b"MZ fake binary"
+        );
+        let again = start(false);
+        assert_eq!(again["code"], "already_installed", "{again}");
+        assert_eq!(
+            again["replaces"],
+            serde_json::json!(["bin/fake.exe", "bin/licenses/fake-LICENSE.txt"])
+        );
+        assert_eq!(source.hits(), 1);
+        let forced = start(true);
+        assert_eq!(forced["ok"], true, "{forced}");
+        wait_done();
+        let status = parse(&tools::api_tools_install_status(&state));
+        assert_eq!(status["install"]["state"], "done", "{status}");
+        assert_eq!(source.hits(), 2);
+        let codes: Vec<String> = std::fs::read_to_string(tools_dir.join("install-audit.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                value["code"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value["result"].as_str().unwrap().to_string())
+            })
+            .collect();
+        assert_eq!(codes, ["would_replace", "ok", "already_installed", "ok"]);
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// Fix round 16 M6: a CLI install (another process) holding the
+    /// install lock refuses the request up front with
+    /// `install_running_elsewhere` — no job, no busy, nothing fetched;
+    /// the lock held by this process (its own install) is `install_running`.
+    #[test]
+    fn a_cli_install_holding_the_lock_refuses_up_front() {
+        use fs2::FileExt;
+        let bytes = fake::good_zip();
+        let source = fake::serve(HashMap::new());
+        source.route("/fake.zip", Reply::Body(bytes.clone()));
+        let tool = crate::tool_install::tests::test_archive_entry(&source.url("/fake.zip"), &bytes);
+        let base = scratch("elsewhere");
+        let tools_dir = base.join("tools");
+        std::fs::create_dir_all(&tools_dir).unwrap();
+        // Another process's lock: the same file, locked without this
+        // process's registry knowing.
+        let other = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(tools_dir.join(".install.lock"))
+            .unwrap();
+        other.try_lock_exclusive().unwrap();
+        let state = new_state();
+        let refused = parse(&tools::start_install(
+            &state,
+            "faketool",
+            fake_env(tools_dir.clone(), tool.clone()),
+            false,
+        ));
+        assert_eq!(refused["code"], "install_running_elsewhere", "{refused}");
+        assert_eq!(
+            refused["error"],
+            crate::tool_install::INSTALL_RUNNING_ELSEWHERE
+        );
+        assert!(state_lock(&state).tool_install.is_none());
+        assert!(!state_lock(&state).busy);
+        assert_eq!(source.hits(), 0);
+        drop(other);
+        // Held by this process (e.g. its own sweep): install_running.
+        let ours = crate::tool_install::InstallLock::acquire(&tools_dir).unwrap();
+        let refused = parse(&tools::start_install(
+            &state,
+            "faketool",
+            fake_env(tools_dir.clone(), tool.clone()),
+            false,
+        ));
+        assert_eq!(refused["code"], "install_running", "{refused}");
+        drop(ours);
+        // Free: accepted, and the worker uses the lock taken up front.
+        let started = parse(&tools::start_install(
+            &state,
+            "faketool",
+            fake_env(tools_dir.clone(), tool),
+            false,
+        ));
+        assert_eq!(started["ok"], true, "{started}");
+        wait_until("install finished", || !state_lock(&state).busy);
+        let status = parse(&tools::api_tools_install_status(&state));
+        assert_eq!(status["install"]["state"], "done", "{status}");
+        assert!(!crate::tool_install::InstallLock::held_by_this_process(
+            &tools_dir
+        ));
         let _ = std::fs::remove_dir_all(base);
     }
 }

@@ -593,9 +593,14 @@ pub enum ToolsCommands {
     Install {
         /// Tool name from `frametrace tools list`
         name: String,
-        /// Skip the confirmation prompt
+        /// Skip the confirmation prompt (files already in tools/bin are
+        /// still not replaced without --force)
         #[arg(long)]
         yes: bool,
+        /// Replace files already in tools/bin without asking, and install
+        /// even while a FrameTrace workstation runs (it may be using them)
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -1120,7 +1125,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         Commands::Qa { command } => run_qa(command),
         Commands::Tools { command } => match command {
             ToolsCommands::List { json, all } => tools_list(json, all),
-            ToolsCommands::Install { name, yes } => tools_install(&name, yes),
+            ToolsCommands::Install { name, yes, force } => tools_install(&name, yes, force),
         },
     }
 }

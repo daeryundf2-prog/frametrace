@@ -3,8 +3,12 @@
 //! * `GET  /api/tools` — manifest summary + resolution status (+ the last
 //!   install job). On-demand tools (deepfake-lens) are included, flagged
 //!   `on_demand: true` (`?exclude_on_demand=1` leaves them out).
-//! * `POST /api/tools/install` `{"name": "<tool>"}` — nonce-gated like every
-//!   POST; takes the busy lease, then downloads/extracts on a worker thread.
+//! * `POST /api/tools/install` `{"name": "<tool>", "force"?: true}` —
+//!   nonce-gated like every POST; takes the busy lease, then
+//!   downloads/extracts on a worker thread. Fix round 16: refused with
+//!   `would_replace` / `already_installed` (+ `replaces`) when it would
+//!   overwrite files in tools/bin unless `force`, and with
+//!   `install_running_elsewhere` while a CLI install holds the lock.
 //! * `GET  /api/tools/install-status` — cheap poll of that job.
 //! * `POST /api/tools/install-cancel` `{"id"}` — asks a running install to
 //!   stop (an `id` that is not the current job → `stale_job`):
@@ -204,11 +208,56 @@ pub(crate) fn api_tools_install_cancel(request: &Request, state: &SharedState) -
 
 pub(crate) fn api_tools_install(request: &Request, state: &SharedState) -> String {
     let name = body_value(&request.body, "name").unwrap_or_default();
+    // Fix round 16 M5: the person confirmed replacing what is in tools/bin.
+    let force = body_value(&request.body, "force").as_deref() == Some("true");
     let env = match InstallEnv::production() {
         Ok(env) => env,
         Err(err) => return refusal("manifest_invalid", &err, serde_json::json!({})),
     };
-    start_install(state, name.trim(), env)
+    start_install(state, name.trim(), env, force)
+}
+
+/// Fix round 16 L-busy: whether this process's busy lease is a tool
+/// install's (else a job's) — `busy_kind` in /api/status.
+pub(crate) const BUSY_KIND_TOOL_INSTALL: &str = "tool-install";
+pub(crate) const BUSY_KIND_JOB: &str = "job";
+
+/// Fix round 16 (job ids): the first install job id of this server
+/// process — a random 32-bit value, so a tab that followed job N of an
+/// earlier server (before a restart) never takes the new server's job N
+/// for its own. Ids then count up from it; still a JSON number.
+pub(crate) fn initial_install_seq() -> u64 {
+    let mut bytes = [0u8; 4];
+    if getrandom::fill(&mut bytes).is_err() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        bytes = (nanos ^ std::process::id()).to_le_bytes();
+    }
+    u64::from(u32::from_le_bytes(bytes))
+}
+
+/// The refusal (code, message) of the in-memory checks, run once before
+/// the disk checks and again while the busy lease is taken.
+fn locked_refusal(guard: &JobState) -> Option<(&'static str, String)> {
+    if guard
+        .tool_install
+        .as_ref()
+        .is_some_and(|job| job.state == "running")
+    {
+        Some(("install_running", tool_install::INSTALL_LOCKED.to_string()))
+    } else if let Some(reason) = shutdown_refusal(guard) {
+        Some(("shutdown", reason))
+    } else if let Some(reason) = side_work_refusal(guard, "도구를 설치하십시오") {
+        // Clip exports / joins run ffmpeg from tools/bin: never swap
+        // it underneath them.
+        Some(("busy", reason))
+    } else if guard.busy {
+        Some(("busy", guard.busy_refusal(super::state::BUSY_ERROR)))
+    } else {
+        None
+    }
 }
 
 /// A refusal that is also appended to the install audit log (never under
@@ -230,7 +279,18 @@ fn audited_refusal(
 }
 
 /// Validates, takes the busy lease and starts the install worker.
-pub(crate) fn start_install(state: &SharedState, name: &str, env: InstallEnv) -> String {
+///
+/// Fix round 16: before accepting, (M5) an install that would replace
+/// files already in `tools/bin` is refused with `would_replace` /
+/// `already_installed` and `replaces` unless `force`; (M6) the install
+/// lock is taken here, so a CLI install holding it is refused with
+/// `install_running_elsewhere` instead of a job that fails later.
+pub(crate) fn start_install(
+    state: &SharedState,
+    name: &str,
+    env: InstallEnv,
+    force: bool,
+) -> String {
     let Some(tool) = tool_install::find_tool(&env.manifest, name).cloned() else {
         return audited_refusal(
             &env,
@@ -264,33 +324,59 @@ pub(crate) fn start_install(state: &SharedState, name: &str, env: InstallEnv) ->
             serde_json::json!({}),
         );
     }
+    // In-memory checks first: a refusal there touches no disk.
+    let early = locked_refusal(&state_lock(state));
+    if let Some((code, message)) = early {
+        return audited_refusal(&env, &tool.name, code, &message, serde_json::json!({}));
+    }
+    if !force && let Some(check) = tool_install::replace_check(&tool, &env.dirs) {
+        return audited_refusal(
+            &env,
+            &tool.name,
+            check.code,
+            &check.message(&tool.name),
+            serde_json::json!({"replaces": check.replaces}),
+        );
+    }
+    // M6: the cross-process lock, outside the state lock (disk work).
+    let install_lock = match tool_install::InstallLock::acquire(&env.dirs.tools_dir) {
+        Ok(lock) => Some(lock),
+        Err(err) if err == tool_install::INSTALL_LOCKED => {
+            let (code, message) =
+                if tool_install::InstallLock::held_by_this_process(&env.dirs.tools_dir) {
+                    ("install_running", err)
+                } else {
+                    (
+                        "install_running_elsewhere",
+                        tool_install::INSTALL_RUNNING_ELSEWHERE.to_string(),
+                    )
+                };
+            return audited_refusal(&env, &tool.name, code, &message, serde_json::json!({}));
+        }
+        // Not lockable for another reason (the folder is not writable):
+        // the worker tries again and reports it as the job's error.
+        Err(_) => None,
+    };
     let progress = Arc::new(Progress::default());
     // Locked checks only decide; the refusal is audited after the guard
     // is dropped (disk work never runs under the state lock).
     let started = {
         let mut guard = state_lock(state);
-        if guard
-            .tool_install
-            .as_ref()
-            .is_some_and(|job| job.state == "running")
-        {
-            Err(("install_running", tool_install::INSTALL_LOCKED.to_string()))
-        } else if let Some(reason) = shutdown_refusal(&guard) {
-            Err(("shutdown", reason))
-        } else if let Some(reason) = side_work_refusal(&guard, "도구를 설치하십시오") {
-            // Clip exports / joins run ffmpeg from tools/bin: never swap
-            // it underneath them.
-            Err(("busy", reason))
-        } else {
-            match lease_busy_locked(&mut guard, state) {
-                Ok(lease) => Ok((guard, lease)),
+        match locked_refusal(&guard) {
+            Some(refusal) => Err(refusal),
+            None => match lease_busy_locked(&mut guard, state) {
+                Ok(lease) => {
+                    guard.busy_kind = BUSY_KIND_TOOL_INSTALL;
+                    Ok((guard, lease))
+                }
                 Err(err) => Err(("busy", err)),
-            }
+            },
         }
     };
     let (mut guard, lease) = match started {
         Ok(started) => started,
         Err((code, message)) => {
+            drop(install_lock);
             return audited_refusal(&env, &tool.name, code, &message, serde_json::json!({}));
         }
     };
@@ -318,7 +404,13 @@ pub(crate) fn start_install(state: &SharedState, name: &str, env: InstallEnv) ->
         .name("ft-tool-install".into())
         .spawn(move || {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                tool_install::install_entry(&tool, &env.dirs, &env.net, &progress)
+                tool_install::install_entry_locked(
+                    &tool,
+                    &env.dirs,
+                    &env.net,
+                    &progress,
+                    install_lock,
+                )
             }))
             .unwrap_or_else(|_| Err("내부 오류로 설치가 중단되었습니다.".to_string()));
             if result.is_ok() {

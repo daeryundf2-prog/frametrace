@@ -97,7 +97,7 @@ pub(crate) fn api_start(request: &Request, state: &SharedState) -> String {
     let lease = {
         let mut guard = state_lock(state);
         if guard.busy {
-            return "{\"ok\":false,\"error\":\"이미 분석이 진행 중입니다.\"}".to_string();
+            return api_err(&guard.busy_refusal("이미 분석이 진행 중입니다."));
         }
         // S4: a new analysis rebinds the case; a clip export / join or a
         // write op still writing into the current one must finish first.
@@ -229,7 +229,7 @@ pub(crate) fn api_reimport_raw_with(
             return api_err(CASE_SWITCHED_ERROR);
         }
         if guard.busy {
-            return api_err("이미 분석이 진행 중입니다.");
+            return api_err(&guard.busy_refusal("이미 분석이 진행 중입니다."));
         }
         if let Some(refusal) = side_work_refusal(&guard, "재임포트하십시오") {
             return api_err(&refusal);

@@ -79,6 +79,11 @@ pub const UNSUPPORTED_PLATFORM: &str = "unsupported on this platform: guided too
 /// Refusal while another install (this or another process) holds the lock.
 pub const INSTALL_LOCKED: &str = "다른 도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오.";
 
+/// Fix round 16 M6: `POST /api/tools/install` while another process (a
+/// `frametrace tools install` in a console) holds the install lock
+/// (code `install_running_elsewhere`).
+pub const INSTALL_RUNNING_ELSEWHERE: &str = "다른 프로그램(명령줄의 frametrace tools install)에서 도구 설치가 진행 중입니다 — 그 설치가 끝난 뒤 다시 시도하십시오.";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Manifest {
     pub schema: u32,
@@ -1008,6 +1013,19 @@ pub(crate) fn install_entry(
     net: &NetPolicy,
     progress: &Progress,
 ) -> Result<InstallOutcome, String> {
+    install_entry_locked(tool, dirs, net, progress, None)
+}
+
+/// [`install_entry`] with the install lock already taken by the caller
+/// (Fix round 16 M6: the server takes it before accepting the request, so
+/// a CLI install is refused up front); `None` takes it here.
+pub(crate) fn install_entry_locked(
+    tool: &ToolEntry,
+    dirs: &InstallDirs,
+    net: &NetPolicy,
+    progress: &Progress,
+    lock: Option<InstallLock>,
+) -> Result<InstallOutcome, String> {
     if let Some(reason) = not_installable_reason(tool) {
         let err = format!("{} cannot be installed automatically: {reason}", tool.name);
         let _ = audit_refusal(dirs, &tool.name, not_installable_code(), &err);
@@ -1022,7 +1040,7 @@ pub(crate) fn install_entry(
         );
         return Err(UNSUPPORTED_PLATFORM.to_string());
     }
-    let result = run_platform_install(tool, dirs, net, progress);
+    let result = run_platform_install(tool, dirs, net, progress, lock);
     progress.set_stage(if result.is_ok() {
         Stage::Done
     } else {
@@ -1045,10 +1063,14 @@ fn run_platform_install(
     dirs: &InstallDirs,
     net: &NetPolicy,
     progress: &Progress,
+    lock: Option<InstallLock>,
 ) -> Result<InstallOutcome, String> {
     // Anything older than this run is a stale staging dir of a killed one.
     let run_started = std::time::SystemTime::now();
-    let _lock = InstallLock::acquire(&dirs.tools_dir)?;
+    let _lock = match lock {
+        Some(lock) => lock,
+        None => InstallLock::acquire(&dirs.tools_dir)?,
+    };
     // Fix round 14 L5: the tool being installed first (a test fixture is
     // not in the manifest), then every manifest tool.
     let mut known: Vec<&ToolEntry> = vec![tool];
@@ -1073,6 +1095,7 @@ fn run_platform_install(
     _dirs: &InstallDirs,
     _net: &NetPolicy,
     _progress: &Progress,
+    _lock: Option<InstallLock>,
 ) -> Result<InstallOutcome, String> {
     Err(UNSUPPORTED_PLATFORM.to_string())
 }
@@ -1081,10 +1104,43 @@ fn run_platform_install(
 /// CLI and a running workstation never install at the same time.
 pub(crate) struct InstallLock {
     _file: std::fs::File,
+    /// The tools dir, registered in [`HELD_HERE`] while this lock lives.
+    dir: PathBuf,
+}
+
+/// Fix round 16 M6: the tools dirs whose install lock THIS process holds,
+/// so a refused lock can be told apart: held here (this server's own
+/// install or sweep) versus by another process (a CLI install).
+static HELD_HERE: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+fn held_here() -> std::sync::MutexGuard<'static, Vec<PathBuf>> {
+    HELD_HERE
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let mut held = held_here();
+        if let Some(at) = held.iter().position(|dir| *dir == self.dir) {
+            held.swap_remove(at);
+        }
+    }
 }
 
 impl InstallLock {
+    /// Whether this process holds the install lock of `tools_dir`.
+    pub(crate) fn held_by_this_process(tools_dir: &Path) -> bool {
+        held_here().iter().any(|dir| dir == tools_dir)
+    }
+
     pub(crate) fn acquire(tools_dir: &Path) -> Result<Self, String> {
+        let lock = Self::acquire_file(tools_dir)?;
+        held_here().push(tools_dir.to_path_buf());
+        Ok(lock)
+    }
+
+    fn acquire_file(tools_dir: &Path) -> Result<Self, String> {
         use fs2::FileExt;
         std::fs::create_dir_all(tools_dir).map_err(|err| {
             format!(
@@ -1100,8 +1156,123 @@ impl InstallLock {
             .map_err(|err| format!("cannot open the install lock: {err}"))?;
         file.try_lock_exclusive()
             .map_err(|_| INSTALL_LOCKED.to_string())?;
-        Ok(Self { _file: file })
+        Ok(Self {
+            _file: file,
+            dir: tools_dir.to_path_buf(),
+        })
     }
+}
+
+// ------------------------------------------------- replacing files (M5)
+
+/// Refusal code: the install would replace files already in `tools/bin`.
+pub const WOULD_REPLACE: &str = "would_replace";
+/// Refusal code: every file the install writes is already in `tools/bin`.
+pub const ALREADY_INSTALLED: &str = "already_installed";
+
+/// Fix round 16 M5: what an install of an archive tool would overwrite in
+/// `tools/bin` (binaries and the license files it writes), before anything
+/// is downloaded. The caller refuses unless the person confirmed (`force`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplaceCheck {
+    /// [`WOULD_REPLACE`] or [`ALREADY_INSTALLED`].
+    pub code: &'static str,
+    /// The existing files, relative to `tools/` with `/` (`bin/ffmpeg.exe`,
+    /// `bin/licenses/LICENSE.txt`), in install order.
+    pub replaces: Vec<String>,
+}
+
+impl ReplaceCheck {
+    /// The refusal message (Korean, like the other install refusals).
+    pub fn message(&self, tool: &str) -> String {
+        let list = self.replaces.join(", ");
+        if self.code == ALREADY_INSTALLED {
+            format!(
+                "{tool}은(는) 이미 tools/bin에 설치되어 있습니다 ({list}) — 다시 설치하면 이 파일들을 교체하고 이전 파일은 지웁니다. 확인한 뒤 다시 요청하십시오."
+            )
+        } else {
+            format!(
+                "{tool}을(를) 설치하면 tools/bin의 기존 파일을 교체하고 이전 파일은 지웁니다 ({list}) — 확인한 뒤 다시 요청하십시오."
+            )
+        }
+    }
+    /// One prompt line per file (`tools install`).
+    pub fn prompt_lines(&self) -> Vec<String> {
+        self.replaces
+            .iter()
+            .map(|rel| {
+                let shown = rel.strip_prefix("bin/").unwrap_or(rel);
+                format!("tools/bin의 기존 {shown}를 교체하고 이전 파일은 지웁니다")
+            })
+            .collect()
+    }
+}
+
+/// Every file an archive install writes: `(relative to tools/, path)`.
+fn archive_targets(tool: &ToolEntry, dirs: &InstallDirs) -> Vec<(String, PathBuf, bool)> {
+    let mut targets = Vec::new();
+    for map in &tool.files {
+        targets.push((format!("bin/{}", map.to), dirs.bin().join(&map.to), true));
+    }
+    for map in &tool.license_files {
+        targets.push((
+            format!("bin/licenses/{}", map.to),
+            dirs.licenses().join(&map.to),
+            false,
+        ));
+    }
+    for license in &tool.bundled_licenses {
+        targets.push((
+            format!("bin/licenses/{}", license.to),
+            dirs.licenses().join(&license.to),
+            false,
+        ));
+    }
+    targets
+}
+
+/// `None` when installing `tool` replaces nothing (or it is a pip tool,
+/// whose venv lives outside `tools/bin`). `already_installed` when every
+/// file it writes is there — binaries non-empty regular files, the
+/// FrameTrace-shipped license texts byte-identical — and no kept rollback
+/// backup of the tool exists; otherwise `would_replace` listing the
+/// existing files (e.g. only a ffmpeg.exe the examiner put there).
+pub fn replace_check(tool: &ToolEntry, dirs: &InstallDirs) -> Option<ReplaceCheck> {
+    if tool.kind != ToolKind::Archive {
+        return None;
+    }
+    let targets = archive_targets(tool, dirs);
+    let replaces: Vec<String> = targets
+        .iter()
+        .filter(|(_, path, _)| std::fs::symlink_metadata(path).is_ok())
+        .map(|(rel, _, _)| rel.clone())
+        .collect();
+    if replaces.is_empty() {
+        return None;
+    }
+    let healthy_binaries = targets
+        .iter()
+        .filter(|(_, _, binary)| *binary)
+        .all(|(_, path, _)| {
+            std::fs::symlink_metadata(path).is_ok_and(|meta| {
+                meta.is_file() && !meta.file_type().is_symlink() && meta.len() > 0
+            })
+        });
+    let shipped_intact = tool.bundled_licenses.iter().all(|license| {
+        let path = dirs.licenses().join(&license.to);
+        bundled_license_text(&license.file)
+            .is_some_and(|text| std::fs::read(&path).is_ok_and(|bytes| bytes == text.as_bytes()))
+    });
+    let no_backup = !rollback_backups(&dirs.tools_dir)
+        .iter()
+        .any(|backup| backup.tool.as_deref() == Some(tool.name.as_str()));
+    let code = if replaces.len() == targets.len() && healthy_binaries && shipped_intact && no_backup
+    {
+        ALREADY_INSTALLED
+    } else {
+        WOULD_REPLACE
+    };
+    Some(ReplaceCheck { code, replaces })
 }
 
 /// A fresh, uniquely named directory under `parent` that is removed

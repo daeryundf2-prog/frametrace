@@ -1,6 +1,6 @@
-//! `frametrace tools list | install <name> [--yes]` (track S3).
+//! `frametrace tools list | install <name> [--yes] [--force]` (track S3).
 
-use crate::tool_install::{self, InstallDirs, Progress, Stage};
+use crate::tool_install::{self, InstallDirs, Manifest, NetPolicy, Progress, Stage};
 use std::io::{BufRead, IsTerminal, Write};
 use std::sync::Arc;
 
@@ -74,27 +74,100 @@ fn rollback_lines(status: &tool_install::ToolStatus) -> Vec<String> {
         .collect()
 }
 
-pub fn tools_install(name: &str, yes: bool) -> Result<(), String> {
-    tools_install_in(name, yes, &InstallDirs::for_current_exe()?)
+pub fn tools_install(name: &str, yes: bool, force: bool) -> Result<(), String> {
+    let manifest = tool_install::manifest()?;
+    tools_install_in(
+        name,
+        InstallOptions { yes, force },
+        &InstallDirs::for_current_exe()?,
+        manifest,
+        &NetPolicy::for_manifest(manifest),
+        crate::serve::find_running_server(),
+    )
 }
 
-fn tools_install_in(name: &str, yes: bool, dirs: &InstallDirs) -> Result<(), String> {
-    let manifest = tool_install::manifest()?;
+/// `--yes` / `--force` of `tools install`.
+#[derive(Debug, Clone, Copy)]
+struct InstallOptions {
+    /// Skip the confirmation prompt (never enough to replace files).
+    yes: bool,
+    /// Fix round 16: replace files already in tools/bin without the
+    /// interactive confirmation, and install while a workstation runs.
+    force: bool,
+}
+
+/// Fix round 16 L-cli-vs-server: the refusal while a workstation runs —
+/// it may be encoding with tools/bin/ffmpeg.exe right now.
+fn server_running_refusal(port: u16) -> String {
+    format!(
+        "FrameTrace 워크스테이션이 실행 중입니다 (127.0.0.1:{port}) — 설치는 tools/bin의 도구를 바꾸므로, 워크스테이션이 내보내기·분석에 쓰는 중인 프로그램이 중간에 바뀔 수 있습니다. 워크스테이션 화면의 도구 패널에서 설치하거나 워크스테이션을 종료한 뒤 다시 실행하십시오 (그래도 지금 설치하려면 --force)."
+    )
+}
+
+/// Fix round 16 M5: `--yes` without `--force` when the install would
+/// replace files already in tools/bin.
+fn replace_refusal(check: &tool_install::ReplaceCheck, tool: &str) -> String {
+    format!(
+        "{} --yes만으로는 기존 파일을 교체하지 않습니다 — 교체하려면 --force를 붙이거나 --yes 없이 실행해 확인하십시오.",
+        check.message(tool)
+    )
+}
+
+fn tools_install_in(
+    name: &str,
+    options: InstallOptions,
+    dirs: &InstallDirs,
+    manifest: &Manifest,
+    net: &NetPolicy,
+    running_server: Option<u16>,
+) -> Result<(), String> {
+    let with_warning = |message: String, audit: Result<(), String>| match audit {
+        Ok(()) => message,
+        Err(warning) => format!("{message}\n경고: 설치 기록을 남기지 못했습니다 — {warning}"),
+    };
     // Unknown / not installable: refused here, before the prompt, and
     // recorded in the chained install audit log like the API's refusals.
     let tool = tool_install::preflight(manifest, name, dirs)?;
+    if let Some(port) = running_server
+        && !options.force
+    {
+        let err = server_running_refusal(port);
+        let audit = tool_install::audit_refusal(dirs, &tool.name, "server_running", &err);
+        return Err(with_warning(err, audit));
+    }
     // Fix round 14 L1: the status of the `tools` dir being installed into.
     let backups = tool_install::rollback_backups(&dirs.tools_dir);
+    let replace = tool_install::replace_check(tool, dirs);
     for line in install_prompt_lines(tool, dirs, &tool_install::status(tool, &backups)) {
         println!("{line}");
     }
-    if !yes {
+    if let Some(check) = &replace {
+        for line in check.prompt_lines() {
+            println!("{line}");
+        }
+    }
+    if let Some(check) = &replace
+        && options.yes
+        && !options.force
+    {
+        let err = replace_refusal(check, &tool.name);
+        let audit = tool_install::audit_refusal(dirs, &tool.name, check.code, &err);
+        return Err(with_warning(err, audit));
+    }
+    if !options.yes {
         if !std::io::stdin().is_terminal() {
             return Err(
                 "설치 확인이 필요합니다 — 대화형 터미널에서 실행하거나 --yes를 붙이십시오".into(),
             );
         }
-        print!("설치할까요? [y/N] ");
+        print!(
+            "{} [y/N] ",
+            if replace.is_some() {
+                "위 파일을 교체하고 설치할까요?"
+            } else {
+                "설치할까요?"
+            }
+        );
         let _ = std::io::stdout().flush();
         let mut answer = String::new();
         std::io::stdin()
@@ -107,8 +180,10 @@ fn tools_install_in(name: &str, yes: bool, dirs: &InstallDirs) -> Result<(), Str
     }
     let progress = Arc::new(Progress::default());
     let worker_progress = Arc::clone(&progress);
-    let owned = name.to_string();
-    let worker = std::thread::spawn(move || tool_install::install(&owned, &worker_progress));
+    let (owned_tool, owned_dirs, owned_net) = (tool.clone(), dirs.clone(), net.clone());
+    let worker = std::thread::spawn(move || {
+        tool_install::install_entry(&owned_tool, &owned_dirs, &owned_net, &worker_progress)
+    });
     let mut last_stage = Stage::Queued;
     let mut last_decile = u64::MAX;
     while !worker.is_finished() {
@@ -322,10 +397,16 @@ mod tests {
         let dirs = InstallDirs {
             tools_dir: base.join("tools"),
         };
-        let err = tools_install_in("no-such-tool", true, &dirs).unwrap_err();
+        let manifest = crate::tool_install::manifest().unwrap();
+        let net = NetPolicy::for_manifest(manifest);
+        let yes = InstallOptions {
+            yes: true,
+            force: false,
+        };
+        let err = tools_install_in("no-such-tool", yes, &dirs, manifest, &net, None).unwrap_err();
         assert!(err.contains("unknown tool 'no-such-tool'"), "{err}");
         // libewf has no published checksum: never installable.
-        let err = tools_install_in("libewf", true, &dirs).unwrap_err();
+        let err = tools_install_in("libewf", yes, &dirs, manifest, &net, None).unwrap_err();
         assert!(err.contains("자동 설치 불가"), "{err}");
         crate::tool_install::tests::assert_only_refusals(
             &dirs,
@@ -343,5 +424,99 @@ mod tests {
             .collect();
         assert_eq!(tools, ["no-such-tool", "libewf"]);
         let _ = std::fs::remove_dir_all(base);
+    }
+    /// Fix round 16 M5 / L-cli-vs-server, against the local fake source:
+    /// a running workstation refuses (`server_running`) unless --force;
+    /// `--yes` alone never replaces an existing tools/bin file
+    /// (`would_replace`, nothing fetched); `--yes --force` replaces it.
+    #[cfg(windows)]
+    #[test]
+    fn yes_alone_never_replaces_and_force_does() {
+        use crate::tool_install::tests::fake::{self, Reply};
+        let bytes = fake::good_zip();
+        let source = fake::serve(std::collections::HashMap::new());
+        source.route("/fake.zip", Reply::Body(bytes.clone()));
+        let tool = crate::tool_install::tests::test_archive_entry(&source.url("/fake.zip"), &bytes);
+        let manifest = Manifest {
+            schema: 1,
+            allowed_hosts: vec!["127.0.0.1".into()],
+            tools: vec![tool],
+        };
+        let net = NetPolicy::test_loopback(&["127.0.0.1"]);
+        let base = std::env::temp_dir().join(format!("ft-cli-force-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let dirs = InstallDirs {
+            tools_dir: base.join("tools"),
+        };
+        std::fs::create_dir_all(dirs.bin()).unwrap();
+        std::fs::write(dirs.bin().join("fake.exe"), b"examiner copy").unwrap();
+        let yes = InstallOptions {
+            yes: true,
+            force: false,
+        };
+        let forced = InstallOptions {
+            yes: true,
+            force: true,
+        };
+        let err =
+            tools_install_in("faketool", yes, &dirs, &manifest, &net, Some(8477)).unwrap_err();
+        assert!(err.contains("워크스테이션이 실행 중입니다"), "{err}");
+        assert!(err.contains("--force"), "{err}");
+        let err = tools_install_in("faketool", yes, &dirs, &manifest, &net, None).unwrap_err();
+        assert!(
+            err.contains("bin/fake.exe") && err.contains("--force"),
+            "{err}"
+        );
+        assert_eq!(source.hits(), 0);
+        assert_eq!(
+            std::fs::read(dirs.bin().join("fake.exe")).unwrap(),
+            b"examiner copy"
+        );
+        tools_install_in("faketool", forced, &dirs, &manifest, &net, Some(8477)).unwrap();
+        assert_eq!(
+            std::fs::read(dirs.bin().join("fake.exe")).unwrap(),
+            b"MZ fake binary"
+        );
+        // Now complete: --yes alone is `already_installed`.
+        let err = tools_install_in("faketool", yes, &dirs, &manifest, &net, None).unwrap_err();
+        assert!(err.contains("이미 tools/bin에 설치되어"), "{err}");
+        let codes: Vec<String> = std::fs::read_to_string(dirs.audit_log())
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let value: serde_json::Value = serde_json::from_str(line).unwrap();
+                value["code"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| value["result"].as_str().unwrap().to_string())
+            })
+            .collect();
+        assert_eq!(
+            codes,
+            ["server_running", "would_replace", "ok", "already_installed"]
+        );
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// The prompt names each file it would replace.
+    #[test]
+    fn the_prompt_lines_name_each_replaced_file() {
+        let check = crate::tool_install::ReplaceCheck {
+            code: crate::tool_install::WOULD_REPLACE,
+            replaces: vec!["bin/ffmpeg.exe".into(), "bin/licenses/LICENSE.txt".into()],
+        };
+        assert_eq!(
+            check.prompt_lines(),
+            [
+                "tools/bin의 기존 ffmpeg.exe를 교체하고 이전 파일은 지웁니다",
+                "tools/bin의 기존 licenses/LICENSE.txt를 교체하고 이전 파일은 지웁니다",
+            ]
+        );
+        let err = replace_refusal(&check, "ffmpeg");
+        assert!(
+            err.contains("bin/ffmpeg.exe, bin/licenses/LICENSE.txt"),
+            "{err}"
+        );
+        assert!(err.contains("--force"), "{err}");
     }
 }

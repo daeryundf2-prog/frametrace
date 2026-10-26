@@ -703,6 +703,8 @@ fn status_snapshot(guard: &JobState) -> serde_json::Value {
         "phase": guard.phase,
         "restored": guard.restored,
         "busy": guard.busy,
+        // Fix round 16 L-busy: "tool-install" | "job" while busy, else null.
+        "busy_kind": guard.status_busy_kind(),
         "steps": steps,
         // FOR-08: non-fatal step failures; non-empty means the run is
         // "done with warnings", not a clean pass.
@@ -1074,7 +1076,7 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
     {
         let guard = state_lock(state);
         if guard.busy {
-            return "{\"ok\":false,\"error\":\"분석이 진행 중입니다.\"}".to_string();
+            return api_err(&guard.busy_refusal("분석이 진행 중입니다."));
         }
         if let Some(refusal) = side_work_refusal(&guard, "케이스를 여십시오") {
             return api_err(&refusal);
@@ -1108,7 +1110,10 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
         .map(|recovery| format!(" (참고: {})", recovery.detail))
         .unwrap_or_default();
     if guard.busy {
-        return api_err(&format!("분석이 진행 중입니다.{recovered_note}"));
+        return api_err(&format!(
+            "{}{recovered_note}",
+            guard.busy_refusal("분석이 진행 중입니다.")
+        ));
     }
     // Clip exports (and S1 write ops) write into the bound case and block
     // its finalize; a switch while one runs would leave the new case's
