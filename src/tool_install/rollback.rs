@@ -171,6 +171,9 @@ pub fn rollback_backups(tools_dir: &Path) -> Vec<RollbackBackup> {
         {
             path.join("backup").join(RESTORE_FILE)
         } else if name.starts_with(".staging-")
+            // This process's own install moving files right now is not
+            // an interrupted one.
+            && !InstallLock::held_by_this_process(tools_dir)
             && let Some(journal) = read_journal(&path.join("backup"))
             && !journal_restore_entries(&journal, &path.join("backup")).is_empty()
         {
