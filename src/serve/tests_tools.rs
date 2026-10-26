@@ -954,7 +954,8 @@ mod windows {
     /// Fix round 16 M6: a CLI install (another process) holding the
     /// install lock refuses the request up front with
     /// `install_running_elsewhere` — no job, no busy, nothing fetched;
-    /// the lock held by this process (its own install) is `install_running`.
+    /// the lock held by this process without an install job (its sweep)
+    /// is `tools_busy` (Fix round 16 follow-up L4).
     #[test]
     fn a_cli_install_holding_the_lock_refuses_up_front() {
         use fs2::FileExt;
@@ -990,7 +991,9 @@ mod windows {
         assert!(!state_lock(&state).busy);
         assert_eq!(source.hits(), 0);
         drop(other);
-        // Held by this process (e.g. its own sweep): install_running.
+        // Held by this process with no install job (the server-start
+        // sweep, Fix round 16 follow-up L4): `tools_busy`, "try again
+        // shortly" — not `install_running`, which has no job to follow.
         let ours = crate::tool_install::InstallLock::acquire(&tools_dir).unwrap();
         let refused = parse(&tools::start_install(
             &state,
@@ -998,7 +1001,21 @@ mod windows {
             fake_env(tools_dir.clone(), tool.clone()),
             false,
         ));
-        assert_eq!(refused["code"], "install_running", "{refused}");
+        assert_eq!(refused["code"], tools::TOOLS_BUSY, "{refused}");
+        assert_eq!(refused["code"], "tools_busy");
+        assert_eq!(refused["error"], tools::TOOLS_BUSY_MESSAGE);
+        assert!(
+            tools::TOOLS_BUSY_MESSAGE.contains("잠시 뒤 다시 시도하십시오"),
+            "{refused}"
+        );
+        assert!(state_lock(&state).tool_install.is_none());
+        assert!(!state_lock(&state).busy);
+        assert_eq!(source.hits(), 0);
+        let audit = std::fs::read_to_string(tools_dir.join("install-audit.jsonl")).unwrap();
+        assert!(
+            audit.lines().last().unwrap().contains("\"tools_busy\""),
+            "{audit}"
+        );
         drop(ours);
         // Free: accepted, and the worker uses the lock taken up front.
         let started = parse(&tools::start_install(

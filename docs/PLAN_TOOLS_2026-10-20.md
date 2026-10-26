@@ -598,6 +598,26 @@ PR #4가 main에 머지되어(73a1a50) PR #5의 base는 main이다(main의 트�
 - 운영 변경: 개발자가 `target/release/frametrace.exe tools install ffmpeg`를 했다면 패키징 전에 그 `tools/bin` 파일을 옮겨야 한다. build-release는 실행마다 `dist/`를 비워야 하고, 여러 타깃의 합계가 한 SHA256SUMS에 쌓이지 않는다.
 - UI 두 번째 확인·elsewhere 문구·"인코더 확인 중…"은 브라우저 하네스가 아니라 unit VM과 mock으로만 확인했다.
 
+### Fix round 16 follow-up (Low 4건)
+라운드 16 확인 리뷰(aebe395 기준)의 Low 4건. 작업 트리 ft-r16low, aebe395(tools-bundle + PR #6 병합) 위 detached HEAD.
+
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| L1 다른 프로세스(CLI)가 파일을 옮기는 중이면 잠금이 없는 서버가 그 `.staging-*`의 활성 MOVING 저널을 rollback_incomplete로 나열 — UI에 잠깐 되돌리기 경고, `restore_file`은 아직 없는 RESTORE.txt | `rollback_backups`가 저널만으로 staging을 나열하기 전에 `InstallLock::held_by_another_process`(fs2 비차단 시도 후 즉시 해제, 잠금 파일이 없으면 만들지 않고 "안 잡힘", 경합 오류만 "잡힘")로 확인해 다른 프로세스가 잡고 있으면 건너뜀. 호출당 한 번, 저널이 있는 staging에서만 시도. "이 프로세스가 잡고 있음" 제외는 그대로(먼저 검사). `backup/RESTORE.txt`·`rollback-backup-*`는 종전대로 항상 나열 | `tool_install::tests::a_journal_of_an_install_holding_the_lock_elsewhere_is_not_listed`(fs2 원시 잠금 보유 → 미나열, 해제 → 나열, 이 프로세스 잠금 → 미나열, RESTORE.txt는 보유 중에도 나열) |
+| L2 마지막 이동 뒤 `close_journal(true)` 전에 죽으면 성공한 설치가 중단된 설치로 보임 | 이동 하나가 끝날 때마다 저널에 `done\t<index>` 줄을 덧붙이고 `sync_all`(`rollback::mark_move_done`, 실패해도 저널은 보수적으로 남을 뿐). `read_journal`은 계획한 모든 index에 `done`이 있으면 `complete`처럼 `None` — 닫힌 저널처럼 일반 정리 대상, rollback 백업 없음. 하나라도 빠지면 종전대로 중단된 이동 | `a_journal_with_every_move_done_is_a_finished_install`(두 이동 모두 done → 미나열·정리·rollback-backup 없음, done 하나만 → 나열·rollback-backup 1개), 기존 저널 테스트 2개 통과 |
+| L3 ffprobe 너비·높이는 회전 메타데이터를 무시 — 회전 ±90/270인 3840×2160 휴대폰 영상은 autorotate 뒤 2160×3840이라 h264_mf 한계(4096×2304)를 높이에서 넘을 수 있음 | `output_frame_if_h264_mf`가 ffprobe `raw_json`(이미 `-show_streams`)에서 첫 비디오 스트림의 회전을 읽음(`video_rotation_degrees`: `side_data_list[].rotation` — display matrix, 없으면 `tags.rotate`, 정수 도만). 결정 함수 `output_frame(w, h, rotation, max_width)`가 회전이 ±90/270(180으로 나눈 나머지 90)이면 너비·높이를 바꾼 뒤 축소(`scale='min(max_width,iw)':-2`는 회전된 프레임에 적용)·한계 검사. `ProbeSummary`(케이스 색인 직렬화)는 바꾸지 않음 | `ffmpeg_encoders::tests::a_rotated_source_swaps_the_frame_before_the_h264_mf_limit`(90·-90·270·-270·450 → 2160×3840이고 h264_mf 불가, 없음·0·180·-180·360 → 그대로, 프록시 -90 → 1280×2276, side_data·tags·없음·잘못된 JSON 파싱) |
+| L4 서버 시작 정리(sweep)가 잠깐 잠금을 잡은 동안 UI 설치 요청이 `install_running`(held_by_this_process)으로 거부되지만 따라갈 설치 작업이 없어 UI가 조용히 끝남 | `start_install`: 잠금이 이 프로세스에 있고 실행 중인 설치 작업이 없으면 새 코드 `tools_busy`, "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오."(감사 로그에 `refused`/`tools_busy`). 실행 중 작업이 있으면 종전대로 `install_running`. UI의 기존 `busy` 문구("분석·내보내기가 끝난 뒤 설치하십시오")는 정리 중과 맞지 않아 56-tools.js `HT_STR`에 `code.tools_busy`(ko "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오", en "The tools folder is being tidied — try again in a moment")를 추가 — `htRefusal`이 줄에 표시·알림 | `serve::tests_tools::windows::a_cli_install_holding_the_lock_refuses_up_front`(이 프로세스 잠금·작업 없음 → `tools_busy`, 작업·busy 없음, 내려받기 0, 감사 줄), tools-unit "Fix round 16 follow-up L4: tools_busy …" |
+
+#### 게이트(Windows, CARGO_TARGET_DIR=target-r16low)
+- `cargo fmt --check` 0 · `cargo clippy --locked --all-targets -- -D warnings` 0 · `cargo test --locked` lib 1267 passed / 3 ignored(새 테스트 3개 포함), cli_smoke 14 · package_review_bundle 5 · windows_job_tree 4 passed, 나머지는 실도구 ignored
+- check-js ok · verify-review-batch `--unit` 164 PASS(종료 0, 새 행 1) · verify-i18n 773/773
+
+#### 확인 못 한 것
+- L1: 프로브는 잠금을 잡았다 바로 놓으므로, 그 순간 다른 프로세스·스레드의 `InstallLock::acquire`가 실패할 수 있다(저널만 있는 staging이 있을 때만 시도하므로 드묾). 실제 CLI 설치 중 서버 `/api/tools`를 동시에 부르는 실기는 하지 않았다.
+- L2: `move_all_or_nothing`이 성공하면 저널을 지우므로 `done` 줄이 실제로 쓰이는지는 단위 테스트(`mark_move_done` 직접)로만 확인했다. 실제 강제 종료는 하지 않았다.
+- L3: 실제 회전 메타데이터가 있는 휴대폰 영상·실제 ffprobe 출력으로 확인하지 않았다(JSON 모양은 ffprobe 문서·출력 형식 기준). 90의 배수가 아닌 회전은 바꾸지 않는다.
+- L4: 브라우저 하네스가 아니라 unit VM으로만 확인했다. tools-mock에는 `tools_busy` 경로를 넣지 않았다.
+
 ## §PR #6 병합 (2026-10-26, origin/main 3a8f099 → tools-bundle)
 
 origin/main(외부 PR #6, bf7a64c·863869c, 병합 3a8f099)을 tools-bundle(05a021d)에 `git merge`로 합쳤다(리베이스 아님). 원칙: **설치기는 PR #5의 것 하나뿐**이다. PR #6의 설치기는 지우고, 그 안의 타당한 요구(Sleuth Kit의 32비트 DLL 격리, libewf 빌드 스크립트의 `-Destination`)만 PR #5 설계 안으로 옮겼다. 나머지 PR #6 기능(폴더 계층·트리 필터, 피커 "새 폴더", 증거 끌어 놓기)은 유지하고 보안 규칙에 맞춰 고쳤다.

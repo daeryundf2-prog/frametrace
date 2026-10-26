@@ -238,6 +238,12 @@ pub(crate) fn initial_install_seq() -> u64 {
     u64::from(u32::from_le_bytes(bytes))
 }
 
+/// Fix round 16 follow-up L4: refusal code when this process holds the
+/// install lock without an install job (the server-start sweep).
+pub(crate) const TOOLS_BUSY: &str = "tools_busy";
+pub(crate) const TOOLS_BUSY_MESSAGE: &str =
+    "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오.";
+
 /// The refusal (code, message) of the in-memory checks, run once before
 /// the disk checks and again while the busy lease is taken.
 fn locked_refusal(guard: &JobState) -> Option<(&'static str, String)> {
@@ -344,7 +350,18 @@ pub(crate) fn start_install(
         Err(err) if err == tool_install::INSTALL_LOCKED => {
             let (code, message) =
                 if tool_install::InstallLock::held_by_this_process(&env.dirs.tools_dir) {
-                    ("install_running", err)
+                    // Fix round 16 follow-up L4: held here with no install
+                    // job running — the server-start sweep's brief lock:
+                    // nothing to follow, so "try again shortly".
+                    let job_running = state_lock(state)
+                        .tool_install
+                        .as_ref()
+                        .is_some_and(|job| job.state == "running");
+                    if job_running {
+                        ("install_running", err)
+                    } else {
+                        (TOOLS_BUSY, TOOLS_BUSY_MESSAGE.to_string())
+                    }
                 } else {
                     (
                         "install_running_elsewhere",

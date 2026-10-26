@@ -1142,6 +1142,34 @@ impl InstallLock {
         held_here().iter().any(|dir| dir == tools_dir)
     }
 
+    /// Fix round 16 follow-up L1: whether ANOTHER process (a CLI install)
+    /// holds the install lock of `tools_dir` — a non-blocking probe that
+    /// takes and at once releases the lock, never creating the lock file
+    /// (none: nobody holds it). Only lock contention counts; any other
+    /// failure reads as "not held" (the journal is then shown, as before).
+    /// Not meaningful while this process holds the lock (see
+    /// [`Self::held_by_this_process`]).
+    pub(crate) fn held_by_another_process(tools_dir: &Path) -> bool {
+        use fs2::FileExt;
+        let Ok(file) = std::fs::OpenOptions::new()
+            .write(true)
+            .open(tools_dir.join(".install.lock"))
+        else {
+            return false;
+        };
+        match file.try_lock_exclusive() {
+            Ok(()) => {
+                let _ = FileExt::unlock(&file);
+                false
+            }
+            Err(err) => {
+                err.kind() == std::io::ErrorKind::WouldBlock
+                    || (err.raw_os_error().is_some()
+                        && err.raw_os_error() == fs2::lock_contended_error().raw_os_error())
+            }
+        }
+    }
+
     pub(crate) fn acquire(tools_dir: &Path) -> Result<Self, String> {
         let lock = Self::acquire_file(tools_dir)?;
         held_here().push(tools_dir.to_path_buf());
@@ -1918,6 +1946,7 @@ pub(crate) fn move_all_or_nothing(
             }
             break;
         }
+        rollback::mark_move_done(backup_dir, index);
         done.push((dest.clone(), backup));
     }
     if let Some(failure) = failure {

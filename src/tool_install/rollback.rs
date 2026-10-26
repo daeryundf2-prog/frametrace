@@ -163,6 +163,8 @@ pub fn rollback_backups(tools_dir: &Path) -> Vec<RollbackBackup> {
     // `tools/` first, then `tools/python/`, each sorted by path.
     let mut top = Vec::new();
     let mut python = Vec::new();
+    // Probed at most once, and only for a journal-only staging dir.
+    let mut held_elsewhere: Option<bool> = None;
     for (name, path) in real_dirs(tools_dir) {
         let restore_file = if name.starts_with(ROLLBACK_BACKUP_PREFIX) {
             path.join(RESTORE_FILE)
@@ -172,10 +174,14 @@ pub fn rollback_backups(tools_dir: &Path) -> Vec<RollbackBackup> {
             path.join("backup").join(RESTORE_FILE)
         } else if name.starts_with(".staging-")
             // This process's own install moving files right now is not
-            // an interrupted one.
+            // an interrupted one; nor (Fix round 16 follow-up L1) another
+            // process's (a CLI install) holding the install lock — its
+            // journal is live and its RESTORE.txt does not exist.
             && !InstallLock::held_by_this_process(tools_dir)
             && let Some(journal) = read_journal(&path.join("backup"))
             && !journal_restore_entries(&journal, &path.join("backup")).is_empty()
+            && !*held_elsewhere
+                .get_or_insert_with(|| InstallLock::held_by_another_process(tools_dir))
         {
             // Fix round 16 M1: an install killed while moving files, not
             // yet rescued by a sweep (doctor runs none) — listed already.
@@ -321,6 +327,9 @@ pub(crate) fn undo_venv(
 /// `backup/` before its first move — `tool: <name>`, then one line per
 /// planned move `plan\t<index>\t<existed|new>\t<destination>` (the
 /// previous copy of an `existed` destination is `<index>.bak` beside it).
+/// Fix round 16 follow-up L2: after each completed move a `done\t<index>`
+/// line is appended (flushed), so a kill after the last move but before
+/// the journal is removed reads as complete, not interrupted.
 /// It is removed when the moves succeed and when a rollback completes, so
 /// a journal left in a stale `.staging-*/backup/` means the install was
 /// killed (Ctrl+C, console closed, power lost) while files were moving:
@@ -331,6 +340,9 @@ pub(crate) const MOVE_JOURNAL: &str = "MOVING";
 /// Last line appended when a successful install could not remove its
 /// journal: the sweep then treats the folder as an ordinary leftover.
 const JOURNAL_COMPLETE: &str = "complete";
+
+/// Fix round 16 follow-up L2: first field of a completed move's line.
+const JOURNAL_DONE: &str = "done";
 
 /// One planned move read back from a journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,6 +403,20 @@ pub(crate) fn write_journal(
     })
 }
 
+/// Fix round 16 follow-up L2: records (appends `done\t<index>`, flushed)
+/// that planned move `index` completed. Best effort: without the line the
+/// journal only stays conservative (that move counts as maybe undone).
+pub(crate) fn mark_move_done(backup_dir: &Path, index: usize) {
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .append(true)
+        .open(backup_dir.join(MOVE_JOURNAL))
+    {
+        let _ = file.write_all(format!("{JOURNAL_DONE}\t{index}\n").as_bytes());
+        let _ = file.sync_all();
+    }
+}
+
 /// Removes the journal once nothing needs restoring (all moves done, or a
 /// rollback that completed). When it cannot be removed after a success it
 /// is marked complete so the sweep does not mistake the folder for an
@@ -407,16 +433,27 @@ pub(crate) fn close_journal(backup_dir: &Path, success: bool) {
     }
 }
 
-/// The journal in `backup_dir`, unless missing or marked complete.
+/// The journal in `backup_dir`, unless missing, marked complete, or
+/// (Fix round 16 follow-up L2) every planned move has its `done` line —
+/// all moves finished, only the removal was cut short.
 pub(crate) fn read_journal(backup_dir: &Path) -> Option<Journal> {
     let text = std::fs::read_to_string(backup_dir.join(MOVE_JOURNAL)).ok()?;
     let mut journal = Journal {
         tool: None,
         moves: Vec::new(),
     };
+    let mut done = std::collections::BTreeSet::new();
     for line in text.lines() {
         if line == JOURNAL_COMPLETE {
             return None;
+        }
+        if let Some(index) = line
+            .strip_prefix(JOURNAL_DONE)
+            .and_then(|rest| rest.strip_prefix('\t'))
+            .and_then(|index| index.parse::<usize>().ok())
+        {
+            done.insert(index);
+            continue;
         }
         if let Some(tool) = line.strip_prefix(TOOL_LINE) {
             let tool = tool.trim();
@@ -436,6 +473,14 @@ pub(crate) fn read_journal(backup_dir: &Path) -> Option<Journal> {
                 dest: PathBuf::from(dest),
             });
         }
+    }
+    if !journal.moves.is_empty()
+        && journal
+            .moves
+            .iter()
+            .all(|planned| done.contains(&planned.index))
+    {
+        return None;
     }
     Some(journal)
 }

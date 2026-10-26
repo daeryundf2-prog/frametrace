@@ -936,6 +936,19 @@ export async function toolsTrackU() {
     assert.ok(v.run('htRefusal({ ok: false, code: "install_running_elsewhere" }, null, "en").text').startsWith('A tool install is running elsewhere (command line)'));
   });
 
+  await row('Fix round 16 follow-up L4: tools_busy (the server-start sweep holds the install lock, no job) → "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오" on the row; no progress row, nothing polled, 설치 usable again', async () => {
+    const v = make({ replies: [reply([FF, OPT])], post: { ok: false, status: 409, code: 'tools_busy', error: '도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오.' } });
+    await v.run('htLoad()');
+    assert.equal(await v.run('htInstall("ffmpeg")'), false);
+    const text = '도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오';
+    const ff = (v.els.hToolsList.innerHTML.match(/<li[^>]*data-tool="ffmpeg"[^]*?<\/li>/) || [''])[0];
+    assert.ok(ff.includes(text) && /data-tool-install="ffmpeg"/.test(ff) && !/disabled/.test(ff) && !/data-tool-cancel/.test(ff), 'row: ' + ff);
+    assert.ok(v.calls.announced.some(([m, a]) => m === text && a), JSON.stringify(v.calls.announced));
+    assert.equal(v.run('HT.busy'), '');
+    assert.equal(v.calls.timers.length, 0, 'nothing polled');
+    assert.ok(v.run('htRefusal({ ok: false, code: "tools_busy" }, null, "en").text').startsWith('The tools folder is being tidied'));
+  });
+
   await row('Fix round 16 L-audit: a done job with `audit_warning` → a warn toast and a warn line on the row (also in the prompt)', async () => {
     const warning = 'install-audit.jsonl에 기록하지 못했습니다: 디스크 가득 참';
     const v = make({ replies: [reply([FF, OPT]), reply([FF, OPT]), reply([FF, { ...OPT, installed: true }])], status: [st(J('done', 'x-opt', { audit_warning: warning, finished_unix: nowS() }))] });

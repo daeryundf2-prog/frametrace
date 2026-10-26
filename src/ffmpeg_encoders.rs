@@ -1021,7 +1021,60 @@ pub fn output_frame_if_h264_mf(
         return None;
     }
     let probe = crate::ffprobe::probe(source);
-    scaled_frame(probe.width?, probe.height?, max_width)
+    let rotation = probe.raw_json.as_deref().and_then(video_rotation_degrees);
+    output_frame(probe.width?, probe.height?, rotation, max_width)
+}
+
+/// Fix round 16 follow-up L3: the frame ffmpeg encodes for a source whose
+/// coded frame is `width`×`height` with display `rotation` (degrees):
+/// ffmpeg autorotates by default, so a ±90/270 rotation swaps the sides
+/// before `scale='min(max_width,iw)':-2` sees them (a 3840×2160 phone clip
+/// recorded upright becomes 2160×3840).
+pub fn output_frame(
+    width: u32,
+    height: u32,
+    rotation: Option<i64>,
+    max_width: Option<u32>,
+) -> Option<(u32, u32)> {
+    let quarter_turn = rotation.is_some_and(|degrees| degrees.rem_euclid(180) == 90);
+    let (width, height) = if quarter_turn {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    scaled_frame(width, height, max_width)
+}
+
+/// The display rotation (degrees) of the first video stream in ffprobe's
+/// `-show_streams` JSON: the display matrix side data (`side_data_list[]
+/// .rotation`, ffmpeg 5+) or, from older builds, `tags.rotate`. `None`
+/// when there is none or it is not a whole number of degrees.
+pub fn video_rotation_degrees(raw_json: &str) -> Option<i64> {
+    let value: serde_json::Value = serde_json::from_str(raw_json).ok()?;
+    let stream =
+        value.get("streams")?.as_array()?.iter().find(|stream| {
+            stream.get("codec_type").and_then(|kind| kind.as_str()) == Some("video")
+        })?;
+    let whole = |degrees: f64| {
+        (degrees.is_finite() && degrees.fract() == 0.0 && degrees.abs() <= 3600.0)
+            .then_some(degrees as i64)
+    };
+    let from_side_data = stream
+        .get("side_data_list")
+        .and_then(|list| list.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find_map(|entry| entry.get("rotation").and_then(|rotation| rotation.as_f64()))
+        })
+        .and_then(whole);
+    from_side_data.or_else(|| {
+        stream
+            .get("tags")
+            .and_then(|tags| tags.get("rotate"))
+            .and_then(|rotate| rotate.as_str())
+            .and_then(|rotate| rotate.trim().parse::<f64>().ok())
+            .and_then(whole)
+    })
 }
 
 /// `width`×`height` scaled down to `max_width` (height kept even, as
@@ -2085,6 +2138,40 @@ pub(crate) mod tests {
         assert_eq!(scaled_frame(1921, 1081, Some(1280)), Some((1280, 720)));
         assert_eq!(scaled_frame(7680, 4320, None), Some((7680, 4320)));
         assert_eq!(scaled_frame(0, 1080, None), None);
+    }
+
+    /// Fix round 16 follow-up L3: a 3840×2160 phone clip recorded upright
+    /// (rotation ±90/270) is encoded as 2160×3840 after autorotate — too
+    /// tall for h264_mf; 0/180 or no rotation keep the coded size. The
+    /// rotation comes from the display matrix side data or `tags.rotate`.
+    #[test]
+    fn a_rotated_source_swaps_the_frame_before_the_h264_mf_limit() {
+        for rotation in [90, -90, 270, -270, 450] {
+            let frame = output_frame(3840, 2160, Some(rotation), None);
+            assert_eq!(frame, Some((2160, 3840)), "{rotation}");
+            let (w, h) = frame.unwrap();
+            assert!(!h264_mf_fits(w, h), "{rotation}");
+        }
+        for rotation in [None, Some(0), Some(180), Some(-180), Some(360)] {
+            assert_eq!(
+                output_frame(3840, 2160, rotation, None),
+                Some((3840, 2160)),
+                "{rotation:?}"
+            );
+            assert!(h264_mf_fits(3840, 2160));
+        }
+        // A proxy scales the rotated frame: 2160 wide → 1280×2276.
+        assert_eq!(
+            output_frame(3840, 2160, Some(-90), Some(1280)),
+            Some((1280, 2276))
+        );
+        let side = r#"{"streams":[{"codec_type":"audio"},{"codec_type":"video","width":3840,"height":2160,"side_data_list":[{"side_data_type":"Display Matrix","displaymatrix":"...","rotation":-90}]}]}"#;
+        assert_eq!(video_rotation_degrees(side), Some(-90));
+        let tags = r#"{"streams":[{"codec_type":"video","width":3840,"height":2160,"tags":{"rotate":"270"}}]}"#;
+        assert_eq!(video_rotation_degrees(tags), Some(270));
+        let none = r#"{"streams":[{"codec_type":"video","width":3840,"height":2160}]}"#;
+        assert_eq!(video_rotation_degrees(none), None);
+        assert_eq!(video_rotation_degrees("not json"), None);
     }
 
     /// Fix round 16: an output too large for h264_mf uses libopenh264 when

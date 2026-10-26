@@ -1707,6 +1707,129 @@ fn a_staging_dir_with_a_move_journal_survives_the_sweep_as_a_rollback_backup() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// Fix round 16 follow-up L1: while another process (a CLI install)
+/// holds the install lock and moves files, its `.staging-*` with a live
+/// journal (no RESTORE.txt yet) is not listed as a rollback backup; once
+/// the lock is free the same folder is (an interrupted move). A kept
+/// `backup/RESTORE.txt` is listed either way.
+#[test]
+fn a_journal_of_an_install_holding_the_lock_elsewhere_is_not_listed() {
+    use fs2::FileExt;
+    let base = scratch("journal-held");
+    let tools = base.join("tools");
+    let bin = tools.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"old-ffmpeg").unwrap();
+    let staging = tools.join(".staging-moving");
+    let backup = staging.join("backup");
+    std::fs::create_dir_all(&backup).unwrap();
+    let moves = vec![
+        (staging.join("x/ffmpeg.exe"), bin.join("ffmpeg.exe")),
+        (staging.join("x/ffprobe.exe"), bin.join("ffprobe.exe")),
+    ];
+    rollback::write_journal(&backup, "ffmpeg", &moves).unwrap();
+    std::fs::rename(bin.join("ffmpeg.exe"), backup.join("0.bak")).unwrap();
+    // No lock file at all: nobody holds it; the probe creates none.
+    assert!(!InstallLock::held_by_another_process(&tools));
+    assert!(!tools.join(".install.lock").exists());
+    // Another process's lock (raw fs2, unknown to this process's registry).
+    let other = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(tools.join(".install.lock"))
+        .unwrap();
+    other.try_lock_exclusive().unwrap();
+    assert!(InstallLock::held_by_another_process(&tools));
+    assert!(!InstallLock::held_by_this_process(&tools));
+    assert_eq!(rollback_backups(&tools), Vec::new());
+    // A kept RESTORE.txt (an incomplete rollback) is still listed.
+    let kept = tools.join("rollback-backup-abc");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join(RESTORE_FILE), "tool: ffmpeg\n").unwrap();
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].path, kept);
+    // Lock released (the CLI was killed): the journal is an interrupted move.
+    drop(other);
+    assert!(!InstallLock::held_by_another_process(&tools));
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert!(
+        listed
+            .iter()
+            .any(|backup| backup.path == staging && backup.tool.as_deref() == Some("ffmpeg"))
+    );
+    // Held by this process (its own install): not listed either.
+    let ours = InstallLock::acquire(&tools).unwrap();
+    assert!(
+        rollback_backups(&tools)
+            .iter()
+            .all(|backup| backup.path != staging)
+    );
+    drop(ours);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Fix round 16 follow-up L2: each completed move appends a flushed
+/// `done\t<index>` line. Killed after the last move but before the journal
+/// was removed, every planned move is done: the journal reads as complete
+/// — not listed, swept as an ordinary leftover, no rollback backup. With a
+/// move still missing its `done` line it stays an interrupted move.
+#[test]
+fn a_journal_with_every_move_done_is_a_finished_install() {
+    let base = scratch("journal-done");
+    let tools = base.join("tools");
+    let bin = tools.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"old-ffmpeg").unwrap();
+    let make = |name: &str| {
+        let staging = tools.join(name);
+        let backup = staging.join("backup");
+        std::fs::create_dir_all(&backup).unwrap();
+        let moves = vec![
+            (staging.join("x/ffmpeg.exe"), bin.join("ffmpeg.exe")),
+            (staging.join("x/ffprobe.exe"), bin.join("ffprobe.exe")),
+        ];
+        rollback::write_journal(&backup, "ffmpeg", &moves).unwrap();
+        (staging, backup)
+    };
+    // Killed after both moves (old ffmpeg.exe in 0.bak, new files in place).
+    let (finished, finished_backup) = make(".staging-finished");
+    std::fs::rename(bin.join("ffmpeg.exe"), finished_backup.join("0.bak")).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"new-ffmpeg").unwrap();
+    rollback::mark_move_done(&finished_backup, 0);
+    // Only the first done: still interrupted.
+    assert!(rollback::read_journal(&finished_backup).is_some());
+    assert_eq!(rollback_backups(&tools).len(), 1);
+    std::fs::write(bin.join("ffprobe.exe"), b"new-ffprobe").unwrap();
+    rollback::mark_move_done(&finished_backup, 1);
+    let journal = std::fs::read_to_string(finished_backup.join(rollback::MOVE_JOURNAL)).unwrap();
+    assert!(journal.ends_with("done\t0\ndone\t1\n"), "{journal}");
+    assert_eq!(rollback::read_journal(&finished_backup), None);
+    assert!(!rollback::staging_has_active_journal(&finished));
+    assert_eq!(rollback_backups(&tools), Vec::new());
+    // A second staging killed between the moves: only move 0 done.
+    let (partial, partial_backup) = make(".staging-partial");
+    std::fs::rename(bin.join("ffmpeg.exe"), partial_backup.join("0.bak")).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"newer-ffmpeg").unwrap();
+    rollback::mark_move_done(&partial_backup, 0);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    assert_eq!(clean_stale_staging(&tools, later, &[]), 2);
+    assert!(!finished.exists() && !partial.exists());
+    let kept: Vec<String> = std::fs::read_dir(&tools)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("rollback-backup-"))
+        .collect();
+    assert_eq!(kept.len(), 1, "only the partial one: {kept:?}");
+    let restore = std::fs::read_to_string(tools.join(&kept[0]).join(RESTORE_FILE)).unwrap();
+    assert!(restore.contains(rollback::INTERRUPTED_NOTE), "{restore}");
+    let _ = std::fs::remove_dir_all(base);
+}
+
 /// Fix round 13 M: pip fails and one file of the new, partial venv is
 /// held (an AV scan / the indexer: no sharing), so removing it fails:
 /// - held briefly → the remove is retried, the previous venv is back;
