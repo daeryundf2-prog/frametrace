@@ -685,3 +685,19 @@ origin/main(외부 PR #6, bf7a64c·863869c, 병합 3a8f099)을 tools-bundle(05a0
 - 실제 TSK/icat으로 `--allocated-videos` 추출과 E01 파이프라인 끝(추출 → extracted 색인)을 실행하지 않았다. `skipped` 결과를 읽는 UI 표시는 따로 만들지 않았다(배치 로그·콘솔에만).
 - 정션 부모 거부는 심볼릭 링크를 만들 수 있을 때만 테스트된다(Windows에서 권한이 없으면 그 부분은 건너뜀). `is_symlink()`는 Windows에서 정션도 참이다(media.rs R12-S9와 같은 판단).
 - 피커 "새 폴더"·끌어 놓기의 브라우저 동작은 기존 하네스 범위 밖(전용 하네스 없음).
+
+### PR #6 병합 확인 리뷰 반영 (2026-10-26, 기준 c5ba1f9 → 9406c79)
+병합 확인 리뷰(Opus, aebe395)는 Blocker·High 0, Medium 2·Low 4였다. 모두 고쳤다.
+
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M1 대상 파일이 있으면 출처 확인 없이 `skipped` — 대소문자만 다른 이름, 정리 후 같아지는 이름, 다른 이미지·파티션의 같은 경로가 서로 다른 증거인데도 추출되지 않음 | `choose_output_path`: tsk-audit 기록이 같은 경로·이미지·파티션 오프셋·inode·크기를 증명할 때만 건너뛴다. 아니면 `<이름>__ino<inode>`(추출) / `__off<offset>`(삭제 파일 복구), 그것도 있으면 `_001`…. 재실행해도 사본이 늘지 않는다. | `recover_batch_output_choice_proves_the_source_before_skipping`, `inode_output_records_read_recover_and_extract_events` |
+| M2 정상 파일 추출이 `recover-inode`로 기록돼 뷰어에 두 번, 복구 지표·보고서에 "복구됨"으로 집계 | 추출은 `extract-inode`(`recover_deleted:false`). 뷰어·records·report·deepfake·artifacts는 `recover-inode`만 쓰므로 자동 제외. 보고서 감사 표에는 남김. | `extracted_live_files_are_not_reported_as_recoveries`, VM 행 "M2 … metricCarved" |
+| L1 하위 폴더의 추출 `.part`가 남음 | `artifacts/extracted` 재귀 정리(링크·정션 미추적, 깊이 64) | `recursive_sweeps_reach_parts_in_subfolders`, `l1_killed_extraction_part_in_a_subfolder_is_swept` |
+| L2 폴더 내용만으로 색인 대상 결정 | recover-batch 마지막 줄 `recover batch result: …`로 이번 실행의 ok+skipped를 보고 판단 | `l2_extracted_tree_is_indexed_only_after_this_runs_result` |
+| L3 `file://server/share/…`가 상대 경로가 됨 | 호스트가 비어 있지 않고 `localhost`가 아니면 `//host/…`로 정규화해 네트워크 경로 거부를 그대로 적용 | `scripts/lib/pr6-merge-unit.mjs`(`--unit`) |
+| L4 조상 정션을 거쳐 폴더 생성 | `linked_ancestor`: 부모의 모든 조상을 `symlink_metadata`로 검사(Unix의 root 소유 시스템 링크만 허용) | `make_folder_refuses_a_junction_anywhere_above_the_parent` |
+| 짐작 | 예약 이름(`CONIN$`, `CONOUT$`, `COM¹²³`, `LPT¹²³`) 추가, 0바이트 사본 반복 해소(M1), `artifacts/extracted`는 `derived-extracted` 출처로 등록, 파일마다 디스크 여유(1 GB + 최대 파일) 확인, FILESYSTEM_RECOVERY.md에 `--allocated-videos` 절 | 각 단위 테스트 |
+| CI: verify-facets가 섹션 4개를 기대 | PR #6이 맨 앞에 넣은 "폴더 구조 (디렉터리)"를 기대하도록 갱신(dfd0028). 로컬 게이트는 이제 `scripts/ci-harnesses.sh`를 그대로 돌려 CI와 목록이 어긋나지 않는다. | verify-facets 통과 |
+
+확인 못 한 것: 실제 TSK/icat 추출과 E01 파이프라인 끝까지, Linux/macOS의 `linked_ancestor`·재귀 정리 symlink 분기(CI에서 확인), TSK 크기 합계로 하는 사전 공간 확인(fls 목록에 크기가 없어 파일별 확인으로 대체), 실제 브라우저의 끌어 놓기.
