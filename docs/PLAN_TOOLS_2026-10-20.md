@@ -539,3 +539,61 @@ Fable 크레딧 소진으로 라운드 14 확인 리뷰는 Opus가 했다. 판�
 | L-b: 설치가 이미 Done/Failed인 순간의 `/api/cancel`은 아무것도 요청하지 않으면서 `ok:true, cancelled:"tool-install"`로 답해, 대기 중 [계속 작업]이면 "설치는 이미 중단됐습니다"가 떴다(실제로는 성공했을 수 있음). | 응답에 `requested`(실제로 중단을 요청했는지)를 추가. `95-quit.js`는 `requested === false`이면 "도구 설치는 이미 끝나 있었습니다 — 도구 패널에서 결과를 확인하십시오."를 낸다. mock(`apiCancelReply`)도 같은 규칙으로 맞췄다. | `serve::tests_tools::the_global_cancel_stops_a_tool_install_through_its_own_latch`에 `requested` true/false 단언 추가. tools-unit 새 행 "Fix round 15 …" PASS. |
 
 게이트(이 PC): `cargo fmt --check` ok · `cargo clippy --locked --all-targets -- -D warnings` ok · `cargo test --lib -- tool_install serve::tests_tools` 65 passed · `verify-review-batch --unit` 155 PASS / 0 FAIL. 전체 게이트는 깨끗한 워크트리(ft-gate)에서 따로 돈다.
+
+## §Fix round 16 (2026-10-26, 적대적 리뷰(d12e964, Opus) 반영 — Medium 6 · Low 10 · 짐작 3)
+PR #4가 main에 머지되어(73a1a50) PR #5의 base는 main이다(main의 트리는 54cf3c5와 같아 리베이스 불필요). 세 갈래로 나눠 고쳤다 — A: Rust(설치기·서버·CLI·doctor·인코더), B: 릴리스 스크립트·CI·THIRD_PARTY_NOTICES, C: 도구 패널·종료 대화상자 UI. 파일은 겹치지 않았다.
+
+### API 변경
+- `POST /api/tools/install` 본문 `{name, force?}`. 기존 파일을 바꾸게 되면 `{ok:false, code:"would_replace", replaces:["bin/…", "bin/licenses/…"], error}`, 이미 온전히 설치돼 있으면 `code:"already_installed"`(같은 `replaces`). 둘 다 `force:true`로만 진행하고, 거부는 감사 로그에 `refused`로 남는다(archive 도구만; pip 도구는 해당 없음).
+- 다른 프로세스(CLI)가 `tools/.install.lock`을 잡고 있으면 받아들이기 전에 `{ok:false, code:"install_running_elsewhere"}`. 이 프로세스가 잡고 있으면 종전대로 `install_running`.
+- 설치 작업 id는 프로세스마다 무작위 32비트 값에서 시작(숫자 유지).
+- `/api/status`에 `busy_kind`("tool-install" | "job" | null). 도구 설치가 busy를 잡고 있으면 분석 시작·원본 재가져오기·케이스 열기·클립 내보내기·이어붙이기 거부 문구가 "도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오".
+- 프록시·내보내기 감사 줄에 선택적 `encoder_note`.
+- CLI `tools install <name> [--yes] [--force]`: `--yes`만으로는 기존 파일을 바꾸지 않고, 실행 중인 워크스테이션이 있으면 `server_running`으로 거부(`--force`로 진행).
+
+### 갈래 A (Rust)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M1 이동 중 강제 종료 시 이전 바이너리 손실 | 첫 이동 전에 `backup/MOVING` 저널(도구 이름, 파일별 `plan` 줄, `sync_all`)을 쓰고, 쓰지 못하면 설치를 거부. 성공 시 삭제(실패하면 `complete` 표시), 롤백 완료 시 삭제. 정리 전에 `rescue_interrupted_move`가 저널로 RESTORE.txt를 만들고 `backup/`을 `rollback-backup-<hex>`로 옮긴다. 활성 저널이 있는 staging은 지우지 않는다. | `the_move_journal_lives_only_while_files_move`, `a_staging_dir_with_a_move_journal_survives_the_sweep_as_a_rollback_backup` |
+| M5 기존 설치 무경고 덮어쓰기 | `replace_check`, `start_install(…, force)`, CLI `--force` | `an_install_over_existing_files_needs_force`, `yes_alone_never_replaces_and_force_does`, `the_prompt_lines_name_each_replaced_file`, `replace_check_lists_existing_files_and_spots_a_complete_install` |
+| M6 CLI 작업 따라가기 계약 | 잠금을 `start_install`에서 먼저 잡음, §28 문구 수정 | `a_cli_install_holding_the_lock_refuses_up_front` |
+| L busy 문구 | `busy_kind`, `busy_refusal()` | `a_busy_tool_install_is_named_in_status_and_refusals` |
+| L doctor 문서 주석 | 함수를 주석 밖으로 이동 | 코드 읽기 |
+| L CLI 설치 ↔ 서버 작업 | 실행 중인 워크스테이션이 있으면 CLI 거부(`--force`) | `yes_alone_never_replaces_and_force_does` |
+| 짐작 작업 id 재사용 | `initial_install_seq()` 무작위 시작 | `install_job_ids_start_at_a_per_process_random_value` |
+| 짐작 h264_mf 해상도 | MS H.264 Video Encoder MFT 한계 4096×2304(주석에 출처). 출력이 넘으면 시험 통과한 libopenh264(Level 5.2 이내), 아니면 mpeg4. 축소하지 않고 이유를 `encoder_note`에 기록. | `frame_limits`, `an_output_too_large_for_h264_mf_uses_the_next_working_encoder` |
+| 짐작 libopenh264 특허 | `OPENH264_PATENT_NOTE`를 note와 `encoder_note`에 표시 | `libopenh264_is_named_with_its_patent_status` |
+
+### 갈래 B (릴리스 스크립트·CI)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M2 고지문과 패키징 불일치 | make-portable은 `tools/bin`에서 아무것도 복사하지 않는다. 저장소 또는 빌드 exe의 `tools/bin`에 파일이 있으면 중단. `README-tools.txt` 문구, THIRD_PARTY_NOTICES 첫 문단 한 구절 추가(마커는 그대로). Windows CI 스모크는 `README-tools.txt` 외 항목이 있으면 실패. WINDOWS_USAGE·handoff 문서 문구도 맞춤. | test-make-portable(libewf/TSK, ffmpeg, 라이선스, 쪽지, target/release, CARGO_TARGET_DIR) |
+| M3 build-release가 남의 zip까지 서명 | 이번 실행이 만든 zip만 정확한 경로로 기록·나열·서명. `dist/`에 다른 zip이 있으면 빌드 전과 SHA256SUMS 전에 중단. 만든 zip에 FFmpeg 항목·중첩 아카이브·고지 마커가 있으면 거부하고 삭제. | test-build-release(이름 11종, 빌드 중 심은 zip, FFmpeg 이름 변형, 중첩 8종, 세 읽기 도구별) |
+| M4 출력 경로 무시 | 두 스크립트 모두 cargo JSON의 `executable`(make-portable `-SkipBuild`는 `cargo metadata` `target_directory`)에서 바이너리를 가져온다. | CARGO_TARGET_DIR 절대·상대, CARGO_BUILD_TARGET_DIR, `.cargo/config.toml` × 빌드/`-SkipBuild` |
+| L 압축 파일 반입 | 확장자와 매직 바이트(PK, gzip, 7z, MSCF, Rar, xz, ustar, MZ 안의 UPX!)로 아카이브·패킹 exe 거부 | 9종 거부, 오탐 2종 통과 |
+| L 키 대소문자 | `-ceq` 정확한 키. CI는 node `JSON.parse`로 독립 계산해 교차 검증 | `Notice_Confirmed` 등 거부 |
+| L 파일 이름만의 표시 | 미확인 패키지 루트에 `UNCONFIRMED.txt`. build-release는 그 파일이 든 zip 거부 | 대소문자·하위 폴더 변형 |
+| L CI 공백 | `ci.yml`에 Linux `release-scripts` 잡(bash -n + 하네스, bsdtar 있으면 포함) | 이 푸시의 CI |
+| 짐작 -SkipBuild | 두 exe 모두 작업 트리 `tools/manifest.json` 바이트를 그대로 담고 있어야 함(없으면 "rebuild it") | 미확인 매니페스트로 빌드한 exe·매니페스트 없는 exe 거부 |
+| 짐작 설치 가능 판정 | sha256이 있거나 `kind:"pip"` + `requirements_file`이면 설치 가능. PowerShell·Python·node 동일 규칙 | pip 미확인 거부 |
+| 짐작 읽을 수 없는 고지문 | `[ -r ]`와 `cat` 종료 상태 확인, 실패하면 거부 | stub `cat` 오류; chmod 000은 Linux에서만 |
+
+### 갈래 C (UI)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M5 (UI) | [설치] 전에 `htLoad()`로 다시 확인, 이미 설치면 대화상자 없이 "설치됨". `would_replace`/`already_installed`면 교체 목록을 보여 주는 두 번째 확인([교체하고 설치], 기본 초점 [취소])을 거쳐서만 `force:true` 재전송. | tools-unit "Fix round 16 M5 …" 2행 |
+| M6 (UI) | `install_running_elsewhere` → "다른 곳(명령줄)에서 도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오", 진행 줄 없음 | tools-unit "Fix round 16 M6 …" |
+| L 감사 경고 | `audit_warning`을 보존해 warn toast와 줄 표시 | tools-unit "Fix round 16 L-audit …" |
+| L 설치 직후 멈춤 | done이면 `/api/tools`를 기다리지 않고 바로 설치됨으로 그림, 그동안 "인코더 확인 중…" | tools-unit "Fix round 16 L-freeze …" |
+| L 종료 문구 | 중단 요청 뒤 아직 끝나지 않았으면 "설치 중단을 요청했습니다 — 도구 패널에서 결과를 확인하십시오", failed/done일 때만 각 문구 | tools-unit 라운드 13 L4 행 갱신 + "Fix round 16 L-quit-text …" |
+| L busy (UI) | 종료 대화상자와 41-finalize 점검 목록이 `busy_kind`로 설치 문구를 씀. 시작·케이스 열기는 서버 문구 그대로 | tools-unit "Fix round 16 L-busy …" |
+| 짐작 id (UI) | mock id 무작위 시작, 하네스 고정 id를 1이 아닌 값으로 | tools-unit "Fix round 16 hunch-ids …", verify-layout, check-a11y |
+
+### 확인 못 한 것
+- 실기: 이동 중 실제 강제 종료(Ctrl+C·정전), 4096×2304를 넘는 실제 h264_mf 인코딩, 실제 BtbN 빌드의 libopenh264 즉석 시험.
+- h264_mf 해상도 확인은 ffprobe가 필요하다. 없으면 크기를 몰라 인코더를 그대로 두고 실패는 ffmpeg 자체에서 난다.
+- `ffmpeg_changed_during_run` 감사 플래그는 넣지 않았다(대신 CLI 거부).
+- CLI의 워크스테이션 감지는 사용자 단위라 다른 폴더의 워크스테이션도 거부 사유가 된다(`--force`로 진행).
+- make-portable은 실제 `cargo build --message-format=json-render-diagnostics` 대신 stub cargo로만 시험했다. `-SkipBuild`는 `CARGO_BUILD_TARGET`(트리플)을 반영하지 않는다.
+- 운영 변경: 개발자가 `target/release/frametrace.exe tools install ffmpeg`를 했다면 패키징 전에 그 `tools/bin` 파일을 옮겨야 한다. build-release는 실행마다 `dist/`를 비워야 하고, 여러 타깃의 합계가 한 SHA256SUMS에 쌓이지 않는다.
+- UI 두 번째 확인·elsewhere 문구·"인코더 확인 중…"은 브라우저 하네스가 아니라 unit VM과 mock으로만 확인했다.

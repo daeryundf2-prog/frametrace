@@ -105,6 +105,12 @@ fetch a pinned build for you when you ask:
 .\frametrace.exe tools install ffmpeg --yes
 ```
 
+`--yes` never replaces files already in `tools\bin` (a copy you put there
+yourself, or an earlier install): the install stops and names them. Add
+`--force` to replace them — the previous files are then deleted. A CLI
+install also refuses while a FrameTrace workstation is running (`--force`
+overrides).
+
 Every tool is pinned in `tools/manifest.json` (version, URL, size and the
 publisher's SHA-256, compiled into the binary). The download goes **directly
 from the publisher to your machine** — for FFmpeg that is the BtbN
