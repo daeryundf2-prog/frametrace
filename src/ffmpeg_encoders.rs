@@ -99,6 +99,49 @@ pub const INCONCLUSIVE_TTL: Duration = Duration::from_secs(60);
 /// minute, short enough that one slow moment is not permanent.
 pub const TIMED_OUT_TTL: Duration = Duration::from_secs(10 * 60);
 
+/// Fix round 16: the largest frame the Microsoft H.264 Video Encoder MFT
+/// (what `h264_mf` drives; ffmpeg asks for the software MFT unless
+/// `-hw_encoding 1`) accepts — "Maximum: 4096 × 2304 pixels" in the
+/// encoder's input-type table (Windows 8 and later; Windows 7 stopped at
+/// 1920 × 1088): <https://learn.microsoft.com/windows/win32/medfound/h-264-video-encoder>.
+/// A larger output would make `h264_mf` fail; FrameTrace then encodes that
+/// one output with the next working encoder instead of scaling evidence.
+pub const H264_MF_MAX_WIDTH: u32 = 4096;
+pub const H264_MF_MAX_HEIGHT: u32 = 2304;
+
+/// H.264 Level 5.2 MaxFS — the largest frame of any H.264 level, in
+/// 16×16 macroblocks (ITU-T H.264 Table A-1), with each side at most
+/// √(8·MaxFS) macroblocks (A.3.1 h/i). libopenh264 picks a level from the
+/// frame size and refuses a frame beyond 5.2.
+const H264_MAX_FRAME_MBS: u64 = 36_864;
+const H264_MAX_SIDE_MBS: u64 = 543;
+
+/// Whether the Microsoft H.264 encoder (`h264_mf`) takes a `width`×`height`
+/// frame ([`H264_MF_MAX_WIDTH`]×[`H264_MF_MAX_HEIGHT`]).
+pub fn h264_mf_fits(width: u32, height: u32) -> bool {
+    width <= H264_MF_MAX_WIDTH && height <= H264_MF_MAX_HEIGHT
+}
+
+/// Whether a `width`×`height` frame is within H.264 Level 5.2 (libopenh264).
+pub fn h264_level_fits(width: u32, height: u32) -> bool {
+    let mbs = |pixels: u32| u64::from(pixels).div_ceil(16);
+    let (w, h) = (mbs(width), mbs(height));
+    w * h <= H264_MAX_FRAME_MBS && w <= H264_MAX_SIDE_MBS && h <= H264_MAX_SIDE_MBS
+}
+
+/// The plain statement shown whenever libopenh264 encodes (Fix round 16):
+/// the openh264 in ffmpeg builds such as BtbN's is built from source, and
+/// Cisco's patent licence covers only Cisco's own prebuilt binaries.
+pub const OPENH264_PATENT_NOTE: &str = "H.264는 libopenh264(소스에서 빌드한 것 — Cisco의 특허 사용권은 Cisco가 배포한 바이너리에만 적용되어 여기에는 해당 없음)로 인코딩 — 특허가 문제 되면 AVI(mpeg4)로 내보내거나 libx264·h264_mf가 되는 FFmpeg를 쓰십시오";
+
+/// An output whose frame is too large for `h264_mf`: it was encoded with
+/// `video` (the next working candidate) instead, at full size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameFallback {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// H.264-or-fallback video encoders, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoEncoder {
@@ -348,6 +391,38 @@ impl Encoders {
             .unwrap_or(VideoEncoder::Mpeg4)
     }
 
+    /// Fix round 16: the video encoder for one output of `frame` size
+    /// (`None`: unknown). Normally [`Encoders::video`]; when that is
+    /// `h264_mf` and the frame exceeds its limit ([`h264_mf_fits`]), the
+    /// next candidate for this output only: libopenh264 when listed, not
+    /// failed, `openh264_works()` (a real trial) and the frame within
+    /// H.264 Level 5.2 — else mpeg4. The frame is never scaled; the
+    /// returned [`FrameFallback`] goes into the audit line's note.
+    pub fn video_for_frame(
+        &self,
+        frame: Option<(u32, u32)>,
+        openh264_works: &mut dyn FnMut() -> bool,
+    ) -> (VideoEncoder, Option<FrameFallback>) {
+        let video = self.video();
+        let Some((width, height)) = frame else {
+            return (video, None);
+        };
+        if video != VideoEncoder::H264Mf || h264_mf_fits(width, height) {
+            return (video, None);
+        }
+        let openh264 = VideoEncoder::Libopenh264;
+        let next = if self.has(openh264.name())
+            && !self.trial_failed(openh264.name())
+            && h264_level_fits(width, height)
+            && openh264_works()
+        {
+            openh264
+        } else {
+            VideoEncoder::Mpeg4
+        };
+        (next, Some(FrameFallback { width, height }))
+    }
+
     /// AAC for MP4: the native LGPL-safe `aac` first. A build without it
     /// still gets `aac` so ffmpeg reports the missing encoder loudly.
     pub fn aac(&self) -> &'static str {
@@ -373,6 +448,7 @@ impl Encoders {
             video,
             audio,
             probed: self.probed,
+            frame_fallback: None,
         }
     }
 
@@ -399,6 +475,11 @@ impl Encoders {
             }
             other => format!("libx264 없음 — H.264는 {} 사용", other.name()),
         };
+        // Fix round 16: say plainly what encoding with libopenh264 means.
+        if video == VideoEncoder::Libopenh264 {
+            note.push_str(" · ");
+            note.push_str(OPENH264_PATENT_NOTE);
+        }
         let mf = VideoEncoder::H264Mf.name();
         if self.trial_timed_out(mf) {
             note.push_str(" · h264_mf 시험 인코딩 시간 초과 — 잠시 뒤 다시 확인");
@@ -483,6 +564,9 @@ pub struct CodecChoice {
     pub video: VideoEncoder,
     pub audio: &'static str,
     pub probed: bool,
+    /// Fix round 16: `h264_mf` could not take this output's frame, so
+    /// `video` is the next working candidate (recorded in the audit note).
+    pub frame_fallback: Option<FrameFallback>,
 }
 
 impl CodecChoice {
@@ -529,11 +613,36 @@ impl CodecChoice {
         out
     }
 
-    /// `,"video_encoder":…,"audio_encoder":…,"encoder_source":…` for a
+    /// The note for this output's audit line (Fix round 16): why `video`
+    /// replaced `h264_mf` (frame too large — never scaled) and, for
+    /// libopenh264, [`OPENH264_PATENT_NOTE`]. `None` when there is nothing
+    /// to say.
+    pub fn encoder_note(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(fallback) = self.frame_fallback {
+            parts.push(format!(
+                "h264_mf(Microsoft H.264 인코더)는 {}×{} 프레임을 인코딩할 수 없음(최대 {H264_MF_MAX_WIDTH}×{H264_MF_MAX_HEIGHT}) — 이 출력은 {}로 인코딩(크기 그대로, 축소하지 않음)",
+                fallback.width,
+                fallback.height,
+                self.video.name()
+            ));
+        }
+        if self.video == VideoEncoder::Libopenh264 {
+            parts.push(OPENH264_PATENT_NOTE.to_string());
+        }
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+
+    /// `,"video_encoder":…,"audio_encoder":…,"encoder_source":…` (and
+    /// `"encoder_note"` when [`CodecChoice::encoder_note`] has one) for a
     /// hand-built JSON audit line.
     pub fn audit_fields(&self) -> String {
+        let note = self
+            .encoder_note()
+            .map(|note| format!(",\"encoder_note\":\"{}\"", crate::util::json_escape(&note)))
+            .unwrap_or_default();
         format!(
-            ",\"video_encoder\":\"{}\",\"audio_encoder\":\"{}\",\"encoder_source\":\"{}\"",
+            ",\"video_encoder\":\"{}\",\"audio_encoder\":\"{}\",\"encoder_source\":\"{}\"{note}",
             self.video.name(),
             self.audio,
             if self.probed {
@@ -857,6 +966,7 @@ pub(crate) fn trial_args(encoder: VideoEncoder) -> Vec<String> {
         video: encoder,
         audio: "aac",
         probed: true,
+        frame_fallback: None,
     };
     args.extend(choice.video_args(Purpose::Proxy));
     args.extend(["-an", "-f", "null", "-"].iter().map(|arg| arg.to_string()));
@@ -878,6 +988,77 @@ fn trial_encode(binary: &str, encoder: VideoEncoder, secs: u64) -> Trial {
         Err(crate::util::RunError::TimedOut(_)) => Trial::TimedOut,
         Err(crate::util::RunError::Failed(_)) => Trial::Unknown,
     }
+}
+
+/// Fix round 16: the video encoder (and audio) for one MP4 output of
+/// `frame` size from the ffmpeg at `binary` — [`Encoders::video_for_frame`]
+/// with libopenh264's trial run on demand (once per binary, cached), as
+/// the probe stops at the first working candidate and may never have
+/// tried it.
+pub fn choice_for_frame(
+    binary: &str,
+    encoders: &Encoders,
+    frame: Option<(u32, u32)>,
+) -> CodecChoice {
+    let mut openh264_works = || openh264_trial_works(binary);
+    let (video, frame_fallback) = encoders.video_for_frame(frame, &mut openh264_works);
+    let mut choice = encoders.choice(video, encoders.aac());
+    choice.frame_fallback = frame_fallback;
+    choice
+}
+
+/// Fix round 16: the frame size of one output of `source` — the source's
+/// own (ffprobe), or for a proxy scaled to `max_width` as
+/// `scale='min(max_width,iw)':-2` does — but only when it matters: the
+/// chosen encoder is `h264_mf`. `None` otherwise or when ffprobe cannot
+/// tell (the encoder is then kept; ffmpeg reports a failure itself).
+pub fn output_frame_if_h264_mf(
+    encoders: &Encoders,
+    source: &Path,
+    max_width: Option<u32>,
+) -> Option<(u32, u32)> {
+    if encoders.video() != VideoEncoder::H264Mf {
+        return None;
+    }
+    let probe = crate::ffprobe::probe(source);
+    scaled_frame(probe.width?, probe.height?, max_width)
+}
+
+/// `width`×`height` scaled down to `max_width` (height kept even, as
+/// ffmpeg's `-2`); unchanged without a `max_width` or when narrower.
+pub fn scaled_frame(width: u32, height: u32, max_width: Option<u32>) -> Option<(u32, u32)> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    match max_width {
+        Some(max) if max < width => {
+            let scaled = f64::from(height) * f64::from(max) / f64::from(width);
+            let even = ((scaled / 2.0).round() * 2.0).max(2.0) as u32;
+            Some((max, even))
+        }
+        _ => Some((width, height)),
+    }
+}
+
+/// One cached libopenh264 trial per binary (path + mtime + size).
+fn openh264_trial_works(binary: &str) -> bool {
+    static TRIALS: OnceLock<Mutex<HashMap<CacheKey, bool>>> = OnceLock::new();
+    let meta = std::fs::metadata(Path::new(binary)).ok();
+    let key: CacheKey = (
+        binary.to_string(),
+        meta.as_ref().and_then(|m| m.modified().ok()),
+        meta.as_ref().map(|m| m.len()).unwrap_or(0),
+    );
+    let trials = TRIALS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(works) = trials.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return *works;
+    }
+    let works = trial_encode(binary, VideoEncoder::Libopenh264, TRIAL_TIMEOUT_SECS) == Trial::Works;
+    trials
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, works);
+    works
 }
 
 #[cfg(test)]
@@ -1882,5 +2063,146 @@ pub(crate) mod tests {
         let missing = for_binary(&dir.join("nope").to_string_lossy());
         assert!(!missing.probed());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// Fix round 16: h264_mf's frame limit (4096×2304) and H.264 Level 5.2
+    /// for libopenh264.
+    #[test]
+    fn frame_limits() {
+        assert!(h264_mf_fits(3840, 2160));
+        assert!(h264_mf_fits(4096, 2304));
+        assert!(!h264_mf_fits(4097, 2160));
+        assert!(!h264_mf_fits(2160, 3840), "portrait 4K is too tall");
+        assert!(!h264_mf_fits(5120, 2880));
+        assert!(h264_level_fits(4096, 2304));
+        assert!(h264_level_fits(2160, 3840), "36 864 MBs or fewer");
+        assert!(h264_level_fits(8192, 4320 / 4));
+        assert!(!h264_level_fits(5120, 2880));
+        assert!(!h264_level_fits(8704, 64), "a side over 543 MBs");
+        // A proxy's frame: scaled to max_width, height even (ffmpeg's -2).
+        assert_eq!(scaled_frame(3840, 2160, Some(1280)), Some((1280, 720)));
+        assert_eq!(scaled_frame(1080, 2700, Some(1280)), Some((1080, 2700)));
+        assert_eq!(scaled_frame(2160, 5400, Some(1280)), Some((1280, 3200)));
+        assert_eq!(scaled_frame(1921, 1081, Some(1280)), Some((1280, 720)));
+        assert_eq!(scaled_frame(7680, 4320, None), Some((7680, 4320)));
+        assert_eq!(scaled_frame(0, 1080, None), None);
+    }
+
+    /// Fix round 16: an output too large for h264_mf uses libopenh264 when
+    /// it works and the frame is within Level 5.2, else mpeg4 — for that
+    /// output only, never scaled, with the reason in the audit note. A
+    /// frame that fits, an unknown size or another chosen encoder change
+    /// nothing (and libopenh264 is not even tried).
+    #[test]
+    fn an_output_too_large_for_h264_mf_uses_the_next_working_encoder() {
+        let mf_and_openh264 = Encoders::from_listing(BTBN_LGPL);
+        assert_eq!(mf_and_openh264.video(), VideoEncoder::H264Mf);
+        let tried = std::cell::Cell::new(0);
+        let mut works = || {
+            tried.set(tried.get() + 1);
+            true
+        };
+        assert_eq!(
+            mf_and_openh264.video_for_frame(Some((3840, 2160)), &mut works),
+            (VideoEncoder::H264Mf, None)
+        );
+        assert_eq!(
+            mf_and_openh264.video_for_frame(None, &mut works),
+            (VideoEncoder::H264Mf, None)
+        );
+        assert_eq!(tried.get(), 0, "no trial while h264_mf fits");
+        let big = Some(FrameFallback {
+            width: 2160,
+            height: 3840,
+        });
+        assert_eq!(
+            mf_and_openh264.video_for_frame(Some((2160, 3840)), &mut works),
+            (VideoEncoder::Libopenh264, big)
+        );
+        assert_eq!(tried.get(), 1);
+        // libopenh264's trial fails: mpeg4.
+        assert_eq!(
+            mf_and_openh264.video_for_frame(Some((2160, 3840)), &mut || false),
+            (VideoEncoder::Mpeg4, big)
+        );
+        // Beyond Level 5.2: mpeg4 without trying libopenh264.
+        let mut never = || -> bool { panic!("not tried") };
+        assert_eq!(
+            mf_and_openh264.video_for_frame(Some((5120, 2880)), &mut never),
+            (
+                VideoEncoder::Mpeg4,
+                Some(FrameFallback {
+                    width: 5120,
+                    height: 2880
+                })
+            )
+        );
+        // No libopenh264 in the build: mpeg4.
+        let mf_only = Encoders::from_listing(LGPL);
+        assert_eq!(
+            mf_only.video_for_frame(Some((5120, 2880)), &mut never).0,
+            VideoEncoder::Mpeg4
+        );
+        // libx264 chosen: the size does not matter.
+        let full = Encoders::from_listing(FULL);
+        assert_eq!(
+            full.video_for_frame(Some((7680, 4320)), &mut never),
+            (VideoEncoder::Libx264, None)
+        );
+        // The audit note names the reason and the encoder used.
+        let mut choice = mf_and_openh264.choice(VideoEncoder::Mpeg4, "aac");
+        choice.frame_fallback = Some(FrameFallback {
+            width: 5120,
+            height: 2880,
+        });
+        let note = choice.encoder_note().unwrap();
+        assert!(
+            note.contains("5120×2880")
+                && note.contains("4096×2304")
+                && note.contains("mpeg4로 인코딩")
+                && note.contains("축소하지 않음"),
+            "{note}"
+        );
+        let fields = choice.audit_fields();
+        let line: serde_json::Value =
+            serde_json::from_str(&format!("{{\"x\":1{fields}}}")).unwrap();
+        assert_eq!(line["video_encoder"], "mpeg4");
+        assert_eq!(line["encoder_note"], note.as_str());
+        assert_eq!(
+            mf_and_openh264
+                .choice(VideoEncoder::H264Mf, "aac")
+                .encoder_note(),
+            None
+        );
+        assert!(
+            !mf_and_openh264
+                .choice(VideoEncoder::H264Mf, "aac")
+                .audit_fields()
+                .contains("encoder_note")
+        );
+    }
+
+    /// Fix round 16: whenever libopenh264 encodes, the note says it is a
+    /// source build outside Cisco's patent licence (tools note and audit).
+    #[test]
+    fn libopenh264_is_named_with_its_patent_status() {
+        let openh264 = Encoders::from_listing(" ------\n V....D libopenh264  OpenH264\n");
+        assert_eq!(openh264.video(), VideoEncoder::Libopenh264);
+        let note = openh264.build_note().unwrap();
+        assert!(
+            note.starts_with("libx264 없음 — H.264는 libopenh264 사용 · "),
+            "{note}"
+        );
+        assert!(note.contains(OPENH264_PATENT_NOTE), "{note}");
+        assert!(OPENH264_PATENT_NOTE.contains("Cisco"));
+        assert!(OPENH264_PATENT_NOTE.contains("소스에서 빌드"));
+        let choice = openh264.choice(VideoEncoder::Libopenh264, "aac");
+        assert_eq!(choice.encoder_note().as_deref(), Some(OPENH264_PATENT_NOTE));
+        // Not for h264_mf.
+        assert!(
+            !Encoders::from_listing(LGPL)
+                .build_note()
+                .unwrap()
+                .contains("Cisco")
+        );
     }
 }

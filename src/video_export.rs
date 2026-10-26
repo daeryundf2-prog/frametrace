@@ -143,7 +143,17 @@ pub fn export_video(
     // installer fetches does; FrameTrace bundles none): pick the encoders
     // this build really has, and log the same pick (reproducible command
     // line).
-    let codecs = export_codecs(&crate::ffmpeg_encoders::for_binary(&ffmpeg), options.format);
+    let encoders = crate::ffmpeg_encoders::for_binary(&ffmpeg);
+    let codecs = match options.format {
+        // Fix round 16: a frame too large for h264_mf is encoded (at full
+        // size) with the next working encoder; the audit line says why.
+        ExportFormat::Mp4 => crate::ffmpeg_encoders::choice_for_frame(
+            &ffmpeg,
+            &encoders,
+            crate::ffmpeg_encoders::output_frame_if_h264_mf(&encoders, &source_path, None),
+        ),
+        ExportFormat::Avi => export_codecs(&encoders, options.format),
+    };
     // Fix round 11 H5: the version of the binary that encodes, asked
     // BEFORE encoding from the same resolved path — asked afterwards, a
     // guided install finishing meanwhile would record the new build's
@@ -198,6 +208,8 @@ pub fn export_video(
 
 /// The encoders for one export: MP4 = best H.264 (libx264 -> h264_mf ->
 /// libopenh264 -> mpeg4) + aac; AVI = mpeg4 + MP3 (libmp3lame) or native MP2.
+/// (An MP4 export also checks its frame against h264_mf's limit —
+/// [`crate::ffmpeg_encoders::choice_for_frame`].)
 fn export_codecs(
     encoders: &crate::ffmpeg_encoders::Encoders,
     format: ExportFormat,
