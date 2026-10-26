@@ -112,9 +112,10 @@ jobs:
       - name: Release build
         run: cargo build --release --locked
       # Option C (docs/PLAN_TOOLS_C_2026-10-20.md): the Windows zip contains
-      # FrameTrace only — never ffmpeg/ffprobe. make-portable.ps1 skips them
-      # and fails on an FFmpeg entry; the smoke step checks the zip again.
-      - name: Portable package offline test (planted ffmpeg is never packaged)
+      # FrameTrace only — no ffmpeg/ffprobe, no libewf/Sleuth Kit (§Fix round
+      # 16 M2: make-portable.ps1 bundles no tool and fails while tools/bin
+      # holds a file); the smoke step checks the zip again.
+      - name: Portable package offline test (no tool is ever packaged)
         run: node scripts/test-make-portable.mjs
         shell: pwsh
       # -AllowUnconfirmedNotices: THIRD_PARTY_NOTICES.md still has the
@@ -125,27 +126,47 @@ jobs:
       # §Fix round 11 M2, sets "notice_confirmed": true on every installable
       # tool in tools/manifest.json (same switch). While either
       # is there the zip is FrameTrace-<ver>-win64-UNCONFIRMED.zip with
-      # SHA256SUMS.unconfirmed (no SHA256SUMS) and the artifact is
+      # SHA256SUMS.unconfirmed (no SHA256SUMS), it carries UNCONFIRMED.txt
+      # at its root (§Fix round 16 L-marker) and the artifact is
       # FrameTrace-win64-unconfirmed (§Fix round 6, L-CI).
+      # §Fix round 16 L-keycase: the expected notice status is computed by an
+      # independent implementation (node JSON.parse, exact keys — the same
+      # rule as make-portable.ps1 and build-release.sh, not a copy of the
+      # PowerShell): installable = a "sha256" that is present, not null and
+      # not "", or "kind": "pip" with such a "requirements_file"; confirmed =
+      # an own "notice_confirmed" key (exact case) holding the boolean true.
+      # The smoke step below then cross-checks make-portable.ps1's verdict.
+      - name: Notice status (independent of make-portable.ps1)
+        id: notices
+        shell: bash
+        run: |
+          node -e '
+          const fs = require("fs");
+          const own = (o, k) => o !== null && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
+          const given = (o, k) => own(o, k) && o[k] !== null && o[k] !== "";
+          const m = JSON.parse(fs.readFileSync("tools/manifest.json", "utf8").replace(/^\uFEFF/, ""));
+          if (!own(m, "tools") || !Array.isArray(m.tools)) throw new Error("tools/manifest.json: no exact \"tools\" array");
+          const pending = m.tools.filter((t) => {
+            if (!t || typeof t !== "object" || Array.isArray(t)) throw new Error("tools/manifest.json: a tool entry is not an object");
+            const installable = given(t, "sha256") || (own(t, "kind") && t.kind === "pip" && given(t, "requirements_file"));
+            return installable && !(own(t, "notice_confirmed") && t.notice_confirmed === true);
+          }).map((t) => String(t.name));
+          const marker = /owner\s+to\s+confirm/i.test(fs.readFileSync("THIRD_PARTY_NOTICES.md", "utf8"));
+          const unconfirmed = marker || pending.length > 0;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "pending=" + pending.join(",") + "\nmarker=" + marker + "\nunconfirmed=" + unconfirmed + "\n");
+          console.log("notice status: pending tools [" + pending.join(", ") + "], THIRD_PARTY_NOTICES marker " + marker + ", unconfirmed " + unconfirmed);
+          '
       - name: Portable package smoke (make-portable.ps1)
+        env:
+          FT_UNCONFIRMED: ${{ steps.notices.outputs.unconfirmed }}
+          FT_NOTICE_PENDING: ${{ steps.notices.outputs.pending }}
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-portable.ps1 -SkipBuild -AllowUnconfirmedNotices
           if ($LASTEXITCODE -ne 0) { throw "make-portable.ps1 failed ($LASTEXITCODE)" }
           $ver = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
-          $unconfirmed = (Get-Content -Raw -Encoding UTF8 THIRD_PARTY_NOTICES.md) -match '(?i)Owner\s+to\s+confirm'
-          # §Fix round 11 M2: an installable tool whose notice is not confirmed.
-          # §Fix round 12 L4: the exact rule of scripts/make-portable.ps1 —
-          # installable = a sha256 property that is not null and not '';
-          # confirmed = notice_confirmed is the boolean true (the string
-          # "true" is not; `-ne $true` would have accepted it).
-          $noticePending = @()
-          foreach ($tool in @((Get-Content -Raw -Encoding UTF8 tools/manifest.json | ConvertFrom-Json).tools)) {
-            $pinned = $tool.PSObject.Properties['sha256']
-            if (-not $pinned -or $null -eq $pinned.Value -or "$($pinned.Value)" -eq '') { continue }
-            $confirmed = $tool.PSObject.Properties['notice_confirmed']
-            if (-not $confirmed -or $confirmed.Value -isnot [bool] -or -not $confirmed.Value) { $noticePending += "$($tool.name)" }
-          }
-          if ($noticePending.Count -gt 0) { $unconfirmed = $true }
+          if (@('true', 'false') -notcontains $env:FT_UNCONFIRMED) { throw "the notice status step gave no verdict ('$env:FT_UNCONFIRMED')" }
+          $unconfirmed = $env:FT_UNCONFIRMED -eq 'true'
+          Write-Host "expected: unconfirmed=$unconfirmed (pending tools: '$env:FT_NOTICE_PENDING')"
           $zips = @(Get-ChildItem -File dist -Filter "FrameTrace-$ver-win64*.zip")
           if ($zips.Count -ne 1) { throw "expected one FrameTrace-$ver-win64*.zip in dist/, found: $(@($zips | ForEach-Object Name) -join ', ')" }
           $zip = $zips[0].FullName
@@ -161,6 +182,15 @@ jobs:
           $slash = @($names | Where-Object { $_.Contains('\') })
           if ($slash) { throw "backslash entry names: $($slash -join ', ')" }
           if ($names -notcontains "FrameTrace-$ver-win64/THIRD_PARTY_NOTICES.md") { throw 'THIRD_PARTY_NOTICES.md is missing from the package' }
+          # §Fix round 16 L-marker: an unconfirmed package says so inside.
+          $hasMarker = $names -contains "FrameTrace-$ver-win64/UNCONFIRMED.txt"
+          if ($unconfirmed -and -not $hasMarker) { throw 'an unconfirmed package lacks UNCONFIRMED.txt' }
+          if (-not $unconfirmed -and $hasMarker) { throw 'a confirmed package carries UNCONFIRMED.txt' }
+          # §Fix round 16 M2 / L-archives: no tool binary, no archive inside.
+          $tools = @($names | Where-Object { $_ -like "FrameTrace-$ver-win64/tools/bin/*" -and -not $_.EndsWith('/') -and $_ -ne "FrameTrace-$ver-win64/tools/bin/README-tools.txt" })
+          if ($tools) { throw "the package bundles tool files: $($tools -join ', ')" }
+          $nested = @($names | Where-Object { $_ -match '(?i)\.(zip|7z|gz|tgz|tar|cab|rar|xz|bz2|zst)$' })
+          if ($nested) { throw "the package contains archives: $($nested -join ', ')" }
           $bytes = [System.IO.File]::ReadAllBytes($sums)
           if ($bytes.Length -eq 0) { throw "$sums is empty" }
           if ($bytes -contains 13) { throw "$sums contains CR" }

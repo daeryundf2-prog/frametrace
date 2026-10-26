@@ -2,11 +2,12 @@
 # Builds the FrameTrace release binaries and packages them as
 #   dist/frametrace-<version>-<target-triple>.zip
 # (binaries, README.md, THIRD_PARTY_NOTICES.md, LICENSE) plus a
-# dist/SHA256SUMS manifest covering every zip in dist/. Refuses to run while
-# the working tree's notices are unconfirmed (tools/manifest.json
-# notice_confirmed, THIRD_PARTY_NOTICES.md "Owner to confirm"), or while
-# dist/ holds a Windows *UNCONFIRMED*.zip test package or any zip whose
-# THIRD_PARTY_NOTICES.md says "Owner to confirm" or cannot be read.
+# dist/SHA256SUMS manifest listing exactly the zip(s) this run built.
+# Refuses to run while the working tree's notices are unconfirmed
+# (tools/manifest.json notice_confirmed, THIRD_PARTY_NOTICES.md "Owner to
+# confirm"), while dist/ holds any *.zip this run did not build, or when the
+# built zip holds an FFmpeg file, an UNCONFIRMED.txt, a nested archive or
+# unconfirmed notices.
 #
 # Options:
 #   --sign   also runs `cosign sign-blob` on the zip and SHA256SUMS
@@ -29,21 +30,28 @@ for arg in "$@"; do
         --sign) SIGN=1 ;;
         --sbom) SBOM=1 ;;
         -h|--help)
-            sed -n '2,20p' "$0"
+            sed -n '2,21p' "$0"
             exit 0
             ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
 
-# A Windows test package (make-portable.ps1 -AllowUnconfirmedNotices:
-# dist/*-UNCONFIRMED.zip, THIRD_PARTY_NOTICES not confirmed by the owner)
-# must never reach a release run: it would be listed in SHA256SUMS and
-# signed with it. Checked before the build and again before the sums, by
-# name (case-insensitive *unconfirmed*.zip, so browser/Explorer copies
-# such as "...-UNCONFIRMED (1).zip" or "...-UNCONFIRMED - 복사본.zip" are
-# caught too) and by content: any dist/*.zip whose THIRD_PARTY_NOTICES.md
-# still carries the "(Owner to confirm ...)" marker, whatever it is called.
+# What gets listed and signed (§Fix round 16 M3): only the zips this run
+# built, tracked by exact path in PRODUCED. Any other *.zip in dist/ (an
+# UNCONFIRMED Windows test package from make-portable.ps1
+# -AllowUnconfirmedNotices, an old *-win64-bundled.zip with FFmpeg, an outer
+# zip wrapping one of those, a zip from another target) stops the run, before
+# the build and again before SHA256SUMS — the releaser cleans dist/.
+#
+# The zips this run built are checked by content before SHA256SUMS: every
+# entry against the FFmpeg name rule of make-portable.ps1 (leaf, trimmed of
+# spaces and trailing dots, any case, containing ffmpeg/ffprobe/ffplay or an
+# FFmpeg library name), no UNCONFIRMED.txt (make-portable.ps1's marker for an
+# unconfirmed package, any case, any folder), no nested archive (*.zip *.7z
+# *.gz *.tgz *.tar *.cab *.rar *.xz *.bz2 *.zst), and no THIRD_PARTY_NOTICES.md
+# (any case, any folder) still matching "Owner to confirm". A zip that fails
+# is deleted.
 #
 # The content check fails closed: a zip it cannot read is refused
 # ("cannot verify"), never treated as clean. Readers, in order: Python's
@@ -54,9 +62,10 @@ done
 # unsupported compression, an entry name unzip would read as a wildcard)
 # hands the zip to the next one; when every available reader failed, the
 # zip is refused. With no reader at all the run stops too, unless
-# FRAMETRACE_SKIP_NOTICES_CHECK=1 (then only a warning; names are still
-# checked). That is all the override does: it never affects the working
-# tree's manifest / THIRD_PARTY_NOTICES.md checks (source_problems).
+# FRAMETRACE_SKIP_NOTICES_CHECK=1: then (with a warning) the same checks run
+# on the staged directory the zip was made from instead. That is all the
+# override does: it never affects the working tree's manifest /
+# THIRD_PARTY_NOTICES.md checks (source_problems).
 #
 # FRAMETRACE_ZIP_READER (python|unzip|tar|none) forces a single zip reader
 # (no fallback); it exists for scripts/test-build-release.sh.
@@ -72,6 +81,54 @@ find_python() {
         fi
     done
     return 1
+}
+
+# Whether an entry name cannot be passed to `unzip -p` / `bsdtar -x` as a
+# literal (they read it as a wildcard pattern).
+pattern_unsafe() {
+    case "$1" in
+        *'['*|*']'*|*'*'*|*'?'*|*'\'*) return 0 ;;
+    esac
+    return 1
+}
+
+# list_with <reader> <zip>: prints every entry name, one per line. Returns
+# 0 on success, 1 when the reader failed on this zip, 3 when unavailable.
+list_with() {
+    local reader="$1" zip="$2" py
+    case "$reader" in
+        python)
+            py="$(find_python)" || return 3
+            "$py" -I -c '
+import sys, zipfile
+try:
+    with zipfile.ZipFile(sys.argv[1]) as z:
+        for info in z.infolist():
+            # bytes with LF only (a text-mode stdout on Windows writes CRLF)
+            name = info.filename.replace("\\", "/").replace("\r", " ").replace("\n", " ")
+            sys.stdout.buffer.write(name.encode("utf-8") + b"\n")
+    sys.stdout.flush()
+except BaseException as e:
+    sys.stderr.write("zipfile: %s: %r\n" % (sys.argv[1], e))
+    sys.exit(1)
+' "$zip" 2>/dev/null || return 1
+            ;;
+        unzip)
+            command -v unzip >/dev/null 2>&1 || return 3
+            unzip -Z1 "$zip" 2>/dev/null | tr -d '\r' || return 1
+            ;;
+        tar)
+            # bsdtar (macOS/BSD) reads zip archives; GNU tar does not.
+            case "$(tar --version 2>/dev/null)" in
+                *[Bb][Ss][Dd][Tt][Aa][Rr]*) ;;
+                *) return 3 ;;
+            esac
+            tar -tf "$zip" 2>/dev/null | tr -d '\r' || return 1
+            ;;
+        *)
+            return 3
+            ;;
+    esac
 }
 
 # read_notices_with <reader> <zip>: prints the THIRD_PARTY_NOTICES.md
@@ -116,22 +173,18 @@ except BaseException as e:
                 # `unzip -p` treats its name argument as a wildcard pattern:
                 # `a[x]/…` would match `ax/…` (or nothing). Not addressable
                 # reliably → this reader fails, the next one gets the zip.
-                case "$entry" in
-                    *'['*|*']'*|*'*'*|*'?'*|*'\'*) return 1 ;;
-                esac
+                pattern_unsafe "$entry" && return 1
                 unzip -p -P '' "$zip" "$entry" 2>/dev/null || return 1
                 echo
             done <<< "$list"
             ;;
         tar)
-            # bsdtar (macOS/BSD) reads zip archives; GNU tar does not.
             case "$(tar --version 2>/dev/null)" in
                 *[Bb][Ss][Dd][Tt][Aa][Rr]*) ;;
                 *) return 3 ;;
             esac
             # Same as the unzip reader: list, pick the notices by
-            # case-insensitive basename, read only that entry. No notices
-            # entry is clean (rc 0) — e.g. the zips this script builds.
+            # case-insensitive basename, read only that entry.
             list="$(tar -tf "$zip" 2>/dev/null)" || return 1
             while IFS= read -r entry; do
                 entry="${entry%$'\r'}"
@@ -139,9 +192,7 @@ except BaseException as e:
                 base="$(printf '%s' "${entry##*/}" | tr '[:upper:]' '[:lower:]')"
                 [ "$base" = "third_party_notices.md" ] || continue
                 # bsdtar matches its name arguments as patterns, like unzip.
-                case "$entry" in
-                    *'['*|*']'*|*'*'*|*'?'*|*'\'*) return 1 ;;
-                esac
+                pattern_unsafe "$entry" && return 1
                 tar -xOf "$zip" -- "$entry" 2>/dev/null || return 1
                 echo
             done <<< "$list"
@@ -152,15 +203,19 @@ except BaseException as e:
     esac
 }
 
-# Prints the THIRD_PARTY_NOTICES.md entries of zip $1 from the first
-# reader that succeeds. Returns 3 when no reader is available, 4 when every
-# available reader failed on this zip (the caller refuses it).
-notices_of_zip() {
-    local zip="$1" readers reader rc out tried=0
+# zip_read <list|notices> <zip>: the entry names / the notices of zip $2 from
+# the first reader that succeeds (with both). Returns 3 when no reader is
+# available, 4 when every available reader failed on this zip.
+zip_read() {
+    local what="$1" zip="$2" readers reader rc out tried=0
     readers="${FRAMETRACE_ZIP_READER:-python unzip tar}"
     for reader in $readers; do
         rc=0
-        out="$(read_notices_with "$reader" "$zip")" || rc=$?
+        if [ "$what" = list ]; then
+            out="$(list_with "$reader" "$zip")" || rc=$?
+        else
+            out="$(read_notices_with "$reader" "$zip")" || rc=$?
+        fi
         case "$rc" in
             0) printf '%s\n' "$out"; return 0 ;;
             3) ;;
@@ -171,6 +226,47 @@ notices_of_zip() {
         return 4
     fi
     return 3
+}
+
+# The leaf of an entry name: '\' read as '/', trailing '/' dropped, leading
+# whitespace and trailing whitespace/dots trimmed, lower case — the
+# normalisation of make-portable.ps1's Get-NormalLeaf.
+leaf_of() {
+    local n="${1//\\//}"
+    while [ "${n%/}" != "$n" ]; do n="${n%/}"; done
+    n="${n##*/}"
+    printf '%s' "$n" | sed -e 's/^[[:space:]]*//' -e 's/[.[:space:]]*$//' | tr '[:upper:]' '[:lower:]'
+}
+FFMPEG_NAME_RE='ffmpeg|ffprobe|ffplay|av(codec|format|util|device|filter)|swscale|swresample|postproc'
+ARCHIVE_NAME_RE='\.(zip|7z|gz|tgz|tar|cab|rar|xz|bz2|zst)$'
+
+# entry_problems <entry names (one per line)>: one problem per bad entry.
+entry_problems() {
+    local entry leaf
+    while IFS= read -r entry; do
+        entry="${entry%$'\r'}" # a CRLF listing (native Win32 tools)
+        [ -n "$entry" ] || continue
+        leaf="$(leaf_of "$entry")"
+        [ -n "$leaf" ] || continue
+        if [[ "$leaf" =~ $FFMPEG_NAME_RE ]]; then
+            echo "FFmpeg entry '$entry' — ffmpeg/ffprobe are never packaged"
+        fi
+        if [ "$leaf" = unconfirmed.txt ]; then
+            echo "UNCONFIRMED.txt entry '$entry' — an unconfirmed test package (make-portable.ps1 -AllowUnconfirmedNotices)"
+        fi
+        if [[ "$leaf" =~ $ARCHIVE_NAME_RE ]]; then
+            echo "nested archive '$entry' — its contents cannot be checked"
+        fi
+    done <<< "$1"
+}
+
+# Whether text holds the "Owner to confirm" marker (re-wrapped across lines
+# too): fold whitespace and case first, then match in bash (no `grep -q` +
+# pipefail SIGPIPE).
+has_marker() {
+    local text
+    text="$(printf '%s' "$1" | tr '\r\n\t' '   ' | tr '[:upper:]' '[:lower:]')"
+    [[ "$text" =~ owner[[:space:]]+to[[:space:]]+confirm ]]
 }
 
 # Prints a working `node` (probed with `node -e 0`); fails if none.
@@ -184,25 +280,29 @@ find_node() {
 # tools/manifest.json are compiled into EVERY platform's binary
 # (include_str!) and `frametrace tools` prints them on Linux/macOS too, and
 # this script ships THIRD_PARTY_NOTICES.md in its zips. Same rule as
-# scripts/make-portable.ps1: every installable tool (a "sha256" that is
-# present, not null and not "") needs "notice_confirmed": true as a JSON
-# boolean (the string "true" does not count), and THIRD_PARTY_NOTICES.md
-# must not match Owner\s+to\s+confirm. The manifest is parsed with Python's
-# json (same probe as the zip reader), else with node's JSON.parse (§Fix
-# round 13 L3: the same rule); with neither the check fails closed — there
-# is no override (FRAMETRACE_SKIP_NOTICES_CHECK=1 only concerns the zip
-# reader below, never this check). A reader's own error is printed with
-# the refusal.
-# Prints one problem per line; returns 0 (no problem) or 1.
+# scripts/make-portable.ps1: every tool the app can install needs
+# "notice_confirmed": true as a JSON boolean (the string "true" does not
+# count; keys are exact — "Notice_Confirmed" is another key, as for serde).
+# Installable (§Fix round 16, src/tool_install/mod.rs): a "sha256" that is
+# present, not null and not "", or "kind": "pip" with a "requirements_file"
+# that is present, not null and not "". THIRD_PARTY_NOTICES.md must exist,
+# be readable (§Fix round 16: an unreadable file fails closed) and not match
+# Owner\s+to\s+confirm. The manifest is parsed with Python's json (same probe
+# as the zip reader), else with node's JSON.parse (§Fix round 13 L3: the same
+# rule); with neither the check fails closed — there is no override
+# (FRAMETRACE_SKIP_NOTICES_CHECK=1 only concerns the zip reader, never this
+# check). A reader's own error is printed with the refusal.
+# Prints one problem per line.
 source_problems() {
     local py node out rc text err
     if [ ! -f THIRD_PARTY_NOTICES.md ]; then
         echo "THIRD_PARTY_NOTICES.md: not found"
-    else
-        text="$(tr '\r\n\t' '   ' < THIRD_PARTY_NOTICES.md | tr '[:upper:]' '[:lower:]')"
-        if [[ "$text" =~ owner[[:space:]]+to[[:space:]]+confirm ]]; then
-            echo "THIRD_PARTY_NOTICES.md: still says 'Owner to confirm'"
-        fi
+    elif [ ! -r THIRD_PARTY_NOTICES.md ]; then
+        echo "THIRD_PARTY_NOTICES.md: cannot be read (permissions) — cannot verify"
+    elif ! text="$(cat -- THIRD_PARTY_NOTICES.md)"; then
+        echo "THIRD_PARTY_NOTICES.md: cannot be read — cannot verify"
+    elif has_marker "$text"; then
+        echo "THIRD_PARTY_NOTICES.md: still says 'Owner to confirm'"
     fi
     if [ ! -f tools/manifest.json ]; then
         echo "tools/manifest.json: not found — cannot check the tools' distribution notices"
@@ -218,9 +318,13 @@ try:
         m = json.load(f)
     pending = []
     for t in m["tools"]:
+        if not isinstance(t, dict):
+            raise ValueError("a tool entry is not an object")
         s = t.get("sha256")
-        if s is None or s == "":
-            continue  # not installable (manual only)
+        r = t.get("requirements_file")
+        installable = not (s is None or s == "") or (t.get("kind") == "pip" and not (r is None or r == ""))
+        if not installable:
+            continue  # manual only
         if t.get("notice_confirmed") is not True:
             pending.append(str(t.get("name")))
     print(", ".join(pending))
@@ -231,17 +335,19 @@ except BaseException as e:
     elif node="$(find_node)"; then
         out="$("$node" -e '
 const fs = require("fs");
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const given = (o, k) => own(o, k) && o[k] !== null && o[k] !== "";
 try {
   let text = fs.readFileSync(process.argv[1], "utf8");
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
   const m = JSON.parse(text);
-  if (!m || typeof m !== "object" || !Array.isArray(m.tools)) throw new Error("no \"tools\" array");
+  if (!m || typeof m !== "object" || !own(m, "tools") || !Array.isArray(m.tools)) throw new Error("no \"tools\" array");
   const pending = [];
   for (const t of m.tools) {
     if (!t || typeof t !== "object" || Array.isArray(t)) throw new Error("a tool entry is not an object");
-    const s = t.sha256;
-    if (s === undefined || s === null || s === "") continue; // not installable (manual only)
-    if (t.notice_confirmed !== true) pending.push(t.name === undefined || t.name === null ? "None" : String(t.name));
+    const installable = given(t, "sha256") || (own(t, "kind") && t.kind === "pip" && given(t, "requirements_file"));
+    if (!installable) continue; // manual only
+    if (!own(t, "notice_confirmed") || t.notice_confirmed !== true) pending.push(own(t, "name") && t.name !== null ? String(t.name) : "None");
   }
   console.log(pending.join(", "));
 } catch (e) {
@@ -263,78 +369,170 @@ try {
     rm -f "$err"
 }
 
-refuse_unconfirmed() {
-    local found="" zip lower notices warned=0 noreader=0 rc source=""
-    if [ "${1:-}" = --source ]; then
-        source="$(source_problems)"
-    fi
-    if [ -d dist ]; then
-        for zip in dist/*; do
-            [ -f "$zip" ] || continue
-            lower="$(printf '%s' "${zip##*/}" | tr '[:upper:]' '[:lower:]')"
-            case "$lower" in
-                *.zip) ;;
-                *) continue ;;
-            esac
-            case "$lower" in
-                *unconfirmed*.zip)
-                    found="${found}${zip} (name)"$'\n'
-                    continue
-                    ;;
-            esac
-            rc=0
-            notices="$(notices_of_zip "$zip")" || rc=$?
-            if [ "$rc" -eq 3 ]; then
-                if [ "${FRAMETRACE_SKIP_NOTICES_CHECK:-}" = 1 ]; then
-                    if [ "$warned" -eq 0 ]; then
-                        echo "warning: no zip reader (python3/python with zipfile, unzip, bsdtar) and FRAMETRACE_SKIP_NOTICES_CHECK=1 — THIRD_PARTY_NOTICES.md inside dist/*.zip NOT checked for the 'Owner to confirm' marker" >&2
-                        warned=1
-                    fi
-                else
-                    found="${found}${zip} (THIRD_PARTY_NOTICES.md: cannot verify — no zip reader)"$'\n'
-                    noreader=1
-                fi
-                continue
-            elif [ "$rc" -ne 0 ]; then
-                found="${found}${zip} (THIRD_PARTY_NOTICES.md: cannot verify — every zip reader failed on it)"$'\n'
-                continue
-            fi
-            # The marker may be re-wrapped across lines: fold whitespace and
-            # case first, then match in bash (no `grep -q` + pipefail SIGPIPE).
-            notices="$(printf '%s' "$notices" | tr '\r\n\t' '   ' | tr '[:upper:]' '[:lower:]')"
-            if [[ "$notices" =~ owner[[:space:]]+to[[:space:]]+confirm ]]; then
-                found="${found}${zip} (THIRD_PARTY_NOTICES.md: Owner to confirm)"$'\n'
-            fi
+# Exact paths of the zips this run built (M3).
+PRODUCED=()
+
+# Prints every dist/*.zip (any case; hidden ones too) that is not in PRODUCED.
+stray_zips() {
+    local zip lower p mine
+    [ -d dist ] || return 0
+    for zip in dist/* dist/.[!.]*; do
+        [ -f "$zip" ] || continue
+        lower="$(printf '%s' "${zip##*/}" | tr '[:upper:]' '[:lower:]')"
+        case "$lower" in
+            *.zip) ;;
+            *) continue ;;
+        esac
+        mine=0
+        for p in "${PRODUCED[@]+"${PRODUCED[@]}"}"; do
+            [ "$p" = "$zip" ] && mine=1
         done
-    fi
-    if [ -n "$source" ]; then
-        {
-            echo "error: the working tree is not releasable — NOT FOR RELEASE:"
-            printf '%s
-' "$source" | sed 's/^/  /'
-            echo "the owner must confirm the notices (\"notice_confirmed\": true in tools/manifest.json, the '(Owner to confirm ...)' marker removed from THIRD_PARTY_NOTICES.md); nothing was built."
-        } >&2
-    fi
-    if [ -n "$found" ]; then
-        {
-            echo "error: dist/ holds an UNCONFIRMED (or unverifiable) test package — NOT FOR RELEASE:"
-            printf '%s' "$found" | sed 's/^/  /'
-            if [ "$noreader" -eq 1 ]; then
-                echo "no zip reader (python3/python with zipfile, unzip, bsdtar) to look inside: install one, or set FRAMETRACE_SKIP_NOTICES_CHECK=1 to proceed with the name check only."
+        [ "$mine" -eq 1 ] && continue
+        case "$lower" in
+            *unconfirmed*) echo "$zip (an UNCONFIRMED test package by its name)" ;;
+            *) echo "$zip" ;;
+        esac
+    done
+}
+
+# Refuses (exit 1) while dist/ holds a zip this run did not build.
+refuse_stray_zips() {
+    local stray
+    stray="$(stray_zips)"
+    [ -n "$stray" ] || return 0
+    {
+        echo "error: dist/ holds zips this run did not build — NOT FOR RELEASE:"
+        printf '%s\n' "$stray" | sed 's/^/  /'
+        echo "only the zips a run builds are listed in SHA256SUMS and signed: clean dist/ (move or delete every *.zip there, and SHA256SUMS.unconfirmed) and run again; no SHA256SUMS was written and nothing was signed."
+    } >&2
+    exit 1
+}
+
+# produced_problems <zip> <staged dir>: the content problems of a zip this
+# run built (see the header), one per line.
+produced_problems() {
+    local zip="$1" stage="$2" rc entries notices f
+    rc=0
+    entries="$(zip_read list "$zip")" || rc=$?
+    if [ "$rc" -eq 3 ] && [ "${FRAMETRACE_SKIP_NOTICES_CHECK:-}" = 1 ]; then
+        echo "warning: no zip reader (python3/python with zipfile, unzip, bsdtar) and FRAMETRACE_SKIP_NOTICES_CHECK=1 — $zip checked through its staged directory $stage instead of its entries" >&2
+        entries="$(cd "$(dirname "$stage")" && find "$(basename "$stage")" -mindepth 1)"
+        entry_problems "$entries"
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            [ "$(leaf_of "$f")" = third_party_notices.md ] || continue
+            if [ ! -r "$(dirname "$stage")/$f" ] || ! notices="$(cat -- "$(dirname "$stage")/$f")"; then
+                echo "$f: cannot be read — cannot verify"
+            elif has_marker "$notices"; then
+                echo "THIRD_PARTY_NOTICES.md: Owner to confirm ('$f')"
             fi
-            echo "remove it (and SHA256SUMS.unconfirmed) and run again; no SHA256SUMS was written and nothing was signed."
-        } >&2
-        exit 1
+        done <<< "$entries"
+        return 0
+    elif [ "$rc" -eq 3 ]; then
+        echo "cannot verify — no zip reader (python3/python with zipfile, unzip, bsdtar); install one, or set FRAMETRACE_SKIP_NOTICES_CHECK=1 to check the staged directory instead"
+        return 0
+    elif [ "$rc" -ne 0 ]; then
+        echo "cannot verify — every zip reader failed on it"
+        return 0
     fi
-    if [ -n "$source" ]; then
-        exit 1
+    entry_problems "$entries"
+    rc=0
+    notices="$(zip_read notices "$zip")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "THIRD_PARTY_NOTICES.md: cannot verify — every zip reader failed on it"
+    elif has_marker "$notices"; then
+        echo "THIRD_PARTY_NOTICES.md: Owner to confirm"
     fi
 }
-refuse_unconfirmed --source
+
+# --- before the build ---------------------------------------------------------
+SOURCE="$(source_problems)"
+if [ -n "$SOURCE" ]; then
+    {
+        echo "error: the working tree is not releasable — NOT FOR RELEASE:"
+        printf '%s\n' "$SOURCE" | sed 's/^/  /'
+        echo "the owner must confirm the notices (\"notice_confirmed\": true in tools/manifest.json, the '(Owner to confirm ...)' marker removed from THIRD_PARTY_NOTICES.md); nothing was built."
+    } >&2
+fi
+if [ -n "$(stray_zips)" ]; then
+    refuse_stray_zips
+fi
+[ -z "$SOURCE" ] || exit 1
+# Nothing an earlier run wrote may look like this run's manifest.
+rm -f dist/SHA256SUMS dist/SHA256SUMS.sigstore.json
 
 # Pinned toolchain + locked dependencies: the two inputs that decide the
-# build (see docs/repro-build.md).
-cargo build --release --locked
+# build (see docs/repro-build.md). §Fix round 16 M4: the binaries are taken
+# from the compiler-artifact messages (`executable`), so CARGO_TARGET_DIR,
+# CARGO_BUILD_TARGET_DIR, .cargo/config.toml build.target-dir and
+# --target layouts are all honoured — never a stale target/release.
+mkdir -p dist
+BUILD_JSON="$(mktemp 2>/dev/null || mktemp -t ft-build-json)"
+trap 'rm -f "$BUILD_JSON"' EXIT
+cargo build --release --locked --message-format=json-render-diagnostics > "$BUILD_JSON"
+
+# Prints "<bin>\t<executable>" for frametrace and frametrace-app (empty when
+# cargo reported none).
+artifact_paths() {
+    local py node
+    if py="$(find_python)"; then
+        "$py" -I -c '
+import json, sys
+found = {}
+with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(m, dict) or m.get("reason") != "compiler-artifact":
+            continue
+        t = m.get("target") or {}
+        if t.get("name") in ("frametrace", "frametrace-app") and "bin" in (t.get("kind") or []) and m.get("executable"):
+            found[t["name"]] = m["executable"]
+for name in ("frametrace", "frametrace-app"):
+    print("%s\t%s" % (name, found.get(name, "")))
+' "$BUILD_JSON"
+    elif node="$(find_node)"; then
+        "$node" -e '
+const found = {};
+for (const raw of require("fs").readFileSync(process.argv[1], "utf8").split("\n")) {
+  const line = raw.trim();
+  if (!line.startsWith("{")) continue;
+  let m; try { m = JSON.parse(line); } catch { continue; }
+  if (!m || m.reason !== "compiler-artifact") continue;
+  const t = m.target || {};
+  if ((t.name === "frametrace" || t.name === "frametrace-app") && Array.isArray(t.kind) && t.kind.includes("bin") && m.executable) found[t.name] = m.executable;
+}
+for (const n of ["frametrace", "frametrace-app"]) console.log(n + "\t" + (found[n] || ""));
+' "$BUILD_JSON"
+    else
+        echo "error: no python3/python or node to read cargo's build messages" >&2
+        return 1
+    fi
+}
+PATHS="$(artifact_paths | tr -d '\r')"
+BIN_CLI=""
+BIN_APP=""
+while IFS=$'\t' read -r bin path; do
+    case "$bin" in
+        frametrace) BIN_CLI="$path" ;;
+        frametrace-app) BIN_APP="$path" ;;
+    esac
+done <<< "$PATHS"
+if [ -z "$BIN_CLI" ]; then
+    echo "error: cargo build reported no executable for the frametrace binary (--message-format=json-render-diagnostics); nothing was packaged" >&2
+    exit 1
+fi
+for bin in "$BIN_CLI" ${BIN_APP:+"$BIN_APP"}; do
+    if [ ! -f "$bin" ]; then
+        echo "error: cargo reported $bin but it does not exist; nothing was packaged" >&2
+        exit 1
+    fi
+done
 
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 TARGET="$(rustc -vV | sed -n 's/^host: //p')"
@@ -343,33 +541,42 @@ STAGE="dist/${ARTIFACT}"
 
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
-# §Fix round 13 H1: cargo wrote into $CARGO_TARGET_DIR when it is set (a
-# relative one is relative to this repo root, the cwd here) — never
-# package a stale target/release binary from an earlier build instead.
-RELEASE_DIR="${CARGO_TARGET_DIR:-target}/release"
-cp "$RELEASE_DIR/frametrace" "$STAGE/"
-cp "$RELEASE_DIR/frametrace-app" "$STAGE/" 2>/dev/null || true
+cp "$BIN_CLI" "$STAGE/"
+if [ -n "$BIN_APP" ]; then
+    cp "$BIN_APP" "$STAGE/"
+fi
 cp README.md THIRD_PARTY_NOTICES.md LICENSE "$STAGE/"
 
 rm -f "dist/${ARTIFACT}.zip"
 (cd dist && zip -qr "${ARTIFACT}.zip" "$ARTIFACT")
+PRODUCED+=("dist/${ARTIFACT}.zip")
 
-# SHA256SUMS covers every zip present in dist/, so a multi-target release
-# directory accumulates one manifest consumers can `sha256sum -c` — never
-# an UNCONFIRMED test package (refused above; excluded here regardless).
-refuse_unconfirmed
-(
-    cd dist
-    zips=()
-    for zip in ./*.zip; do
-        [ -f "$zip" ] || continue
-        case "$(printf '%s' "$zip" | tr '[:upper:]' '[:lower:]')" in
-            *unconfirmed*.zip) continue ;;
-        esac
-        zips+=("$zip")
-    done
-    shasum -a 256 -- "${zips[@]}" | sed 's|\./||' > SHA256SUMS
-)
+# --- before SHA256SUMS: nothing else in dist/, and the built zip is clean -------
+refuse_stray_zips
+FOUND=""
+for zip in "${PRODUCED[@]}"; do
+    problems="$(produced_problems "$zip" "$STAGE")"
+    if [ -n "$problems" ]; then
+        FOUND="${FOUND}$(printf '%s\n' "$problems" | sed "s|^|${zip}: |")"$'\n'
+    fi
+done
+if [ -n "$FOUND" ]; then
+    rm -f "${PRODUCED[@]}"
+    {
+        echo "error: the zip this run built is not releasable — NOT FOR RELEASE:"
+        printf '%s' "$FOUND" | sed 's/^/  /'
+        echo "the zip was deleted; no SHA256SUMS was written and nothing was signed."
+    } >&2
+    exit 1
+fi
+
+# SHA256SUMS lists exactly the zips this run built (by path), never anything
+# else that sits in dist/.
+SUM_NAMES=()
+for zip in "${PRODUCED[@]}"; do
+    SUM_NAMES+=("${zip#dist/}")
+done
+(cd dist && shasum -a 256 -- "${SUM_NAMES[@]}") > dist/SHA256SUMS
 
 if [ "$SBOM" -eq 1 ]; then
     command -v cargo-sbom >/dev/null 2>&1 || {
@@ -396,17 +603,18 @@ if [ "$SIGN" -eq 1 ]; then
                 | python3 -c 'import json,sys; c=json.load(sys.stdin); c.pop("rekorTlogUrls",None); c.pop("rekorTlogConfig",None); json.dump(c,sys.stdout)' \
                 > "$CONFIG"
         fi
-        cosign sign-blob --yes --key "$COSIGN_KEY" --signing-config "$CONFIG" \
-            --bundle "dist/${ARTIFACT}.zip.sigstore.json" \
-            "dist/${ARTIFACT}.zip"
+        for zip in "${PRODUCED[@]}"; do
+            cosign sign-blob --yes --key "$COSIGN_KEY" --signing-config "$CONFIG" \
+                --bundle "${zip}.sigstore.json" "$zip"
+        done
         cosign sign-blob --yes --key "$COSIGN_KEY" --signing-config "$CONFIG" \
             --bundle "dist/SHA256SUMS.sigstore.json" \
             "dist/SHA256SUMS"
     else
         # Keyless mode: OIDC identity + Rekor transparency log (needs network).
-        cosign sign-blob --yes \
-            --bundle "dist/${ARTIFACT}.zip.sigstore.json" \
-            "dist/${ARTIFACT}.zip"
+        for zip in "${PRODUCED[@]}"; do
+            cosign sign-blob --yes --bundle "${zip}.sigstore.json" "$zip"
+        done
         cosign sign-blob --yes \
             --bundle "dist/SHA256SUMS.sigstore.json" \
             "dist/SHA256SUMS"
