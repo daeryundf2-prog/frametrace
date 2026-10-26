@@ -352,6 +352,14 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), String> {
             if tool.kind != ToolKind::Archive {
                 return Err(ctx("sha256 is only meaningful for archive tools"));
             }
+            // PR #6 merge: the installer writes tools/bin only; a tool with
+            // a private tools/<name>/ folder (its DLLs must not sit next to
+            // FFmpeg) is resolved there, so it cannot be installed here.
+            if crate::tool_policy::is_isolated_tool(&tool.name) {
+                return Err(ctx(
+                    "lives in its own tools/<name>/ folder (tool_policy::ISOLATED_TOOLS); the installer only writes tools/bin",
+                ));
+            }
             if tool.size.unwrap_or(0) == 0 {
                 return Err(ctx("a pinned archive needs its exact size"));
             }

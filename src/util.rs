@@ -389,6 +389,7 @@ pub fn create_case_layout(case_dir: &Path) -> io::Result<()> {
         "evidence/images",
         "evidence/logs",
         "artifacts",
+        "artifacts/extracted",
         "artifacts/recovered",
         "artifacts/recovered/filesystem",
         "artifacts/carved",

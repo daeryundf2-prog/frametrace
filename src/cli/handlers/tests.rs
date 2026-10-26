@@ -390,3 +390,79 @@ fn package_case_cli_allow_pending_flag() {
     assert!(allowed.join("manifest.sha256").is_file());
     let _ = fs::remove_dir_all(&base);
 }
+
+/// PR #6 merge: allocated-video extraction keeps the image's folder tree
+/// under artifacts/extracted, but a filesystem path from the image can
+/// never climb out of it (`..`, roots, drive letters, ADS colons).
+#[test]
+fn extracted_paths_keep_the_tree_and_never_escape() {
+    use super::forensic::clean_relative_path;
+    assert_eq!(
+        clean_relative_path("/DCIM/100/clip.mp4"),
+        Path::new("DCIM").join("100").join("clip.mp4")
+    );
+    assert_eq!(
+        clean_relative_path(r"\Videos\a.mp4 (deleted)"),
+        Path::new("Videos").join("a.mp4")
+    );
+    for hostile in ["../../x.mp4", "/a/../../b.mp4", "..", "/", ""] {
+        let clean = clean_relative_path(hostile);
+        assert!(
+            clean
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_))),
+            "{hostile:?} -> {clean:?}"
+        );
+    }
+    assert_eq!(clean_relative_path(""), PathBuf::from("unnamed.bin"));
+    // Korean folder names and extensions survive; double separators do not
+    // invent folders.
+    assert_eq!(
+        clean_relative_path("/블랙박스//주행 영상/20260101.MP4"),
+        Path::new("블랙박스").join("주행 영상").join("20260101.MP4")
+    );
+    use super::forensic::clean_path_component;
+    assert_eq!(clean_path_component("CON.mp4").as_deref(), Some("_CON.mp4"));
+    assert_eq!(clean_path_component("com1").as_deref(), Some("_com1"));
+    assert_eq!(
+        clean_path_component("a:b*c?.mp4").as_deref(),
+        Some("a_b_c_.mp4")
+    );
+    assert_eq!(clean_path_component("name. . ").as_deref(), Some("name"));
+    assert_eq!(clean_path_component(".."), None);
+    assert_eq!(clean_path_component(" "), None);
+    let drive = clean_relative_path("C:/Windows/x.mp4");
+    assert!(
+        drive
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_))),
+        "{drive:?}"
+    );
+}
+
+/// PR #6 merge: `--allocated-videos` selects live (not deleted) video
+/// candidates once each, keeping the image path as the note.
+#[test]
+fn allocated_video_selectors_pick_live_video_candidates_once() {
+    let dir = std::env::temp_dir().join(format!("ft-allocated-sel-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let entries = dir.join("entries.jsonl");
+    fs::write(
+        &entries,
+        concat!(
+            "{\"inode\":\"10\",\"path\":\"/DCIM/a.mp4\",\"deleted\":false,\"video_candidate\":true}\n",
+            "{\"inode\":\"10\",\"path\":\"/DCIM/a.mp4\",\"deleted\":false,\"video_candidate\":true}\n",
+            "{\"inode\":\"11\",\"path\":\"/DCIM/b.mp4\",\"deleted\":true,\"video_candidate\":true}\n",
+            "{\"inode\":\"12\",\"path\":\"/doc.txt\",\"deleted\":false,\"video_candidate\":false}\n",
+            "\n"
+        ),
+    )
+    .unwrap();
+    let items = super::allocated_video_selectors(&entries).unwrap();
+    assert_eq!(items.len(), 1, "{items:?}");
+    assert_eq!(items[0].selector, "10");
+    assert_eq!(items[0].action.as_deref(), Some("extract"));
+    assert_eq!(items[0].notes.as_deref(), Some("/DCIM/a.mp4"));
+    let _ = fs::remove_dir_all(&dir);
+}

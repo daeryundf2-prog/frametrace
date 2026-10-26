@@ -597,3 +597,71 @@ PR #4가 main에 머지되어(73a1a50) PR #5의 base는 main이다(main의 트�
 - make-portable은 실제 `cargo build --message-format=json-render-diagnostics` 대신 stub cargo로만 시험했다. `-SkipBuild`는 `CARGO_BUILD_TARGET`(트리플)을 반영하지 않는다.
 - 운영 변경: 개발자가 `target/release/frametrace.exe tools install ffmpeg`를 했다면 패키징 전에 그 `tools/bin` 파일을 옮겨야 한다. build-release는 실행마다 `dist/`를 비워야 하고, 여러 타깃의 합계가 한 SHA256SUMS에 쌓이지 않는다.
 - UI 두 번째 확인·elsewhere 문구·"인코더 확인 중…"은 브라우저 하네스가 아니라 unit VM과 mock으로만 확인했다.
+
+## §PR #6 병합 (2026-10-26, origin/main 3a8f099 → tools-bundle)
+
+origin/main(외부 PR #6, bf7a64c·863869c, 병합 3a8f099)을 tools-bundle(05a021d)에 `git merge`로 합쳤다(리베이스 아님). 원칙: **설치기는 PR #5의 것 하나뿐**이다. PR #6의 설치기는 지우고, 그 안의 타당한 요구(Sleuth Kit의 32비트 DLL 격리, libewf 빌드 스크립트의 `-Destination`)만 PR #5 설계 안으로 옮겼다. 나머지 PR #6 기능(폴더 계층·트리 필터, 피커 "새 폴더", 증거 끌어 놓기)은 유지하고 보안 규칙에 맞춰 고쳤다.
+
+### 충돌 해소
+| 파일 | 해소 |
+|---|---|
+| `src/tool_install/mod.rs`, `archive.rs` (add/add) | PR #5 쪽. PR #6의 `catalog.rs`·`libewf.rs`·`stream.rs` 삭제 |
+| `src/serve/mod.rs` | PR #5의 `/api/tools*` 4개 경로 + PR #6의 `/api/mkdir`·`/api/places`. `tool_setup` 모듈·경로 삭제 |
+| `src/serve/tests_http.rs` | 위와 같은 경로 표. `/api/mkdir`는 nonce 대상(경로·인증 표 테스트가 확인) |
+| `src/tool_policy.rs` | PR #5 해석기 위에 도구별 폴더를 한 함수(`tool_search_dirs`)로 넣음(아래 TSK DLL 결정) |
+
+### PR #6 항목별 처리
+| PR #6 항목 | 처리 | 이유 |
+|---|---|---|
+| `src/tool_install/{catalog,libewf,stream}.rs`, PR #6의 `mod.rs`/`archive.rs` | 삭제 | 두 번째 설치기. TSK zip을 GitHub 자산 digest만으로 설치(게시자 체크섬·파일 목록 검증 없음, 리다이렉트 호스트 검사·크기·tar 목록 검사·원자적 이동·롤백·감사 로그 없음) |
+| `src/serve/tool_setup.rs`, PR #6의 `POST /api/tools/install`·`GET /api/tools/install-status` | 삭제 | 같은 경로를 PR #5가 nonce·busy·force·cancel과 함께 제공 |
+| `assets/app/91-tool-setup.{js,css}`, `#hToolSetup`, "[설치]를 누르면 자동으로…" 문구 | 삭제 | UI 설치 경로는 56-tools.js(§28) 하나. 앱 번들은 `assets/app/*` 정렬 순서라 파일 삭제로 일관 |
+| 앱이 MSYS2 libewf 빌드 스크립트를 실행 | 삭제 | 소스 빌드(350MB·10~20분)를 서버가 실행하는 두 번째 설치 경로. libewf는 계속 수동(manifest `sha256: null`) |
+| `scripts/build-libewf-tools.ps1` `-Destination`, `gpgconf --kill all` | 흡수 | 수동 설치용으로 유효. 기본 대상은 `target/release/tools/libewf`(+ `target/debug/deps/tools/libewf`) |
+| `tool_policy` 패키지별 폴더(`tools/<pkg>`) | 흡수(형태 변경) | 아래 TSK DLL 결정. PR #6의 `ALL_PACKAGES` 대신 `ISOLATED_TOOLS` |
+| `/api/env` 힌트·40-status 오류 힌트·`#e01Need` "libewf [설치]" 문구 | 고침 | libewf·TSK는 설치 버튼이 없다. 각자 `tools/libewf`·`tools/sleuthkit` 안내 |
+| 30-form `loadEnv(refresh)` (`/api/env?refresh=1`) | 유지 | 서버가 이미 지원, 해 없음 |
+| 폴더 계층 보존·트리 필터(`forensic.rs` `--allocated-videos`, viewer 30/40/60/20) | 유지 + 고침 | `clean_relative_path`가 `sanitize_filename`을 써서 확장자(`clip.mp4`→`clip_mp4`)와 한글 폴더 이름을 지웠고 `a//b`에 `clip` 폴더를 만들었다 → `clean_path_component`(Windows 금지 문자·예약 장치 이름·끝 점/공백만 처리) |
+| `recover-inode`가 기존 `--output`을 지우고 덮어씀(`tsk.rs`) | 되돌림 | 증거 산출물 무단 덮어쓰기. "output already exists" 거부 복원 |
+| 복구 폴더 이름 `artifacts/Recovery/Filesystem` | 되돌림 | 문서화된 `artifacts/recovered/filesystem`은 패키징(`package.rs`)·`.part` 정리(`media.rs`)·테스트가 쓰는 폴더. 새 폴더는 패키지에서 빠졌다. 뷰어의 "Recovery/Filesystem"은 표시용 트리 이름이라 유지 |
+| `recover-batch` 기존 파일 처리 | 고침 | 완전한 기존 사본은 `ok`가 아니라 `skipped`(덮어쓰지 않음, 배치 로그에 `skipped` 수), 빈 잔여 파일은 새 빈 이름 |
+| `artifacts/extracted` | 유지 + 보강 | 케이스 패키지 대상(`package.rs`)과 `.part` 정리 대상(`media.rs`)에 추가 |
+| E01 파이프라인 끝: 정상 영상 추출 후 `artifacts/extracted` 색인 | 유지 + 고침 | 케이스 레이아웃이 빈 폴더를 항상 만들어, TSK가 없을 때도 빈 폴더만 색인하고 evidence를 건너뛰었다 → 무엇이든 추출됐을 때만 extracted 색인 |
+| 케이스 폴더 피커 "새 폴더"(`POST /api/mkdir`), `GET /api/places`, 81-picker-plus | 유지 + 보안 고침 | 아래 감사 |
+| `/api/browse` 파일 크기 | 유지 + 고침 | `metadata`가 링크를 따라감 → `symlink_metadata` + 일반 파일만 |
+| 증거 입력 붙여넣기 정리·끌어 놓기·최근 증거(82-evidence-input) | 유지 + 고침 | 끌어 놓은 네트워크 경로(`\\`, `//`)는 받지 않음(직접 입력만 — 서버의 typed-UNC 정책) |
+| `assets/icons.svg` `i-folder-plus`, 80-paths 피커 개선, 30-form | 유지 | — |
+| `81-picker-plus.css` | 유지 | check-css 중괄호 검사 대상에 추가 |
+
+### TSK DLL 결정
+- 사실: Sleuth Kit 공식 win32 zip은 32비트 런타임 DLL(`ucrtbase.dll`, `vcruntime140.dll`, `zlib.dll` …)을 함께 준다. Windows는 프로그램 자신의 폴더에서 DLL을 먼저 찾으므로, PR #5의 `manual_hint`대로 이 DLL을 64비트 FFmpeg가 있는 `tools/bin`에 넣으면 FFmpeg(또는 자체 DLL을 가진 libewf 빌드)가 잘못된 DLL을 읽어 시작하지 못할 수 있다. PR #5의 안내가 이 충돌을 만들었다.
+- 결정(한 경로, `src/tool_policy.rs`): `ISOLATED_TOOLS = ["libewf", "sleuthkit"]`. `tool_search_dirs(name)`가 유일한 답 — 그 바이너리를 제공하는 도구가 격리 대상이면 `tools/<tool>/`, 그다음 `tools/bin`. FFmpeg(ffmpeg/ffprobe)는 `tools/bin`만(설치기의 목적지, `tools/ffmpeg`는 찾지 않음). 해석기·`lookup_bare`(상태/shadow)·`tools_bin_tool_exists`가 모두 이 함수를 쓴다. 매니페스트 도구는 여전히 PATH보다 먼저.
+- `tools/bin`의 libewf/TSK는 예전 안내로 복사한 사용자를 위해 계속 찾는다(자기 폴더 다음). `doctor`는 `tools/bin`에 위 DLL이 있으면 WARN("tools/sleuthkit로 옮기십시오").
+- 설치기와 해석기가 어긋나지 않게 `validate_manifest`가 `ISOLATED_TOOLS` 도구의 고정(sha256) 아카이브를 거부한다(설치기는 `tools/bin`에만 쓴다). TSK를 자동 설치하려면 설치기 목적지를 `tools/<tool>`로 넓히는 별도 작업이 먼저다.
+- 함께 바꾼 곳: manifest·tools-mock `manual_hint`, `/api/env` 힌트, 40-status 힌트, `#e01Need`, 56-tools shadow 툴팁, doctor/CLI shadow 문구("FrameTrace tools 폴더 우선"), env 캐시 지문(격리 폴더 포함), `make-portable.ps1`(격리 폴더에 파일이 있어도 중단, README-tools.txt 안내), `build-libewf-tools.ps1` 기본 대상, README, WINDOWS_USAGE, security-review.
+- 테스트: `tool_policy::isolated_tools_resolve_from_their_own_folder_then_tools_bin`, `tool_install::tests::isolated_tools_cannot_be_pinned_for_the_tools_bin_installer`, `doctor::tests::doctor_warns_about_sleuth_kit_dlls_in_tools_bin`, test-make-portable 4행 + README 1행, tests_tools libewf 힌트.
+
+### 새 엔드포인트 보안 감사
+| 엔드포인트 | 감사 결과 | 조치·테스트 |
+|---|---|---|
+| `POST /api/mkdir` | nonce·Origin은 모든 POST 공통 게이트(`authorize_on`)로 이미 적용. `parent`는 HTTP 계층 `path_fields_for`로 UNC/장치/예약 이름 거부. 핸들러는 `reject_remote_path` 한 번뿐이고 `paste_path` 정규화·재검사(`bind_path`) 없음, 정션/심볼릭 링크 부모를 따라 폴더 생성 가능, 새 폴더 전체 경로 미검사 | `state::bind_path(parent, strict)`, 전체 경로 재검사, 부모가 링크·정션이면 거부, 한 단계만·기존 항목 재사용 안 함(유지). `fs_tools::tests::make_folder_binds_the_parent_and_refuses_links_and_device_paths`, `tests_http::typed_unc_policy_per_route`(mkdir 행), `route_table_matches_router_and_auth_classes` |
+| `GET /api/places` | 입력 경로 없음, 읽기 전용, 로컬 홈/드라이브 목록. GET 공통 Origin/Host 검사 적용 | 변경 없음 |
+| `GET /api/browse` 크기 필드 | `metadata`가 링크를 따라감(심어 둔 `x.E01` 링크 → 공유 폴더 SMB 접속) | `symlink_metadata` + 일반 파일만 |
+| 끌어 놓기(UI) | 다른 페이지에서 끌어 온 `file://` 공유 경로가 입력란에 들어감(서버 browse는 거부하지만) | 네트워크 경로는 받지 않고 직접 입력 안내 |
+| `recover-batch --allocated-videos` 출력 경로 | 이미지 안 경로가 케이스 밖으로 나갈 수 없음(`..`·루트·드라이브·ADS 제거, `require_case_output_path`) | `cli::handlers::tests::extracted_paths_keep_the_tree_and_never_escape`, `allocated_video_selectors_pick_live_video_candidates_once` |
+
+### CI
+- main의 실패: Linux/Windows/macOS CI가 모두 `cargo fmt --check`에서 실패(PR #6 파일). 병합 결과는 `cargo fmt` 적용.
+- `.github/workflows`: `ubuntu-latest` → `ubuntu-24.04` 전부(audit, ci ×3 — screenshots 잡 포함, fuzz, harnesses, perf). ubuntu-latest가 26.04로 옮겨 Playwright 1.56이 chromium을 설치하지 못한다. windows-latest·macos-latest는 그대로.
+
+### 게이트(Windows, CARGO_TARGET_DIR=target-merge6)
+- `cargo fmt --check` 0 · `cargo clippy --locked --all-targets -- -D warnings` 0 · `cargo test --locked` lib 1264 passed / 3 ignored, 그 밖의 바이너리 모두 ok(14·5·4 passed, ignored는 실도구 테스트)
+- check-ps-bom ok · check-js ok · check-css ok · verify-review-batch `--unit` 163 PASS(종료 0) · test-make-portable 141 ok · test-build-release 616 ok, 0 failed, 2 skipped · verify-i18n(strict) 773/773 · verify-layout 171/171 · check-a11y 전 항목 0건 · verify-start-screen 85/85 · verify-buttons 173 checks ok
+- 하네스 기대값 변경 1건: tools-unit "Tools shadow warning"이 툴팁 문구 "FrameTrace는 tools/bin의 것을 씁니다"를 기대 → 해석기가 이제 `tools/sleuthkit`·`tools/libewf`도 쓰므로 **코드가 맞고** 하네스 문구를 새 툴팁에 맞췄다. PR #6 UI는 기존 하네스를 깨지 않았다.
+
+### 확인 못 한 것
+- Linux/macOS의 clippy·test(이 PC에는 Windows 타깃만). 새 코드에 `cfg(windows)` 전용 항목은 없지만(`fs_tools`는 `cfg!` 매크로, `symlink_dir`/`symlink` 테스트는 cfg 분기) CI에서 확인해야 한다. `#[cfg(unix)]` icat 스텁 테스트도 여기서는 돌지 않았다.
+- 실제 Sleuth Kit 4.15.0 win32 zip의 DLL 목록은 내려받아 확인하지 않았다(PR #6이 적은 `ucrtbase`·`vcruntime140`·`zlib`만 doctor 경고 대상). 실제 FFmpeg가 그 DLL로 실패하는 것도 재현하지 않았다.
+- 실제 TSK/icat으로 `--allocated-videos` 추출과 E01 파이프라인 끝(추출 → extracted 색인)을 실행하지 않았다. `skipped` 결과를 읽는 UI 표시는 따로 만들지 않았다(배치 로그·콘솔에만).
+- 정션 부모 거부는 심볼릭 링크를 만들 수 있을 때만 테스트된다(Windows에서 권한이 없으면 그 부분은 건너뜀). `is_symlink()`는 Windows에서 정션도 참이다(media.rs R12-S9와 같은 판단).
+- 피커 "새 폴더"·끌어 놓기의 브라우저 동작은 기존 하네스 범위 밖(전용 하네스 없음).

@@ -236,6 +236,25 @@ fn installable_tools_must_carry_a_distribution_notice() {
     validate_manifest(&manifest_with(manual)).unwrap();
 }
 
+/// PR #6 merge: Sleuth Kit / libewf live in their own tools/<name>/ folder
+/// (their DLLs must not sit next to FFmpeg); the installer only writes
+/// tools/bin, so a pinned archive for such a tool is refused, while the
+/// manual (unpinned) entries the shipped manifest carries stay valid.
+#[test]
+fn isolated_tools_cannot_be_pinned_for_the_tools_bin_installer() {
+    for name in crate::tool_policy::ISOLATED_TOOLS {
+        let mut tool = base_entry();
+        tool.name = (*name).to_string();
+        validate_manifest(&manifest_with(tool.clone())).unwrap();
+        tool.url = Some("https://github.com/o/r/releases/download/v1/fake.zip".into());
+        tool.file_name = Some("fake.zip".into());
+        tool.size = Some(10);
+        tool.sha256 = Some("a".repeat(64));
+        let err = validate_manifest(&manifest_with(tool)).unwrap_err();
+        assert!(err.contains("ISOLATED_TOOLS"), "{name}: {err}");
+    }
+}
+
 /// Fix round 11 M2: the shipped ffmpeg notice states facts only — the
 /// licence mix (ko and en name the same three), no assurance that the
 /// file may be passed on, "do not copy" — and never a legal conclusion

@@ -1,9 +1,12 @@
 ﻿# Builds libewf tools (ewfacquire/ewfinfo/ewfverify/ewfexport) from source
 # inside a per-user MSYS2 environment (no admin required) and installs them
-# into target/release/tools/bin (copy to tools/bin to bundle them with
-# scripts/make-portable.ps1, or put them next to the release binary).
+# into target/release/tools/libewf (their own folder: the DLLs below must not
+# sit next to FFmpeg in tools/bin — src/tool_policy.rs ISOLATED_TOOLS). For a
+# portable copy pass -Destination <FrameTrace folder>\tools\libewf. FrameTrace
+# never runs this script itself (one installer: frametrace tools install, and
+# it installs FFmpeg only); make-portable.ps1 bundles no tool.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/build-libewf-tools.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/build-libewf-tools.ps1 [-Destination <dir>]
 # Notes:
 #   - libewf upstream ships source only (GitHub/SourceForge), so building is
 #     the supported way to get Windows binaries.
@@ -20,7 +23,11 @@ param(
     [string]$LibewfSha256 = "",
     # Dated MSYS2 base image (NOT the moving "latest" URL) so the hash is stable.
     [string]$Msys2Release = "20260927",
-    [string]$Msys2Sha256 = ""
+    [string]$Msys2Sha256 = "",
+    # Install folder for the built tools. Empty keeps the developer layout
+    # (target/release/tools/libewf + target/debug/deps/tools/libewf); for a
+    # portable copy pass <FrameTrace folder>\tools\libewf.
+    [string]$Destination = ""
 )
 $ErrorActionPreference = "Stop"
 
@@ -95,6 +102,9 @@ $null = Invoke-Native { & $bash -lc "pacman-key --init && pacman-key --populate 
 
 # 3. mingw64 toolchain
 $null = Invoke-Native { & $bash -lc "pacman -S --noconfirm --needed mingw-w64-x86_64-gcc make" } "pacman toolchain install"
+# pacman-key/pacman start a gpg-agent daemon that outlives this script and
+# keeps the caller's stdout/stderr handles open; stop it (best effort).
+$null = Invoke-Native { & $bash -lc "gpgconf --kill all || true" } "gpg-agent shutdown" -Quiet
 
 # 4. libewf source (pinned SHA256)
 $srcRoot = "$Msys2Dir/build"
@@ -173,14 +183,20 @@ if (Test-Path $objdump) {
     }
 }
 
-# 7. deploy to tools/bin layout
-$dest = Join-Path $repoRoot "target/release/tools/bin"
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
-foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $dest -Force }
-# integration tests discover tools/bin next to the test binary too
-$depsDest = Join-Path $repoRoot "target/debug/deps/tools/bin"
-New-Item -ItemType Directory -Force -Path $depsDest | Out-Null
-Copy-Item "$dest/*" $depsDest -Force
+# 7. deploy to the tools/libewf layout (or the caller-chosen -Destination)
+if ($Destination) {
+    $dest = $Destination
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $dest -Force }
+} else {
+    $dest = Join-Path $repoRoot "target/release/tools/libewf"
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $dest -Force }
+    # integration tests discover tools/libewf next to the test binary too
+    $depsDest = Join-Path $repoRoot "target/debug/deps/tools/libewf"
+    New-Item -ItemType Directory -Force -Path $depsDest | Out-Null
+    Copy-Item "$dest/*" $depsDest -Force
+}
 Write-Host ("bundled: " + (($files | ForEach-Object { Split-Path $_ -Leaf }) -join ", "))
 Write-Host "libewf tools installed: $dest"
 Write-Host "verify: $dest/ewfinfo.exe -V"

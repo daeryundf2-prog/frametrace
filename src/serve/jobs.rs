@@ -591,10 +591,49 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
     let exe = exe.to_path_buf();
     let case_text = job.case_dir.to_string_lossy().to_string();
     set_step(&state, 3, StepStatus::Running);
+
+    // E01 filesystem triage: extract allocated videos preserving folder hierarchy
+    if let Some((image_path, partition_offset)) =
+        crate::serve::records::newest_tsk_inspection(&job.case_dir)
+    {
+        log(
+            &state,
+            format!(
+                "정상 영상 추출 중 (기존 폴더 구조 유지: artifacts/extracted @ offset {partition_offset})…"
+            ),
+        );
+        let extract_args = vec![
+            "recover-batch".into(),
+            case_text.clone(),
+            image_path.to_string_lossy().to_string(),
+            "--allocated-videos".into(),
+            "--partition-offset".into(),
+            partition_offset.to_string(),
+        ];
+        match run_step(&exe, &extract_args, &state) {
+            Ok(output) => log(&state, output),
+            Err(err) => log(&state, format!("정상 영상 자동 추출 건너뜀: {err}")),
+        }
+    }
+
+    // PR #6 merge: index the extracted tree only when the extraction put
+    // something there — create_case_layout always makes the (empty)
+    // folder, and without Sleuth Kit (or an inspection) nothing is
+    // extracted, so the evidence tree stays the scan target then.
+    let extracted_dir = job.case_dir.join("artifacts/extracted");
+    let extracted_any = std::fs::read_dir(&extracted_dir)
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false);
+    let scan_target = if extracted_any {
+        extracted_dir.to_string_lossy().to_string()
+    } else {
+        job.case_dir.join("evidence").to_string_lossy().to_string()
+    };
+
     let mut scan_args: Vec<String> = vec![
         "scan-folder".into(),
         case_text.clone(),
-        job.case_dir.join("evidence").to_string_lossy().to_string(),
+        scan_target,
         "--no-ffprobe".into(),
     ];
     if job.with_hash {

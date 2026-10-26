@@ -42,7 +42,7 @@ pub fn tools_list(json: bool, all: bool) -> Result<(), String> {
         for (binary, other) in &status.shadowed_by {
             if let Some(other) = other {
                 println!(
-                    "  주의: PATH에 다른 {binary}가 있습니다 — {other} (쓰지 않음, tools/bin 우선). 직접 둔 것이 아니면 확인하십시오."
+                    "  주의: PATH에 다른 {binary}가 있습니다 — {other} (쓰지 않음, FrameTrace tools 폴더 우선). 직접 둔 것이 아니면 확인하십시오."
                 );
             }
         }

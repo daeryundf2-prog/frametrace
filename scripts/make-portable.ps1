@@ -282,8 +282,10 @@ function Test-EmbedsManifest([string]$haystack, [byte[]]$manifest) {
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
-# M2: the repository's hand-assembled tools/bin used to be bundled.
-Assert-NoBundleSource "tools/bin"
+# M2: the repository's hand-assembled tools/bin used to be bundled. The
+# per-tool folders (tools/libewf, tools/sleuthkit — src/tool_policy.rs
+# ISOLATED_TOOLS, PR #6 merge) are tool folders too.
+foreach ($toolDir in @('tools/bin', 'tools/libewf', 'tools/sleuthkit')) { Assert-NoBundleSource $toolDir }
 
 # Release guard (docs/PLAN_TOOLS_2026-10-20.md §Fix round 5 M2, §Fix round 6
 # L-CI): any whitespace (a reflowed line break) between the words counts.
@@ -373,7 +375,9 @@ foreach ($bin in @('frametrace', 'frametrace-app')) {
 }
 # M2: the release directory's tools/bin (where scripts/build-libewf-tools.ps1
 # and `tools install` put tools) was the other bundling source.
-Assert-NoBundleSource (Join-Path (Split-Path -Parent $exePaths['frametrace']) 'tools/bin')
+foreach ($toolDir in @('tools/bin', 'tools/libewf', 'tools/sleuthkit')) {
+    Assert-NoBundleSource (Join-Path (Split-Path -Parent $exePaths['frametrace']) $toolDir)
+}
 
 # Hunch (§Fix round 16): the manifest judged above must be the one compiled
 # into the exes being packaged (include_str! — raw bytes in the binary).
@@ -407,10 +411,11 @@ Copy-Item scripts/install.ps1 $stage/
 FrameTrace portable package
 ===========================
 1. 이 패키지에는 외부 도구 실행 파일이 들어 있지 않습니다 (FFmpeg·libewf·Sleuth Kit 모두).
-   이 tools/bin 폴더에 넣은 도구 실행 파일은 PATH 설정 없이 자동 인식됩니다.
-   - ffmpeg.exe / ffprobe.exe — 패키지에 포함되지 않음. frametrace.exe tools install ffmpeg (또는 첫 화면의 [설치])로 BtbN에서 직접 내려받거나 PATH에 두십시오.
-   - ewfinfo.exe / ewfverify.exe / ewfexport.exe (E01) — 패키지에 포함되지 않음. 직접 설치해 이 폴더나 PATH에 두십시오.
-   - mmls.exe / fls.exe / icat.exe (Sleuth Kit) — 패키지에 포함되지 않음. 직접 설치해 이 폴더나 PATH에 두십시오.
+   아래 폴더에 넣은 도구 실행 파일은 PATH 설정 없이 자동 인식됩니다.
+   - ffmpeg.exe / ffprobe.exe — 패키지에 포함되지 않음. frametrace.exe tools install ffmpeg (또는 첫 화면의 [설치])로 BtbN에서 직접 내려받거나 이 tools/bin 폴더나 PATH에 두십시오.
+   - ewfinfo.exe / ewfverify.exe / ewfexport.exe (E01) — 패키지에 포함되지 않음. 직접 설치해 DLL과 함께 tools/libewf 폴더(새로 만듦)나 PATH에 두십시오.
+   - mmls.exe / fls.exe / icat.exe (Sleuth Kit) — 패키지에 포함되지 않음. 직접 설치해 zip의 bin 폴더 내용(DLL 포함)을 tools/sleuthkit 폴더(새로 만듦)에 두십시오.
+     Sleuth Kit의 32비트 DLL을 이 tools/bin(64비트 FFmpeg 옆)에 넣으면 FFmpeg가 시작되지 않을 수 있습니다.
    설치/빌드 안내는 docs/WINDOWS_USAGE.md 참고.
 2. frametrace-app.exe를 실행하면 브라우저 검수 워크스테이션이 열립니다 (콘솔 없음).
    종료는 페이지 우측 상단 '종료' 버튼을 사용하십시오. 브라우저 탭만 닫으면

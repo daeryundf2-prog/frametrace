@@ -41,7 +41,7 @@ export const TOOLS_FIXTURE = () => ([
     paths: { ewfinfo: null, ewfverify: null, ewfexport: null }, shadowed_by: { ewfinfo: null, ewfverify: null, ewfexport: null }, rollback_incomplete: false, rollback_note: null, rollback_backups: [], installable: false,
     unavailable_reason: 'The official release (https://github.com/libyal/libewf/releases/tag/20260924) publishes only a source tarball and its PGP signature, no Windows binaries.',
     not_installable_reason: 'The official release (https://github.com/libyal/libewf/releases/tag/20260924) publishes only a source tarball and its PGP signature, no Windows binaries.',
-    manual_hint: 'libewf는 공식 Windows 실행 파일이 없습니다 — scripts/build-libewf-tools.ps1로 소스에서 빌드하거나 직접 설치한 뒤 ewfinfo·ewfverify·ewfexport(와 DLL)를 tools/bin에 복사하십시오: https://github.com/libyal/libewf',
+    manual_hint: 'libewf는 공식 Windows 실행 파일이 없습니다 — scripts/build-libewf-tools.ps1 -Destination <FrameTrace 폴더>/tools/libewf로 소스에서 빌드하거나, 직접 설치한 ewfinfo·ewfverify·ewfexport와 DLL을 FrameTrace 폴더의 tools/libewf(전용 폴더)에 복사하십시오: https://github.com/libyal/libewf',
     source_host: null, size_bytes: null, encoders: null, download: null,
   },
   {
@@ -51,7 +51,7 @@ export const TOOLS_FIXTURE = () => ([
     paths: { mmls: null, fls: null, icat: null }, shadowed_by: { mmls: null, fls: null, icat: null }, rollback_incomplete: false, rollback_note: null, rollback_backups: [], installable: false,
     unavailable_reason: 'The maintainers publish a PGP signature (.asc), not a checksum file, and the archive\'s file list could not be verified without downloading it.',
     not_installable_reason: 'The maintainers publish a PGP signature (.asc), not a checksum file, and the archive\'s file list could not be verified without downloading it.',
-    manual_hint: 'sleuthkit-4.15.0-win32.zip을 공식 배포처에서 받아 PGP 서명(.asc)을 확인한 뒤 mmls·fls·icat과 함께 들어 있는 DLL을 tools/bin에 복사하십시오: https://www.sleuthkit.org/sleuthkit/download.php',
+    manual_hint: 'sleuthkit-4.15.0-win32.zip을 공식 배포처에서 받아 PGP 서명(.asc)을 확인한 뒤 zip의 bin 폴더 내용(mmls·fls·icat과 32비트 DLL)을 FrameTrace 폴더의 tools/sleuthkit(전용 폴더 — 64비트 FFmpeg가 있는 tools/bin이 아님)에 복사하십시오: https://www.sleuthkit.org/sleuthkit/download.php',
     source_host: null, size_bytes: null, encoders: null, download: null,
   },
   {

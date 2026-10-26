@@ -2426,6 +2426,7 @@ pub(crate) fn step_part_dirs(args: &[String]) -> Vec<std::path::PathBuf> {
         for rel in [
             "evidence/images",
             "artifacts/recovered/filesystem",
+            "artifacts/extracted",
             "artifacts/clips",
             "reports",
             "review/thumbs",

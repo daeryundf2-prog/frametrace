@@ -617,7 +617,7 @@ export async function toolsTrackU() {
     await v.run('htLoad()');
     const list = v.els.hToolsList.innerHTML;
     const ff = (list.match(/<li[^>]*data-tool="ffmpeg"[^]*?<\/li>/) || [''])[0];
-    assert.ok(ff.includes('PATH의 다른 사본 무시됨') && ff.includes('WindowsApps\\ffmpeg.exe') && /title="FrameTrace는 tools\/bin의 것을 씁니다/.test(ff), 'installed + shadow: ' + list);
+    assert.ok(ff.includes('PATH의 다른 사본 무시됨') && ff.includes('WindowsApps\\ffmpeg.exe') && /title="FrameTrace는 자기 tools 폴더\(tools\/bin, tools\/sleuthkit, tools\/libewf\)의 것을 씁니다/.test(ff), 'installed + shadow: ' + list);
     assert.ok(!/<button/.test(ff), 'no button on the shadow line');
     const opt = (list.match(/<li[^>]*data-tool="x-opt"[^]*?<\/li>/) || [''])[0];
     assert.ok(!/PATH의 다른 사본/.test(opt), 'no shadow, no warning: ' + opt);

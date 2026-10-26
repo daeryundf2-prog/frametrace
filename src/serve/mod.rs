@@ -19,6 +19,7 @@ pub(crate) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod discovery;
 mod finalize_journal;
+mod fs_tools;
 mod http;
 mod jobs;
 mod media;
@@ -1615,6 +1616,8 @@ pub(crate) fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/tools/install-cancel") => {
             json(tools::api_tools_install_cancel(request, state))
         }
+        ("POST", "/api/mkdir") => json(fs_tools::api_mkdir(request)),
+        ("GET", "/api/places") => json(fs_tools::api_places()),
         _ => plain(404, b"not found".to_vec()),
     }
 }

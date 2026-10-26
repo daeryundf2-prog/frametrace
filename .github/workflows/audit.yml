@@ -10,7 +10,7 @@ on:
 
 jobs:
   cargo-audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moved to 26.04, where Playwright 1.56 cannot install chromium (PR #6 merge, 2026-10-26)
     timeout-minutes: 20 # R5 U13: bounded, never the 6 h default
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

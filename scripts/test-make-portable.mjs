@@ -268,6 +268,7 @@ try {
       const readme = readFileSync(join(root, 'dist/FrameTrace-0.0.0-test-win64/tools/bin/README-tools.txt'), 'utf8');
       check(readme.includes('ffmpeg.exe / ffprobe.exe — 패키지에 포함되지 않음') && readme.includes('외부 도구 실행 파일이 들어 있지 않습니다')
         && !readme.includes('패키지에 포함된 경우'), 'clean: README-tools says no tool is included', readme);
+      check(readme.includes('tools/libewf') && readme.includes('tools/sleuthkit'), 'clean: README-tools names the per-tool folders (PR #6 merge)', readme);
       const sums = readFileSync(join(root, 'dist/SHA256SUMS'));
       check(sums[0] !== 0xef, 'clean: SHA256SUMS has no BOM');
       check(sums.toString('utf8') === `${sha256(bytes)}  FrameTrace-0.0.0-test-win64.zip\n`, 'clean: SHA256SUMS is this run\'s zip hash only (not old-notes.zip), one LF line', sums.toString('utf8'));
@@ -290,6 +291,11 @@ try {
     ['tools/bin nested license', 'tools/bin', ['licenses/ffmpeg-LICENSE.txt']],
     ['tools/bin a note only', 'tools/bin', ['NOTES.txt']],
     ['target/release/tools/bin', 'target/release/tools/bin', ['ewfinfo.exe']],
+    // PR #6 merge: the per-tool folders (src/tool_policy.rs ISOLATED_TOOLS) are tool folders too.
+    ['tools/sleuthkit', 'tools/sleuthkit', ['fls.exe', 'ucrtbase.dll']],
+    ['tools/libewf', 'tools/libewf', ['ewfinfo.exe']],
+    ['target/release/tools/libewf', 'target/release/tools/libewf', ['ewfexport.exe']],
+    ['target/release/tools/sleuthkit', 'target/release/tools/sleuthkit', ['icat.exe']],
   ]) {
     const root = newRepo();
     for (const f of files) { mkdirSync(dirname(join(root, dir, f)), { recursive: true }); writeFileSync(join(root, dir, f), 'MZ planted tool'); }

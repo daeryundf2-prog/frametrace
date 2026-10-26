@@ -7,7 +7,7 @@ on:
 
 jobs:
   fuzz:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moved to 26.04, where Playwright 1.56 cannot install chromium (PR #6 merge, 2026-10-26)
     timeout-minutes: 60 # R5 U13: bounded, never the 6 h default
     defaults:
       run:

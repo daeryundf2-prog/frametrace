@@ -92,7 +92,8 @@ fn api_tools_lists_pinned_tools_and_flags_on_demand_ones() {
         libewf["manual_hint"]
             .as_str()
             .unwrap()
-            .contains("tools/bin")
+            .contains("tools/libewf"),
+        "PR #6 merge: libewf goes to its own tools/libewf folder"
     );
 
     let all = parse(&tools::api_tools(
