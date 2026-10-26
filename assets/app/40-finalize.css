@@ -7,7 +7,7 @@
 .h-fin-head h2 { margin: 0; font-size: var(--fs-md); font-weight: 600; }
 .h-fin-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--sp-4); display: grid; gap: var(--sp-4); align-content: start; }
 .h-fin-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border); background: var(--surface); }
-.h-fin-hint { flex: 1 1 auto; min-width: 0; font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.h-fin-hint { flex: 1 1 auto; min-width: 0; font-size: var(--fs-xs); word-break: keep-all; overflow-wrap: break-word; }
 .h-fin-foot > button { flex: none; }
 .h-fin .muted { color: var(--muted); }
 
@@ -19,13 +19,13 @@
 
 .h-fin-field { display: grid; gap: var(--sp-1); }
 .h-fin-field label { font-weight: 600; }
-.h-fin-field small { font-size: var(--fs-xs); }
+.h-fin-field small { font-size: var(--fs-xs); word-break: keep-all; }
 .h-fin-field input { width: 100%; box-sizing: border-box; }
 
 .h-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1); }
 .h-check { display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
 .h-check .ic { flex: none; margin-top: 2px; }
-.h-check-text { min-width: 0; overflow-wrap: anywhere; }
+.h-check-text { min-width: 0; word-break: keep-all; overflow-wrap: break-word; }
 .h-check small { display: block; color: var(--muted); font-size: var(--fs-xs); line-height: var(--lh-ctl); margin-top: 2px; }
 .h-check-block { border-color: var(--warn-fg); background: var(--warn-bg); color: var(--warn-fg); font-weight: 600; }
 .h-check-block small { color: var(--warn-fg); font-weight: 400; }

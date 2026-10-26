@@ -22,7 +22,7 @@ function drawTelemetry(report) {
   const X = p => pad + (p.lon - minLon) * s;
   const Y = p => canvas.height - pad - (p.lat - minLat) * s;
   const stride = Math.max(1, Math.floor(pts.length / 4000));
-  ctx.strokeStyle = "#0f7c71";
+  ctx.strokeStyle = "#5c9eff";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   for (let i = 0; i < pts.length; i += stride) {
@@ -281,7 +281,7 @@ function renderTree(facets) {
     count: null,
     key: "",
     depth: 0,
-    icon: "📂",
+    icon: "folder",
     pick: () => {
       state.dirFilter = "";
       state.currentPage = 1;
@@ -325,14 +325,13 @@ function renderTree(facets) {
       if (folder === "Recovery") name = t("tree.recovery");
       const count = getSubtreeCount(folder);
       if (count === 0) return;
-      const isRecoveryNode = folder.startsWith("Recovery");
       items.push({
         sec: "folder",
         label: name,
         count,
         key: folder,
         depth,
-        icon: isRecoveryNode ? "🛡️" : "📁",
+        icon: "folder",
         pick: () => {
           state.dirFilter = (state.dirFilter === folder ? "" : folder);
           state.currentPage = 1;
@@ -387,7 +386,7 @@ function renderTree(facets) {
   });
   els.facetTree.innerHTML = items.map(item => item.header !== undefined
     ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
-    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" data-sec="${item.sec || "folder"}"${item.depth ? ` data-depth="${item.depth}"` : ""}${item.facet ? ` data-facet="${item.facet}" data-key="${escapeHtml(item.key ?? "")}"` : item.key ? ` data-key="${escapeHtml(item.key)}"` : ""} style="${item.depth ? `padding-left: ${8 + item.depth * 14}px;` : ""}" tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${item.icon ? `<span style="margin-right:5px;font-size:12px;">${item.icon}</span>` : ""}<span>${escapeHtml(item.label)}</span></span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" data-sec="${item.sec || "folder"}"${item.depth ? ` data-depth="${item.depth}"` : ""}${item.facet ? ` data-facet="${item.facet}" data-key="${escapeHtml(item.key ?? "")}"` : item.key ? ` data-key="${escapeHtml(item.key)}"` : ""} style="${item.depth ? `padding-left: ${8 + item.depth * 14}px;` : ""}" tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${item.icon ? `<span class="tree-ic">${ftIcon(item.icon)}</span>` : ""}<span>${escapeHtml(item.label)}</span></span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
   ).join("");
   // Memo probe for harnesses: bumps only when the counts were recomputed.
   els.facetTree.dataset.facetGen = String(facetMemo.gen);

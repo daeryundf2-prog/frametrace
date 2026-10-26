@@ -83,6 +83,19 @@
   --disabled-bg: #e6e4df;
   --media-bg: #141618;    /* video stage: dark in both themes */
   --media-muted: #b4b9be; /* secondary text on the dark media bars */
+  --media-surface: #1b1e22;
+  --media-border: #2e333a;          /* hairline dividers only (decorative) */
+  --media-control-border: #6e747b;  /* control outlines on the media bars (>= 3:1) */
+  --media-disabled-fg: #6a7077;     /* disabled toolbar text (>= 3:1, below --media-muted) */
+  --media-disabled-border: #4a5057; /* dashed disabled outline: visible (>= 1.5:1), dimmer than the control outline */
+  --media-fg: #eef0f2;
+  --media-hover: #252a30;
+  --media-active: #2f363e;
+  --media-ring: #8db4ea;
+  --cal-l1-bg: #eef2f8;          --cal-l1-border: #c5d3e8;
+  --cal-l2-bg: #dde6f3;          --cal-l2-border: #a3bae0;
+  --cal-l3-bg: #c6d6ec;          --cal-l3-border: #7b9fd4;
+  --mark-hl-bg: #fde68a;         --mark-hl-fg: #1a1c1e;
 
   /* ---- semantic (status text only) ---- */
   --ok: #2a6b3a;
@@ -129,6 +142,19 @@ html[data-theme="dark"] {
   --disabled-fg: #848a90;
   --disabled-bg: #1b1e21;
   --media-bg: #0e1012;
+  --media-surface: #16191d;
+  --media-border: #282d34;
+  --media-control-border: #6e747b;
+  --media-disabled-fg: #6a7077;
+  --media-disabled-border: #4a5057;
+  --media-fg: #eef0f2;
+  --media-hover: #21262c;
+  --media-active: #2b3139;
+  --media-ring: #8db4ea;
+  --cal-l1-bg: #1c2739;          --cal-l1-border: #283a54;
+  --cal-l2-bg: #223352;          --cal-l2-border: #344e73;
+  --cal-l3-bg: #2c4569;          --cal-l3-border: #426494;
+  --mark-hl-bg: #614e14;         --mark-hl-fg: #fef3c7;
   --media-muted: #b4b9be;
 
   --ok: #7fcb95;
