@@ -478,6 +478,8 @@ async function gatherFinalizeChecks() {
       st.busy ? (e ? `${e.label} ${e.stage}/${e.stages} 진행 중` : "끝난 뒤 '다시 확인'을 누르십시오.")
         : "보강이 끝나지 않았습니다 — 같은 소스로 다시 분석하면 남은 파일만 처리합니다.");
   } else if (phase === "running") add("block", "분석이 진행 중입니다", "끝난 뒤 '다시 확인'을 누르십시오.");
+  // Fix round 16 L-busy: /api/status `busy_kind` names a guided tool install.
+  else if (st.busy && st.busy_kind === "tool-install") add("block", "도구 설치가 진행 중입니다", "첫 화면 ‘도구’에서 진행 상황을 볼 수 있습니다 — 끝난 뒤 다시 확인하십시오.");
   else if (st.busy) add("block", "다른 작업이 진행 중입니다", `현재 단계: ${phase || "-"} — 끝난 뒤 다시 확인하십시오.`);
   else if (!["review-ready", "done", "finalized"].includes(phase)) add("block", "완료된 분석 결과가 없습니다", "먼저 분석을 끝내십시오.");
   // R13 (track S c76a4df): `blocks_finalize` decides, not the state.
@@ -1107,7 +1109,7 @@ async function finLateBlocker() {
   if (!st || st.ok === false || st.malformed) return "서버 상태를 확인할 수 없습니다.";
   if (Number(st.pending_marks) > 0) return `저장 대기 마크 ${Number(st.pending_marks)}건이 아직 케이스에 반영되지 않았습니다.`;
   if (st.mark_conflicts && Number(st.mark_conflicts.count) > 0) return `해결하지 않은 저장 충돌 ${Number(st.mark_conflicts.count)}건이 있습니다.`;
-  if (st.busy) return "다른 작업이 진행 중입니다.";
+  if (st.busy) return st.busy_kind === "tool-install" ? "도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오." : "다른 작업이 진행 중입니다.";
   return viewerSays();
 }
 async function finFinalize() {

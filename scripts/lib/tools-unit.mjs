@@ -711,7 +711,9 @@ export async function toolsTrackU() {
       hViewer: { summary: () => ({ pending: 0 }) }, FTStore: { hasProject: () => false, state: {} },
       dlgResolve: null,
       jget: async (url) => {
-        if (url === '/api/tools/install-status') return { ok: true, install: running() ? { ...m.install } : null };
+        // Like the server: the last job, finished or not (Fix round 16:
+        // the quit dialog reads its state when the close is noticed).
+        if (url === '/api/tools/install-status') return { ok: true, install: opts.hideInstall ? null : { ...m.install } };
         if (url !== '/api/status') return { ok: true };
         if (running()) {
           polls += 1;
@@ -721,7 +723,7 @@ export async function toolsTrackU() {
           if (m.cancelRequested && polls > (opts.cancelAfterPolls || 0)) Object.assign(m.install, { state: 'failed', stage: 'failed', error: INSTALL_CANCELLED_U, cancelled: true });
           else if (finishAfterPolls && polls > finishAfterPolls) Object.assign(m.install, { state: 'done', stage: 'done' });
         }
-        return { ok: true, busy: running(), phase: 'task' };
+        return { ok: true, busy: running(), phase: 'task', ...(opts.busyKind && running() ? { busy_kind: opts.busyKind } : {}) };
       },
       jpost: async (url) => {
         posts.push(url);
@@ -739,7 +741,7 @@ export async function toolsTrackU() {
     if (opts.ht) ctx.HT = opts.ht;
     runInNewContext(quitSrc, ctx);
     await elOf('hBtnQuit').listeners[0]();
-    return { okResult, notes, posts, m, dialog, polls, toasts };
+    return { okResult, notes, posts, m, dialog, polls, toasts, ctx };
   };
 
   await row('Fix round 11 M1: [종료] during a download stops the install through /api/cancel (cancelled "tool-install") and then shuts the server down', async () => {
@@ -783,11 +785,12 @@ export async function toolsTrackU() {
     assert.deepEqual(r.toasts, [['도구 설치는 중단되지 않았고 계속 진행됩니다 (파일을 옮기는 중) — 서버는 종료하지 않았습니다.', 'warn']], JSON.stringify(r.toasts));
   });
 
-  await row('Fix round 13 L4: [계속 작업] after the install was already cancelled (download stage) says "설치는 이미 중단됐습니다" — the server stays up', async () => {
+  await row('Fix round 13 L4 / 16 L-quit-text: [계속 작업] while a requested cancel (download stage) has not ended the install says "설치 중단을 요청했습니다" — never "이미 중단됐습니다"; the server stays up', async () => {
     const r = await quitRun('download', 0, { closeAfterPolls: 3, cancelAfterPolls: 10 });
     assert.equal(r.okResult, false, 'onOk gave up: ' + JSON.stringify(r.notes.slice(-3)));
     assert.deepEqual(r.posts, ['/api/cancel'], 'no /api/shutdown: ' + JSON.stringify(r.posts));
-    assert.deepEqual(r.toasts, [['설치는 이미 중단됐습니다 — 필요하면 다시 설치하십시오.', 'warn']], JSON.stringify(r.toasts));
+    assert.equal(r.m.install.state, 'downloading', 'still running when closed');
+    assert.deepEqual(r.toasts, [['설치 중단을 요청했습니다 — 도구 패널에서 결과를 확인하십시오.', 'warn']], JSON.stringify(r.toasts));
     // Not closed: no note at all, the server is shut down as before.
     const shut = await quitRun('download', 0, { cancelAfterPolls: 2 });
     assert.deepEqual(shut.posts, ['/api/cancel', '/api/shutdown'], JSON.stringify(shut.posts));
@@ -825,6 +828,34 @@ export async function toolsTrackU() {
       const other = await quitRun(stage, finish, { ...o, ht: { busy: 'x-opt' } });
       assert.equal(other.toasts.length, 1, stage + ': ' + JSON.stringify(other.toasts));
     }
+  });
+
+  await row('Fix round 16 L-quit-text: the [계속 작업] note follows the install\'s state when the close is noticed — failed → "이미 중단됐습니다", done → "끝났습니다", running / another job / unknown → "설치 중단을 요청했습니다"', async () => {
+    const { ctx } = await quitRun('download', 0, { cancelAfterPolls: 2 });
+    const note = (cr, ended, state) => runInNewContext('hQuitInstallLeftNote(' + JSON.stringify(cr) + ', ' + ended + ', ' + JSON.stringify(state) + ')', ctx);
+    const acc = { ok: true, cancelled: 'tool-install', job_kind: 'tool-install', requested: true, install: { id: 48213, tool: 'ffmpeg' } };
+    assert.equal(note(acc, false, 'failed'), '설치는 이미 중단됐습니다 — 필요하면 다시 설치하십시오.');
+    assert.equal(note(acc, true, 'failed'), '설치는 이미 중단됐습니다 — 필요하면 다시 설치하십시오.');
+    assert.equal(note(acc, true, 'done'), '도구 설치가 끝났습니다 — 도구 패널에서 결과를 확인하십시오.');
+    for (const s of ['downloading', 'verifying', 'extracting', '']) assert.equal(note(acc, false, s), '설치 중단을 요청했습니다 — 도구 패널에서 결과를 확인하십시오.', 'state ' + JSON.stringify(s));
+    assert.equal(note({ ...acc, requested: false }, false, ''), '도구 설치는 이미 끝나 있었습니다 — 도구 패널에서 결과를 확인하십시오.', 'round 15 unchanged');
+    // The state is read for that job only: another job's record is "unknown".
+    ctx.jget = async () => ({ ok: true, install: { id: 48214, tool: 'ffmpeg', state: 'failed' } });
+    assert.equal(await runInNewContext('hQuitInstallState(' + JSON.stringify(acc) + ')', ctx), '', 'another job');
+    ctx.jget = async () => ({ ok: true, install: { id: 48213, tool: 'ffmpeg', state: 'failed' } });
+    assert.equal(await runInNewContext('hQuitInstallState(' + JSON.stringify(acc) + ')', ctx), 'failed', 'same job');
+    ctx.jget = async () => { throw new Error('down'); };
+    assert.equal(await runInNewContext('hQuitInstallState(' + JSON.stringify(acc) + ')', ctx), '', 'no answer');
+  });
+
+  await row('Fix round 16 L-busy: [종료] speaks of a tool install when /api/status says busy_kind "tool-install", even if install-status missed the job; busy_kind "job" keeps the analysis wording', async () => {
+    const r = await quitRun('download', 0, { busyKind: 'tool-install', hideInstall: true });
+    assert.ok(r.dialog.html.includes('도구 설치가 진행 중입니다') && !/체크포인트/.test(r.dialog.html), r.dialog.html);
+    assert.equal(r.dialog.okLabel, '설치 중단 후 서버 종료');
+    const j = await quitRun('download', 0, { busyKind: 'job', hideInstall: true });
+    assert.ok(j.dialog.html.includes('작업이 진행 중입니다') && j.dialog.okLabel === '작업 중단 후 서버 종료', j.dialog.html);
+    // 41-finalize.js composes its own busy lines: both name the install.
+    assert.ok(/st\.busy_kind === "tool-install"\) add\("block", "도구 설치가 진행 중입니다"/.test(finSrc) && /st\.busy_kind === "tool-install" \? "도구 설치가 진행 중입니다/.test(finSrc), 'finalize busy_kind lines');
   });
 
   await row('Fix round 13 L2: a tool with rollback_incomplete shows a warning line (note in the title / sr-only), installed or not; en follows the viewer language', async () => {
