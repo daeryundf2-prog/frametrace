@@ -9,6 +9,10 @@
 //! * `tools/python/rollback-backup-<hex>/<tool>/` — a pip tool's previous
 //!   venv, whole, with `RESTORE.txt` next to it.
 //!
+//! * Fix round 16 M1: `tools/.staging-<hex>/backup/MOVING` — the move
+//!   journal of an install killed while it moved files; the sweep turns
+//!   it into a `tools/rollback-backup-<hex>/` (RESTORE.txt made from it).
+//!
 //! The first line of `RESTORE.txt` is `tool: <name>`; [`rollback_backups`]
 //! lists them for `/api/tools`, `frametrace tools list` and `doctor`.
 
@@ -166,6 +170,19 @@ pub fn rollback_backups(tools_dir: &Path) -> Vec<RollbackBackup> {
             && std::fs::symlink_metadata(path.join("backup").join(RESTORE_FILE)).is_ok()
         {
             path.join("backup").join(RESTORE_FILE)
+        } else if name.starts_with(".staging-")
+            && let Some(journal) = read_journal(&path.join("backup"))
+            && !journal_restore_entries(&journal, &path.join("backup")).is_empty()
+        {
+            // Fix round 16 M1: an install killed while moving files, not
+            // yet rescued by a sweep (doctor runs none) — listed already.
+            top.push(RollbackBackup {
+                tool: journal.tool,
+                size_bytes: dir_size(&path),
+                restore_file: path.join("backup").join(RESTORE_FILE),
+                path,
+            });
+            continue;
         } else {
             continue;
         };
@@ -293,4 +310,201 @@ pub(crate) fn undo_venv(
     format!(
         "{ROLLBACK_INCOMPLETE_PREFIX}{err}; the rollback could NOT restore the previous venv — {problem}; {where_kept}"
     )
+}
+
+// ------------------------------------------------------- move journal (M1)
+
+/// Fix round 16 M1: the intent journal `move_all_or_nothing` writes into
+/// `backup/` before its first move — `tool: <name>`, then one line per
+/// planned move `plan\t<index>\t<existed|new>\t<destination>` (the
+/// previous copy of an `existed` destination is `<index>.bak` beside it).
+/// It is removed when the moves succeed and when a rollback completes, so
+/// a journal left in a stale `.staging-*/backup/` means the install was
+/// killed (Ctrl+C, console closed, power lost) while files were moving:
+/// the sweep then keeps the previous copies ([`rescue_interrupted_move`])
+/// instead of deleting them.
+pub(crate) const MOVE_JOURNAL: &str = "MOVING";
+
+/// Last line appended when a successful install could not remove its
+/// journal: the sweep then treats the folder as an ordinary leftover.
+const JOURNAL_COMPLETE: &str = "complete";
+
+/// One planned move read back from a journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct JournalMove {
+    pub(crate) index: usize,
+    pub(crate) existed: bool,
+    pub(crate) dest: PathBuf,
+}
+
+/// A parsed journal ([`read_journal`] gives `None` when there is none or
+/// it says the moves completed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Journal {
+    pub(crate) tool: Option<String>,
+    pub(crate) moves: Vec<JournalMove>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: makes [`write_journal`] fail on this thread.
+    pub(crate) static FAIL_JOURNAL_WRITE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Writes (and flushes to disk) the journal for `moves` into `backup_dir`
+/// before anything moves. `Err` refuses the install: without the journal
+/// a kill during the moves could lose the previous files.
+pub(crate) fn write_journal(
+    backup_dir: &Path,
+    tool: &str,
+    moves: &[(PathBuf, PathBuf)],
+) -> Result<(), String> {
+    use std::io::Write as _;
+    let path = backup_dir.join(MOVE_JOURNAL);
+    let mut text = format!("{TOOL_LINE}{tool}\n");
+    for (index, (_, dest)) in moves.iter().enumerate() {
+        let existed = std::fs::symlink_metadata(dest).is_ok();
+        text.push_str(&format!(
+            "plan\t{index}\t{}\t{}\n",
+            if existed { "existed" } else { "new" },
+            dest.display()
+        ));
+    }
+    let write = || -> std::io::Result<()> {
+        #[cfg(test)]
+        if FAIL_JOURNAL_WRITE.with(|fail| fail.get()) {
+            return Err(std::io::Error::other("test: journal write fails"));
+        }
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()
+    };
+    write().map_err(|err| {
+        let _ = std::fs::remove_file(&path);
+        format!(
+            "cannot write the install journal {} (nothing was replaced): {err}",
+            path.display()
+        )
+    })
+}
+
+/// Removes the journal once nothing needs restoring (all moves done, or a
+/// rollback that completed). When it cannot be removed after a success it
+/// is marked complete so the sweep does not mistake the folder for an
+/// interrupted move.
+pub(crate) fn close_journal(backup_dir: &Path, success: bool) {
+    use std::io::Write as _;
+    let path = backup_dir.join(MOVE_JOURNAL);
+    if remove_file_with_retry(&path).is_ok() || !success {
+        return;
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&path) {
+        let _ = file.write_all(format!("{JOURNAL_COMPLETE}\n").as_bytes());
+        let _ = file.sync_all();
+    }
+}
+
+/// The journal in `backup_dir`, unless missing or marked complete.
+pub(crate) fn read_journal(backup_dir: &Path) -> Option<Journal> {
+    let text = std::fs::read_to_string(backup_dir.join(MOVE_JOURNAL)).ok()?;
+    let mut journal = Journal {
+        tool: None,
+        moves: Vec::new(),
+    };
+    for line in text.lines() {
+        if line == JOURNAL_COMPLETE {
+            return None;
+        }
+        if let Some(tool) = line.strip_prefix(TOOL_LINE) {
+            let tool = tool.trim();
+            journal.tool = (!tool.is_empty()).then(|| tool.to_string());
+            continue;
+        }
+        let mut parts = line.splitn(4, '\t');
+        if let (Some("plan"), Some(index), Some(kind), Some(dest)) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+            && let Ok(index) = index.parse::<usize>()
+            && matches!(kind, "existed" | "new")
+            && !dest.is_empty()
+        {
+            journal.moves.push(JournalMove {
+                index,
+                existed: kind == "existed",
+                dest: PathBuf::from(dest),
+            });
+        }
+    }
+    Some(journal)
+}
+
+/// What a person must still undo after an interrupted move, in
+/// `RESTORE.txt` form: an `existed` destination whose `<index>.bak` is
+/// still in `backup_dir` gets that copy back; a `new` destination that
+/// now exists was put there by the killed install (the install lock keeps
+/// anything else from writing there meanwhile) — delete it. Everything
+/// else was not touched or was already restored. Empty: nothing to do.
+pub(crate) fn journal_restore_entries(
+    journal: &Journal,
+    backup_dir: &Path,
+) -> Vec<(PathBuf, Option<PathBuf>)> {
+    journal
+        .moves
+        .iter()
+        .filter_map(|planned| {
+            if planned.existed {
+                let backup = backup_dir.join(format!("{}.bak", planned.index));
+                std::fs::symlink_metadata(&backup)
+                    .is_ok()
+                    .then(|| (planned.dest.clone(), Some(backup)))
+            } else {
+                std::fs::symlink_metadata(&planned.dest)
+                    .is_ok()
+                    .then(|| (planned.dest.clone(), None))
+            }
+        })
+        .collect()
+}
+
+/// The note under the `tool:` line of a `RESTORE.txt` made from an
+/// interrupted move's journal.
+pub(crate) const INTERRUPTED_NOTE: &str = "The install was interrupted (FrameTrace was closed or the PC stopped) while it moved the new files into place: some files may be new and some old.\n";
+
+/// Whether the `staging` dir's `backup/` holds an active journal (its
+/// previous files must be rescued, never swept).
+pub(crate) fn staging_has_active_journal(staging: &Path) -> bool {
+    read_journal(&staging.join("backup")).is_some()
+}
+
+/// Fix round 16 M1: a stale `staging` dir whose `backup/` holds an active
+/// journal (an install killed while moving files). Writes `RESTORE.txt`
+/// from the journal (tool named) into `backup/` and moves `backup/` to
+/// `tools/rollback-backup-<hex>`, so `status()`, `doctor` and the UI show
+/// `rollback_incomplete`. When nothing needs restoring the journal is
+/// removed and the folder is left to the ordinary sweep. Afterwards the
+/// sweep's own checks decide: a staging dir still holding `backup/` with
+/// `RESTORE.txt` or an active journal is never removed.
+pub(crate) fn rescue_interrupted_move(tools_dir: &Path, staging: &Path) {
+    let backup_dir = staging.join("backup");
+    let Some(journal) = read_journal(&backup_dir) else {
+        return;
+    };
+    let entries = journal_restore_entries(&journal, &backup_dir);
+    if entries.is_empty() {
+        close_journal(&backup_dir, false);
+        return;
+    }
+    let mut text = restore_text(journal.tool.as_deref(), &entries, &backup_dir);
+    let at = if journal.tool.is_some() {
+        text.find('\n').map_or(0, |at| at + 1)
+    } else {
+        0
+    };
+    text.insert_str(at, INTERRUPTED_NOTE);
+    if write_restore_file(&backup_dir.join(RESTORE_FILE), &text).is_err() {
+        // The journal still keeps the sweep away; retried next time.
+        return;
+    }
+    let kept = tools_dir.join(format!("{ROLLBACK_BACKUP_PREFIX}{}", random_hex()));
+    // When this fails `backup/RESTORE.txt` keeps the staging dir instead.
+    let _ = rename_with_retry(&backup_dir, &kept);
 }

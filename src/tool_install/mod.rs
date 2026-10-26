@@ -1262,14 +1262,39 @@ pub(crate) fn clean_stale_staging(
     started_before: std::time::SystemTime,
     tools: &[&ToolEntry],
 ) -> usize {
+    // Fix round 16 M1: a stale staging dir whose `backup/` holds an
+    // active move journal belongs to an install killed while it moved
+    // files: its previous copies go to `rollback-backup-*` first.
+    if let Ok(entries) = std::fs::read_dir(tools_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let stale = entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .is_ok_and(|modified| modified < started_before);
+            if name.starts_with(".staging-")
+                && !name.ends_with(".rm")
+                && stale
+                && entry
+                    .file_type()
+                    .is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+                && std::fs::symlink_metadata(entry.path().join("backup").join(RESTORE_FILE))
+                    .is_err()
+            {
+                rollback::rescue_interrupted_move(tools_dir, &entry.path());
+            }
+        }
+    }
     // Fix round 13: a staging dir kept after an incomplete rollback (its
-    // `backup/RESTORE.txt` lists the previous files) is never swept.
+    // `backup/RESTORE.txt` lists the previous files) is never swept; nor
+    // (round 16 M1) one whose move journal is still active.
     let staging = |name: &str| {
         // Fix round 14 L4: any entry of that name (even one that is not a
         // readable file) marks a kept backup.
         name.starts_with(".staging-")
             && std::fs::symlink_metadata(tools_dir.join(name).join("backup").join(RESTORE_FILE))
                 .is_err()
+            && !rollback::staging_has_active_journal(&tools_dir.join(name))
     };
     // pip.rs: `.<tool>.old-<hex>` next to the tool's venv. Fix round 13
     // M: removed only once the live `<tool>/` is a working venv again —
@@ -1559,12 +1584,13 @@ pub(crate) fn preserve_rollback_backup(
         Err(move_err) => {
             let path = staging.path().to_path_buf();
             staging.keep();
-            // Fix round 15: without `backup/RESTORE.txt` the stale-staging
-            // sweep cannot tell this folder from an ordinary leftover, so
-            // the next server start or install removes it — say so instead
-            // of "before installing again" alone.
+            // Fix round 15 said the next sweep would remove this folder
+            // when `backup/RESTORE.txt` is missing. Fix round 16 M1: the
+            // move journal (written before any move, still in `backup/`)
+            // keeps the sweep away, and the sweep retries writing
+            // RESTORE.txt and moving the folder to `rollback-backup-*`.
             let when = if unwritten.is_some() {
-                "before FrameTrace is started again or another install runs (either one cleans this folder away)"
+                "before installing again (the next FrameTrace start or install tries again to keep it as tools/rollback-backup-*)"
             } else {
                 "before installing again"
             };
@@ -1654,12 +1680,21 @@ fn undo_move(dest: &Path, backup: Option<&Path>) -> Result<(), String> {
 /// error starts with [`ROLLBACK_INCOMPLETE_PREFIX`] and names every file
 /// left wrong and where its previous copy is (inside `backup_dir` — the
 /// caller must keep that directory); it is never silent.
+///
+/// Fix round 16 M1: before the first move an intent journal
+/// (`backup_dir/MOVING`, flushed; see [`rollback::write_journal`]) names
+/// every destination, its backup name and `tool`. It is removed when the
+/// moves succeed and when a rollback completes; a kill in between leaves
+/// it for the stale-staging sweep, which then keeps the previous copies
+/// as a rollback backup instead of deleting them.
 pub(crate) fn move_all_or_nothing(
     moves: &[(PathBuf, PathBuf)],
     backup_dir: &Path,
+    tool: &str,
 ) -> Result<(), String> {
     std::fs::create_dir_all(backup_dir)
         .map_err(|err| format!("cannot create {}: {err}", backup_dir.display()))?;
+    rollback::write_journal(backup_dir, tool, moves)?;
     // (dest, Some(backup)) for each completed move.
     let mut done: Vec<(PathBuf, Option<PathBuf>)> = Vec::new();
     let mut failure = None;
@@ -1724,7 +1759,10 @@ pub(crate) fn move_all_or_nothing(
                 undo_failed.join("; ")
             ));
         }
+        // Everything is back: nothing for a sweep to rescue.
+        rollback::close_journal(backup_dir, false);
         return Err(failure);
     }
+    rollback::close_journal(backup_dir, true);
     Ok(())
 }
