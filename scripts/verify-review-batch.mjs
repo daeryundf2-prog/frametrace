@@ -763,6 +763,12 @@ async function unitTests() {
   await r19TrackU({ fn, source, runInNewContext, assert });
   await r20TrackU({ fn, source, runInNewContext, assert });
   await r21TrackU({ fn, source, runInNewContext, assert });
+  // Tools track U (docs/PLAN_TOOLS_2026-10-20.md, contract §28).
+  const { toolsTrackU } = await import('./lib/tools-unit.mjs');
+  await toolsTrackU();
+  // PR #6 merge review L3 (82-evidence-input.js) and M2 (viewer).
+  const { pr6MergeTrackU } = await import('./lib/pr6-merge-unit.mjs');
+  await pr6MergeTrackU();
 }
 
 // ---- R21 track U (docs/PLAN_R21_2026-10-20.md) -----------------------------

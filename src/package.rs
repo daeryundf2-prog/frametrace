@@ -988,6 +988,8 @@ fn recursive_package_dirs() -> &'static [&'static str] {
         "artifacts/thumbnails",
         "artifacts/carved",
         "artifacts/recovered",
+        // PR #6 merge: allocated videos extracted with their folder tree.
+        "artifacts/extracted",
         "db/filesystem",
         "db/scan_runs",
         "review/thumbs",

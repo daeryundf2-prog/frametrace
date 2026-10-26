@@ -11,8 +11,14 @@ function normalizeTypedPath(raw, wsl) {
   let v = String(raw || "").trim();
   if (/^(["']).*\1$/.test(v)) v = v.slice(1, -1).trim();
   if (/^file:\/\//i.test(v)) {
-    try { v = decodeURIComponent(v.replace(/^file:\/\/(localhost)?/i, "")); } catch { /* keep as is */ }
-    if (/^\/[A-Za-z]:/.test(v)) v = v.slice(1).replace(/\//g, "\\");
+    // Merge review L3: `file://server/share/x.E01` names a network share.
+    // Keep it a `//server/share/...` path — never `server/share/...`
+    // (relative), which would slip past the network-path refusals below
+    // and on the server. Only an empty host or `localhost` is local.
+    const host = (v.match(/^file:\/\/([^/\\]*)/i) || [])[1] || "";
+    const local = host === "" || /^localhost$/i.test(host);
+    try { v = decodeURIComponent(v.replace(/^file:\/\/(localhost(?=[/\\]|$))?/i, local ? "" : "//")); } catch { v = local ? v : "//" + v.replace(/^file:\/\//i, ""); }
+    if (local && /^\/[A-Za-z]:/.test(v)) v = v.slice(1).replace(/\//g, "\\");
   }
   const m = wsl && v.match(/^([A-Za-z]):(?:[\\/](.*))?$/);
   if (m) v = `/mnt/${m[1].toLowerCase()}/${(m[2] || "").replace(/\\/g, "/")}`.replace(/\/+$/, "") || "/";
@@ -60,7 +66,15 @@ async function handleEvidenceDrop(dt) {
   const uri = (dt.getData("text/uri-list") || "").split(/\r?\n/).find(l => l && !l.startsWith("#"));
   const text = uri || dt.getData("text/plain") || "";
   if (text && /^(file:|[A-Za-z]:[\\/]|\/|["'])/.test(text.trim())) {
-    setPathField("sourcePath", normalizeTypedPath(text, PICKER_PLUS.wsl), "끌어 놓은 경로를 넣었습니다");
+    const dropped = normalizeTypedPath(text, PICKER_PLUS.wsl);
+    // PR #6 merge audit: a drop may come from another page (a file:// link
+    // to a share); a network/device path is never taken from a drop —
+    // the examiner types it (the server's typed-UNC policy).
+    if (/^[\\/]{2}/.test(dropped)) {
+      toast("끌어 놓은 네트워크 경로는 받지 않습니다 — 경로를 직접 입력하십시오.", "warn");
+      return;
+    }
+    setPathField("sourcePath", dropped, "끌어 놓은 경로를 넣었습니다");
     return;
   }
   const item = dt.items && dt.items[0];

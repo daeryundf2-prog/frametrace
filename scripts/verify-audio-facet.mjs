@@ -181,7 +181,8 @@ try {
   const audioFacet = () => page.evaluate(() => [...document.querySelectorAll('#facetTree .tree-item[data-facet="audio"]')]
     .map((n) => [n.dataset.key, n.querySelector('.muted')?.textContent ?? null, n.getAttribute('aria-pressed')]));
   const sections = await page.evaluate(() => [...document.querySelectorAll('#facetTree .tree-sec')].map((n) => n.textContent));
-  check('facet tree has the 소리 section after 날짜', JSON.stringify(sections) === JSON.stringify(['녹화 유형', '출처', '날짜', '소리']), JSON.stringify(sections));
+  // PR #6 (merged 2026-10-26) puts the folder-structure section first.
+  check('facet tree has the 소리 section after 날짜', JSON.stringify(sections) === JSON.stringify(['폴더 구조 (디렉터리)', '녹화 유형', '출처', '날짜', '소리']), JSON.stringify(sections));
   const f0 = await audioFacet();
   check('소리 values in fixed order with counts', JSON.stringify(f0.map((x) => x.slice(0, 2))) === JSON.stringify([['', null], ['sound', '1'], ['silent', '1'], ['none', '1'], ['unknown', '6']]), JSON.stringify(f0));
   await page.selectOption('#kind', 'carved');
