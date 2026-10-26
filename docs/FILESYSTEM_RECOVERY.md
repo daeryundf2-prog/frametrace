@@ -155,3 +155,19 @@ inspection, or any extracted file, the evidence folder is indexed as before.
   recover-batch remove stale `.part` files anywhere under
   `artifacts/extracted` (subfolders included).
 - `artifacts/extracted` is packaged with the case (`package-case`).
+- **Known limits.**
+  - The "same earlier output" check compares absolute paths. After the case
+    folder or the image moves to another path or drive, a rerun treats every
+    item as a different source and extracts a second copy as
+    `<name>__ino<inode>` (nothing is overwritten; the copies are indexed
+    twice).
+  - An image file whose name looks like FrameTrace's own in-progress files
+    (`.x.ft1234.part…`) is extracted with a `_` prefix so the stale-`.part`
+    sweep never removes it.
+  - Cases extracted by the PR #6 build before this change logged allocated
+    extractions as `recover-inode`; the viewer and report still list those
+    records under filesystem recovery until the case is extracted again.
+  - "New folder" refuses a parent path that passes through any link,
+    junction or folder-mounted volume (`C:\Mount\Data`), and on Unix any
+    symlinked ancestor such as a linked `~/Documents`; the error names the
+    link. Pick the real folder instead.

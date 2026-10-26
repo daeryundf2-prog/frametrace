@@ -431,6 +431,17 @@ fn extracted_paths_keep_the_tree_and_never_escape() {
     assert_eq!(clean_path_component("name. . ").as_deref(), Some("name"));
     assert_eq!(clean_path_component(".."), None);
     assert_eq!(clean_path_component(" "), None);
+    // An image file named like our in-progress files must not be swept as
+    // a stale `.part` by the next run (merge confirmation review, Low).
+    assert_eq!(
+        clean_path_component(".x.ft4242.part.mp4").as_deref(),
+        Some("_.x.ft4242.part.mp4")
+    );
+    assert!(!crate::join::is_pid_part_name("_.x.ft4242.part.mp4", None));
+    assert_eq!(
+        clean_path_component(".hidden.mp4").as_deref(),
+        Some(".hidden.mp4")
+    );
     let drive = clean_relative_path("C:/Windows/x.mp4");
     assert!(
         drive

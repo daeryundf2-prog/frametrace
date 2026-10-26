@@ -449,11 +449,16 @@ pub(crate) fn clean_path_component(part: &str) -> Option<String> {
         return None;
     }
     let stem = trimmed.split('.').next().unwrap_or_default().trim_end();
-    Some(if is_reserved_device_name(stem) {
-        format!("_{trimmed}")
-    } else {
-        trimmed.to_string()
-    })
+    // A name shaped like our own in-progress files (`.x.ft4242.part…`)
+    // would be swept as a stale `.part` by the next extraction run — give
+    // it the same `_` prefix as a device name.
+    Some(
+        if is_reserved_device_name(stem) || crate::join::is_pid_part_name(trimmed, None) {
+            format!("_{trimmed}")
+        } else {
+            trimmed.to_string()
+        },
+    )
 }
 
 /// A Windows reserved device name (the part before the first `.`):
