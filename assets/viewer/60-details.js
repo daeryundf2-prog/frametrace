@@ -387,7 +387,7 @@ function renderTree(facets) {
   });
   els.facetTree.innerHTML = items.map(item => item.header !== undefined
     ? `<div class="tree-sec">${escapeHtml(item.header)}</div>`
-    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" data-sec="${item.sec || "folder"}"${item.depth ? ` data-depth="${item.depth}"` : ""}${item.facet ? ` data-facet="${item.facet}"` : ""}${item.key ? ` data-key="${escapeHtml(item.key)}"` : ""} style="${item.depth ? `padding-left: ${8 + item.depth * 14}px;` : ""}" tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${item.icon ? `<span style="margin-right:5px;font-size:12px;">${item.icon}</span>` : ""}<span>${escapeHtml(item.label)}</span></span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
+    : `<div class="tree-item${item.active ? " active" : ""}" data-pick="${escapeHtml(item.label)}" data-sec="${item.sec || "folder"}"${item.depth ? ` data-depth="${item.depth}"` : ""}${item.facet ? ` data-facet="${item.facet}" data-key="${escapeHtml(item.key ?? "")}"` : item.key ? ` data-key="${escapeHtml(item.key)}"` : ""} style="${item.depth ? `padding-left: ${8 + item.depth * 14}px;` : ""}" tabindex="0" role="button" aria-pressed="${!!item.active}"><span>${item.icon ? `<span style="margin-right:5px;font-size:12px;">${item.icon}</span>` : ""}<span>${escapeHtml(item.label)}</span></span>${item.count != null ? `<span class="muted">${item.count}</span>` : ""}</div>`
   ).join("");
   // Memo probe for harnesses: bumps only when the counts were recomputed.
   els.facetTree.dataset.facetGen = String(facetMemo.gen);
