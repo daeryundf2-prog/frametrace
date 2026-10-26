@@ -2,8 +2,9 @@
 
 FrameTrace itself is MIT-licensed (see `LICENSE`). Neither this repository nor
 the Windows package built by `scripts/make-portable.ps1` contains any
-third-party executable: no FFmpeg, no libewf, no Sleuth Kit, no deepfake-lens.
-FrameTrace runs those tools as separate programs when they are present in
+third-party executable: no FFmpeg, no libewf, no Sleuth Kit, no deepfake-lens
+(`make-portable.ps1` bundles no tool and refuses to run while `tools/bin` or
+the build's `tools/bin` holds any file). FrameTrace runs those tools as separate programs when they are present in
 `tools/bin` or on `PATH`; it does not link them, so none of their licenses
 applies to FrameTrace's own code.
 
