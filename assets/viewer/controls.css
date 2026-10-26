@@ -119,10 +119,13 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 #mediaToolbar .tb-row button:where(:not(.menu-list *)) { background: var(--tb-bg); color: var(--tb-fg); border-color: var(--tb-ctl); padding: 0 8px; font-size: var(--fs-xs); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)):hover { background: var(--tb-hover); border-color: var(--tb-ring); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)):active { background: var(--media-active); border-color: var(--tb-ring); }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)).on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
-/* Disabled: dimmer text than the .muted labels (>= 3:1) and a dashed hairline
-   instead of the solid 3:1 outline, so a dead IN / OUT reads as off by shape too. */
-#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: transparent; color: var(--media-disabled-fg); border-color: var(--tb-line); border-style: dashed; }
+/* Pressed toggle: the light-theme accent fill is ~2:1 on the dark bar, so its
+   boundary is the media ring (>= 3:1 in both themes, WCAG 1.4.11). */
+#mediaToolbar .tb-row button:where(:not(.menu-list *)).on { background: var(--accent); border-color: var(--tb-ring); color: var(--on-accent); font-weight: 700; }
+/* Disabled: dimmer text than the .muted labels (>= 3:1) and a dimmer dashed
+   outline instead of the solid 3:1 one, so a dead IN / OUT reads as off by
+   shape too. */
+#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: transparent; color: var(--media-disabled-fg); border-color: var(--media-disabled-border); border-style: dashed; }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)).busy:disabled { background: var(--tb-hover); color: var(--tb-fg); border-color: var(--tb-ring); border-style: solid; }
 #mediaToolbar button:where(:not(.menu-list *)):focus-visible, #mediaToolbar select:focus-visible, #mediaToolbar input:focus-visible { outline-color: var(--tb-ring); }
 #mediaToolbar kbd { background: rgba(255,255,255,.1); border-color: var(--tb-line); color: var(--media-muted); }

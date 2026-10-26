@@ -37,11 +37,12 @@ block keeps its light value).
 | `--media-fg` | `#eef0f2` | `#eef0f2` | Primary text on media surfaces |
 | `--media-muted` | `#b4b9be` | `#b4b9be` | Secondary text on media surfaces |
 | `--media-disabled-fg` | `#6a7077` | `#6a7077` | Disabled toolbar text (>= 3:1, dimmer than --media-muted) |
+| `--media-disabled-border` | `#4a5057` | `#4a5057` | Dashed disabled toolbar outline (>= 1.5:1, below --media-control-border) |
 | `--media-hover` / `--media-active` | `#252a30` / `#2f363e` | `#21262c` / `#2b3139` | Toolbar button hover / pressed fill |
 | `--media-ring` | `#8db4ea` | `#8db4ea` | Focus ring & hover outline on media surfaces |
 | `--cal-l1-bg` / `--cal-l1-border` | `#eef2f8` / `#c5d3e8` | `#1c2739` / `#283a54` | Calendar heat level 1 |
-| `--cal-l2-bg` / `--cal-l2-border` | `#dde6f3` / `#a3bae0` | `#1f2e45` / `#344e73` | Calendar heat level 2 |
-| `--cal-l3-bg` / `--cal-l3-border` | `#c6d6ec` / `#7b9fd4` | `#273c5a` / `#426494` | Calendar heat level 3 |
+| `--cal-l2-bg` / `--cal-l2-border` | `#dde6f3` / `#a3bae0` | `#223352` / `#344e73` | Calendar heat level 2 |
+| `--cal-l3-bg` / `--cal-l3-border` | `#c6d6ec` / `#7b9fd4` | `#2c4569` / `#426494` | Calendar heat level 3 |
 | `--mark-hl-bg` / `--mark-hl-fg` | `#fde68a` / `#1a1c1e` | `#614e14` / `#fef3c7` | Search-hit highlight (<mark>) |
 | `--ok` / `--danger` / `--warn` / `--info` | `#2a6b3a` / `#b3261e` / `#7a5200` / `#234e8c` | `#7fcb95` / `#ff8a80` / `#e8b45a` / `#8db4ea` | Semantic status text only |
 | `--verified-fg` / `--verified-bg` | `#2a6b3a` / `#e4f1e7` | `#7fcb95` / `#17352a` | Confirmed video stream |
@@ -68,7 +69,9 @@ token on `--bg` / `--surface` / `--surface-2` `>= 4.5:1`; status and mark fg on 
 own bg `>= 4.5:1`; `--disabled-fg` on `--disabled-bg` `>= 3:1`; `--border-strong`,
 `--accent`, `*-ink` on the three surfaces `>= 3:1`; media text on every media fill
 `>= 4.5:1`; `--media-ring` and `--media-control-border` on `--media-bg` /
-`--media-surface` `>= 3:1`; `--media-disabled-fg` on `--media-surface` `>= 3:1` and
+`--media-surface` / `--media-hover` `>= 3:1` (the ring also bounds the pressed `.on` toggle, whose light-theme accent fill is ~2:1 on the bar);
+`--media-disabled-border` on `--media-surface` `>= 1.5:1` and below the control outline; calendar ramp steps never shrink;
+`--media-disabled-fg` on `--media-surface` `>= 3:1` and
 clearly dimmer than `--media-muted`; `--text` on every calendar level and
 `--mark-hl-fg` on `--mark-hl-bg` `>= 4.5:1`.
 
@@ -76,7 +79,8 @@ clearly dimmer than `--media-muted`; `--text` on every calendar level and
 - **UI Sans (`--font-sans`)**: `"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif` (system fonts only; nothing is downloaded)
 - **Tabular Mono (`--font-mono`)**: `ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace`
 - **Scale & Line Heights**:
-  - `--fs-xs`: `13px` (minimum text size across the entire application; sub-13px is forbidden)
+  - `--fs-xs`: `13px` (minimum text size; new UI must not go below it)
+  - Known exceptions still at `12px`, deferred because they sit in fixed widths / chip rows (`assets/evidence_viewer.css`, many overridden later by `controls.css` / `kit.css`): `.date-row input`, `.rail-chip` / `.chip-toggle`, `.active-filters .af-chip`, `.af-chip .af-x`, `.card.active .thumb::after` (▶ marker glyph), `.selection-bar button`, `.menu-list button`, `.tag-add input` / `.tag-add button`, `.timeline-list`, `.dlg .dlg-field`; plus the summary report table (`12px`, print-only HTML).
   - `--fs-sm`: `14px` (default body, buttons, inputs, table cells)
   - `--fs-md`: `16px` (sheet/dialog headers, weight 600)
   - `--fs-lg`: `20px` (empty-state and dialog titles)
@@ -107,11 +111,11 @@ Target desktop viewports: `1366×768` (minimum workstation budget) through `1920
   - `destructive`: `--danger` outline and text on `--surface`; `primary destructive` = `--danger` fill with `--on-accent` text, `min-height: 36px`, reserved for confirmation dialogs.
 - **5 Mandatory Interactive States**: Every button and interactive control has visually and computationally distinct `default`, `hover`, `active` (`translateY(1px)`), `focus-visible` (`2px solid var(--accent)`, `outline-offset: 2px`), and `disabled` states.
 - **Card & List Selection**:
-  - Active card in grid uses a crisp `2px` `--accent` border + outer ring (`0 0 0 2px var(--accent)`) + subtle play badge in thumbnail corner—never a thick inset left border on `.meta`.
+  - Active card in grid: the card's `1px` border turns `--accent` plus a `2px` shadow ring (`box-shadow: 0 0 0 2px var(--accent)`), an `--accent-soft` meta strip and a ▶ badge in the thumbnail corner (shape, not colour alone); under forced colors a `3px double Highlight` outline—never a thick inset left border on `.meta`.
   - Active tree/rail items use `--accent-soft` tonal fill + `1px solid var(--accent)` border + bold `--accent-ink` typography—never a 3px/4px left border stripe on rounded corners.
   - Group headers use `--surface-2` fill + `1px solid var(--border)` + semantic status dot/badge instead of 4px coloured left borders.
   - Toasts use elevated `--surface` with `1px solid var(--border-strong)` and `--shadow-pop`; warn / error (and shell ok) toasts take the status fg/bg pair plus a kind glyph (shell: i / ✓ / ! / ✕, viewer: ! warn / ✕ error) so the kind never depends on colour alone (also under forced colors). No 4px left border stripe.
-  - Media toolbar (`#mediaToolbar`): controls outlined with `--media-control-border`; disabled = `--media-disabled-fg` text, transparent fill and a dashed `--media-border` hairline; focus and hover use `--media-ring` (also on the video stage and thumbnail controls).
+  - Media toolbar (`#mediaToolbar`): controls outlined with `--media-control-border`; pressed `.on` toggle = `--accent` fill bounded by `--media-ring`; disabled = `--media-disabled-fg` text, transparent fill and a dashed `--media-disabled-border` outline; focus and hover use `--media-ring` (also on the video stage and thumbnail controls).
 
 ## 6. Accessibility & Agent Experience (AX) Guardrails
 - **WCAG 2.2 AA Contrast**: `>= 4.5:1` for all text/badge/status pairs; `>= 3.0:1` for control borders, focus rings, disabled foregrounds, and mark icons across both Light and Dark themes.

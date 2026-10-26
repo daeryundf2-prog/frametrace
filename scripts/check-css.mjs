@@ -152,6 +152,8 @@ for (const s of ["--media-bg", "--media-surface", "--media-hover", "--media-acti
 for (const s of ["--media-surface", "--media-hover"]) pairs.push(["--media-muted", s, 4.5]);
 for (const s of ["--media-bg", "--media-surface"]) pairs.push(["--media-ring", s, 3], ["--media-control-border", s, 3]);
 pairs.push(["--media-disabled-fg", "--media-surface", 3]);
+// Pressed toolbar toggle (.on): accent fill bounded by --media-ring on the bar.
+pairs.push(["--media-ring", "--media-hover", 3]);
 // Calendar heat levels carry the day number (--text) and, on l1, the muted count.
 for (const l of ["l1", "l2", "l3"]) pairs.push(["--text", `--cal-${l}-bg`, 4.5]);
 pairs.push(["--muted", "--cal-l1-bg", 4.5], ["--mark-hl-fg", "--mark-hl-bg", 4.5]);
@@ -163,6 +165,22 @@ for (const [theme, map] of [
   if (isHex(map["--media-disabled-fg"]) && isHex(map["--media-muted"]) && isHex(map["--media-surface"])
     && ratio(map["--media-disabled-fg"], map["--media-surface"]) * 1.5 > ratio(map["--media-muted"], map["--media-surface"])) {
     bad(`${theme}: --media-disabled-fg is not clearly dimmer than --media-muted on --media-surface`);
+  }
+  // The dashed disabled outline is visible (>= 1.5:1) but dimmer than the
+  // 3:1 control outline, so disabled reads as "off" and not as a live control.
+  if (isHex(map["--media-disabled-border"]) && isHex(map["--media-control-border"]) && isHex(map["--media-surface"])) {
+    const d = ratio(map["--media-disabled-border"], map["--media-surface"]);
+    const c = ratio(map["--media-control-border"], map["--media-surface"]);
+    if (d < 1.5 || d >= c) bad(`${theme}: --media-disabled-border ${d.toFixed(2)}:1 must be >= 1.5 and below --media-control-border ${c.toFixed(2)}:1`);
+  } else bad(`${theme}: --media-disabled-border / --media-control-border missing`);
+  // Calendar heat ramp: each level steps at least as far as the one before
+  // (surface -> l1 -> l2 -> l3), so the upper levels never blur together.
+  {
+    const ramp = ["--surface", "--cal-l1-bg", "--cal-l2-bg", "--cal-l3-bg"].map((k) => map[k]);
+    if (ramp.every(isHex)) {
+      const steps = ramp.slice(1).map((v, i) => ratio(v, ramp[i]));
+      if (steps.some((x, i) => i && x + 1e-9 < steps[i - 1])) bad(`${theme}: calendar ramp steps ${steps.map((x) => x.toFixed(2)).join(" / ")} must not shrink`);
+    }
   }
   for (const [fg, bg, min] of pairs) {
     if (!isHex(map[fg]) || !isHex(map[bg])) {
@@ -182,13 +200,18 @@ if (existsSync(join(root, "DESIGN.md"))) {
     if (!(k in light) && !(k in dark)) bad(`DESIGN.md names ${k}, which tokens.css does not define`);
   }
   let rows = 0;
+  const listed = new Set();
   for (const line of design.split("\n")) {
     const cells = line.split("|").slice(1, -1).map((c) => c.trim());
     if (cells.length < 3 || !cells[0].startsWith("`--")) continue;
     const vals = (c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
     const names = vals(cells[0]);
     const [lv, dv] = [vals(cells[1]), vals(cells[2])];
-    if (lv.length !== names.length || dv.length !== names.length) continue;
+    if (!names.length || lv.length !== names.length || dv.length !== names.length) {
+      bad(`DESIGN.md token row "${cells[0]}" needs one backticked light and dark value per token (${names.length} / ${lv.length} / ${dv.length})`);
+      continue;
+    }
+    names.forEach((n) => listed.add(n));
     rows++;
     names.forEach((n, i) => {
       if (light[n] !== lv[i]) bad(`DESIGN.md light ${n} = ${lv[i]}, tokens.css has ${light[n]}`);
@@ -196,6 +219,10 @@ if (existsSync(join(root, "DESIGN.md"))) {
     });
   }
   if (rows < 20) bad(`DESIGN.md token table not found (${rows} rows)`);
+  // Reverse: every colour token in tokens.css has a row in the table.
+  for (const k of new Set([...Object.keys(light), ...Object.keys(dark)])) {
+    if ((isHex(light[k]) || isHex(dark[k])) && !listed.has(k)) bad(`DESIGN.md token table has no row for ${k}`);
+  }
 }
 if (!/--fs-xs:\s*13px/.test(tokensCss)) bad("--fs-xs must be 13px (minimum text size)");
 if (!/--fs-sm:\s*14px/.test(tokensCss)) bad("--fs-sm must be 14px (body size)");

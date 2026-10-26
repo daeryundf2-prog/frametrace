@@ -326,12 +326,13 @@ const FTStore = {
 | `--media-surface` / `--media-fg` | `#1b1e22` / `#eef0f2` | `#16191d` / `#eef0f2` | 미디어 제목줄·툴바 면 / 글자 |
 | `--media-border` | `#2e333a` | `#282d34` | 미디어 막대 안 구분선(장식, 컨트롤 외곽선 아님) |
 | `--media-control-border` | `#6e747b` | `#6e747b` | 툴바·스테이지 컨트롤 외곽선(≥3:1) |
-| `--media-disabled-fg` | `#6a7077` | `#6a7077` | 툴바 비활성 글자(≥3:1, `--media-muted`보다 확실히 어둡게) + 점선 테두리 |
+| `--media-disabled-fg` | `#6a7077` | `#6a7077` | 툴바 비활성 글자(≥3:1, `--media-muted`보다 확실히 어둡게) |
+| `--media-disabled-border` | `#4a5057` | `#4a5057` | 툴바 비활성 점선 테두리(≥1.5:1, 컨트롤 외곽선보다 어둡게) |
 | `--media-hover` / `--media-active` | `#252a30` / `#2f363e` | `#21262c` / `#2b3139` | 툴바 호버 / 누름 |
 | `--media-ring` | `#8db4ea` | `#8db4ea` | 미디어 면 위 포커스 링·호버 외곽선(스테이지·썸네일 포함) |
 | `--cal-l1-bg/-border` | `#eef2f8` / `#c5d3e8` | `#1c2739` / `#283a54` | 달력 단계 1 |
-| `--cal-l2-bg/-border` | `#dde6f3` / `#a3bae0` | `#1f2e45` / `#344e73` | 달력 단계 2 |
-| `--cal-l3-bg/-border` | `#c6d6ec` / `#7b9fd4` | `#273c5a` / `#426494` | 달력 단계 3 |
+| `--cal-l2-bg/-border` | `#dde6f3` / `#a3bae0` | `#223352` / `#344e73` | 달력 단계 2 |
+| `--cal-l3-bg/-border` | `#c6d6ec` / `#7b9fd4` | `#2c4569` / `#426494` | 달력 단계 3 |
 | `--mark-hl-bg/-fg` | `#fde68a` / `#1a1c1e` | `#614e14` / `#fef3c7` | 검색어 형광펜(`<mark>`) |
 | `--ok` `--danger` `--warn` `--info` | `#2a6b3a` `#b3261e` `#7a5200` `#234e8c` | `#7fcb95` `#ff8a80` `#e8b45a` `#8db4ea` | 의미색(상태에만) |
 | `--verified-fg/-bg` | `#2a6b3a` / `#e4f1e7` | `#7fcb95` / `#17352a` | |
@@ -367,7 +368,7 @@ const FTStore = {
 
 `--on-accent` on `--accent` 8.3 / 8.2 · `--disabled-fg` on `--disabled-bg` 3.8 / 4.8 (≥3) · `--media-muted` on `--media-bg` 9.2 / 9.6 · `--border-strong` on {bg,surface,surface-2} ≥3.0 양 테마(비텍스트 1.4.11) · 상태 fg/bg: verified 5.5/6.9, failed 5.6/6.2, candidate 6.0/6.8, original 8.7/7.6, carved 5.6/6.7, fs-recovered 6.3/6.6, deleted-candidate 6.8/6.6, anomaly 6.0/7.0, warn 6.2/7.0, info 6.9/6.2 (각 fg는 세 surface 위에서도 ≥5.4) · 마크 fg/bg: reviewed 7.8/7.5, important 7.8/8.5, needs-verification 7.5/8.7; `*-ink` on surface 6.8/7.3, 5.7/7.9, 6.7/7.9. **89쌍 × 2테마 전부 통과**(계산 스크립트는 check-css.mjs에 T1이 동일 쌍으로 추가한다: 기존 쌍 + `--media-muted/--media-bg` 4.5 + `--border-strong`·`--accent` on 3 surface ≥3 + `--mark-*-ink` on 3 surface ≥3).
 
-미디어·달력·형광펜 쌍(2026-10 디자인 리뷰 후 추가, light / dark): `--media-fg` on media-bg/surface/hover/active 15.9·14.6·12.7·10.7 / 16.7·15.4·13.3·11.5 · `--media-muted` on media-surface/hover 8.5·7.3 / 8.9·7.7 · `--media-ring` on media-bg/surface 8.5·7.9 / 8.9·8.3 (≥3) · `--media-control-border` on media-bg/surface 3.8·3.5 / 4.0·3.7 (≥3) · `--media-disabled-fg` on media-surface 3.3 / 3.5 (≥3, `--media-muted`의 1/1.5 이하여야 함) · `--text` on cal-l1/l2/l3 15.2·13.6·11.6 / 11.8·10.8·8.8 · `--muted` on cal-l1 6.3 / 6.6 · `--mark-hl-fg` on `--mark-hl-bg` 13.7 / 7.2. check-css.mjs 합계 **104쌍 × 2테마**, 그리고 `DESIGN.md` 토큰 표가 tokens.css와 다르면 실패.
+미디어·달력·형광펜 쌍(2026-10 디자인 리뷰 후 추가, light / dark): `--media-fg` on media-bg/surface/hover/active 15.9·14.6·12.7·10.7 / 16.7·15.4·13.3·11.5 · `--media-muted` on media-surface/hover 8.5·7.3 / 8.9·7.7 · `--media-ring` on media-bg/surface/hover 8.5·7.9·6.8 / 8.9·8.3·7.2 (≥3, 누른 `.on` 토글의 경계) · `--media-control-border` on media-bg/surface 3.8·3.5 / 4.0·3.7 (≥3) · `--media-disabled-fg` on media-surface 3.3 / 3.5 (≥3, `--media-muted`의 1/1.5 이하여야 함) · `--media-disabled-border` on media-surface 2.05 / 2.16 (≥1.5, 외곽선보다 낮아야 함) · `--text` on cal-l1/l2/l3 15.2·13.6·11.6 / 11.8·9.9·7.6 (단계 간 휘도비는 줄지 않아야 함: light 1.08·1.12·1.17, dark 1.12·1.19·1.30) · `--muted` on cal-l1 6.3 / 6.6 · `--mark-hl-fg` on `--mark-hl-bg` 13.7 / 7.2. check-css.mjs 합계 **105쌍 × 2테마**, 그리고 `DESIGN.md` 토큰 표가 tokens.css와 다르거나(값·개수 불일치, 행 누락) tokens.css의 색 토큰이 표에 없으면 실패.
 
 ### 5.3 타입 · 간격 · 모양 · 모션
 

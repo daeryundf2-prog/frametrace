@@ -296,6 +296,7 @@ video{width:100%;height:100%;object-fit:contain}
 .li.on{background:#8db4ea;color:#0f1a2b;font-weight:700}
 .li.on:focus-visible{outline-color:#0f1a2b;outline-offset:-4px}
 .li.novid{color:#8a8f95}
+.li.on.novid{color:#0f1a2b}
 .li .idx{color:#a7acb2;margin-right:4px;font-family:monospace;font-size:13px}
 .li.on .idx{color:#0f1a2b}
 .li .mk{float:right;color:#e8b45a}

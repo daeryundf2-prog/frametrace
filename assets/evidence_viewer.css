@@ -167,7 +167,7 @@ html:root .ft-viewer .count-pills { display: flex; align-items: center; gap: 4px
 :where(.ft-viewer) .media-stage video { background: var(--media-bg); max-width: 100%; }
 :where(.ft-viewer) .media-stage .fallback { color: var(--media-muted); font-size: 13px; padding: 12px; text-align: center; }
 :where(.ft-viewer) .media-stage .fallback a { color: var(--media-ring); }
-:where(.ft-viewer) .media-toolbar button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+:where(.ft-viewer) .media-toolbar button.on { background: var(--accent); border-color: var(--media-ring); color: var(--on-accent); font-weight: 700; }
 :where(.ft-viewer) .dual-stage { display: flex; gap: 6px; width: 100%; height: 100%; min-height: 0; }
 :where(.ft-viewer) .dual-pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; background: #000; position: relative; }
 :where(.ft-viewer) .dual-pane video { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
@@ -334,7 +334,7 @@ html:root .ft-viewer .count-pills { display: flex; align-items: center; gap: 4px
 :where(.ft-viewer) .note-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 :where(.ft-viewer) .tag-btn { height: 28px; border-radius: var(--radius); padding: 0 8px; font-size: var(--fs-xs); background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text); }
 :where(.ft-viewer) .tag-btn.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-:where(.ft-viewer) .media-toolbar button.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+:where(.ft-viewer) .media-toolbar button.on { background: var(--accent); color: var(--on-accent); border-color: var(--media-ring); }
 :where(.ft-viewer) .timeline-panel { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); margin-bottom: 2px; }
 :where(.ft-viewer) .timeline-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 :where(.ft-viewer) .timeline-title { font-size: 13px; font-weight: 800; }

@@ -60,3 +60,17 @@
 | Low | 요약 보고서 인쇄 | 안내 상자 테두리 `#e3cf9e`→`#9a7b2c`, `@media print` 표·상자 테두리 검정, SHA 11→12px | 1.43→3.72 |
 
 검증: `check-css`(104쌍 × 2테마 + DESIGN.md 대조), `check-js`, `verify-i18n`, `verify-contract-pin`, `cargo build --locked`, `cargo test --locked`(lib 1243 통과 등 전부 통과) 통과. 하네스(격리 서버, 별도 빌드): verify-buttons, verify-layout, check-a11y, verify-embed, verify-finalize-sheet, verify-start-screen, verify-player-keys, verify-player-popup-escape, verify-shell-jobs(19), verify-progress(16), verify-rebuild-regressions 통과. verify-viewer-dialogs는 첫 실행에서 `ft-theme` ack 1건이 300 ms 대기 안에 안 와 실패(색과 무관한 타이밍) → 재실행 2회 연속 통과. 하네스 기대값 수정 없음.
+
+### 확인 리뷰 후 2차 수정 (59f3b37 대상)
+| 심각도 | 지적 | 조치 | 측정 |
+|---|---|---|---|
+| Medium(회귀) | 팝아웃 선택된 영상 없는 항목 글자 1.53:1 (`.li.novid`가 `.li.on` 뒤) | `.li.on.novid{color:#0f1a2b}` 추가 | 8.19 on `#8db4ea` |
+| Medium | 라이트 툴바 `.on` 토글(듀얼·프록시) 채움 `--accent`가 막대 위 2.02:1 | `#mediaToolbar` `.on`과 `.media-toolbar button.on` 테두리를 `--media-ring`으로(채움은 그대로). check-css에 `--media-ring` on `--media-hover` 쌍 추가(media-surface 쌍은 기존) | 경계 7.85 / 8.27(막대), 6.78 / 7.15(hover) |
+| Medium | DESIGN.md 대조가 개수 불일치 행을 조용히 건너뜀 | `--` 행에서 이름·light·dark 값 개수가 다르면 실패, 역방향으로 tokens.css의 모든 `#rrggbb` 토큰이 표에 행을 가져야 함. `%TEMP%` 변형 사본 5개로 확인: 행 삭제, 백틱 없는 값, 값 개수 부족, 값 변경, 없는 토큰 → 모두 rc=1(원본 rc=0) | — |
+| Low | 비활성 점선 테두리 `--media-border` 1.31:1(안 보임) | 새 토큰 `--media-disabled-border` `#4a5057`; check-css가 ≥1.5이고 컨트롤 외곽선보다 낮은지 검사 | 2.05 / 2.16 (외곽선 3.54 / 3.73) |
+| Low | 다크 달력 l1→l2 단계 1.10으로 줄어듦 | 다크 `--cal-l2-bg` `#223352`, `--cal-l3-bg` `#2c4569`; check-css가 surface→l1→l2→l3 단계가 줄지 않는지 검사 | 다크 단계 1.12 / 1.19 / 1.30 (라이트 1.08 / 1.12 / 1.17), 글자 9.94 / 7.64 |
+| Low | DESIGN.md 13px 주장·현재 카드 서술 | 남은 12px 위치를 예외 목록으로 명시, 현재 카드는 "1px 테두리 `--accent` + 2px 그림자 링 + ▶ 배지(+고대비 double Highlight)"로 정정 | — |
+
+check-css는 105쌍 × 2테마.
+
+검증(2차): `check-css`(105쌍 × 2테마 + DESIGN.md 양방향 대조), `check-js`, `cargo build --locked` 통과. 하네스: verify-buttons, verify-layout, check-a11y, verify-player-popup-escape, verify-viewer-dialogs 모두 통과(1회 실행, 재시도 없음).
