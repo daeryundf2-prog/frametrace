@@ -261,6 +261,15 @@ html[data-sheet] .h-toastbox { right: calc(var(--h-sheet-w) + 16px); width: min(
 .h-toast.ok { border-color: var(--verified-fg); background: var(--verified-bg); color: var(--verified-fg); }
 .h-toast.warn { border-color: var(--warn-fg); background: var(--warn-bg); color: var(--warn-fg); }
 .h-toast.err { border-color: var(--failed-fg); background: var(--failed-bg); color: var(--failed-fg); }
+/* Kind glyph (not colour alone, also under forced colors): i / ✓ / ! / ✕.
+   Decorative — the message text and the live-region announcement carry it. */
+.h-toast::before { content: "i" / ""; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--info-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); line-height: 1; }
+.h-toast.ok::before { content: "\2713" / ""; background: var(--verified-fg); }
+.h-toast.warn::before { content: "!" / ""; background: var(--warn-fg); }
+.h-toast.err::before { content: "\2715" / ""; background: var(--failed-fg); }
+@media (forced-colors: active) {
+  .h-toast::before { border: 1px solid CanvasText; }
+}
 .h-toast button, .h-toast a { pointer-events: auto; }
 .h-toast .h-toast-x { color: inherit; }
 

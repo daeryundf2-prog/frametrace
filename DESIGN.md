@@ -6,55 +6,82 @@
 - **Core Philosophy ("딱 필요한 설명과 버튼만")**:
   - Zero decorative bloat, zero marketing chrome, zero telemetry.
   - Paper-warm low-glare surfaces (`#ecebe7` / `#fbfaf7`) for long-session document & metadata reading in light mode; neutral carbon slate (`#121416` / `#1b1e21`) in dark mode.
-  - Dedicated neutral dark video stage (`#0e1012` / `#14171a`) so video frames, thumbnails, and waveform/telemetry canvases are never polluted by surrounding chrome tint.
+  - Dedicated neutral dark video stage (`#141618` light theme / `#0e1012` dark theme) so video frames, thumbnails, and waveform/telemetry canvases are never polluted by surrounding chrome tint.
   - Strict elimination of legacy swamp-teal (`#232c28`, `#3a4f48`, `#16231f`, `#eef6f3`) and coloured accent left-borders on rounded containers.
 
-## 2. Color & Atmospheric Polarity (`assets/tokens.css`)
+## 2. Color Tokens (`assets/tokens.css`)
 
-### Surface Palette
-| Token | Light Mode (Warm Archival Paper) | Dark Mode (Carbon Slate) | Role |
+`assets/tokens.css` is the single source of truth; this table is generated from it and
+`scripts/check-css.mjs` fails when a value or token name here drifts from the CSS.
+Light = `:root`, Dark = `html[data-theme="dark"]` (a token not redefined in the dark
+block keeps its light value).
+
+| Token | Light | Dark | Role |
 | :--- | :--- | :--- | :--- |
-| `--bg` | `#ecebe7` | `#121416` | Workbench & grid canvas background |
-| `--surface` | `#fbfaf7` | `#1b1e21` | Primary cards, rail, sheets, filter bar, details |
-| `--surface-2` | `#e2e0da` | `#24282c` | Secondary wells, hover fills, segmented tracks |
-| `--surface-3` | `#d4d1c9` | `#2e3338` | Active pressed fills, subtle badges |
-| `--media-bg` | `#0e1012` | `#0a0b0d` | 16:9 video stage & thumbnail backdrop |
-| `--media-surface` | `#171a1e` | `#14171a` | Media player header & transport bar |
-| `--media-border` | `#2a2f36` | `#242930` | Media stage internal hairlines |
-| `--media-fg` | `#eef0f2` | `#eef0f2` | Media stage primary text |
-| `--media-muted` | `#9ca3af` | `#9ca3af` | Media stage secondary metadata |
-| `--border` | `#c9c6be` | `#32373d` | Hairline structural dividers (`1px solid`) |
-| `--border-strong` | `#7d7a72` | `#747b84` | Control outlines (`>= 3:1` non-text contrast) |
+| `--bg` | `#ecebe7` | `#121416` | Workbench & grid canvas |
+| `--surface` | `#fbfaf7` | `#1b1e21` | Cards, rail, sheets, popovers, details |
+| `--surface-2` | `#f3f2ee` | `#24282c` | Hover fills, secondary wells, group headers |
+| `--border` | `#d6d3cc` | `#33383d` | Hairline dividers (decorative) |
+| `--border-strong` | `#858177` | `#767d84` | Control outlines (>= 3:1 non-text) |
+| `--text` | `#1a1c1e` | `#e6e4df` | Body text |
+| `--muted` | `#55595e` | `#a7acb2` | Secondary text (>= 4.5:1 on bg / surface / surface-2 / accent-soft) |
+| `--disabled-fg` / `--disabled-bg` | `#6f7276` / `#e6e4df` | `#848a90` / `#1b1e21` | Disabled controls (fg >= 3:1 on bg) |
+| `--accent` | `#234e8c` | `#8db4ea` | Ink-blue accent: primary CTA fill, selection, focus ring |
+| `--on-accent` | `#ffffff` | `#0f1a2b` | Text on --accent |
+| `--accent-ink` | `#1c3f73` | `#a9c7f2` | Accent text / primary hover |
+| `--accent-soft` | `#e4ebf5` | `#22304a` | Selected / active tonal fill |
+| `--media-bg` | `#141618` | `#0e1012` | 16:9 video stage & thumbnail backdrop (dark in both themes) |
+| `--media-surface` | `#1b1e22` | `#16191d` | Media title bar & transport toolbar |
+| `--media-border` | `#2e333a` | `#282d34` | Hairlines inside the media bars (decorative) |
+| `--media-control-border` | `#6e747b` | `#6e747b` | Toolbar / stage control outlines (>= 3:1) |
+| `--media-fg` | `#eef0f2` | `#eef0f2` | Primary text on media surfaces |
+| `--media-muted` | `#b4b9be` | `#b4b9be` | Secondary text on media surfaces |
+| `--media-disabled-fg` | `#6a7077` | `#6a7077` | Disabled toolbar text (>= 3:1, dimmer than --media-muted) |
+| `--media-hover` / `--media-active` | `#252a30` / `#2f363e` | `#21262c` / `#2b3139` | Toolbar button hover / pressed fill |
+| `--media-ring` | `#8db4ea` | `#8db4ea` | Focus ring & hover outline on media surfaces |
+| `--cal-l1-bg` / `--cal-l1-border` | `#eef2f8` / `#c5d3e8` | `#1c2739` / `#283a54` | Calendar heat level 1 |
+| `--cal-l2-bg` / `--cal-l2-border` | `#dde6f3` / `#a3bae0` | `#1f2e45` / `#344e73` | Calendar heat level 2 |
+| `--cal-l3-bg` / `--cal-l3-border` | `#c6d6ec` / `#7b9fd4` | `#273c5a` / `#426494` | Calendar heat level 3 |
+| `--mark-hl-bg` / `--mark-hl-fg` | `#fde68a` / `#1a1c1e` | `#614e14` / `#fef3c7` | Search-hit highlight (<mark>) |
+| `--ok` / `--danger` / `--warn` / `--info` | `#2a6b3a` / `#b3261e` / `#7a5200` / `#234e8c` | `#7fcb95` / `#ff8a80` / `#e8b45a` / `#8db4ea` | Semantic status text only |
+| `--verified-fg` / `--verified-bg` | `#2a6b3a` / `#e4f1e7` | `#7fcb95` / `#17352a` | Confirmed video stream |
+| `--failed-fg` / `--failed-bg` | `#b3261e` / `#fbeae8` | `#ff8a80` / `#3d2422` | Validation failed (red) |
+| `--candidate-fg` / `--candidate-bg` | `#5e4f91` / `#eeecf6` | `#b8a9ec` / `#2a2640` | Unverified candidate |
+| `--original-fg` / `--original-bg` | `#1c3f73` / `#e4ebf5` | `#a9c7f2` / `#22304a` | Original file |
+| `--carved-fg` / `--carved-bg` | `#96470a` / `#fbeadd` | `#f0a060` / `#3a2616` | Carved |
+| `--fs-recovered-fg` / `--fs-recovered-bg` | `#1f4fb0` / `#e5ecfa` | `#8fb0f5` / `#1c2a4a` | Filesystem-recovered |
+| `--deleted-candidate-fg` / `--deleted-candidate-bg` | `#9b1c1c` / `#fbe6e6` | `#ff8f8f` / `#3d2222` | Deleted candidate (red) |
+| `--anomaly-fg` / `--anomaly-bg` | `#7a5200` / `#f8efd9` | `#e8b45a` / `#3a2e1a` | Timestamp / structure anomaly |
+| `--warn-fg` / `--warn-bg` | `#7a5200` / `#fbf1dc` | `#e8b45a` / `#3a2e1a` | Non-fatal warning |
+| `--info-fg` / `--info-bg` | `#234e8c` / `#e4ebf5` | `#8db4ea` / `#22304a` | Information |
+| `--mark-reviewed-fg` / `--mark-reviewed-bg` / `--mark-reviewed-ink` | `#3d4146` / `#e2e1dc` / `#55595e` | `#d6d9dd` / `#3a3f45` / `#a7acb2` | Mark 검토됨 (reviewed) = **grey check** |
+| `--mark-important-fg` / `--mark-important-bg` / `--mark-important-ink` | `#5c3a00` / `#f6dfb3` / `#8a5a00` | `#1f1500` / `#e0a94a` / `#e0a94a` | Mark 중요 (important) = **amber/orange flag** |
+| `--mark-needs-verification-fg` / `--mark-needs-verification-bg` / `--mark-needs-verification-ink` | `#4a3b7f` / `#e7e2f5` / `#5e4f91` | `#15102a` / `#b8a9ec` / `#b8a9ec` | Mark 확인 필요 (needs verification) = **violet question mark** |
 
-### Typography & Ink Hierarchy
-| Token | Light Mode | Dark Mode | Min Contrast |
-| :--- | :--- | :--- | :--- |
-| `--text` | `#17181a` | `#eef0f2` | `>= 13:1` on `--bg` / `--surface` |
-| `--muted` | `#52555a` | `#a4abb3` | `>= 4.5:1` on `--bg` / `--surface` / `--surface-2` |
-| `--disabled-fg` | `#66696e` | `#7c838c` | `>= 3.0:1` on `--disabled-bg` & surfaces |
-| `--disabled-bg` | `#e4e2dc` | `#1f2327` | Disabled control fill |
+Review marks are distinguished by glyph **and** colour: reviewed = grey check,
+important = amber/orange flag, needs verification = violet question mark. Red is
+reserved for failed / deleted-candidate / destructive. `*-ink` mark tokens are the
+single-colour glyph on a plain surface (non-text, `>= 3:1`).
 
-### Accent & Semantic Tokens (Single Source of Truth)
-| Category | Token Prefix | Light (FG / BG / Ink) | Dark (FG / BG / Ink) | Usage |
-| :--- | :--- | :--- | :--- | :--- |
-| **Primary Accent** | `--accent*` | `#234e8c` / `#dfe7f3` / `#1c3f73` | `#6ea3eb` / `#1d2b3f` / `#8cb7f0` | 1 primary CTA per region, active selection rings, focus outlines |
-| **Verified (`ok`)** | `--verified*` | `#15603a` / `#dff0e6` | `#6fd09c` / `#162b21` | Confirmed video stream (`ffprobe-video-stream-confirmed`) |
-| **Candidate** | `--candidate*` | `#58427c` / `#ebe6f4` | `#bfa9e6` / `#262033` | Unverified carved/filesystem candidate |
-| **Anomaly / Warn** | `--anomaly*` / `--warn*` | `#7c4d08` / `#f6ead4` | `#e5b567` / `#2f2414` | Timestamp/structure anomaly, non-fatal warnings |
-| **Failed / Danger** | `--failed*` / `--danger*` | `#96231c` / `#f8e2e0` | `#f28b82` / `#331b1a` | Corrupt stream (`validation-failed`), destructive confirmation |
-| **Mark: Reviewed** | `--mark-reviewed*` | `#15603a` / `#dff0e6` / `#1e7a4c` | `#6fd09c` / `#162b21` / `#52b782` | Examiner mark: Reviewed (`검토됨`) |
-| **Mark: Important** | `--mark-important*` | `#8f2d14` / `#f9e4dc` / `#b83b1a` | `#f59e84` / `#331e19` / `#e87a5a` | Examiner mark: Important (`중요`) |
-| **Mark: Verify** | `--mark-needs-verification*` | `#7c4d08` / `#f6ead4` / `#9e630a` | `#e5b567` / `#2f2414` / `#d49b38` | Examiner mark: Needs Verification (`확인 필요`) |
+Contrast contract (enforced by `scripts/check-css.mjs` in both themes): every text
+token on `--bg` / `--surface` / `--surface-2` `>= 4.5:1`; status and mark fg on their
+own bg `>= 4.5:1`; `--disabled-fg` on `--disabled-bg` `>= 3:1`; `--border-strong`,
+`--accent`, `*-ink` on the three surfaces `>= 3:1`; media text on every media fill
+`>= 4.5:1`; `--media-ring` and `--media-control-border` on `--media-bg` /
+`--media-surface` `>= 3:1`; `--media-disabled-fg` on `--media-surface` `>= 3:1` and
+clearly dimmer than `--media-muted`; `--text` on every calendar level and
+`--mark-hl-fg` on `--mark-hl-bg` `>= 4.5:1`.
 
 ## 3. Typography & Scannable Hierarchy
-- **UI Sans (`--font-sans`)**: `"Pretendard Variable", "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", "Segoe UI", system-ui, sans-serif`
-- **Tabular Mono (`--font-mono`)**: `ui-monospace, "Cascadia Mono", "Consolas", monospace`
+- **UI Sans (`--font-sans`)**: `"Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif` (system fonts only; nothing is downloaded)
+- **Tabular Mono (`--font-mono`)**: `ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace`
 - **Scale & Line Heights**:
   - `--fs-xs`: `13px` (minimum text size across the entire application; sub-13px is forbidden)
   - `--fs-sm`: `14px` (default body, buttons, inputs, table cells)
-  - `--fs-md`: `16px` (sheet/dialog headers, empty-state card titles)
-  - `--fs-lg`: `18px` (major modal titles)
-  - `--lh-ctl`: `1.25`, `--lh-body`: `1.5`
+  - `--fs-md`: `16px` (sheet/dialog headers, weight 600)
+  - `--fs-lg`: `20px` (empty-state and dialog titles)
+  - `--lh-ctl`: `1.35`, `--lh-body`: `1.5`
+- **Shape & motion**: `--radius` `3px`; shadows only on popovers (`--shadow-pop`) and sheets (`--shadow-sheet`); transitions `--dur-fast` 120ms / `--dur` 150ms / `--dur-slow` 180ms, all `0ms` under `prefers-reduced-motion`.
 - **Numeric Discipline**: All timestamps, frame counts, byte sizes, SHA-256 hashes, durations, and badge counters enforce `font-variant-numeric: tabular-nums`.
 - **CJK Line-Break Discipline**: Interactive labels, buttons, badges, and pills enforce `white-space: nowrap` or `word-break: keep-all`.
 
@@ -75,15 +102,16 @@ Target desktop viewports: `1366×768` (minimum workstation budget) through `1920
 ## 5. Component & Interaction Specifications (`assets/kit.css`)
 - **4 Button Kinds**:
   - `primary`: `--accent` fill, `--on-accent` text, `min-height: 36px` (`--ctl-h-lg`), max 1 visible per `[data-region]`.
-  - `secondary` (default `<button>`): `--surface` fill, `--border-strong` border, `height: 32px` (`--ctl-h`).
+  - `secondary` (default `<button>`): `--surface` fill, `--border-strong` border, `min-height: 32px` (`--ctl-h`).
   - `quiet`: transparent fill, `--text` ink, subtle `--surface-2` hover.
-  - `destructive`: `--danger` fill, `--on-danger` text, `min-height: 36px`, reserved exclusively for confirmation dialogs.
-- **5 Mandatory Interactive States**: Every button and interactive control has visually and computationally distinct `default`, `hover`, `active` (`translateY(0.5px)`), `focus-visible` (`2px solid var(--accent)`, `outline-offset: 2px`), and `disabled` states.
+  - `destructive`: `--danger` outline and text on `--surface`; `primary destructive` = `--danger` fill with `--on-accent` text, `min-height: 36px`, reserved for confirmation dialogs.
+- **5 Mandatory Interactive States**: Every button and interactive control has visually and computationally distinct `default`, `hover`, `active` (`translateY(1px)`), `focus-visible` (`2px solid var(--accent)`, `outline-offset: 2px`), and `disabled` states.
 - **Card & List Selection**:
   - Active card in grid uses a crisp `2px` `--accent` border + outer ring (`0 0 0 2px var(--accent)`) + subtle play badge in thumbnail corner—never a thick inset left border on `.meta`.
   - Active tree/rail items use `--accent-soft` tonal fill + `1px solid var(--accent)` border + bold `--accent-ink` typography—never a 3px/4px left border stripe on rounded corners.
   - Group headers use `--surface-2` fill + `1px solid var(--border)` + semantic status dot/badge instead of 4px coloured left borders.
-  - Toasts use elevated `--surface` with `1px solid var(--border-strong)`, subtle shadow, and semantic status badge/pill rather than a 4px left border stripe.
+  - Toasts use elevated `--surface` with `1px solid var(--border-strong)` and `--shadow-pop`; warn / error (and shell ok) toasts take the status fg/bg pair plus a kind glyph (shell: i / ✓ / ! / ✕, viewer: ! warn / ✕ error) so the kind never depends on colour alone (also under forced colors). No 4px left border stripe.
+  - Media toolbar (`#mediaToolbar`): controls outlined with `--media-control-border`; disabled = `--media-disabled-fg` text, transparent fill and a dashed `--media-border` hairline; focus and hover use `--media-ring` (also on the video stage and thumbnail controls).
 
 ## 6. Accessibility & Agent Experience (AX) Guardrails
 - **WCAG 2.2 AA Contrast**: `>= 4.5:1` for all text/badge/status pairs; `>= 3.0:1` for control borders, focus rings, disabled foregrounds, and mark icons across both Light and Dark themes.

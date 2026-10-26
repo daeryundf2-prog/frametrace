@@ -283,28 +283,29 @@ function openPlayerWindow() {
 <style>
 body{margin:0;background:#0e1012;color:#e6e4df;font-family:"Pretendard Variable","Pretendard","Malgun Gothic","Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
 header{padding:8px 14px;font-size:13px;display:flex;gap:10px;align-items:center;border-bottom:1px solid #282d34;background:#16191d;flex-wrap:wrap}
-header .id{color:#a7acb2;font-family:monospace;font-size:12px}
+header .id{color:#a7acb2;font-family:monospace;font-size:13px}
 #wrap{flex:1;min-height:0;display:flex}
 #left{flex:1;min-width:0;display:flex;flex-direction:column}
 #stage{flex:1;min-height:0;display:grid;place-items:center;background:#000;position:relative}
 video{width:100%;height:100%;object-fit:contain}
 #novid{position:absolute;color:#b4b9be;font-size:13px;background:rgba(14,16,18,.78);padding:8px 14px;border-radius:4px}
-#list{width:230px;flex:0 0 auto;overflow-y:auto;border-left:1px solid #282d34;background:#16191d;font-size:12px}
+#list{width:230px;flex:0 0 auto;overflow-y:auto;border-left:1px solid #282d34;background:#16191d;font-size:13px}
 .li{padding:6px 10px;cursor:pointer;border-bottom:1px solid #21262c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .li:hover{background:#21262c}
 .li:focus-visible{outline:2px solid #8db4ea;outline-offset:-2px}
 .li.on{background:#8db4ea;color:#0f1a2b;font-weight:700}
-.li.novid{color:#6f7276}
-.li .idx{color:#a7acb2;margin-right:4px;font-family:monospace;font-size:11px}
+.li.on:focus-visible{outline-color:#0f1a2b;outline-offset:-4px}
+.li.novid{color:#8a8f95}
+.li .idx{color:#a7acb2;margin-right:4px;font-family:monospace;font-size:13px}
 .li.on .idx{color:#0f1a2b}
 .li .mk{float:right;color:#e8b45a}
 .li.on .mk{color:#0f1a2b}
 .bar{display:flex;gap:8px;align-items:center;padding:6px 14px;border-top:1px solid #282d34;background:#16191d;font-size:13px;flex-wrap:wrap}
-button,select{font:inherit;height:28px;border:1px solid #33383d;border-radius:3px;background:#1b1e21;color:#e6e4df;padding:0 10px;cursor:pointer;font-size:12px}
+button,select{font:inherit;height:28px;border:1px solid #6e747b;border-radius:3px;background:#1b1e21;color:#e6e4df;padding:0 10px;cursor:pointer;font-size:13px}
 button:hover,select:hover{border-color:#8db4ea}
 button.on{background:#8db4ea;border-color:#8db4ea;color:#0f1a2b}
-.muted{color:#a7acb2;font-size:12px}
-#note{color:#e8b45a;font-size:12px}
+.muted{color:#a7acb2;font-size:13px}
+#note{color:#e8b45a;font-size:13px}
 </style></head><body>
 <header><strong id="title"></strong><span class="id" id="meta"></span><span id="note"></span></header>
 <div id="wrap"><div id="left">

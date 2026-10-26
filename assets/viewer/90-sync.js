@@ -1998,10 +1998,11 @@ document.getElementById("btnSummary").addEventListener("click", () => {
 <style>
 body{font-family:"Pretendard Variable","Pretendard","Malgun Gothic","Segoe UI",system-ui,sans-serif;margin:32px;color:#1a1c1e;background:#fbfaf7}
 h1{font-size:20px} .meta{color:#55595e;font-size:13px;margin-bottom:4px}
-.note{background:#fdf6e8;border:1px solid #e3cf9e;border-radius:6px;padding:10px 12px;font-size:13px;margin:14px 0}
+.note{background:#fdf6e8;border:1px solid #9a7b2c;border-radius:6px;padding:10px 12px;font-size:13px;margin:14px 0}
 table{border-collapse:collapse;width:100%;font-size:12px}
 th,td{border:1px solid #d6d3cc;padding:6px 8px;text-align:left;vertical-align:top}
-th{background:#f3f2ee} .mono{font-family:Consolas,monospace;font-size:11px;word-break:break-all}
+th{background:#f3f2ee} .mono{font-family:Consolas,monospace;font-size:12px;word-break:break-all}
+@media print{.note,th,td{border-color:#000}}
 </style></head><body>
 <h1>${t("report.title")}</h1>
 <div class="meta">${e(tf("report.meta", { case: manifest.case_id || "-", when: (p => `${p.date} ${p.time} UTC${p.offset}`)(recTimeParts(Date.now() / 1000)), n: items.length }))}</div>

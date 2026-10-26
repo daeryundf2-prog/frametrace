@@ -145,10 +145,25 @@ for (const s of surfaces) {
   pairs.push(["--border-strong", s, 3], ["--accent", s, 3]);
   for (const m of marks) pairs.push([`--mark-${m}-ink`, s, 3]);
 }
+// Media stage / toolbar (dark in both themes): text on every media fill,
+// non-text control outline and focus ring >= 3:1, disabled toolbar text >= 3:1.
+// --media-border is a decorative hairline (controls use --media-control-border).
+for (const s of ["--media-bg", "--media-surface", "--media-hover", "--media-active"]) pairs.push(["--media-fg", s, 4.5]);
+for (const s of ["--media-surface", "--media-hover"]) pairs.push(["--media-muted", s, 4.5]);
+for (const s of ["--media-bg", "--media-surface"]) pairs.push(["--media-ring", s, 3], ["--media-control-border", s, 3]);
+pairs.push(["--media-disabled-fg", "--media-surface", 3]);
+// Calendar heat levels carry the day number (--text) and, on l1, the muted count.
+for (const l of ["l1", "l2", "l3"]) pairs.push(["--text", `--cal-${l}-bg`, 4.5]);
+pairs.push(["--muted", "--cal-l1-bg", 4.5], ["--mark-hl-fg", "--mark-hl-bg", 4.5]);
 for (const [theme, map] of [
   ["light", light],
   ["dark", dark],
 ]) {
+  // A disabled toolbar button must read dimmer than the .muted toolbar labels.
+  if (isHex(map["--media-disabled-fg"]) && isHex(map["--media-muted"]) && isHex(map["--media-surface"])
+    && ratio(map["--media-disabled-fg"], map["--media-surface"]) * 1.5 > ratio(map["--media-muted"], map["--media-surface"])) {
+    bad(`${theme}: --media-disabled-fg is not clearly dimmer than --media-muted on --media-surface`);
+  }
   for (const [fg, bg, min] of pairs) {
     if (!isHex(map[fg]) || !isHex(map[bg])) {
       bad(`${theme}: ${fg} or ${bg} missing / not #rrggbb`);
@@ -157,6 +172,30 @@ for (const [theme, map] of [
     const r = ratio(map[fg], map[bg]);
     if (r + 1e-9 < min) bad(`${theme}: ${fg} ${map[fg]} on ${bg} ${map[bg]} = ${r.toFixed(2)}:1 < ${min}:1`);
   }
+}
+// DESIGN.md mirrors tokens.css: every token it names must exist, and every
+// token-table row ("| `--a` / `--b` | light / light | dark / dark | role |")
+// must carry exactly the CSS values.
+if (existsSync(join(root, "DESIGN.md"))) {
+  const design = readFileSync(join(root, "DESIGN.md"), "utf8");
+  for (const [, k] of design.matchAll(/`(--[a-z0-9-]+)`/g)) {
+    if (!(k in light) && !(k in dark)) bad(`DESIGN.md names ${k}, which tokens.css does not define`);
+  }
+  let rows = 0;
+  for (const line of design.split("\n")) {
+    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    if (cells.length < 3 || !cells[0].startsWith("`--")) continue;
+    const vals = (c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+    const names = vals(cells[0]);
+    const [lv, dv] = [vals(cells[1]), vals(cells[2])];
+    if (lv.length !== names.length || dv.length !== names.length) continue;
+    rows++;
+    names.forEach((n, i) => {
+      if (light[n] !== lv[i]) bad(`DESIGN.md light ${n} = ${lv[i]}, tokens.css has ${light[n]}`);
+      if (dark[n] !== dv[i]) bad(`DESIGN.md dark ${n} = ${dv[i]}, tokens.css has ${dark[n]}`);
+    });
+  }
+  if (rows < 20) bad(`DESIGN.md token table not found (${rows} rows)`);
 }
 if (!/--fs-xs:\s*13px/.test(tokensCss)) bad("--fs-xs must be 13px (minimum text size)");
 if (!/--fs-sm:\s*14px/.test(tokensCss)) bad("--fs-sm must be 14px (body size)");

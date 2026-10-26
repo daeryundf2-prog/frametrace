@@ -107,7 +107,7 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
    ====================================================================== */
 .player { grid-template-rows: 32px auto auto; }
 .ft-viewer.theater .player { grid-template-rows: 34px minmax(0, 1fr) auto; }
-#mediaToolbar { --tb-bg: var(--media-surface); --tb-fg: var(--media-fg); --tb-line: var(--media-border); --tb-hover: var(--media-hover); --tb-ring: var(--media-ring);
+#mediaToolbar { --tb-bg: var(--media-surface); --tb-fg: var(--media-fg); --tb-line: var(--media-border); --tb-ctl: var(--media-control-border); --tb-hover: var(--media-hover); --tb-ring: var(--media-ring);
   display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 0; padding: 0; background: var(--tb-bg); color: var(--tb-fg); }
 .tb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; min-width: 0; }
 .tb-row + .tb-row { border-top: 1px solid var(--tb-line); }
@@ -116,12 +116,14 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 .tb-range:empty { display: none; }
 .tb-size { display: inline-flex; align-items: center; gap: 8px; }
 #mediaToolbar .muted { color: var(--media-muted); font-size: var(--fs-xs); }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)) { background: var(--tb-bg); color: var(--tb-fg); border-color: var(--tb-line); padding: 0 8px; font-size: var(--fs-xs); }
+#mediaToolbar .tb-row button:where(:not(.menu-list *)) { background: var(--tb-bg); color: var(--tb-fg); border-color: var(--tb-ctl); padding: 0 8px; font-size: var(--fs-xs); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)):hover { background: var(--tb-hover); border-color: var(--tb-ring); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)):active { background: var(--media-active); border-color: var(--tb-ring); }
 #mediaToolbar .tb-row button:where(:not(.menu-list *)).on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: var(--tb-bg); color: var(--media-muted); border-color: var(--tb-line); }
-#mediaToolbar .tb-row button:where(:not(.menu-list *)).busy:disabled { background: var(--tb-hover); color: var(--tb-fg); border-color: var(--tb-ring); }
+/* Disabled: dimmer text than the .muted labels (>= 3:1) and a dashed hairline
+   instead of the solid 3:1 outline, so a dead IN / OUT reads as off by shape too. */
+#mediaToolbar .tb-row button:where(:not(.menu-list *)):disabled { background: transparent; color: var(--media-disabled-fg); border-color: var(--tb-line); border-style: dashed; }
+#mediaToolbar .tb-row button:where(:not(.menu-list *)).busy:disabled { background: var(--tb-hover); color: var(--tb-fg); border-color: var(--tb-ring); border-style: solid; }
 #mediaToolbar button:where(:not(.menu-list *)):focus-visible, #mediaToolbar select:focus-visible, #mediaToolbar input:focus-visible { outline-color: var(--tb-ring); }
 #mediaToolbar kbd { background: rgba(255,255,255,.1); border-color: var(--tb-line); color: var(--media-muted); }
 /* Transport = one 44px row in a 480px media column (§6.1): seek and frame
@@ -134,7 +136,7 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 #mediaToolbar .tb-transport #playRate { padding: 0 4px; }
 #mediaToolbar .tb-row.tb-transport { gap: 4px; padding: 6px 8px; }
 #mediaToolbar .tb-transport :is(#btnStepBack, #btnStepFwd) { padding: 0 6px; }
-#mediaToolbar .tb-row select { height: 32px; padding: 0 8px; border-radius: var(--radius); background: var(--tb-bg); color: var(--tb-fg); border: 1px solid var(--tb-line); font-size: var(--fs-xs); }
+#mediaToolbar .tb-row select { height: 32px; padding: 0 8px; border-radius: var(--radius); background: var(--tb-bg); color: var(--tb-fg); border: 1px solid var(--tb-ctl); font-size: var(--fs-xs); }
 #mediaToolbar .tb-row input[type="range"] { width: 120px; height: 24px; padding: 0; background: transparent; border: 0; accent-color: var(--accent); }
 /* the same elements, once moved into the popover, follow the page theme */
 #mediaToolbar .menu-list { color: var(--text); }
@@ -159,9 +161,12 @@ html:root .tag-add button { width: auto; justify-content: center; border: 1px so
 #toastHost > .toast { pointer-events: none; display: flex; align-items: flex-start; gap: 8px; max-width: none; padding: 8px 6px 8px 12px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font-size: var(--fs-sm); line-height: var(--lh-ctl); box-shadow: var(--shadow-pop); }
 #toastHost .toast-text { flex: 1 1 auto; min-width: 0; padding-top: 3px; word-break: keep-all; overflow-wrap: break-word; }
 #toastHost .toast-error { border-color: var(--failed-fg); background: var(--failed-bg); color: var(--failed-fg); }
-#toastHost .toast-error::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--failed-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
+#toastHost .toast-error::before { content: "\2715" / ""; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--failed-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
 #toastHost .toast-warn { border-color: var(--warn-fg); background: var(--warn-bg); color: var(--warn-fg); }
-#toastHost .toast-warn::before { content: "!"; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--warn-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
+#toastHost .toast-warn::before { content: "!" / ""; flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--warn-fg); color: var(--surface); font-weight: 800; font-size: var(--fs-xs); }
+@media (forced-colors: active) {
+  #toastHost .toast-error::before, #toastHost .toast-warn::before { border: 1px solid CanvasText; }
+}
 #toastHost .toast button { pointer-events: auto; flex: none; min-width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid transparent; background: transparent; color: inherit; font: inherit; font-size: var(--fs-xs); cursor: pointer; padding: 0 8px; }
 #toastHost .toast button:hover { background: var(--surface-2); }
 #toastHost .toast button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }

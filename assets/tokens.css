@@ -84,7 +84,9 @@
   --media-bg: #141618;    /* video stage: dark in both themes */
   --media-muted: #b4b9be; /* secondary text on the dark media bars */
   --media-surface: #1b1e22;
-  --media-border: #2e333a;
+  --media-border: #2e333a;          /* hairline dividers only (decorative) */
+  --media-control-border: #6e747b;  /* control outlines on the media bars (>= 3:1) */
+  --media-disabled-fg: #6a7077;     /* disabled toolbar text (>= 3:1, below --media-muted) */
   --media-fg: #eef0f2;
   --media-hover: #252a30;
   --media-active: #2f363e;
@@ -141,11 +143,13 @@ html[data-theme="dark"] {
   --media-bg: #0e1012;
   --media-surface: #16191d;
   --media-border: #282d34;
+  --media-control-border: #6e747b;
+  --media-disabled-fg: #6a7077;
   --media-fg: #eef0f2;
   --media-hover: #21262c;
   --media-active: #2b3139;
   --media-ring: #8db4ea;
-  --cal-l1-bg: #182232;          --cal-l1-border: #283a54;
+  --cal-l1-bg: #1c2739;          --cal-l1-border: #283a54;
   --cal-l2-bg: #1f2e45;          --cal-l2-border: #344e73;
   --cal-l3-bg: #273c5a;          --cal-l3-border: #426494;
   --mark-hl-bg: #614e14;         --mark-hl-fg: #fef3c7;

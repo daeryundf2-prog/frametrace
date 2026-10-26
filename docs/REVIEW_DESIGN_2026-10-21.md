@@ -39,3 +39,24 @@
 | Low | `viewer/90-sync.js:2001-2004` | 요약 보고서 흑백 인쇄 읽힘·상태는 글자; 안내 상자 테두리 1.53:1, SHA 11px(기존) | `@media print` 테두리 검정, 12~13px |
 
 문제없음: 두 해상도·두 테마 잘림 없음, 배지·토스트·형광펜·종류 배지·텔레메트리 대비 기준 통과, 레거시 밖 왼쪽 색 줄·옛 청록색 0건, reduced-motion 정상, check-css 88쌍 통과.
+
+## 수정 기록 (2026-10-26, `design-refresh`)
+대비는 check-css.mjs와 같은 WCAG 공식으로 계산(light / dark).
+
+| 심각도 | 지적 | 조치 | 측정 |
+|---|---|---|---|
+| High | 툴바 버튼 테두리 1.31·1.27:1 | 새 토큰 `--media-control-border` `#6e747b`(양 테마)를 툴바 버튼·select, 썸네일 "다시 시도", 전체화면 나가기 버튼 외곽선에 적용. `--media-border`는 구분선 전용(장식)으로 남김 | media-surface 위 3.54 / 3.73, media-bg 위 3.84 / 4.04 |
+| High | 비활성 툴바 버튼 구분 약함 | 새 토큰 `--media-disabled-fg` `#6a7077` + 투명 배경 + 점선 `--media-border` 테두리(활성은 실선 3:1). busy 비활성은 실선 유지. `disabled`/`aria-disabled` 동작은 그대로 | 글자 3.34 / 3.52(≥3), 활성 글자 14.64와 4.4배·`.muted` 라벨 8.46과 2.5배 차이 |
+| High | DESIGN.md 불일치 | §2 토큰 표를 tokens.css에서 재생성(전 토큰, 새 media·cal·mark-hl 포함), `--surface-3`·`--on-danger` 제거, 마크 의미를 CSS대로(검토됨=회색 체크, 중요=호박/주황 깃발, 확인 필요=보라 물음표 — `evidence_viewer.css` `.mark-chip`·`#btnMark*`에서 확인), 글꼴 스택·`--fs-lg` 20px·`--lh-ctl` 1.35·destructive 버튼·active 1px 정정. check-css.mjs가 DESIGN.md의 토큰 이름·표 값을 tokens.css와 대조(불일치 시 실패) | — |
+| Medium | check-css에 새 토큰 없음 | 16쌍 추가(88→104쌍 × 2테마): media-fg on media-bg/surface/hover/active, media-muted on surface/hover, media-ring·media-control-border on media-bg/surface(≥3), media-disabled-fg on surface(≥3, media-muted보다 1.5배 이상 어두워야 함), text on cal-l1~3, muted on cal-l1, mark-hl-fg on mark-hl-bg. 계약 §5.1 표·§5.2 수치 갱신 | 최저: media-disabled-fg 3.34, media-control-border 3.54, cal-l3 text 8.79(dark), mark-hl 7.23(dark) |
+| Medium | 미디어 영역 포커스 링 2.19/2.02:1 | `.media-stage`(자신·안쪽), `.thumb` 안 컨트롤, `.fs-exit`의 `:focus-visible`을 `--media-ring` | light 8.51(media-bg) / 7.85(media-surface) |
+| Medium | 팝아웃 선택 항목 포커스 링 1:1 | `.li.on:focus-visible` 링을 `#0f1a2b`, offset −4px(선택 배경 안쪽) | 8.19 on `#8db4ea` |
+| Medium | 셸 토스트 색으로만 구분 | `.h-toast::before` 종류별 글리프 i / ✓ / ! / ✕(`content: … / ""`로 읽기 제외, DOM·aria 불변), forced-colors에서 글리프 테두리. 뷰어 오류 토스트 글리프 "!" → "✕"(경고는 "!") | — |
+| Low | 고대비 현재 카드·활성 항목 | `@media (forced-colors: active)`: `.card.active`, `.tree-item.active`, `.rail-chip.active`에 `3px double Highlight`(포커스 시 실선) | — |
+| Low | 카빙/후보 배지 휘도비 1.16 | carved `#9a4c0a`, candidate `#701812` | 휘도비 1.87, 흰 글자 6.15 / 13.6 이상 |
+| Low | 달력 단계 차이 | 다크 `--cal-l1-bg` `#182232`→`#1c2739` | surface 대비 1.05→1.12, 글자 11.82 |
+| Low | 13px 미만·팝아웃 영상 없는 항목 | 팝아웃(70-player.js) 글자 11·12px→13px, `.li.novid` `#6f7276`→`#8a8f95`, 팝아웃 버튼 테두리 `#33383d`(1.41)→`#6e747b`. `evidence_viewer.css`의 12px 11곳(날짜 입력·레일 칩·필터 칩·선택 막대·메뉴·태그 입력·타임라인·대화상자 필드)은 **보류** — 상당수가 뒤에 오는 controls.css/kit.css에 덮이고, 고정 폭(날짜 입력 136px 등)·칩 줄바꿈에 영향이 있어 배치 변경 금지 범위 밖. 별도 작업으로 실측 후 조정 | novid 5.41 (hover 4.68) |
+| Low | 다크 경고 검증 항목 배경 | 다크 규칙에 `.validation-item.warn { background: var(--warn-bg) }` | — |
+| Low | 요약 보고서 인쇄 | 안내 상자 테두리 `#e3cf9e`→`#9a7b2c`, `@media print` 표·상자 테두리 검정, SHA 11→12px | 1.43→3.72 |
+
+검증: `check-css`(104쌍 × 2테마 + DESIGN.md 대조), `check-js`, `verify-i18n`, `verify-contract-pin`, `cargo build --locked`, `cargo test --locked`(lib 1243 통과 등 전부 통과) 통과. 하네스(격리 서버, 별도 빌드): verify-buttons, verify-layout, check-a11y, verify-embed, verify-finalize-sheet, verify-start-screen, verify-player-keys, verify-player-popup-escape, verify-shell-jobs(19), verify-progress(16), verify-rebuild-regressions 통과. verify-viewer-dialogs는 첫 실행에서 `ft-theme` ack 1건이 300 ms 대기 안에 안 와 실패(색과 무관한 타이밍) → 재실행 2회 연속 통과. 하네스 기대값 수정 없음.
