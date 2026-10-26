@@ -101,6 +101,9 @@ html:root .ft-viewer .count-pills { display: flex; align-items: center; gap: 4px
 :where(.ft-viewer) .tree-item:hover { background: var(--surface-2); }
 :where(.ft-viewer) .tree-item.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 800; }
 :where(.ft-viewer) .tree-item .muted { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+/* Folder-structure rows: one monochrome sprite icon (no emoji), muted until active. */
+:where(.ft-viewer) .tree-item .tree-ic { margin-right: 5px; color: var(--muted); }
+:where(.ft-viewer) .tree-item.active .tree-ic { color: inherit; }
 :where(.ft-viewer) .rail-cal { border-top: 1px solid var(--line); margin-top: 2px; display: flex; flex-direction: column; gap: 4px; }
 :where(.ft-viewer) .hist { min-width: 0; }
 :where(.ft-viewer) .cal { display: flex; flex-direction: column; gap: 4px; padding: 0 2px; }

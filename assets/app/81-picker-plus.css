@@ -72,3 +72,20 @@ button.pk-crumb { color: var(--accent-ink); }
 #inputCard .field .pathstatus.ok:not(:empty) { background: var(--verified-bg); }
 #inputCard .field .pathstatus.warn:not(:empty) { background: var(--warn-bg); }
 #inputCard .field .pathstatus.err:not(:empty) { background: var(--failed-bg); }
+
+/* ---- design-system pass (state never by colour alone) ---- */
+/* The selected row is outlined as well as tinted, so it differs from a
+   hovered row; keyboard focus keeps its 2px ring. */
+.picker-item[aria-selected="true"] { outline: 1px solid var(--accent); outline-offset: -1px; }
+.picker-item[aria-selected="true"]:focus-visible { outline-width: 2px; outline-offset: -2px; }
+.pk-place.active { box-shadow: inset 0 0 0 1px var(--accent); }
+/* Path status: a decorative kind glyph before the message (the text itself
+   says what is wrong; the glyph makes ok / warn / error scannable). */
+#inputCard .pathstatus.ok:not(:empty)::before { content: "\2713\00a0" / ""; font-weight: 700; }
+#inputCard .pathstatus.warn:not(:empty)::before { content: "!\00a0" / ""; font-weight: 700; }
+#inputCard .pathstatus.err:not(:empty)::before { content: "\2715\00a0" / ""; font-weight: 700; }
+@media (forced-colors: active) {
+  .picker-item[aria-selected="true"], .pk-place.active { outline: 2px solid Highlight; outline-offset: -2px; }
+  #inputCard .field .pathstatus:not(:empty) { border: 1px solid CanvasText; }
+  .ev-dropveil { border-color: Highlight; }
+}

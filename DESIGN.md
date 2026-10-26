@@ -80,7 +80,7 @@ clearly dimmer than `--media-muted`; `--text` on every calendar level and
 - **Tabular Mono (`--font-mono`)**: `ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace`
 - **Scale & Line Heights**:
   - `--fs-xs`: `13px` (minimum text size; new UI must not go below it)
-  - Known exceptions still at `12px`, deferred because they sit in fixed widths / chip rows (`assets/evidence_viewer.css`, many overridden later by `controls.css` / `kit.css`): `.date-row input`, `.rail-chip` / `.chip-toggle`, `.active-filters .af-chip`, `.af-chip .af-x`, `.card.active .thumb::after` (▶ marker glyph), `.selection-bar button`, `.menu-list button`, `.tag-add input` / `.tag-add button`, `.timeline-list`, `.dlg .dlg-field`; plus the summary report table (`12px`, print-only HTML).
+  - Known exceptions still at `12px`, deferred because they sit in fixed widths / chip rows (`assets/evidence_viewer.css`, many overridden later by `controls.css` / `kit.css`): `.date-row input`, `.rail-chip` / `.chip-toggle`, `.active-filters .af-chip`, `.af-chip .af-x`, `.card.active .thumb::after` (▶ marker glyph), `.selection-bar button`, `.menu-list button`, `.tag-add input` / `.tag-add button`, `.timeline-list`, `.dlg .dlg-field`, the inline-styled custom tag input `#customTagInput` (`assets/viewer/60-details.js`, fixed `104px`); plus the summary report table (`12px`, print-only HTML).
   - `--fs-sm`: `14px` (default body, buttons, inputs, table cells)
   - `--fs-md`: `16px` (sheet/dialog headers, weight 600)
   - `--fs-lg`: `20px` (empty-state and dialog titles)
