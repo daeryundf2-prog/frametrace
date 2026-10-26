@@ -105,6 +105,12 @@ fetch a pinned build for you when you ask:
 .\frametrace.exe tools install ffmpeg --yes
 ```
 
+`--yes` never replaces files already in `tools\bin` (a copy you put there
+yourself, or an earlier install): the install stops and names them. Add
+`--force` to replace them — the previous files are then deleted. A CLI
+install also refuses while a FrameTrace workstation is running (`--force`
+overrides).
+
 Every tool is pinned in `tools/manifest.json` (version, URL, size and the
 publisher's SHA-256, compiled into the binary). The download goes **directly
 from the publisher to your machine** — for FFmpeg that is the BtbN
@@ -125,8 +131,15 @@ or extracting and refused (`not_cancellable`) once files are being moved into
 place. Tools without a published checksum (libewf, The Sleuth Kit,
 deepfake-lens today) show a manual-install hint instead. Binaries the manifest
 provides (ffmpeg, ffprobe, the libewf and Sleuth Kit tools) resolve from
-`tools\bin` first, then `PATH`; a different copy on `PATH` is reported as
-ignored by `doctor` and the home screen. Licence texts of an installed tool are
+FrameTrace's own tools folder first, then `PATH`; a different copy on `PATH` is
+reported as ignored by `doctor` and the home screen. Layout: FFmpeg lives in
+`tools\bin` (where the installer puts it); libewf and The Sleuth Kit each get
+their own folder, `tools\libewf` and `tools\sleuthkit` (searched before
+`tools\bin`), because the official Sleuth Kit win32 zip ships 32-bit runtime
+DLLs (`ucrtbase.dll`, `vcruntime140.dll`, `zlib.dll`, ...) that must not sit next
+to the 64-bit FFmpeg — Windows loads a program's DLLs from its own folder
+first. `doctor` warns when such DLLs are found in `tools\bin`
+(`src/tool_policy.rs` `ISOLATED_TOOLS`). Licence texts of an installed tool are
 copied to `tools\bin\licenses\`.
 
 The BtbN build has no libx264 (GPL). FrameTrace asks the resolved

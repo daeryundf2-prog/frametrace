@@ -553,7 +553,6 @@ fn ffmpeg_check(
     }
 }
 
-/// One diagnostic line for `frametrace doctor`. `level` renders as
 /// One WARN per kept rollback backup under `tools_dir` (size and how to
 /// restore it); none when there is nothing to restore.
 fn rollback_backup_checks(tools_dir: &Path) -> Vec<DoctorCheck> {
@@ -571,6 +570,22 @@ fn rollback_backup_checks(tools_dir: &Path) -> Vec<DoctorCheck> {
         .collect()
 }
 
+/// A WARN naming the Sleuth Kit runtime DLLs found in `tools/bin`
+/// ([`crate::tool_policy::TSK_RUNTIME_DLLS`]); none when there are none.
+fn foreign_dll_check(found: &[String]) -> Option<DoctorCheck> {
+    if found.is_empty() {
+        return None;
+    }
+    Some(DoctorCheck::warn(
+        "tools/bin DLLs",
+        format!(
+            "tools/bin에 Sleuth Kit의 32비트 런타임 DLL이 있습니다 ({}) — 64비트 FFmpeg가 잘못된 DLL을 읽어 시작하지 못할 수 있습니다. mmls·fls·icat과 이 DLL들을 tools/sleuthkit 폴더로 옮기십시오.",
+            found.join(", ")
+        ),
+    ))
+}
+
+/// One diagnostic line for `frametrace doctor`. `level` renders as
 /// OK/WARN/FAIL — WARN means the workstation runs but a feature lane is
 /// unavailable, FAIL means a blocking defect (corrupt db, broken keyring).
 struct DoctorCheck {
@@ -625,7 +640,9 @@ pub fn doctor(case_dir: Option<&Path>, json: bool) -> Result<(), String> {
         // precedence over (B-7): not used, shown so it can be checked.
         let shadow = crate::tool_policy::shadowed_by(name)
             .map(|other| {
-                format!(" · 주의: PATH의 다른 {name}({other})는 쓰지 않음(tools/bin 우선)")
+                format!(
+                    " · 주의: PATH의 다른 {name}({other})는 쓰지 않음(FrameTrace tools 폴더 우선)"
+                )
             })
             .unwrap_or_default();
         match crate::tool_policy::resolve_tool_binary(name, &[name]) {
@@ -677,6 +694,11 @@ pub fn doctor(case_dir: Option<&Path>, json: bool) -> Result<(), String> {
     if let Ok(dirs) = crate::tool_install::InstallDirs::for_current_exe() {
         checks.extend(rollback_backup_checks(&dirs.tools_dir));
     }
+    // PR #6 merge: Sleuth Kit's 32-bit runtime DLLs left in tools/bin (the
+    // old copy instructions) sit next to the 64-bit FFmpeg.
+    checks.extend(foreign_dll_check(
+        &crate::tool_policy::foreign_runtime_dlls_in_tools_bin(),
+    ));
 
     // Writable probe + free space on the case (or current) volume.
     let probe_dir = case_dir
@@ -860,6 +882,22 @@ mod tests {
     use crate::audit;
     use crate::audit_key::AuditKey;
     use std::fs;
+
+    /// PR #6 merge: Sleuth Kit runtime DLLs in tools/bin are a WARN that
+    /// names them and points at tools/sleuthkit; none found, no line.
+    #[test]
+    fn doctor_warns_about_sleuth_kit_dlls_in_tools_bin() {
+        assert!(super::foreign_dll_check(&[]).is_none());
+        let check = super::foreign_dll_check(&["ucrtbase.dll".into(), "zlib.dll".into()])
+            .expect("a warning");
+        assert_eq!(check.level, "WARN");
+        assert!(
+            check.detail.contains("ucrtbase.dll, zlib.dll")
+                && check.detail.contains("tools/sleuthkit"),
+            "{}",
+            check.detail
+        );
+    }
 
     /// Fix round 13 L1: every kept rollback backup is a WARN naming its
     /// tool, path, size and RESTORE.txt.

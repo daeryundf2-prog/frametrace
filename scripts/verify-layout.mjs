@@ -849,7 +849,7 @@ try {
     // without a click; [중단] posts install-cancel and the row says so.
     const page2 = await context.newPage();
     page2.on('pageerror', (e) => pageErrors.push(`tools ${theme} reload: ${e.message}`));
-    const mock2 = await routeTools(page2, { steps: 6, install: { id: 3, tool: 'ffmpeg', state: 'downloading', stage: 'download', bytes: 1048576, total: 4194304, error: null, started_unix: 1, finished_unix: null, installed_files: [], audit_warning: null } });
+    const mock2 = await routeTools(page2, { steps: 6, install: { id: 731905, tool: 'ffmpeg', state: 'downloading', stage: 'download', bytes: 1048576, total: 4194304, error: null, started_unix: 1, finished_unix: null, installed_files: [], audit_warning: null } });
     await page2.goto(`${base}/?token=${token}`);
     await page2.waitForSelector('#hViewerHost:not([hidden]), #inputCard:not([hidden])', { timeout: 20000 });
     if (await page2.locator('#hViewerHost').isVisible()) { await page2.click('#hProjectBtn'); await page2.click('#hProjectNew'); }

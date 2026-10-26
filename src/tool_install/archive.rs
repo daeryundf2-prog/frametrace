@@ -102,7 +102,7 @@ pub(crate) fn install_archive(
     }
     moves.extend(own_moves);
     let backup_dir = staging.path().join("backup");
-    if let Err(err) = move_all_or_nothing(&moves, &backup_dir) {
+    if let Err(err) = move_all_or_nothing(&moves, &backup_dir, &tool.name) {
         // Fix round 12 H-a: an incomplete rollback keeps the previous files
         // (they are in staging/backup, which dropping `staging` would delete).
         return Err(preserve_rollback_backup(

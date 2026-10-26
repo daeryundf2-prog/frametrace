@@ -93,7 +93,18 @@ pub fn generate_proxy(
     // use the best H.264 encoder this build really has (recorded in the
     // proxy log).
     let encoders = crate::ffmpeg_encoders::for_binary(&ffmpeg);
-    let codecs = encoders.choice(encoders.video(), encoders.aac());
+    // Fix round 16: a proxy frame too large for h264_mf (a tall portrait
+    // video) uses the next working encoder — never a smaller proxy than
+    // asked; the proxy log's note says why.
+    let codecs = crate::ffmpeg_encoders::choice_for_frame(
+        &ffmpeg,
+        &encoders,
+        crate::ffmpeg_encoders::output_frame_if_h264_mf(
+            &encoders,
+            &source_path,
+            Some(options.max_width),
+        ),
+    );
     let args = proxy_ffmpeg_args(&source_path, &output_path, options, &codecs);
     // Fix round 12 L2 (as round 11 H5 for exports): the version of the
     // binary that encodes, asked BEFORE encoding from the same resolved

@@ -3380,6 +3380,21 @@ mod tests {
         }
     }
 
+    /// Merge review M2: a live-file extraction (`extract-inode`) is never
+    /// listed as a filesystem RECOVERY technique row; a `recover-inode` is.
+    #[test]
+    fn extracted_live_files_are_not_reported_as_recoveries() {
+        let entry = |event: &str| {
+            serde_json::json!({"event":event, "inode":"9", "partition_offset":2048, "output_path":"/case/artifacts/extracted/DCIM/a.mp4", "sha256":"a".repeat(64), "size_bytes":4})
+                .to_string()
+        };
+        let extracted = rendered_techniques("{}", "", "", &entry("extract-inode"));
+        assert!(!extracted.contains("파일시스템 복구"), "{extracted}");
+        assert!(!extracted.contains("inode:2048:9"), "{extracted}");
+        let recovered = rendered_techniques("{}", "", "", &entry("recover-inode"));
+        assert!(recovered.contains("파일시스템 복구"), "{recovered}");
+    }
+
     #[test]
     fn empty_report_renders_section_markers() {
         let html = render(&[]);

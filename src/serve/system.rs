@@ -131,10 +131,22 @@ pub(crate) fn tools_fingerprint(bin: &Path, python: &Path) -> String {
     )
 }
 
-/// The fingerprint of this executable's `tools/bin` and `tools/python`.
+/// The fingerprint of this executable's `tools/bin` and `tools/python`,
+/// plus the per-tool folders (`tools/libewf`, `tools/sleuthkit` —
+/// [`crate::tool_policy::ISOLATED_TOOLS`], PR #6 merge) so copying Sleuth
+/// Kit in by hand also misses the cache.
 fn current_tools_fingerprint() -> String {
     crate::tool_install::InstallDirs::for_current_exe()
-        .map(|dirs| tools_fingerprint(&dirs.bin(), &dirs.python_root()))
+        .map(|dirs| {
+            let mut fingerprint = tools_fingerprint(&dirs.bin(), &dirs.python_root());
+            for tool in crate::tool_policy::ISOLATED_TOOLS {
+                fingerprint.push_str(&format!(
+                    "\n\u{1}{tool}\n{}",
+                    tools_bin_fingerprint(&dirs.tools_dir.join(tool))
+                ));
+            }
+            fingerprint
+        })
         .unwrap_or_default()
 }
 
@@ -271,9 +283,9 @@ pub(crate) fn probe_env_outcome() -> (String, bool) {
         "probe_timeout_secs": crate::util::version_probe_timeout_secs(),
         "workflows": {"media": media, "e01": ewf, "filesystem": tsk},
         "hints": {
-            "media": "FFmpeg 설치 후 ffmpeg/ffprobe가 PATH에 있어야 합니다. portable 배포본은 tools/bin에 복사하면 자동 인식됩니다.",
-            "e01": "libewf(ewfinfo/ewfverify/ewfexport) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
-            "filesystem": "Sleuth Kit(mmls/fls/icat) 설치 후 PATH 등록 또는 tools/bin에 복사하십시오.",
+            "media": "첫 화면의 FFmpeg [설치](또는 frametrace tools install ffmpeg)로 설치하거나, ffmpeg/ffprobe를 PATH 또는 tools/bin에 두십시오.",
+            "e01": "libewf는 자동 설치되지 않습니다 — ewfinfo/ewfverify/ewfexport와 DLL을 tools/libewf 폴더에 두거나 PATH에 설치하십시오.",
+            "filesystem": "Sleuth Kit은 자동 설치되지 않습니다 — mmls/fls/icat과 DLL을 tools/sleuthkit 폴더에 두거나 PATH에 설치하십시오 (32비트 DLL을 FFmpeg의 tools/bin에 두지 마십시오).",
             "probe_timeout": "버전 확인이 시간 안에 끝나지 않은 도구는 '없음'이 아니라 '확인 시간 초과'입니다 — 백신 검사 등으로 첫 실행이 느릴 수 있습니다. 잠시 후 다시 확인하거나 FRAMETRACE_TOOL_PROBE_TIMEOUT(초)을 늘리십시오.",
         }
     })
@@ -414,11 +426,19 @@ pub(crate) fn browse_json(raw: &str, want_files: bool) -> String {
             let is_case = crate::case_db::case_db_path(Path::new(full)).is_file();
             browse_entry_json(name, full, true, is_case)
         })
-        .chain(
-            files
-                .iter()
-                .map(|(name, full)| browse_entry_json(name, full, false, false)),
-        )
+        .chain(files.iter().map(|(name, full)| {
+            let mut entry = browse_entry_json(name, full, false, false);
+            // Size lets the picker tell a 2 GB segment from an empty stub.
+            // PR #6 merge audit: never follow a link here (a planted
+            // `x.E01` symlink to a UNC target would open an SMB session) —
+            // only a regular file's own size is shown.
+            if let (Ok(meta), Some(map)) = (std::fs::symlink_metadata(full), entry.as_object_mut())
+                && meta.is_file()
+            {
+                map.insert("size".to_string(), serde_json::Value::from(meta.len()));
+            }
+            entry
+        }))
         .collect();
     let mut body = serde_json::json!({
         "ok": true, "exists": true, "is_dir": true, "kind": "folder",
@@ -703,6 +723,8 @@ fn status_snapshot(guard: &JobState) -> serde_json::Value {
         "phase": guard.phase,
         "restored": guard.restored,
         "busy": guard.busy,
+        // Fix round 16 L-busy: "tool-install" | "job" while busy, else null.
+        "busy_kind": guard.status_busy_kind(),
         "steps": steps,
         // FOR-08: non-fatal step failures; non-empty means the run is
         // "done with warnings", not a clean pass.
@@ -1074,7 +1096,7 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
     {
         let guard = state_lock(state);
         if guard.busy {
-            return "{\"ok\":false,\"error\":\"분석이 진행 중입니다.\"}".to_string();
+            return api_err(&guard.busy_refusal("분석이 진행 중입니다."));
         }
         if let Some(refusal) = side_work_refusal(&guard, "케이스를 여십시오") {
             return api_err(&refusal);
@@ -1108,7 +1130,10 @@ pub(crate) fn api_open_case(request: &Request, state: &SharedState) -> String {
         .map(|recovery| format!(" (참고: {})", recovery.detail))
         .unwrap_or_default();
     if guard.busy {
-        return api_err(&format!("분석이 진행 중입니다.{recovered_note}"));
+        return api_err(&format!(
+            "{}{recovered_note}",
+            guard.busy_refusal("분석이 진행 중입니다.")
+        ));
     }
     // Clip exports (and S1 write ops) write into the bound case and block
     // its finalize; a switch while one runs would leave the new case's

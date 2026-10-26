@@ -125,7 +125,10 @@ const KEPT_FINISHED_CLIP_JOBS: usize = 32;
 pub(crate) fn export_clip_with_exe(request: &Request, state: &SharedState, exe: &Path) -> String {
     let (case_dir, busy) = {
         let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
+        (
+            guard.case_dir.clone(),
+            guard.busy.then(|| guard.busy_refusal(CLIP_BUSY_ERROR)),
+        )
     };
     // `busy` here is only a fast-path snapshot; the authoritative check is
     // repeated under the registration lock below (finding 4).
@@ -204,8 +207,8 @@ pub(crate) fn export_clip_with_exe(request: &Request, state: &SharedState, exe: 
     if let Some(existing) = find_reusable_clip_job(state, &key) {
         return clip_response(&existing, true);
     }
-    if busy {
-        return api_err(CLIP_BUSY_ERROR);
+    if let Some(refusal) = busy {
+        return api_err(&refusal);
     }
     let dir = case_dir.join("artifacts/clips");
     if let Err(err) = std::fs::create_dir_all(&dir) {
@@ -240,7 +243,7 @@ pub(crate) fn export_clip_with_exe(request: &Request, state: &SharedState, exe: 
             return api_err(&refusal);
         }
         if guard.busy {
-            return api_err(CLIP_BUSY_ERROR);
+            return api_err(&guard.busy_refusal(CLIP_BUSY_ERROR));
         }
         // The case may have been switched since the snapshot above.
         if guard.case_dir.as_deref() != Some(case_dir.as_path()) {
@@ -734,7 +737,10 @@ pub(crate) fn join_check_with_tools(
 ) -> String {
     let (case_dir, busy) = {
         let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
+        (
+            guard.case_dir.clone(),
+            guard.busy.then(|| guard.busy_refusal(CLIP_BUSY_ERROR)),
+        )
     };
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
@@ -744,8 +750,8 @@ pub(crate) fn join_check_with_tools(
         Ok(parsed) => parsed,
         Err(err) => return api_err(&err),
     };
-    if busy {
-        return api_err(CLIP_BUSY_ERROR);
+    if let Some(refusal) = busy {
+        return api_err(&refusal);
     }
     // Index read + up to 500 ffprobes: never under the state lock.
     let plan = match crate::join::plan_with_tools(&case_dir, &parsed.ids, parsed.tolerance, tools) {
@@ -806,7 +812,10 @@ pub(crate) fn api_join(request: &Request, state: &SharedState) -> String {
 pub(crate) fn join_with_exe(request: &Request, state: &SharedState, exe: &Path) -> String {
     let (case_dir, busy) = {
         let guard = state_lock(state);
-        (guard.case_dir.clone(), guard.busy)
+        (
+            guard.case_dir.clone(),
+            guard.busy.then(|| guard.busy_refusal(CLIP_BUSY_ERROR)),
+        )
     };
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
@@ -830,8 +839,8 @@ pub(crate) fn join_with_exe(request: &Request, state: &SharedState, exe: &Path) 
     if let Some(existing) = find_reusable_clip_job(state, &key) {
         return clip_response(&existing, true);
     }
-    if busy {
-        return api_err(CLIP_BUSY_ERROR);
+    if let Some(refusal) = busy {
+        return api_err(&refusal);
     }
     let job = {
         let mut guard = state_lock(state);
@@ -849,7 +858,7 @@ pub(crate) fn join_with_exe(request: &Request, state: &SharedState, exe: &Path) 
             return api_err(&refusal);
         }
         if guard.busy {
-            return api_err(CLIP_BUSY_ERROR);
+            return api_err(&guard.busy_refusal(CLIP_BUSY_ERROR));
         }
         if guard.case_dir.as_deref() != Some(case_dir.as_path()) {
             return api_err("케이스가 바뀌었습니다 — 다시 시도하십시오.");
@@ -2417,6 +2426,7 @@ pub(crate) fn step_part_dirs(args: &[String]) -> Vec<std::path::PathBuf> {
         for rel in [
             "evidence/images",
             "artifacts/recovered/filesystem",
+            "artifacts/extracted",
             "artifacts/clips",
             "reports",
             "review/thumbs",
@@ -2467,7 +2477,14 @@ pub(crate) fn sweep_killed_step(args: &[String], pid: u32) -> Vec<Result<String,
         }
     }
     for dir in step_part_dirs(args) {
-        for (path, result) in crate::join::sweep_pid_parts(&dir, pid) {
+        // Merge review L1: extraction keeps the image's folder tree, so its
+        // `.part` files sit in subfolders of artifacts/extracted.
+        let swept = if dir.ends_with("artifacts/extracted") {
+            crate::join::sweep_pid_parts_recursive(&dir, pid)
+        } else {
+            crate::join::sweep_pid_parts(&dir, pid)
+        };
+        for (path, result) in swept {
             out.push(match result {
                 Ok(()) => Ok(format!(
                     "중단된 단계가 남긴 임시 파일을 지웠습니다: {}",

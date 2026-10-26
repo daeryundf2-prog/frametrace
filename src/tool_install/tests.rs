@@ -236,6 +236,25 @@ fn installable_tools_must_carry_a_distribution_notice() {
     validate_manifest(&manifest_with(manual)).unwrap();
 }
 
+/// PR #6 merge: Sleuth Kit / libewf live in their own tools/<name>/ folder
+/// (their DLLs must not sit next to FFmpeg); the installer only writes
+/// tools/bin, so a pinned archive for such a tool is refused, while the
+/// manual (unpinned) entries the shipped manifest carries stay valid.
+#[test]
+fn isolated_tools_cannot_be_pinned_for_the_tools_bin_installer() {
+    for name in crate::tool_policy::ISOLATED_TOOLS {
+        let mut tool = base_entry();
+        tool.name = (*name).to_string();
+        validate_manifest(&manifest_with(tool.clone())).unwrap();
+        tool.url = Some("https://github.com/o/r/releases/download/v1/fake.zip".into());
+        tool.file_name = Some("fake.zip".into());
+        tool.size = Some(10);
+        tool.sha256 = Some("a".repeat(64));
+        let err = validate_manifest(&manifest_with(tool)).unwrap_err();
+        assert!(err.contains("ISOLATED_TOOLS"), "{name}: {err}");
+    }
+}
+
 /// Fix round 11 M2: the shipped ffmpeg notice states facts only — the
 /// licence mix (ko and en name the same three), no assurance that the
 /// file may be passed on, "do not copy" — and never a legal conclusion
@@ -477,7 +496,7 @@ fn moves_are_all_or_nothing() {
         (src.join("a.exe"), bin.join("a.exe")),
         (src.join("missing.exe"), bin.join("b.exe")),
     ];
-    assert!(move_all_or_nothing(&moves, &base.join("backup")).is_err());
+    assert!(move_all_or_nothing(&moves, &base.join("backup"), "fake").is_err());
     assert_eq!(std::fs::read(bin.join("a.exe")).unwrap(), b"old-a");
     assert!(!bin.join("b.exe").exists());
     // And a complete set replaces the old file.
@@ -487,7 +506,7 @@ fn moves_are_all_or_nothing() {
         (src.join("a.exe"), bin.join("a.exe")),
         (src.join("b.exe"), bin.join("b.exe")),
     ];
-    move_all_or_nothing(&moves, &base.join("backup2")).unwrap();
+    move_all_or_nothing(&moves, &base.join("backup2"), "fake").unwrap();
     assert_eq!(std::fs::read(bin.join("a.exe")).unwrap(), b"new-a");
     assert_eq!(std::fs::read(bin.join("b.exe")).unwrap(), b"new-b");
     let _ = std::fs::remove_dir_all(base);
@@ -526,7 +545,7 @@ fn a_briefly_locked_file_is_moved_after_a_retry_and_a_held_one_rolls_back() {
         (src.join("a.exe"), bin.join("a.exe")),
         (src.join("b.exe"), bin.join("b.exe")),
     ];
-    move_all_or_nothing(&moves, &base.join("backup")).unwrap();
+    move_all_or_nothing(&moves, &base.join("backup"), "fake").unwrap();
     holder.join().unwrap();
     assert!(started.elapsed() >= std::time::Duration::from_millis(400));
     assert_eq!(std::fs::read(bin.join("a.exe")).unwrap(), b"new-a");
@@ -541,7 +560,7 @@ fn a_briefly_locked_file_is_moved_after_a_retry_and_a_held_one_rolls_back() {
         (src.join("a.exe"), bin.join("a.exe")),
         (src.join("c.exe"), bin.join("c.exe")),
     ];
-    let err = move_all_or_nothing(&moves, &base.join("backup2")).unwrap_err();
+    let err = move_all_or_nothing(&moves, &base.join("backup2"), "fake").unwrap_err();
     let waited = started.elapsed();
     holder.join().unwrap();
     assert!(err.contains("c.exe"), "{err}");
@@ -628,7 +647,7 @@ fn a_rollback_blocked_by_a_held_new_file_is_retried_or_reported_loudly() {
             (src.join("a.exe"), bin.join("a.exe")),
             (src.join("c.exe"), bin.join("c.exe")),
         ];
-        let err = move_all_or_nothing(&moves, &backup_dir).unwrap_err();
+        let err = move_all_or_nothing(&moves, &backup_dir, "fake").unwrap_err();
         assert!(a_holder.join().unwrap(), "{case}: the new a.exe was held");
         c_holder.join().unwrap();
         assert!(err.contains("c.exe"), "{case}: {err}");
@@ -1431,6 +1450,384 @@ fn tool_json_flags_a_kept_rollback_backup() {
             .display()
             .to_string()
     );
+}
+
+/// Fix round 16 M5: what an archive install would replace in tools/bin —
+/// nothing → `None`; only an examiner's ffmpeg.exe → `would_replace`
+/// listing just it; every file present and the shipped license text
+/// intact → `already_installed`; a changed shipped license text or a kept
+/// rollback backup of the tool → `would_replace`; a pip tool → `None`.
+#[test]
+fn replace_check_lists_existing_files_and_spots_a_complete_install() {
+    let base = scratch("replace-check");
+    let dirs = InstallDirs {
+        tools_dir: base.join("tools"),
+    };
+    let manifest = manifest().unwrap();
+    let ffmpeg = find_tool(manifest, "ffmpeg").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs), None);
+    std::fs::create_dir_all(dirs.licenses()).unwrap();
+    std::fs::write(dirs.bin().join("ffmpeg.exe"), b"examiner's build").unwrap();
+    let check = replace_check(ffmpeg, &dirs).unwrap();
+    assert_eq!(check.code, WOULD_REPLACE);
+    assert_eq!(check.replaces, ["bin/ffmpeg.exe"]);
+    assert!(check.message("ffmpeg").contains("bin/ffmpeg.exe"));
+    // Every target present.
+    for map in &ffmpeg.files {
+        std::fs::write(dirs.bin().join(&map.to), b"MZ").unwrap();
+    }
+    for map in &ffmpeg.license_files {
+        std::fs::write(dirs.licenses().join(&map.to), b"license").unwrap();
+    }
+    for license in &ffmpeg.bundled_licenses {
+        std::fs::write(
+            dirs.licenses().join(&license.to),
+            bundled_license_text(&license.file).unwrap(),
+        )
+        .unwrap();
+    }
+    let check = replace_check(ffmpeg, &dirs).unwrap();
+    assert_eq!(check.code, ALREADY_INSTALLED, "{check:?}");
+    let total = ffmpeg.files.len() + ffmpeg.license_files.len() + ffmpeg.bundled_licenses.len();
+    assert_eq!(check.replaces.len(), total);
+    assert_eq!(check.replaces[0], format!("bin/{}", ffmpeg.files[0].to));
+    // A kept rollback backup of ffmpeg: not "healthy".
+    let kept = dirs.tools_dir.join("rollback-backup-00aa");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join(RESTORE_FILE), "tool: ffmpeg\n").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    std::fs::remove_dir_all(&kept).unwrap();
+    assert_eq!(
+        replace_check(ffmpeg, &dirs).unwrap().code,
+        ALREADY_INSTALLED
+    );
+    // An empty binary: not healthy either.
+    std::fs::write(dirs.bin().join(&ffmpeg.files[0].to), b"").unwrap();
+    assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    std::fs::write(dirs.bin().join(&ffmpeg.files[0].to), b"MZ").unwrap();
+    if let Some(license) = ffmpeg.bundled_licenses.first() {
+        std::fs::write(dirs.licenses().join(&license.to), b"edited").unwrap();
+        assert_eq!(replace_check(ffmpeg, &dirs).unwrap().code, WOULD_REPLACE);
+    }
+    assert_eq!(replace_check(&pip_tool(), &dirs), None);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Fix round 16 M1: the move journal is written before the first move,
+/// removed after a success and after a completed rollback; when it cannot
+/// be written nothing is moved.
+#[test]
+fn the_move_journal_lives_only_while_files_move() {
+    let base = scratch("journal-life");
+    let bin = base.join("bin");
+    let src = base.join("src");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(bin.join("a.exe"), b"old-a").unwrap();
+    std::fs::write(src.join("a.exe"), b"new-a").unwrap();
+    let moves = vec![(src.join("a.exe"), bin.join("a.exe"))];
+    // Unwritable journal: refused before anything moves.
+    rollback::FAIL_JOURNAL_WRITE.with(|fail| fail.set(true));
+    let err = move_all_or_nothing(&moves, &base.join("b0"), "fake").unwrap_err();
+    rollback::FAIL_JOURNAL_WRITE.with(|fail| fail.set(false));
+    assert!(err.contains("install journal"), "{err}");
+    assert_eq!(std::fs::read(bin.join("a.exe")).unwrap(), b"old-a");
+    assert!(!base.join("b0").join(rollback::MOVE_JOURNAL).exists());
+    // Success: the journal is gone, the backup stays for the caller.
+    move_all_or_nothing(&moves, &base.join("b1"), "fake").unwrap();
+    assert!(!base.join("b1").join(rollback::MOVE_JOURNAL).exists());
+    assert_eq!(std::fs::read(base.join("b1/0.bak")).unwrap(), b"old-a");
+    // A completed rollback: gone too.
+    std::fs::write(src.join("a.exe"), b"newer-a").unwrap();
+    let failing = vec![
+        (src.join("a.exe"), bin.join("a.exe")),
+        (src.join("missing.exe"), bin.join("b.exe")),
+    ];
+    assert!(move_all_or_nothing(&failing, &base.join("b2"), "fake").is_err());
+    assert!(!base.join("b2").join(rollback::MOVE_JOURNAL).exists());
+    assert_eq!(std::fs::read(bin.join("a.exe")).unwrap(), b"new-a");
+    // The journal format round-trips.
+    let dir = base.join("b3");
+    std::fs::create_dir_all(&dir).unwrap();
+    rollback::write_journal(&dir, "ffmpeg", &failing).unwrap();
+    let journal = rollback::read_journal(&dir).unwrap();
+    assert_eq!(journal.tool.as_deref(), Some("ffmpeg"));
+    assert_eq!(
+        journal.moves,
+        vec![
+            rollback::JournalMove {
+                index: 0,
+                existed: true,
+                dest: bin.join("a.exe"),
+            },
+            rollback::JournalMove {
+                index: 1,
+                existed: false,
+                dest: bin.join("b.exe"),
+            },
+        ]
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Fix round 16 M1: an install killed while it moved files leaves
+/// `.staging-*/backup/` with the journal and `0.bak` but no RESTORE.txt.
+/// The sweep must not delete it: the previous copy becomes a
+/// `rollback-backup-*` with a RESTORE.txt made from the journal (tool
+/// named), listed for the tool (status → rollback_incomplete). A journal
+/// with nothing left to restore, or one marked complete, is swept as an
+/// ordinary leftover; one whose RESTORE.txt cannot be written stays.
+#[test]
+fn a_staging_dir_with_a_move_journal_survives_the_sweep_as_a_rollback_backup() {
+    let base = scratch("journal-sweep");
+    let tools = base.join("tools");
+    let bin = tools.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"old-ffmpeg").unwrap();
+    let staging = tools.join(".staging-killed");
+    let backup = staging.join("backup");
+    std::fs::create_dir_all(&backup).unwrap();
+    std::fs::create_dir_all(staging.join("x")).unwrap();
+    std::fs::write(staging.join("x/ffprobe.exe"), b"new-ffprobe").unwrap();
+    let moves = vec![
+        (staging.join("x/ffmpeg.exe"), bin.join("ffmpeg.exe")),
+        (staging.join("x/ffprobe.exe"), bin.join("ffprobe.exe")),
+        (staging.join("x/new.dll"), bin.join("new.dll")),
+    ];
+    rollback::write_journal(&backup, "ffmpeg", &moves).unwrap();
+    // Killed after the first move (old ffmpeg.exe in 0.bak, new in place)
+    // and the second one's new file placed (ffprobe.exe had no copy).
+    std::fs::rename(bin.join("ffmpeg.exe"), backup.join("0.bak")).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"new-ffmpeg").unwrap();
+    std::fs::write(bin.join("ffprobe.exe"), b"new-ffprobe").unwrap();
+    // Before any sweep (doctor runs none) it is already listed.
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].path, staging);
+    assert_eq!(listed[0].tool.as_deref(), Some("ffmpeg"));
+    // A second, harmless journal: nothing to restore (no .bak, the "new"
+    // destination absent) — swept.
+    let idle = tools.join(".staging-idle");
+    std::fs::create_dir_all(idle.join("backup")).unwrap();
+    rollback::write_journal(
+        &idle.join("backup"),
+        "ffmpeg",
+        &[(idle.join("x/zz.exe"), bin.join("zz.exe"))],
+    )
+    .unwrap();
+    // A journal marked complete (a success that could not remove it).
+    let done = tools.join(".staging-done");
+    std::fs::create_dir_all(done.join("backup")).unwrap();
+    std::fs::write(done.join("backup/0.bak"), b"old").unwrap();
+    std::fs::write(
+        done.join("backup").join(rollback::MOVE_JOURNAL),
+        format!(
+            "tool: ffmpeg\nplan\t0\texisted\t{}\ncomplete\n",
+            bin.join("ffmpeg.exe").display()
+        ),
+    )
+    .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    assert_eq!(clean_stale_staging(&tools, later, &[]), 3);
+    assert!(!staging.exists() && !idle.exists() && !done.exists());
+    let kept: Vec<PathBuf> = std::fs::read_dir(&tools)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("rollback-backup-")
+        })
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    let kept = &kept[0];
+    assert_eq!(std::fs::read(kept.join("0.bak")).unwrap(), b"old-ffmpeg");
+    let restore = std::fs::read_to_string(kept.join(RESTORE_FILE)).unwrap();
+    assert!(restore.starts_with("tool: ffmpeg\n"), "{restore}");
+    assert!(restore.contains(rollback::INTERRUPTED_NOTE), "{restore}");
+    let lines: Vec<&str> = restore.lines().collect();
+    assert!(
+        lines.contains(&format!("{} <- 0.bak", bin.join("ffmpeg.exe").display()).as_str()),
+        "{restore}"
+    );
+    assert!(
+        lines.iter().any(|line| line.starts_with(&format!(
+            "{} <- (none: NEW file",
+            bin.join("ffprobe.exe").display()
+        ))),
+        "{restore}"
+    );
+    assert!(!restore.contains("new.dll"), "untouched: {restore}");
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(&listed[0].path, kept);
+    assert_eq!(listed[0].tool.as_deref(), Some("ffmpeg"));
+    let manifest = manifest().unwrap();
+    let ffmpeg = find_tool(manifest, "ffmpeg").unwrap();
+    let json = tool_json(ffmpeg, &status(ffmpeg, &listed));
+    assert_eq!(json["rollback_incomplete"], true);
+    // A later sweep keeps the rollback backup.
+    assert_eq!(clean_stale_staging(&tools, later, &[]), 0);
+    assert!(kept.join("0.bak").is_file());
+
+    // RESTORE.txt cannot be written: the staging dir stays whole (the
+    // journal keeps the sweep away) and is retried next time.
+    let stuck = tools.join(".staging-stuck");
+    std::fs::create_dir_all(stuck.join("backup")).unwrap();
+    std::fs::write(bin.join("ffprobe.exe"), b"old-ffprobe").unwrap();
+    rollback::write_journal(
+        &stuck.join("backup"),
+        "ffmpeg",
+        &[(stuck.join("x/ffprobe.exe"), bin.join("ffprobe.exe"))],
+    )
+    .unwrap();
+    std::fs::rename(bin.join("ffprobe.exe"), stuck.join("backup/0.bak")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    rollback::FAIL_RESTORE_WRITE.with(|fail| fail.set(true));
+    let removed = clean_stale_staging(&tools, later, &[]);
+    rollback::FAIL_RESTORE_WRITE.with(|fail| fail.set(false));
+    assert_eq!(removed, 0);
+    assert_eq!(
+        std::fs::read(stuck.join("backup/0.bak")).unwrap(),
+        b"old-ffprobe"
+    );
+    assert!(
+        rollback_backups(&tools)
+            .iter()
+            .any(|backup| backup.path == stuck)
+    );
+    // Next time it can: rescued like the first one.
+    assert_eq!(clean_stale_staging(&tools, later, &[]), 1);
+    assert!(!stuck.exists());
+    assert_eq!(rollback_backups(&tools).len(), 2);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Fix round 16 follow-up L1: while another process (a CLI install)
+/// holds the install lock and moves files, its `.staging-*` with a live
+/// journal (no RESTORE.txt yet) is not listed as a rollback backup; once
+/// the lock is free the same folder is (an interrupted move). A kept
+/// `backup/RESTORE.txt` is listed either way.
+#[test]
+fn a_journal_of_an_install_holding_the_lock_elsewhere_is_not_listed() {
+    use fs2::FileExt;
+    let base = scratch("journal-held");
+    let tools = base.join("tools");
+    let bin = tools.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"old-ffmpeg").unwrap();
+    let staging = tools.join(".staging-moving");
+    let backup = staging.join("backup");
+    std::fs::create_dir_all(&backup).unwrap();
+    let moves = vec![
+        (staging.join("x/ffmpeg.exe"), bin.join("ffmpeg.exe")),
+        (staging.join("x/ffprobe.exe"), bin.join("ffprobe.exe")),
+    ];
+    rollback::write_journal(&backup, "ffmpeg", &moves).unwrap();
+    std::fs::rename(bin.join("ffmpeg.exe"), backup.join("0.bak")).unwrap();
+    // No lock file at all: nobody holds it; the probe creates none.
+    assert!(!InstallLock::held_by_another_process(&tools));
+    assert!(!tools.join(".install.lock").exists());
+    // Another process's lock (raw fs2, unknown to this process's registry).
+    let other = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(tools.join(".install.lock"))
+        .unwrap();
+    other.try_lock_exclusive().unwrap();
+    assert!(InstallLock::held_by_another_process(&tools));
+    assert!(!InstallLock::held_by_this_process(&tools));
+    assert_eq!(rollback_backups(&tools), Vec::new());
+    // A kept RESTORE.txt (an incomplete rollback) is still listed.
+    let kept = tools.join("rollback-backup-abc");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join(RESTORE_FILE), "tool: ffmpeg\n").unwrap();
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].path, kept);
+    // Lock released (the CLI was killed): the journal is an interrupted move.
+    drop(other);
+    assert!(!InstallLock::held_by_another_process(&tools));
+    let listed = rollback_backups(&tools);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert!(
+        listed
+            .iter()
+            .any(|backup| backup.path == staging && backup.tool.as_deref() == Some("ffmpeg"))
+    );
+    // Held by this process (its own install): not listed either.
+    let ours = InstallLock::acquire(&tools).unwrap();
+    assert!(
+        rollback_backups(&tools)
+            .iter()
+            .all(|backup| backup.path != staging)
+    );
+    drop(ours);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Fix round 16 follow-up L2: each completed move appends a flushed
+/// `done\t<index>` line. Killed after the last move but before the journal
+/// was removed, every planned move is done: the journal reads as complete
+/// — not listed, swept as an ordinary leftover, no rollback backup. With a
+/// move still missing its `done` line it stays an interrupted move.
+#[test]
+fn a_journal_with_every_move_done_is_a_finished_install() {
+    let base = scratch("journal-done");
+    let tools = base.join("tools");
+    let bin = tools.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"old-ffmpeg").unwrap();
+    let make = |name: &str| {
+        let staging = tools.join(name);
+        let backup = staging.join("backup");
+        std::fs::create_dir_all(&backup).unwrap();
+        let moves = vec![
+            (staging.join("x/ffmpeg.exe"), bin.join("ffmpeg.exe")),
+            (staging.join("x/ffprobe.exe"), bin.join("ffprobe.exe")),
+        ];
+        rollback::write_journal(&backup, "ffmpeg", &moves).unwrap();
+        (staging, backup)
+    };
+    // Killed after both moves (old ffmpeg.exe in 0.bak, new files in place).
+    let (finished, finished_backup) = make(".staging-finished");
+    std::fs::rename(bin.join("ffmpeg.exe"), finished_backup.join("0.bak")).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"new-ffmpeg").unwrap();
+    rollback::mark_move_done(&finished_backup, 0);
+    // Only the first done: still interrupted.
+    assert!(rollback::read_journal(&finished_backup).is_some());
+    assert_eq!(rollback_backups(&tools).len(), 1);
+    std::fs::write(bin.join("ffprobe.exe"), b"new-ffprobe").unwrap();
+    rollback::mark_move_done(&finished_backup, 1);
+    let journal = std::fs::read_to_string(finished_backup.join(rollback::MOVE_JOURNAL)).unwrap();
+    assert!(journal.ends_with("done\t0\ndone\t1\n"), "{journal}");
+    assert_eq!(rollback::read_journal(&finished_backup), None);
+    assert!(!rollback::staging_has_active_journal(&finished));
+    assert_eq!(rollback_backups(&tools), Vec::new());
+    // A second staging killed between the moves: only move 0 done.
+    let (partial, partial_backup) = make(".staging-partial");
+    std::fs::rename(bin.join("ffmpeg.exe"), partial_backup.join("0.bak")).unwrap();
+    std::fs::write(bin.join("ffmpeg.exe"), b"newer-ffmpeg").unwrap();
+    rollback::mark_move_done(&partial_backup, 0);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    assert_eq!(clean_stale_staging(&tools, later, &[]), 2);
+    assert!(!finished.exists() && !partial.exists());
+    let kept: Vec<String> = std::fs::read_dir(&tools)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("rollback-backup-"))
+        .collect();
+    assert_eq!(kept.len(), 1, "only the partial one: {kept:?}");
+    let restore = std::fs::read_to_string(tools.join(&kept[0]).join(RESTORE_FILE)).unwrap();
+    assert!(restore.contains(rollback::INTERRUPTED_NOTE), "{restore}");
+    let _ = std::fs::remove_dir_all(base);
 }
 
 /// Fix round 13 M: pip fails and one file of the new, partial venv is

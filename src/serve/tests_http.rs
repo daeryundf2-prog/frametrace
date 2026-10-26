@@ -91,6 +91,9 @@ const EXPECTED_ROUTES: &[(&str, &str)] = &[
     ("GET", "/api/tools/install-status"),
     ("POST", "/api/tools/install"),
     ("POST", "/api/tools/install-cancel"),
+    // PR #6 (case-folder picker): /api/mkdir is nonce-gated below.
+    ("POST", "/api/mkdir"),
+    ("GET", "/api/places"),
 ];
 
 #[test]
@@ -810,6 +813,31 @@ fn typed_unc_policy_per_route() {
         ),
         Some(super::http::REMOTE_PATH_ERROR)
     );
+    // PR #6 merge audit: the picker's "new folder" POST gets the strict
+    // HTTP-layer policy (UNC only under an approved root), and its handler
+    // refuses every UNC parent itself (the picker browses local paths only).
+    for roots in [none, &[std::path::PathBuf::from(r"\\nas\cases")][..]] {
+        assert_eq!(
+            remote_path_violation(
+                &with(
+                    "POST",
+                    "/api/mkdir",
+                    "",
+                    r#"{"parent":"\\\\nas\\cases","name":"c2"}"#
+                ),
+                roots
+            ),
+            if roots.is_empty() {
+                Some(super::http::REMOTE_PATH_ERROR)
+            } else {
+                None
+            },
+        );
+    }
+    let mut mkdir = req("POST", "/api/mkdir");
+    mkdir.body = r#"{"parent":"\\\\nas\\cases","name":"c2"}"#.into();
+    let refused = super::fs_tools::api_mkdir(&mkdir);
+    assert!(refused.contains("\"ok\":false"), "{refused}");
 }
 
 /// Handlers refuse UNC paths themselves too (defense in depth for callers

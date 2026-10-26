@@ -539,3 +539,165 @@ Fable 크레딧 소진으로 라운드 14 확인 리뷰는 Opus가 했다. 판�
 | L-b: 설치가 이미 Done/Failed인 순간의 `/api/cancel`은 아무것도 요청하지 않으면서 `ok:true, cancelled:"tool-install"`로 답해, 대기 중 [계속 작업]이면 "설치는 이미 중단됐습니다"가 떴다(실제로는 성공했을 수 있음). | 응답에 `requested`(실제로 중단을 요청했는지)를 추가. `95-quit.js`는 `requested === false`이면 "도구 설치는 이미 끝나 있었습니다 — 도구 패널에서 결과를 확인하십시오."를 낸다. mock(`apiCancelReply`)도 같은 규칙으로 맞췄다. | `serve::tests_tools::the_global_cancel_stops_a_tool_install_through_its_own_latch`에 `requested` true/false 단언 추가. tools-unit 새 행 "Fix round 15 …" PASS. |
 
 게이트(이 PC): `cargo fmt --check` ok · `cargo clippy --locked --all-targets -- -D warnings` ok · `cargo test --lib -- tool_install serve::tests_tools` 65 passed · `verify-review-batch --unit` 155 PASS / 0 FAIL. 전체 게이트는 깨끗한 워크트리(ft-gate)에서 따로 돈다.
+
+## §Fix round 16 (2026-10-26, 적대적 리뷰(d12e964, Opus) 반영 — Medium 6 · Low 10 · 짐작 3)
+PR #4가 main에 머지되어(73a1a50) PR #5의 base는 main이다(main의 트리는 54cf3c5와 같아 리베이스 불필요). 세 갈래로 나눠 고쳤다 — A: Rust(설치기·서버·CLI·doctor·인코더), B: 릴리스 스크립트·CI·THIRD_PARTY_NOTICES, C: 도구 패널·종료 대화상자 UI. 파일은 겹치지 않았다.
+
+### API 변경
+- `POST /api/tools/install` 본문 `{name, force?}`. 기존 파일을 바꾸게 되면 `{ok:false, code:"would_replace", replaces:["bin/…", "bin/licenses/…"], error}`, 이미 온전히 설치돼 있으면 `code:"already_installed"`(같은 `replaces`). 둘 다 `force:true`로만 진행하고, 거부는 감사 로그에 `refused`로 남는다(archive 도구만; pip 도구는 해당 없음).
+- 다른 프로세스(CLI)가 `tools/.install.lock`을 잡고 있으면 받아들이기 전에 `{ok:false, code:"install_running_elsewhere"}`. 이 프로세스가 잡고 있으면 종전대로 `install_running`.
+- 설치 작업 id는 프로세스마다 무작위 32비트 값에서 시작(숫자 유지).
+- `/api/status`에 `busy_kind`("tool-install" | "job" | null). 도구 설치가 busy를 잡고 있으면 분석 시작·원본 재가져오기·케이스 열기·클립 내보내기·이어붙이기 거부 문구가 "도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오".
+- 프록시·내보내기 감사 줄에 선택적 `encoder_note`.
+- CLI `tools install <name> [--yes] [--force]`: `--yes`만으로는 기존 파일을 바꾸지 않고, 실행 중인 워크스테이션이 있으면 `server_running`으로 거부(`--force`로 진행).
+
+### 갈래 A (Rust)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M1 이동 중 강제 종료 시 이전 바이너리 손실 | 첫 이동 전에 `backup/MOVING` 저널(도구 이름, 파일별 `plan` 줄, `sync_all`)을 쓰고, 쓰지 못하면 설치를 거부. 성공 시 삭제(실패하면 `complete` 표시), 롤백 완료 시 삭제. 정리 전에 `rescue_interrupted_move`가 저널로 RESTORE.txt를 만들고 `backup/`을 `rollback-backup-<hex>`로 옮긴다. 활성 저널이 있는 staging은 지우지 않는다. | `the_move_journal_lives_only_while_files_move`, `a_staging_dir_with_a_move_journal_survives_the_sweep_as_a_rollback_backup` |
+| M5 기존 설치 무경고 덮어쓰기 | `replace_check`, `start_install(…, force)`, CLI `--force` | `an_install_over_existing_files_needs_force`, `yes_alone_never_replaces_and_force_does`, `the_prompt_lines_name_each_replaced_file`, `replace_check_lists_existing_files_and_spots_a_complete_install` |
+| M6 CLI 작업 따라가기 계약 | 잠금을 `start_install`에서 먼저 잡음, §28 문구 수정 | `a_cli_install_holding_the_lock_refuses_up_front` |
+| L busy 문구 | `busy_kind`, `busy_refusal()` | `a_busy_tool_install_is_named_in_status_and_refusals` |
+| L doctor 문서 주석 | 함수를 주석 밖으로 이동 | 코드 읽기 |
+| L CLI 설치 ↔ 서버 작업 | 실행 중인 워크스테이션이 있으면 CLI 거부(`--force`) | `yes_alone_never_replaces_and_force_does` |
+| 짐작 작업 id 재사용 | `initial_install_seq()` 무작위 시작 | `install_job_ids_start_at_a_per_process_random_value` |
+| 짐작 h264_mf 해상도 | MS H.264 Video Encoder MFT 한계 4096×2304(주석에 출처). 출력이 넘으면 시험 통과한 libopenh264(Level 5.2 이내), 아니면 mpeg4. 축소하지 않고 이유를 `encoder_note`에 기록. | `frame_limits`, `an_output_too_large_for_h264_mf_uses_the_next_working_encoder` |
+| 짐작 libopenh264 특허 | `OPENH264_PATENT_NOTE`를 note와 `encoder_note`에 표시 | `libopenh264_is_named_with_its_patent_status` |
+
+### 갈래 B (릴리스 스크립트·CI)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M2 고지문과 패키징 불일치 | make-portable은 `tools/bin`에서 아무것도 복사하지 않는다. 저장소 또는 빌드 exe의 `tools/bin`에 파일이 있으면 중단. `README-tools.txt` 문구, THIRD_PARTY_NOTICES 첫 문단 한 구절 추가(마커는 그대로). Windows CI 스모크는 `README-tools.txt` 외 항목이 있으면 실패. WINDOWS_USAGE·handoff 문서 문구도 맞춤. | test-make-portable(libewf/TSK, ffmpeg, 라이선스, 쪽지, target/release, CARGO_TARGET_DIR) |
+| M3 build-release가 남의 zip까지 서명 | 이번 실행이 만든 zip만 정확한 경로로 기록·나열·서명. `dist/`에 다른 zip이 있으면 빌드 전과 SHA256SUMS 전에 중단. 만든 zip에 FFmpeg 항목·중첩 아카이브·고지 마커가 있으면 거부하고 삭제. | test-build-release(이름 11종, 빌드 중 심은 zip, FFmpeg 이름 변형, 중첩 8종, 세 읽기 도구별) |
+| M4 출력 경로 무시 | 두 스크립트 모두 cargo JSON의 `executable`(make-portable `-SkipBuild`는 `cargo metadata` `target_directory`)에서 바이너리를 가져온다. | CARGO_TARGET_DIR 절대·상대, CARGO_BUILD_TARGET_DIR, `.cargo/config.toml` × 빌드/`-SkipBuild` |
+| L 압축 파일 반입 | 확장자와 매직 바이트(PK, gzip, 7z, MSCF, Rar, xz, ustar, MZ 안의 UPX!)로 아카이브·패킹 exe 거부 | 9종 거부, 오탐 2종 통과 |
+| L 키 대소문자 | `-ceq` 정확한 키. CI는 node `JSON.parse`로 독립 계산해 교차 검증 | `Notice_Confirmed` 등 거부 |
+| L 파일 이름만의 표시 | 미확인 패키지 루트에 `UNCONFIRMED.txt`. build-release는 그 파일이 든 zip 거부 | 대소문자·하위 폴더 변형 |
+| L CI 공백 | `ci.yml`에 Linux `release-scripts` 잡(bash -n + 하네스, bsdtar 있으면 포함) | 이 푸시의 CI |
+| 짐작 -SkipBuild | 두 exe 모두 작업 트리 `tools/manifest.json` 바이트를 그대로 담고 있어야 함(없으면 "rebuild it") | 미확인 매니페스트로 빌드한 exe·매니페스트 없는 exe 거부 |
+| 짐작 설치 가능 판정 | sha256이 있거나 `kind:"pip"` + `requirements_file`이면 설치 가능. PowerShell·Python·node 동일 규칙 | pip 미확인 거부 |
+| 짐작 읽을 수 없는 고지문 | `[ -r ]`와 `cat` 종료 상태 확인, 실패하면 거부 | stub `cat` 오류; chmod 000은 Linux에서만 |
+
+### 갈래 C (UI)
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M5 (UI) | [설치] 전에 `htLoad()`로 다시 확인, 이미 설치면 대화상자 없이 "설치됨". `would_replace`/`already_installed`면 교체 목록을 보여 주는 두 번째 확인([교체하고 설치], 기본 초점 [취소])을 거쳐서만 `force:true` 재전송. | tools-unit "Fix round 16 M5 …" 2행 |
+| M6 (UI) | `install_running_elsewhere` → "다른 곳(명령줄)에서 도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오", 진행 줄 없음 | tools-unit "Fix round 16 M6 …" |
+| L 감사 경고 | `audit_warning`을 보존해 warn toast와 줄 표시 | tools-unit "Fix round 16 L-audit …" |
+| L 설치 직후 멈춤 | done이면 `/api/tools`를 기다리지 않고 바로 설치됨으로 그림, 그동안 "인코더 확인 중…" | tools-unit "Fix round 16 L-freeze …" |
+| L 종료 문구 | 중단 요청 뒤 아직 끝나지 않았으면 "설치 중단을 요청했습니다 — 도구 패널에서 결과를 확인하십시오", failed/done일 때만 각 문구 | tools-unit 라운드 13 L4 행 갱신 + "Fix round 16 L-quit-text …" |
+| L busy (UI) | 종료 대화상자와 41-finalize 점검 목록이 `busy_kind`로 설치 문구를 씀. 시작·케이스 열기는 서버 문구 그대로 | tools-unit "Fix round 16 L-busy …" |
+| 짐작 id (UI) | mock id 무작위 시작, 하네스 고정 id를 1이 아닌 값으로 | tools-unit "Fix round 16 hunch-ids …", verify-layout, check-a11y |
+
+### 확인 못 한 것
+- 실기: 이동 중 실제 강제 종료(Ctrl+C·정전), 4096×2304를 넘는 실제 h264_mf 인코딩, 실제 BtbN 빌드의 libopenh264 즉석 시험.
+- h264_mf 해상도 확인은 ffprobe가 필요하다. 없으면 크기를 몰라 인코더를 그대로 두고 실패는 ffmpeg 자체에서 난다.
+- `ffmpeg_changed_during_run` 감사 플래그는 넣지 않았다(대신 CLI 거부).
+- CLI의 워크스테이션 감지는 사용자 단위라 다른 폴더의 워크스테이션도 거부 사유가 된다(`--force`로 진행).
+- make-portable은 실제 `cargo build --message-format=json-render-diagnostics` 대신 stub cargo로만 시험했다. `-SkipBuild`는 `CARGO_BUILD_TARGET`(트리플)을 반영하지 않는다.
+- 운영 변경: 개발자가 `target/release/frametrace.exe tools install ffmpeg`를 했다면 패키징 전에 그 `tools/bin` 파일을 옮겨야 한다. build-release는 실행마다 `dist/`를 비워야 하고, 여러 타깃의 합계가 한 SHA256SUMS에 쌓이지 않는다.
+- UI 두 번째 확인·elsewhere 문구·"인코더 확인 중…"은 브라우저 하네스가 아니라 unit VM과 mock으로만 확인했다.
+
+### Fix round 16 follow-up (Low 4건)
+라운드 16 확인 리뷰(aebe395 기준)의 Low 4건. 작업 트리 ft-r16low, aebe395(tools-bundle + PR #6 병합) 위 detached HEAD.
+
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| L1 다른 프로세스(CLI)가 파일을 옮기는 중이면 잠금이 없는 서버가 그 `.staging-*`의 활성 MOVING 저널을 rollback_incomplete로 나열 — UI에 잠깐 되돌리기 경고, `restore_file`은 아직 없는 RESTORE.txt | `rollback_backups`가 저널만으로 staging을 나열하기 전에 `InstallLock::held_by_another_process`(fs2 비차단 시도 후 즉시 해제, 잠금 파일이 없으면 만들지 않고 "안 잡힘", 경합 오류만 "잡힘")로 확인해 다른 프로세스가 잡고 있으면 건너뜀. 호출당 한 번, 저널이 있는 staging에서만 시도. "이 프로세스가 잡고 있음" 제외는 그대로(먼저 검사). `backup/RESTORE.txt`·`rollback-backup-*`는 종전대로 항상 나열 | `tool_install::tests::a_journal_of_an_install_holding_the_lock_elsewhere_is_not_listed`(fs2 원시 잠금 보유 → 미나열, 해제 → 나열, 이 프로세스 잠금 → 미나열, RESTORE.txt는 보유 중에도 나열) |
+| L2 마지막 이동 뒤 `close_journal(true)` 전에 죽으면 성공한 설치가 중단된 설치로 보임 | 이동 하나가 끝날 때마다 저널에 `done\t<index>` 줄을 덧붙이고 `sync_all`(`rollback::mark_move_done`, 실패해도 저널은 보수적으로 남을 뿐). `read_journal`은 계획한 모든 index에 `done`이 있으면 `complete`처럼 `None` — 닫힌 저널처럼 일반 정리 대상, rollback 백업 없음. 하나라도 빠지면 종전대로 중단된 이동 | `a_journal_with_every_move_done_is_a_finished_install`(두 이동 모두 done → 미나열·정리·rollback-backup 없음, done 하나만 → 나열·rollback-backup 1개), 기존 저널 테스트 2개 통과 |
+| L3 ffprobe 너비·높이는 회전 메타데이터를 무시 — 회전 ±90/270인 3840×2160 휴대폰 영상은 autorotate 뒤 2160×3840이라 h264_mf 한계(4096×2304)를 높이에서 넘을 수 있음 | `output_frame_if_h264_mf`가 ffprobe `raw_json`(이미 `-show_streams`)에서 첫 비디오 스트림의 회전을 읽음(`video_rotation_degrees`: `side_data_list[].rotation` — display matrix, 없으면 `tags.rotate`, 정수 도만). 결정 함수 `output_frame(w, h, rotation, max_width)`가 회전이 ±90/270(180으로 나눈 나머지 90)이면 너비·높이를 바꾼 뒤 축소(`scale='min(max_width,iw)':-2`는 회전된 프레임에 적용)·한계 검사. `ProbeSummary`(케이스 색인 직렬화)는 바꾸지 않음 | `ffmpeg_encoders::tests::a_rotated_source_swaps_the_frame_before_the_h264_mf_limit`(90·-90·270·-270·450 → 2160×3840이고 h264_mf 불가, 없음·0·180·-180·360 → 그대로, 프록시 -90 → 1280×2276, side_data·tags·없음·잘못된 JSON 파싱) |
+| L4 서버 시작 정리(sweep)가 잠깐 잠금을 잡은 동안 UI 설치 요청이 `install_running`(held_by_this_process)으로 거부되지만 따라갈 설치 작업이 없어 UI가 조용히 끝남 | `start_install`: 잠금이 이 프로세스에 있고 실행 중인 설치 작업이 없으면 새 코드 `tools_busy`, "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오."(감사 로그에 `refused`/`tools_busy`). 실행 중 작업이 있으면 종전대로 `install_running`. UI의 기존 `busy` 문구("분석·내보내기가 끝난 뒤 설치하십시오")는 정리 중과 맞지 않아 56-tools.js `HT_STR`에 `code.tools_busy`(ko "도구 폴더를 정리하는 중입니다 — 잠시 뒤 다시 시도하십시오", en "The tools folder is being tidied — try again in a moment")를 추가 — `htRefusal`이 줄에 표시·알림 | `serve::tests_tools::windows::a_cli_install_holding_the_lock_refuses_up_front`(이 프로세스 잠금·작업 없음 → `tools_busy`, 작업·busy 없음, 내려받기 0, 감사 줄), tools-unit "Fix round 16 follow-up L4: tools_busy …" |
+
+#### 게이트(Windows, CARGO_TARGET_DIR=target-r16low)
+- `cargo fmt --check` 0 · `cargo clippy --locked --all-targets -- -D warnings` 0 · `cargo test --locked` lib 1267 passed / 3 ignored(새 테스트 3개 포함), cli_smoke 14 · package_review_bundle 5 · windows_job_tree 4 passed, 나머지는 실도구 ignored
+- check-js ok · verify-review-batch `--unit` 164 PASS(종료 0, 새 행 1) · verify-i18n 773/773
+
+#### 확인 못 한 것
+- L1: 프로브는 잠금을 잡았다 바로 놓으므로, 그 순간 다른 프로세스·스레드의 `InstallLock::acquire`가 실패할 수 있다(저널만 있는 staging이 있을 때만 시도하므로 드묾). 실제 CLI 설치 중 서버 `/api/tools`를 동시에 부르는 실기는 하지 않았다.
+- L2: `move_all_or_nothing`이 성공하면 저널을 지우므로 `done` 줄이 실제로 쓰이는지는 단위 테스트(`mark_move_done` 직접)로만 확인했다. 실제 강제 종료는 하지 않았다.
+- L3: 실제 회전 메타데이터가 있는 휴대폰 영상·실제 ffprobe 출력으로 확인하지 않았다(JSON 모양은 ffprobe 문서·출력 형식 기준). 90의 배수가 아닌 회전은 바꾸지 않는다.
+- L4: 브라우저 하네스가 아니라 unit VM으로만 확인했다. tools-mock에는 `tools_busy` 경로를 넣지 않았다.
+
+## §PR #6 병합 (2026-10-26, origin/main 3a8f099 → tools-bundle)
+
+origin/main(외부 PR #6, bf7a64c·863869c, 병합 3a8f099)을 tools-bundle(05a021d)에 `git merge`로 합쳤다(리베이스 아님). 원칙: **설치기는 PR #5의 것 하나뿐**이다. PR #6의 설치기는 지우고, 그 안의 타당한 요구(Sleuth Kit의 32비트 DLL 격리, libewf 빌드 스크립트의 `-Destination`)만 PR #5 설계 안으로 옮겼다. 나머지 PR #6 기능(폴더 계층·트리 필터, 피커 "새 폴더", 증거 끌어 놓기)은 유지하고 보안 규칙에 맞춰 고쳤다.
+
+### 충돌 해소
+| 파일 | 해소 |
+|---|---|
+| `src/tool_install/mod.rs`, `archive.rs` (add/add) | PR #5 쪽. PR #6의 `catalog.rs`·`libewf.rs`·`stream.rs` 삭제 |
+| `src/serve/mod.rs` | PR #5의 `/api/tools*` 4개 경로 + PR #6의 `/api/mkdir`·`/api/places`. `tool_setup` 모듈·경로 삭제 |
+| `src/serve/tests_http.rs` | 위와 같은 경로 표. `/api/mkdir`는 nonce 대상(경로·인증 표 테스트가 확인) |
+| `src/tool_policy.rs` | PR #5 해석기 위에 도구별 폴더를 한 함수(`tool_search_dirs`)로 넣음(아래 TSK DLL 결정) |
+
+### PR #6 항목별 처리
+| PR #6 항목 | 처리 | 이유 |
+|---|---|---|
+| `src/tool_install/{catalog,libewf,stream}.rs`, PR #6의 `mod.rs`/`archive.rs` | 삭제 | 두 번째 설치기. TSK zip을 GitHub 자산 digest만으로 설치(게시자 체크섬·파일 목록 검증 없음, 리다이렉트 호스트 검사·크기·tar 목록 검사·원자적 이동·롤백·감사 로그 없음) |
+| `src/serve/tool_setup.rs`, PR #6의 `POST /api/tools/install`·`GET /api/tools/install-status` | 삭제 | 같은 경로를 PR #5가 nonce·busy·force·cancel과 함께 제공 |
+| `assets/app/91-tool-setup.{js,css}`, `#hToolSetup`, "[설치]를 누르면 자동으로…" 문구 | 삭제 | UI 설치 경로는 56-tools.js(§28) 하나. 앱 번들은 `assets/app/*` 정렬 순서라 파일 삭제로 일관 |
+| 앱이 MSYS2 libewf 빌드 스크립트를 실행 | 삭제 | 소스 빌드(350MB·10~20분)를 서버가 실행하는 두 번째 설치 경로. libewf는 계속 수동(manifest `sha256: null`) |
+| `scripts/build-libewf-tools.ps1` `-Destination`, `gpgconf --kill all` | 흡수 | 수동 설치용으로 유효. 기본 대상은 `target/release/tools/libewf`(+ `target/debug/deps/tools/libewf`) |
+| `tool_policy` 패키지별 폴더(`tools/<pkg>`) | 흡수(형태 변경) | 아래 TSK DLL 결정. PR #6의 `ALL_PACKAGES` 대신 `ISOLATED_TOOLS` |
+| `/api/env` 힌트·40-status 오류 힌트·`#e01Need` "libewf [설치]" 문구 | 고침 | libewf·TSK는 설치 버튼이 없다. 각자 `tools/libewf`·`tools/sleuthkit` 안내 |
+| 30-form `loadEnv(refresh)` (`/api/env?refresh=1`) | 유지 | 서버가 이미 지원, 해 없음 |
+| 폴더 계층 보존·트리 필터(`forensic.rs` `--allocated-videos`, viewer 30/40/60/20) | 유지 + 고침 | `clean_relative_path`가 `sanitize_filename`을 써서 확장자(`clip.mp4`→`clip_mp4`)와 한글 폴더 이름을 지웠고 `a//b`에 `clip` 폴더를 만들었다 → `clean_path_component`(Windows 금지 문자·예약 장치 이름·끝 점/공백만 처리) |
+| `recover-inode`가 기존 `--output`을 지우고 덮어씀(`tsk.rs`) | 되돌림 | 증거 산출물 무단 덮어쓰기. "output already exists" 거부 복원 |
+| 복구 폴더 이름 `artifacts/Recovery/Filesystem` | 되돌림 | 문서화된 `artifacts/recovered/filesystem`은 패키징(`package.rs`)·`.part` 정리(`media.rs`)·테스트가 쓰는 폴더. 새 폴더는 패키지에서 빠졌다. 뷰어의 "Recovery/Filesystem"은 표시용 트리 이름이라 유지 |
+| `recover-batch` 기존 파일 처리 | 고침 | 완전한 기존 사본은 `ok`가 아니라 `skipped`(덮어쓰지 않음, 배치 로그에 `skipped` 수), 빈 잔여 파일은 새 빈 이름 |
+| `artifacts/extracted` | 유지 + 보강 | 케이스 패키지 대상(`package.rs`)과 `.part` 정리 대상(`media.rs`)에 추가 |
+| E01 파이프라인 끝: 정상 영상 추출 후 `artifacts/extracted` 색인 | 유지 + 고침 | 케이스 레이아웃이 빈 폴더를 항상 만들어, TSK가 없을 때도 빈 폴더만 색인하고 evidence를 건너뛰었다 → 무엇이든 추출됐을 때만 extracted 색인 |
+| 케이스 폴더 피커 "새 폴더"(`POST /api/mkdir`), `GET /api/places`, 81-picker-plus | 유지 + 보안 고침 | 아래 감사 |
+| `/api/browse` 파일 크기 | 유지 + 고침 | `metadata`가 링크를 따라감 → `symlink_metadata` + 일반 파일만 |
+| 증거 입력 붙여넣기 정리·끌어 놓기·최근 증거(82-evidence-input) | 유지 + 고침 | 끌어 놓은 네트워크 경로(`\\`, `//`)는 받지 않음(직접 입력만 — 서버의 typed-UNC 정책) |
+| `assets/icons.svg` `i-folder-plus`, 80-paths 피커 개선, 30-form | 유지 | — |
+| `81-picker-plus.css` | 유지 | check-css 중괄호 검사 대상에 추가 |
+
+### TSK DLL 결정
+- 사실: Sleuth Kit 공식 win32 zip은 32비트 런타임 DLL(`ucrtbase.dll`, `vcruntime140.dll`, `zlib.dll` …)을 함께 준다. Windows는 프로그램 자신의 폴더에서 DLL을 먼저 찾으므로, PR #5의 `manual_hint`대로 이 DLL을 64비트 FFmpeg가 있는 `tools/bin`에 넣으면 FFmpeg(또는 자체 DLL을 가진 libewf 빌드)가 잘못된 DLL을 읽어 시작하지 못할 수 있다. PR #5의 안내가 이 충돌을 만들었다.
+- 결정(한 경로, `src/tool_policy.rs`): `ISOLATED_TOOLS = ["libewf", "sleuthkit"]`. `tool_search_dirs(name)`가 유일한 답 — 그 바이너리를 제공하는 도구가 격리 대상이면 `tools/<tool>/`, 그다음 `tools/bin`. FFmpeg(ffmpeg/ffprobe)는 `tools/bin`만(설치기의 목적지, `tools/ffmpeg`는 찾지 않음). 해석기·`lookup_bare`(상태/shadow)·`tools_bin_tool_exists`가 모두 이 함수를 쓴다. 매니페스트 도구는 여전히 PATH보다 먼저.
+- `tools/bin`의 libewf/TSK는 예전 안내로 복사한 사용자를 위해 계속 찾는다(자기 폴더 다음). `doctor`는 `tools/bin`에 위 DLL이 있으면 WARN("tools/sleuthkit로 옮기십시오").
+- 설치기와 해석기가 어긋나지 않게 `validate_manifest`가 `ISOLATED_TOOLS` 도구의 고정(sha256) 아카이브를 거부한다(설치기는 `tools/bin`에만 쓴다). TSK를 자동 설치하려면 설치기 목적지를 `tools/<tool>`로 넓히는 별도 작업이 먼저다.
+- 함께 바꾼 곳: manifest·tools-mock `manual_hint`, `/api/env` 힌트, 40-status 힌트, `#e01Need`, 56-tools shadow 툴팁, doctor/CLI shadow 문구("FrameTrace tools 폴더 우선"), env 캐시 지문(격리 폴더 포함), `make-portable.ps1`(격리 폴더에 파일이 있어도 중단, README-tools.txt 안내), `build-libewf-tools.ps1` 기본 대상, README, WINDOWS_USAGE, security-review.
+- 테스트: `tool_policy::isolated_tools_resolve_from_their_own_folder_then_tools_bin`, `tool_install::tests::isolated_tools_cannot_be_pinned_for_the_tools_bin_installer`, `doctor::tests::doctor_warns_about_sleuth_kit_dlls_in_tools_bin`, test-make-portable 4행 + README 1행, tests_tools libewf 힌트.
+
+### 새 엔드포인트 보안 감사
+| 엔드포인트 | 감사 결과 | 조치·테스트 |
+|---|---|---|
+| `POST /api/mkdir` | nonce·Origin은 모든 POST 공통 게이트(`authorize_on`)로 이미 적용. `parent`는 HTTP 계층 `path_fields_for`로 UNC/장치/예약 이름 거부. 핸들러는 `reject_remote_path` 한 번뿐이고 `paste_path` 정규화·재검사(`bind_path`) 없음, 정션/심볼릭 링크 부모를 따라 폴더 생성 가능, 새 폴더 전체 경로 미검사 | `state::bind_path(parent, strict)`, 전체 경로 재검사, 부모가 링크·정션이면 거부, 한 단계만·기존 항목 재사용 안 함(유지). `fs_tools::tests::make_folder_binds_the_parent_and_refuses_links_and_device_paths`, `tests_http::typed_unc_policy_per_route`(mkdir 행), `route_table_matches_router_and_auth_classes` |
+| `GET /api/places` | 입력 경로 없음, 읽기 전용, 로컬 홈/드라이브 목록. GET 공통 Origin/Host 검사 적용 | 변경 없음 |
+| `GET /api/browse` 크기 필드 | `metadata`가 링크를 따라감(심어 둔 `x.E01` 링크 → 공유 폴더 SMB 접속) | `symlink_metadata` + 일반 파일만 |
+| 끌어 놓기(UI) | 다른 페이지에서 끌어 온 `file://` 공유 경로가 입력란에 들어감(서버 browse는 거부하지만) | 네트워크 경로는 받지 않고 직접 입력 안내 |
+| `recover-batch --allocated-videos` 출력 경로 | 이미지 안 경로가 케이스 밖으로 나갈 수 없음(`..`·루트·드라이브·ADS 제거, `require_case_output_path`) | `cli::handlers::tests::extracted_paths_keep_the_tree_and_never_escape`, `allocated_video_selectors_pick_live_video_candidates_once` |
+
+### CI
+- main의 실패: Linux/Windows/macOS CI가 모두 `cargo fmt --check`에서 실패(PR #6 파일). 병합 결과는 `cargo fmt` 적용.
+- `.github/workflows`: `ubuntu-latest` → `ubuntu-24.04` 전부(audit, ci ×3 — screenshots 잡 포함, fuzz, harnesses, perf). ubuntu-latest가 26.04로 옮겨 Playwright 1.56이 chromium을 설치하지 못한다. windows-latest·macos-latest는 그대로.
+
+### 게이트(Windows, CARGO_TARGET_DIR=target-merge6)
+- `cargo fmt --check` 0 · `cargo clippy --locked --all-targets -- -D warnings` 0 · `cargo test --locked` lib 1264 passed / 3 ignored, 그 밖의 바이너리 모두 ok(14·5·4 passed, ignored는 실도구 테스트)
+- check-ps-bom ok · check-js ok · check-css ok · verify-review-batch `--unit` 163 PASS(종료 0) · test-make-portable 141 ok · test-build-release 616 ok, 0 failed, 2 skipped · verify-i18n(strict) 773/773 · verify-layout 171/171 · check-a11y 전 항목 0건 · verify-start-screen 85/85 · verify-buttons 173 checks ok
+- 하네스 기대값 변경 1건: tools-unit "Tools shadow warning"이 툴팁 문구 "FrameTrace는 tools/bin의 것을 씁니다"를 기대 → 해석기가 이제 `tools/sleuthkit`·`tools/libewf`도 쓰므로 **코드가 맞고** 하네스 문구를 새 툴팁에 맞췄다. PR #6 UI는 기존 하네스를 깨지 않았다.
+
+### 확인 못 한 것
+- Linux/macOS의 clippy·test(이 PC에는 Windows 타깃만). 새 코드에 `cfg(windows)` 전용 항목은 없지만(`fs_tools`는 `cfg!` 매크로, `symlink_dir`/`symlink` 테스트는 cfg 분기) CI에서 확인해야 한다. `#[cfg(unix)]` icat 스텁 테스트도 여기서는 돌지 않았다.
+- 실제 Sleuth Kit 4.15.0 win32 zip의 DLL 목록은 내려받아 확인하지 않았다(PR #6이 적은 `ucrtbase`·`vcruntime140`·`zlib`만 doctor 경고 대상). 실제 FFmpeg가 그 DLL로 실패하는 것도 재현하지 않았다.
+- 실제 TSK/icat으로 `--allocated-videos` 추출과 E01 파이프라인 끝(추출 → extracted 색인)을 실행하지 않았다. `skipped` 결과를 읽는 UI 표시는 따로 만들지 않았다(배치 로그·콘솔에만).
+- 정션 부모 거부는 심볼릭 링크를 만들 수 있을 때만 테스트된다(Windows에서 권한이 없으면 그 부분은 건너뜀). `is_symlink()`는 Windows에서 정션도 참이다(media.rs R12-S9와 같은 판단).
+- 피커 "새 폴더"·끌어 놓기의 브라우저 동작은 기존 하네스 범위 밖(전용 하네스 없음).
+
+### PR #6 병합 확인 리뷰 반영 (2026-10-26, 기준 c5ba1f9 → 9406c79)
+병합 확인 리뷰(Opus, aebe395)는 Blocker·High 0, Medium 2·Low 4였다. 모두 고쳤다.
+
+| 발견 | 변경 | 확인 |
+|---|---|---|
+| M1 대상 파일이 있으면 출처 확인 없이 `skipped` — 대소문자만 다른 이름, 정리 후 같아지는 이름, 다른 이미지·파티션의 같은 경로가 서로 다른 증거인데도 추출되지 않음 | `choose_output_path`: tsk-audit 기록이 같은 경로·이미지·파티션 오프셋·inode·크기를 증명할 때만 건너뛴다. 아니면 `<이름>__ino<inode>`(추출) / `__off<offset>`(삭제 파일 복구), 그것도 있으면 `_001`…. 재실행해도 사본이 늘지 않는다. | `recover_batch_output_choice_proves_the_source_before_skipping`, `inode_output_records_read_recover_and_extract_events` |
+| M2 정상 파일 추출이 `recover-inode`로 기록돼 뷰어에 두 번, 복구 지표·보고서에 "복구됨"으로 집계 | 추출은 `extract-inode`(`recover_deleted:false`). 뷰어·records·report·deepfake·artifacts는 `recover-inode`만 쓰므로 자동 제외. 보고서 감사 표에는 남김. | `extracted_live_files_are_not_reported_as_recoveries`, VM 행 "M2 … metricCarved" |
+| L1 하위 폴더의 추출 `.part`가 남음 | `artifacts/extracted` 재귀 정리(링크·정션 미추적, 깊이 64) | `recursive_sweeps_reach_parts_in_subfolders`, `l1_killed_extraction_part_in_a_subfolder_is_swept` |
+| L2 폴더 내용만으로 색인 대상 결정 | recover-batch 마지막 줄 `recover batch result: …`로 이번 실행의 ok+skipped를 보고 판단 | `l2_extracted_tree_is_indexed_only_after_this_runs_result` |
+| L3 `file://server/share/…`가 상대 경로가 됨 | 호스트가 비어 있지 않고 `localhost`가 아니면 `//host/…`로 정규화해 네트워크 경로 거부를 그대로 적용 | `scripts/lib/pr6-merge-unit.mjs`(`--unit`) |
+| L4 조상 정션을 거쳐 폴더 생성 | `linked_ancestor`: 부모의 모든 조상을 `symlink_metadata`로 검사(Unix의 root 소유 시스템 링크만 허용) | `make_folder_refuses_a_junction_anywhere_above_the_parent` |
+| 짐작 | 예약 이름(`CONIN$`, `CONOUT$`, `COM¹²³`, `LPT¹²³`) 추가, 0바이트 사본 반복 해소(M1), `artifacts/extracted`는 `derived-extracted` 출처로 등록, 파일마다 디스크 여유(1 GB + 최대 파일) 확인, FILESYSTEM_RECOVERY.md에 `--allocated-videos` 절 | 각 단위 테스트 |
+| CI: verify-facets가 섹션 4개를 기대 | PR #6이 맨 앞에 넣은 "폴더 구조 (디렉터리)"를 기대하도록 갱신(dfd0028). 로컬 게이트는 이제 `scripts/ci-harnesses.sh`를 그대로 돌려 CI와 목록이 어긋나지 않는다. | verify-facets 통과 |
+
+확인 못 한 것: 실제 TSK/icat 추출과 E01 파이프라인 끝까지, Linux/macOS의 `linked_ancestor`·재귀 정리 symlink 분기(CI에서 확인), TSK 크기 합계로 하는 사전 공간 확인(fls 목록에 크기가 없어 파일별 확인으로 대체), 실제 브라우저의 끌어 놓기.

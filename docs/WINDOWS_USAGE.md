@@ -16,18 +16,28 @@ Target environment: Windows 10/11 x64, local examiner PC, attached HDD/SSD/SD ca
 4. Install libewf tools if E01/Ex01 evidence containers will be processed.
    Upstream ships source only for Windows, so use the automated source build:
    - `powershell -ExecutionPolicy Bypass -File scripts/build-libewf-tools.ps1` (installs a per-user
-     MSYS2, builds libewf, drops `ewf*.exe` + `libewf-3.dll` into
-     `target/release/tools/bin`; no admin required)
-   - or place a trusted community build into `tools/bin/`.
+     MSYS2, builds libewf, drops `ewf*.exe` + `libewf-3.dll` and its DLLs into
+     `target/release/tools/libewf`; pass `-Destination <FrameTrace folder>\tools\libewf`
+     for a portable copy; no admin required)
+   - or place a trusted community build (exes + DLLs) into `tools/libewf/`.
 5. Install The Sleuth Kit tools if raw-image file-system inspection or deleted inode recovery will be processed
    (`winget install Sleuthkit.Sleuthkit` or `https://sleuthkit.org`):
    - `mmls.exe`
    - `fls.exe`
    - `icat.exe`
-   Portable alternative: drop any of the above binaries into `tools/bin/`
-   next to `frametrace-app.exe` — they are discovered automatically, no PATH
-   editing required. Note: libewf has no official Windows build upstream;
-   build from source or use a trusted community build.
+   Portable alternative: copy the zip's `bin` folder contents (the exes AND
+   their DLLs) into `tools/sleuthkit/` next to `frametrace-app.exe` — they are
+   discovered automatically, no PATH editing required. Do not put them into
+   `tools/bin/`: the official win32 build ships 32-bit `ucrtbase.dll` /
+   `vcruntime140.dll` / `zlib.dll`, which can break the 64-bit FFmpeg there
+   (`frametrace doctor` warns when it finds them). Note: libewf has no
+   official Windows build upstream; build from source or use a trusted
+   community build.
+   Folder layout (one rule, `src/tool_policy.rs`): `tools/bin` = FFmpeg
+   (ffmpeg/ffprobe, installed by `frametrace tools install ffmpeg`);
+   `tools/libewf` = ewfinfo/ewfverify/ewfexport + DLLs; `tools/sleuthkit` =
+   mmls/fls/icat + DLLs. libewf / Sleuth Kit are still found in `tools/bin`
+   (older instructions), after their own folder.
 6. Use PowerShell or Windows Terminal.
 
 Check the tools:
@@ -68,10 +78,13 @@ powershell -ExecutionPolicy Bypass -File scripts/make-portable.ps1
 ```
 
 This produces `dist/FrameTrace-<version>-win64/` + `.zip` + `SHA256SUMS`.
-The package contains both executables, docs, `install.ps1`, and `tools/bin`.
-The packaged libewf / Sleuth Kit tools come from `tools/bin` if it exists,
-otherwise from `target/release/tools/bin` (where `build-libewf-tools.ps1`
-installs them); FFmpeg files found there are skipped, never packaged.
+The package contains both executables, docs, `install.ps1`, and an empty
+`tools/bin` (with `README-tools.txt`). It bundles **no** third-party tool —
+no FFmpeg, libewf or Sleuth Kit: `make-portable.ps1` stops with an error
+while the repository's or the build's `tools/bin`, `tools/libewf` or
+`tools/sleuthkit` holds any file. Examiners install the tools themselves
+into `tools\bin` (FFmpeg), `tools\libewf` or `tools\sleuthkit` next to the
+exe, or on `PATH` (see steps 3–5 above).
 The package never contains ffmpeg/ffprobe (they are not redistributable by us): run `frametrace.exe tools install ffmpeg` after unzipping (or use the home screen's install button), or keep them on PATH.
 
 **Two ways to run it:**

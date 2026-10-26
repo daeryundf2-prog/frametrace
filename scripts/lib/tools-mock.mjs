@@ -2,7 +2,10 @@
 // "§S as implemented", docs/ui-rebuild-contract.md §28) for browser
 // harnesses (verify-layout, check-a11y):
 //   GET  /api/tools                 {ok, platform, platform_supported, tools:[T], install: J|null, now_unix}
-//   POST /api/tools/install {name}  {ok:true, install: J} | {ok:false, code, error[, manual_hint, homepage]}
+//   POST /api/tools/install {name[, force]}  {ok:true, install: J} | {ok:false, code, error[, manual_hint, homepage]}
+//     (Fix round 16: code "would_replace" | "already_installed" with
+//     replaces:["bin/<file>", …] unless force:true; "install_running_elsewhere"
+//     while a command-line install holds the lock)
 //   GET  /api/tools/install-status  {ok:true, install: J|null, now_unix}
 //   POST /api/tools/install-cancel {id?}  {ok:true, install: J} | {ok:false, code:"no_install"|"not_cancellable"|"stale_job"}
 //   POST /api/cancel (opts.routeCancel; apiCancelReply)  {ok:true, cancelled:"tool-install", requested, install: J} | {ok:false, code:"not_cancellable"}
@@ -16,7 +19,8 @@
 // next status polls. Like the real server, a cancel is refused
 // (`not_cancellable`) only in stage install|venv|pip; an accepted cancel
 // replies with the job unchanged and the NEXT poll shows it `failed` with
-// error "install cancelled" and `cancelled: true`.
+// error "install cancelled" and `cancelled: true`. Job ids start at a
+// random value (like the server since Fix round 16) — never assume 1.
 const FF_ZIP = 'ffmpeg-n8.1.3-9-g29e619e767-win64-lgpl-8.1.zip';
 export const TOOLS_FIXTURE = () => ([
   {
@@ -37,7 +41,7 @@ export const TOOLS_FIXTURE = () => ([
     paths: { ewfinfo: null, ewfverify: null, ewfexport: null }, shadowed_by: { ewfinfo: null, ewfverify: null, ewfexport: null }, rollback_incomplete: false, rollback_note: null, rollback_backups: [], installable: false,
     unavailable_reason: 'The official release (https://github.com/libyal/libewf/releases/tag/20260924) publishes only a source tarball and its PGP signature, no Windows binaries.',
     not_installable_reason: 'The official release (https://github.com/libyal/libewf/releases/tag/20260924) publishes only a source tarball and its PGP signature, no Windows binaries.',
-    manual_hint: 'libewf는 공식 Windows 실행 파일이 없습니다 — scripts/build-libewf-tools.ps1로 소스에서 빌드하거나 직접 설치한 뒤 ewfinfo·ewfverify·ewfexport(와 DLL)를 tools/bin에 복사하십시오: https://github.com/libyal/libewf',
+    manual_hint: 'libewf는 공식 Windows 실행 파일이 없습니다 — scripts/build-libewf-tools.ps1 -Destination <FrameTrace 폴더>/tools/libewf로 소스에서 빌드하거나, 직접 설치한 ewfinfo·ewfverify·ewfexport와 DLL을 FrameTrace 폴더의 tools/libewf(전용 폴더)에 복사하십시오: https://github.com/libyal/libewf',
     source_host: null, size_bytes: null, encoders: null, download: null,
   },
   {
@@ -47,7 +51,7 @@ export const TOOLS_FIXTURE = () => ([
     paths: { mmls: null, fls: null, icat: null }, shadowed_by: { mmls: null, fls: null, icat: null }, rollback_incomplete: false, rollback_note: null, rollback_backups: [], installable: false,
     unavailable_reason: 'The maintainers publish a PGP signature (.asc), not a checksum file, and the archive\'s file list could not be verified without downloading it.',
     not_installable_reason: 'The maintainers publish a PGP signature (.asc), not a checksum file, and the archive\'s file list could not be verified without downloading it.',
-    manual_hint: 'sleuthkit-4.15.0-win32.zip을 공식 배포처에서 받아 PGP 서명(.asc)을 확인한 뒤 mmls·fls·icat과 함께 들어 있는 DLL을 tools/bin에 복사하십시오: https://www.sleuthkit.org/sleuthkit/download.php',
+    manual_hint: 'sleuthkit-4.15.0-win32.zip을 공식 배포처에서 받아 PGP 서명(.asc)을 확인한 뒤 zip의 bin 폴더 내용(mmls·fls·icat과 32비트 DLL)을 FrameTrace 폴더의 tools/sleuthkit(전용 폴더 — 64비트 FFmpeg가 있는 tools/bin이 아님)에 복사하십시오: https://www.sleuthkit.org/sleuthkit/download.php',
     source_host: null, size_bytes: null, encoders: null, download: null,
   },
   {
@@ -94,12 +98,19 @@ export function apiCancelReply(m) {
 // opts.steps: status polls per install stage (default 2); opts.fail: an
 // error string → the job ends `failed`; opts.tools: a fixture override;
 // opts.install: a job already running when the page loads (a refresh).
-// Returns the live mock state { posts: [{name}], cancels, tools, install,
-// cancelRequested } — set `cancelRequested = true` to stop the job from
-// "another tab / the CLI".
+// Fix round 16: opts.replaces: files in tools/bin a not-yet-installed tool
+// would replace (POST without force → would_replace); an installed tool
+// answers already_installed (its paths) unless force; opts.elsewhere (or
+// later `m.elsewhere = true`): a CLI install holds the lock
+// (install_running_elsewhere); opts.auditWarning: the done job's
+// audit_warning; opts.toolsDelayMs: GET /api/tools answers that late
+// (the server's encoder re-probe).
+// Returns the live mock state { posts: [{name[, force]}], cancels, tools,
+// install, cancelRequested, elsewhere } — set `cancelRequested = true` to
+// stop the job from "another tab / the CLI".
 export async function routeTools(page, opts = {}) {
   const steps = opts.steps || 2;
-  const m = { posts: [], cancels: 0, tools: opts.tools || TOOLS_FIXTURE(), install: opts.install || null, polls: 0, seq: 0, cancelRequested: false };
+  const m = { posts: [], cancels: 0, tools: opts.tools || TOOLS_FIXTURE(), install: opts.install || null, polls: 0, seq: Number.isInteger(opts.seq) ? opts.seq : 1000 + Math.floor(Math.random() * 900000), cancelRequested: false, elsewhere: !!opts.elsewhere };
   if (m.install && !('cancelled' in m.install)) m.install.cancelled = false;
   if (m.install && !('staging_left' in m.install)) m.install.staging_left = null;
   const advance = () => {
@@ -122,6 +133,7 @@ export async function routeTools(page, opts = {}) {
         i.finished_unix = nowUnix();
         if (opts.fail) { i.state = 'failed'; i.error = opts.fail; } else {
           i.state = 'done'; t.installed = true; t.status = 'installed';
+          if (opts.auditWarning) i.audit_warning = opts.auditWarning;
           for (const k of Object.keys(t.paths)) t.paths[k] = 'C:\\FrameTrace\\tools\\bin\\' + k + '.exe';
           if (t.name === 'ffmpeg') t.encoders = { ...LGPL_ENCODERS };
           i.installed_files = Object.values(t.paths);
@@ -141,6 +153,12 @@ export async function routeTools(page, opts = {}) {
     if (!t) return json(route, { ok: false, code: 'unknown_tool', error: '알 수 없는 도구입니다: ' + body.name });
     if (!t.installable) return json(route, { ok: false, code: 'not_installable', error: `${t.name} 자동 설치 불가: ${t.unavailable_reason}`, manual_hint: t.manual_hint, homepage: t.homepage });
     if (m.install && m.install.state !== 'done' && m.install.state !== 'failed') return json(route, { ok: false, code: 'install_running', error: '다른 도구 설치가 진행 중입니다.' });
+    if (m.elsewhere) return json(route, { ok: false, code: 'install_running_elsewhere', error: '다른 곳(명령줄)에서 도구 설치가 진행 중입니다.' });
+    if (body.force !== true) {
+      const own = Object.values(t.paths || {}).filter(Boolean).map((p) => 'bin/' + String(p).split(/[\\/]/).pop());
+      if (t.installed) return json(route, { ok: false, code: 'already_installed', replaces: own, error: `${t.name}은(는) 이미 설치돼 있습니다 — 다시 설치하려면 force` });
+      if (Array.isArray(opts.replaces) && opts.replaces.length) return json(route, { ok: false, code: 'would_replace', replaces: [...opts.replaces], error: 'tools/bin의 기존 파일을 교체합니다: ' + opts.replaces.join(', ') });
+    }
     m.seq += 1;
     m.install = { id: m.seq, tool: t.name, state: 'downloading', stage: 'queued', bytes: 0, total: t.size_bytes, error: null, cancelled: false, started_unix: nowUnix(), finished_unix: null, installed_files: [], audit_warning: null, staging_left: null };
     m.polls = 0;
@@ -164,6 +182,9 @@ export async function routeTools(page, opts = {}) {
   });
   // opts.routeCancel: also answer the global POST /api/cancel ([종료]).
   if (opts.routeCancel) await page.route('**/api/cancel', async (route) => json(route, apiCancelReply(m) || { ok: false, error: '진행 중인 작업이 없습니다.' }));
-  await page.route('**/api/tools', async (route) => json(route, { ok: true, platform: 'windows-x86_64', platform_supported: true, tools: m.tools, install: withAge(m.install), now_unix: nowUnix() }));
+  await page.route('**/api/tools', async (route) => {
+    if (opts.toolsDelayMs) await new Promise((r) => setTimeout(r, opts.toolsDelayMs));
+    return json(route, { ok: true, platform: 'windows-x86_64', platform_supported: true, tools: m.tools, install: withAge(m.install), now_unix: nowUnix() });
+  });
   return m;
 }

@@ -110,14 +110,22 @@ const H_QUIT_INSTALL_WAIT_S = 600;
 // the install (the server stays up either way).
 // Fix round 14 L2: `ended` — the close was noticed only after the job had
 // ended, so a not_cancellable install no longer "continues": it finished.
-function hQuitInstallLeftNote(cr, ended) {
+// Fix round 16 L-quit-text: `state` — that install's state read when the
+// close was noticed (GET /api/tools/install-status; "" when unknown or
+// another job): an accepted cancel is only a request until the job ends.
+function hQuitInstallLeftNote(cr, ended, state) {
   const r = cr || {};
   // Fix round 15: `requested: false` — the install had already ended when
   // /api/cancel arrived, so nothing was cancelled.
   if (r.ok && r.cancelled === "tool-install" && r.requested === false) {
     return "도구 설치는 이미 끝나 있었습니다 — 도구 패널에서 결과를 확인하십시오.";
   }
-  if (r.ok && r.cancelled === "tool-install") return "설치는 이미 중단됐습니다 — 필요하면 다시 설치하십시오.";
+  if (r.ok && r.cancelled === "tool-install") {
+    if (state === "failed") return "설치는 이미 중단됐습니다 — 필요하면 다시 설치하십시오.";
+    // The cancel came too late to stop it: the install finished.
+    if (state === "done") return "도구 설치가 끝났습니다 — 도구 패널에서 결과를 확인하십시오.";
+    return "설치 중단을 요청했습니다 — 도구 패널에서 결과를 확인하십시오.";
+  }
   if (!r.ok && r.code === "not_cancellable" && r.job_kind === "tool-install") {
     return ended ? "도구 설치가 끝났습니다 — 도구 패널에서 결과를 확인하십시오."
       : "도구 설치는 중단되지 않았고 계속 진행됩니다 (파일을 옮기는 중) — 서버는 종료하지 않았습니다.";
@@ -130,8 +138,22 @@ function hQuitPanelFollows(cr) {
   const tool = cr && cr.install && typeof cr.install.tool === "string" ? cr.install.tool : "";
   return !!tool && typeof HT === "object" && HT !== null && HT.busy === tool;
 }
-function hQuitInstallLeft(cr, ended) {
-  const note = hQuitInstallLeftNote(cr, ended);
+// The state of the install /api/cancel answered for, now ("" = unknown,
+// or the server has moved on to another job).
+async function hQuitInstallState(cr) {
+  try {
+    const r = await jget("/api/tools/install-status");
+    const i = r && r.ok !== false && r.install && typeof r.install === "object" ? r.install : null;
+    if (!i) return "";
+    const want = cr && cr.install ? cr.install.id : undefined;
+    if (want !== undefined && want !== null && i.id !== undefined && i.id !== null && String(i.id) !== String(want)) return "";
+    return String(i.state || "");
+  } catch (e) { return ""; }
+}
+async function hQuitInstallLeft(cr, ended) {
+  const r = cr || {};
+  const asked = r.ok && r.cancelled === "tool-install" && r.requested !== false;
+  const note = hQuitInstallLeftNote(cr, ended, asked ? await hQuitInstallState(cr) : "");
   if (note && !hQuitPanelFollows(cr) && typeof toast === "function") toast(note, "warn");
 }
 async function hQuitToolInstall() {
@@ -156,7 +178,9 @@ $("hBtnQuit").addEventListener("click", async () => {
     const pendingHtml = pending > 0
       ? `<p><b>케이스에 아직 반영되지 않은 마크·메모 변경 ${pending}건</b>이 있습니다. 서버를 종료하면 이 브라우저의 임시 저장본에만 남습니다 — 취소하고 몇 초 기다려 자동 반영된 뒤 종료하는 것을 권장합니다.</p>`
       : "";
-    const install = st.busy ? await hQuitToolInstall() : null;
+    // Fix round 16 L-busy: `busy_kind` "tool-install" also says it when the
+    // install-status read missed the job (a race, an older endpoint).
+    const install = st.busy ? (await hQuitToolInstall()) || (st.busy_kind === "tool-install" ? {} : null) : null;
     const installName = install ? String(install.tool || "") : "";
     const busyHtml = !st.busy ? ""
       : install ? `<p><b>도구 설치가 진행 중입니다</b>${installName ? ` (${esc(installName)})` : ""}. 도구 설치를 중단한 뒤 서버를 종료합니다 — 파일을 옮기는 중이면 그 단계가 끝난 뒤 종료합니다.</p>`
@@ -208,7 +232,7 @@ $("hBtnQuit").addEventListener("click", async () => {
           if (still) $("dlgNote").textContent = waitLabel;
           for (let i = 0; i < maxS * 2 && still; i++) {
             await new Promise(r => setTimeout(r, 500));
-            if (!stillOpen()) { hQuitInstallLeft(cr); return false; }
+            if (!stillOpen()) { await hQuitInstallLeft(cr, false); return false; }
             let s2 = null;
             try { s2 = await jget("/api/status"); } catch (e) { s2 = null; }
             still = !!(s2 && s2.busy);
@@ -220,7 +244,7 @@ $("hBtnQuit").addEventListener("click", async () => {
               : "작업이 아직 멈추지 않았습니다 — 잠시 후 다시 시도하십시오.";
             return false;
           }
-          if (!stillOpen()) { hQuitInstallLeft(cr, true); return false; }
+          if (!stillOpen()) { await hQuitInstallLeft(cr, true); return false; }
         }
         $("dlgNote").textContent = "서버 종료 요청 중…";
         const res = await jpost("/api/shutdown", {});

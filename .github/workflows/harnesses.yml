@@ -16,7 +16,7 @@ on:
 
 jobs:
   harnesses:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moved to 26.04, where Playwright 1.56 cannot install chromium (PR #6 merge, 2026-10-26)
     # R6 U11 — why 60 minutes. Measured on ubuntu-latest (gh run view):
     #   job total   11m19s (run 38254351126, 2026-10-12) → 12m14s → 13m21s
     #               → 15m03s → 16m37s (run 38668482519, 2026-10-15)

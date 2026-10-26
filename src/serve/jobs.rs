@@ -97,7 +97,7 @@ pub(crate) fn api_start(request: &Request, state: &SharedState) -> String {
     let lease = {
         let mut guard = state_lock(state);
         if guard.busy {
-            return "{\"ok\":false,\"error\":\"이미 분석이 진행 중입니다.\"}".to_string();
+            return api_err(&guard.busy_refusal("이미 분석이 진행 중입니다."));
         }
         // S4: a new analysis rebinds the case; a clip export / join or a
         // write op still writing into the current one must finish first.
@@ -229,7 +229,7 @@ pub(crate) fn api_reimport_raw_with(
             return api_err(CASE_SWITCHED_ERROR);
         }
         if guard.busy {
-            return api_err("이미 분석이 진행 중입니다.");
+            return api_err(&guard.busy_refusal("이미 분석이 진행 중입니다."));
         }
         if let Some(refusal) = side_work_refusal(&guard, "재임포트하십시오") {
             return api_err(&refusal);
@@ -591,10 +591,53 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
     let exe = exe.to_path_buf();
     let case_text = job.case_dir.to_string_lossy().to_string();
     set_step(&state, 3, StepStatus::Running);
+
+    // E01 filesystem triage: extract allocated videos preserving folder hierarchy
+    let mut extracted_any = false;
+    if let Some((image_path, partition_offset)) =
+        crate::serve::records::newest_tsk_inspection(&job.case_dir)
+    {
+        log(
+            &state,
+            format!(
+                "정상 영상 추출 중 (기존 폴더 구조 유지: artifacts/extracted @ offset {partition_offset})…"
+            ),
+        );
+        let extract_args = vec![
+            "recover-batch".into(),
+            case_text.clone(),
+            image_path.to_string_lossy().to_string(),
+            "--allocated-videos".into(),
+            "--partition-offset".into(),
+            partition_offset.to_string(),
+        ];
+        match run_step(&exe, &extract_args, &state) {
+            Ok(output) => {
+                extracted_any = extraction_left_files(&output);
+                log(&state, output);
+            }
+            Err(err) => log(&state, format!("정상 영상 자동 추출 건너뜀: {err}")),
+        }
+    }
+
+    // PR #6 merge: index the extracted tree only when the extraction put
+    // something there — create_case_layout always makes the (empty)
+    // folder, and without Sleuth Kit (or an inspection) nothing is
+    // extracted, so the evidence tree stays the scan target then.
+    // Merge review L2: decided by THIS run's recover-batch result (files
+    // extracted or kept from an earlier run of the same sources), never by
+    // whatever the folder holds (an empty subfolder, a stale `.part`).
+    let extracted_dir = job.case_dir.join("artifacts/extracted");
+    let scan_target = if extracted_any {
+        extracted_dir.to_string_lossy().to_string()
+    } else {
+        job.case_dir.join("evidence").to_string_lossy().to_string()
+    };
+
     let mut scan_args: Vec<String> = vec![
         "scan-folder".into(),
         case_text.clone(),
-        job.case_dir.join("evidence").to_string_lossy().to_string(),
+        scan_target,
         "--no-ffprobe".into(),
     ];
     if job.with_hash {
@@ -644,6 +687,14 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
             fail(&state, &err);
         }
     }
+}
+
+/// Merge review L2: whether THIS recover-batch run left files in
+/// artifacts/extracted — its closing `recover batch result:` line counts
+/// new (`ok`) and kept (`skipped`, proven the same source) outputs.
+pub(crate) fn extraction_left_files(output: &str) -> bool {
+    crate::cli::handlers::forensic::parse_batch_result(output)
+        .is_some_and(|(ok, skipped)| ok + skipped > 0)
 }
 
 /// Folder pipeline, split in two stages (UX-02):
