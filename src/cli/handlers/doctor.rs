@@ -553,7 +553,6 @@ fn ffmpeg_check(
     }
 }
 
-/// One diagnostic line for `frametrace doctor`. `level` renders as
 /// One WARN per kept rollback backup under `tools_dir` (size and how to
 /// restore it); none when there is nothing to restore.
 fn rollback_backup_checks(tools_dir: &Path) -> Vec<DoctorCheck> {
@@ -571,6 +570,7 @@ fn rollback_backup_checks(tools_dir: &Path) -> Vec<DoctorCheck> {
         .collect()
 }
 
+/// One diagnostic line for `frametrace doctor`. `level` renders as
 /// OK/WARN/FAIL — WARN means the workstation runs but a feature lane is
 /// unavailable, FAIL means a blocking defect (corrupt db, broken keyring).
 struct DoctorCheck {
