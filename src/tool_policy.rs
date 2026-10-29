@@ -13,7 +13,7 @@ pub fn resolve_tool_binary(input: &str, allowed_names: &[&str]) -> Result<String
     if is_allowed_tool_name(trimmed, allowed_names) {
         return resolve_bare_tool_path(trimmed, allowed_names).ok_or_else(|| {
             format!(
-                "tool '{trimmed}' not found in PATH or the tools/bin directory; install it and retry (a bare name is never executed directly to avoid planted-binary search paths)"
+                "tool '{trimmed}' not found in PATH or FrameTrace's tools folder (tools/<tool>, tools/bin); install it and retry (a bare name is never executed directly to avoid planted-binary search paths)"
             )
         });
     }
@@ -256,64 +256,291 @@ fn is_allowed_tool_name(candidate: &str, allowed_names: &[&str]) -> bool {
 /// evidence media. When the tool cannot be found, `None` is returned: the
 /// caller must refuse to spawn rather than fall back to a bare name, which
 /// would reintroduce the planting vector this resolver exists to prevent.
+///
+/// Order: a tool the pinned manifest provides (`tools/manifest.json`
+/// `provides`: ffmpeg, ffprobe, the libewf / Sleuth Kit binaries,
+/// deepfake-lens) resolves from FrameTrace's install tree
+/// ([`tool_search_dirs`]: `tools/<tool>`, then `tools/bin`) FIRST and only
+/// then from PATH, because the default user PATH holds user-writable
+/// directories (WindowsApps, Python Scripts, npm, .cargo\bin) where a
+/// planted `ffmpeg.exe` would otherwise shadow the verified one. Any other
+/// tool keeps PATH first, then tools/bin.
 fn resolve_bare_tool_path(name: &str, allowed_names: &[&str]) -> Option<String> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    if let Some(path) = find_in_path_dirs(name, allowed_names, &path_var) {
-        return Some(path.to_string_lossy().to_string());
+    resolve_bare_in(
+        name,
+        allowed_names,
+        &path_var,
+        tools_root().as_deref(),
+        is_manifest_tool(name),
+    )
+}
+
+/// Manifest tools that live in their own `<exe dir>/tools/<name>/` folder
+/// instead of the shared `tools/bin` (PR #6 merge, 2026-10-26).
+///
+/// Windows loads a program's DLLs from the program's own folder first. The
+/// official Sleuth Kit win32 zip ships 32-bit runtime DLLs (`ucrtbase.dll`,
+/// `vcruntime140.dll`, `zlib.dll`, ...) and a libewf build ships its own
+/// DLL set; copied next to the 64-bit `ffmpeg.exe` in one folder, a
+/// program can load a DLL of the wrong bitness or version and fail to
+/// start (0xc000007b). Each of these tools therefore gets a private folder:
+///
+/// * `tools/bin/`       — FFmpeg (`frametrace tools install ffmpeg`, or a
+///   manual copy of ffmpeg.exe / ffprobe.exe); deepfake-lens fallback.
+/// * `tools/libewf/`    — ewfinfo / ewfverify / ewfexport and their DLLs
+///   (manual: `scripts/build-libewf-tools.ps1 -Destination <exe dir>\tools\libewf`).
+/// * `tools/sleuthkit/` — mmls / fls / icat and the DLLs of the zip's `bin`.
+///
+/// The guided installer only writes `tools/bin`, so
+/// `tool_install::validate_manifest` refuses an installable archive entry
+/// for a tool listed here: the installer and this resolver can never
+/// disagree about where a tool lives.
+pub const ISOLATED_TOOLS: &[&str] = &["libewf", "sleuthkit"];
+
+/// Whether manifest tool `tool_name` has its own `tools/<name>/` folder.
+pub fn is_isolated_tool(tool_name: &str) -> bool {
+    ISOLATED_TOOLS.contains(&tool_name)
+}
+
+/// `<exe dir>/tools`, the trusted install tree next to the binary.
+fn tools_root() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    Some(exe.parent()?.join("tools"))
+}
+
+/// The ONE answer to "which install-tree folders may hold bare tool
+/// `name`", in search order: the providing tool's private folder
+/// (`tools/libewf`, `tools/sleuthkit` — [`ISOLATED_TOOLS`]) first, then
+/// `tools/bin` (FFmpeg's folder; still searched for libewf / Sleuth Kit so
+/// a copy made under the old instructions keeps working — doctor warns
+/// about the 32-bit DLLs such a copy leaves there). The list is fixed by
+/// the manifest, never a directory glob.
+pub fn tool_search_dirs(name: &str) -> Vec<PathBuf> {
+    tools_root()
+        .map(|root| tool_search_dirs_in(&root, name))
+        .unwrap_or_default()
+}
+
+fn tool_search_dirs_in(tools_root: &Path, name: &str) -> Vec<PathBuf> {
+    let mut dirs = Vec::with_capacity(2);
+    if let Some(tool) = isolated_tool_for_binary(name) {
+        dirs.push(tools_root.join(tool));
     }
-    // Portable layout: `<exe dir>/tools/bin` ships optional forensic tools
-    // next to the binary so examiners never need admin rights to extend PATH.
-    // The directory is part of the trusted install tree, unlike the CWD.
-    find_in_tools_bin(name, allowed_names)
+    dirs.push(tools_root.join("bin"));
+    dirs
+}
+
+/// The [`ISOLATED_TOOLS`] entry providing binary `name` (`fls` →
+/// `sleuthkit`), if any.
+pub fn isolated_tool_for_binary(name: &str) -> Option<&'static str> {
+    let bare = name.strip_suffix(".exe").unwrap_or(name);
+    let tool = crate::tool_install::tool_for_binary(bare)?;
+    ISOLATED_TOOLS
+        .iter()
+        .copied()
+        .find(|isolated| *isolated == tool.name)
+}
+
+/// 32-bit runtime DLLs the official Sleuth Kit win32 zip ships. Found in
+/// `tools/bin` (next to the 64-bit FFmpeg) they can break FFmpeg's DLL
+/// lookup — doctor reports them so the examiner moves Sleuth Kit to
+/// `tools/sleuthkit`.
+pub const TSK_RUNTIME_DLLS: &[&str] = &["ucrtbase.dll", "vcruntime140.dll", "zlib.dll"];
+
+/// [`TSK_RUNTIME_DLLS`] present in `<exe dir>/tools/bin`.
+pub fn foreign_runtime_dlls_in_tools_bin() -> Vec<String> {
+    tools_root()
+        .map(|root| foreign_runtime_dlls_in(&root.join("bin")))
+        .unwrap_or_default()
+}
+
+fn foreign_runtime_dlls_in(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .filter(|file| {
+            TSK_RUNTIME_DLLS
+                .iter()
+                .any(|dll| dll.eq_ignore_ascii_case(file))
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// Whether the pinned tool manifest provides `name` (`ffmpeg` or
+/// `ffmpeg.exe`).
+fn is_manifest_tool(name: &str) -> bool {
+    let bare = name.strip_suffix(".exe").unwrap_or(name);
+    crate::tool_install::tool_for_binary(bare).is_some()
+}
+
+/// [`resolve_bare_tool_path`] against an explicit PATH value and `tools`
+/// root (unit tests).
+fn resolve_bare_in(
+    name: &str,
+    allowed_names: &[&str],
+    path_var: &str,
+    tools_root: Option<&Path>,
+    tools_bin_first: bool,
+) -> Option<String> {
+    // Portable layout: `<exe dir>/tools/...` holds forensic tools next to
+    // the binary so examiners never need admin rights to extend PATH. The
+    // directory is part of the trusted install tree, unlike the CWD.
+    let from_tools_bin = || find_in_install_tree(tools_root, name, allowed_names);
+    let from_path = || {
+        find_in_path_dirs(name, allowed_names, path_var)
+            .map(|path| path.to_string_lossy().to_string())
+    };
+    if tools_bin_first {
+        from_tools_bin().or_else(from_path)
+    } else {
+        from_path().or_else(from_tools_bin)
+    }
+}
+
+/// For a manifest tool that resolves from the install tree
+/// ([`tool_search_dirs`]; "tools/bin" below means that tree): the
+/// different copy on PATH that tools/bin takes precedence over — the one a
+/// PATH-first lookup (older FrameTrace builds, other programs, a shell)
+/// would run. FrameTrace does not use it; doctor, `tools list --json` and
+/// `GET /api/tools` report it as `shadowed_by` so the examiner can check it
+/// is not a planted binary. `None` when the tool does not resolve from
+/// tools/bin or PATH has no other copy — and always for deepfake-lens,
+/// whose real order is different (`FRAMETRACE_DEEPFAKE_LENS`, then the
+/// private venv `tools/python/deepfake-lens`, then this resolver), so a
+/// tools/bin-vs-PATH comparison would not describe what runs.
+pub fn shadowed_by(name: &str) -> Option<String> {
+    lookup_bare(name, &PathDirs::from_env()).shadowed_by
+}
+
+/// One bare-name resolution plus its shadow, from one PATH walk
+/// ([`PathDirs`]) — `tool_install::status` walks PATH once for all of a
+/// tool's binaries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BareLookup {
+    /// What [`resolve_tool_binary`] resolves `name` to.
+    pub used: Option<String>,
+    /// [`shadowed_by`].
+    pub shadowed_by: Option<String>,
+}
+
+/// [`resolve_tool_binary`]`(name, &[name])` and [`shadowed_by`]`(name)`
+/// against an already-walked PATH.
+pub fn lookup_bare(name: &str, path: &PathDirs) -> BareLookup {
+    lookup_in(name, path, tools_root().as_deref())
+}
+
+fn lookup_in(name: &str, path: &PathDirs, tools_root: Option<&Path>) -> BareLookup {
+    let allowed = [name];
+    let from_bin = find_in_install_tree(tools_root, name, &allowed);
+    let from_path = path.find(name, &allowed);
+    if !is_manifest_tool(name) {
+        let used = from_path
+            .map(|path| path.to_string_lossy().to_string())
+            .or(from_bin);
+        return BareLookup {
+            used,
+            shadowed_by: None,
+        };
+    }
+    let bare = name.strip_suffix(".exe").unwrap_or(name);
+    let shadowed_by = match (&from_bin, &from_path) {
+        (Some(used), Some(other)) if bare != "deepfake-lens" => {
+            let same = match (Path::new(used).canonicalize(), other.canonicalize()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => Path::new(used) == other.as_path(),
+            };
+            (!same).then(|| other.to_string_lossy().to_string())
+        }
+        _ => None,
+    };
+    BareLookup {
+        used: from_bin.or_else(|| from_path.map(|path| path.to_string_lossy().to_string())),
+        shadowed_by,
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// PATH walks on this thread (tests: `status()` walks PATH once).
+    static PATH_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// PATH walks so far on this thread (tests).
+#[cfg(test)]
+pub(crate) fn path_walks() -> usize {
+    PATH_WALKS.with(|walks| walks.get())
+}
+
+/// The absolute, existing PATH directories, canonicalized once (relative
+/// and empty entries are never searched — see [`find_in_path_dirs`]).
+pub struct PathDirs(Vec<PathBuf>);
+
+impl PathDirs {
+    pub fn from_env() -> Self {
+        Self::from_var(&std::env::var("PATH").unwrap_or_default())
+    }
+
+    fn from_var(path_var: &str) -> Self {
+        #[cfg(test)]
+        PATH_WALKS.with(|walks| walks.set(walks.get() + 1));
+        Self(
+            std::env::split_paths(path_var)
+                .filter(|dir| !dir.as_os_str().is_empty() && dir.is_absolute())
+                .filter_map(|dir| dir.canonicalize().ok())
+                .collect(),
+        )
+    }
+
+    fn find(&self, name: &str, allowed_names: &[&str]) -> Option<PathBuf> {
+        self.0
+            .iter()
+            .find_map(|dir| find_in_canonical_dir(dir, name, allowed_names))
+    }
 }
 
 /// Whether an optional forensic tool has been dropped into the portable
-/// `tools/bin` directory (or an installer package dir) next to the executable.
+/// install tree next to the executable ([`tool_search_dirs`]).
 pub fn tools_bin_tool_exists(name: &str) -> bool {
-    tools_search_dirs().iter().any(|dir| {
+    tool_search_dirs(name).iter().any(|dir| {
         [name.to_string(), format!("{name}.exe")]
             .iter()
             .any(|candidate| dir.join(candidate).is_file())
     })
 }
 
-/// `<exe dir>/tools/bin` (hand-copied portable layout) first, then the
-/// per-package dirs the in-app installer writes (`tools/ffmpeg`, ...). The
-/// package list is fixed by the catalog — never a directory glob — so only
-/// install-tree paths the workstation itself owns are trusted.
-fn tools_search_dirs() -> Vec<PathBuf> {
-    let Some(tools) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("tools")))
-    else {
-        return Vec::new();
-    };
-    std::iter::once(tools.join("bin"))
-        .chain(
-            crate::tool_install::ALL_PACKAGES
-                .iter()
-                .map(|package| tools.join(package.dir_name())),
-        )
-        .collect()
+/// First match for `name` in [`tool_search_dirs_in`] order.
+fn find_in_install_tree(
+    tools_root: Option<&Path>,
+    name: &str,
+    allowed_names: &[&str],
+) -> Option<String> {
+    let root = tools_root?;
+    tool_search_dirs_in(root, name)
+        .iter()
+        .find_map(|dir| find_in_dir(dir, name, allowed_names))
 }
 
-fn find_in_tools_bin(name: &str, allowed_names: &[&str]) -> Option<String> {
-    for dir in tools_search_dirs() {
-        for candidate_name in [name.to_string(), format!("{name}.exe")] {
-            let candidate = dir.join(&candidate_name);
-            let Ok(metadata) = std::fs::metadata(&candidate) else {
-                continue;
-            };
-            if !metadata.is_file() {
-                continue;
-            }
-            let Ok(canonical) = crate::util::canonicalize_display(&candidate) else {
-                continue;
-            };
-            let file_name = canonical.file_name().and_then(|n| n.to_str());
-            if file_name.map(|n| is_allowed_tool_name(n, allowed_names)) == Some(true) {
-                return Some(canonical.to_string_lossy().to_string());
-            }
+fn find_in_dir(dir: &Path, name: &str, allowed_names: &[&str]) -> Option<String> {
+    for candidate_name in [name.to_string(), format!("{name}.exe")] {
+        let candidate = dir.join(&candidate_name);
+        let Ok(metadata) = std::fs::metadata(&candidate) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(canonical) = crate::util::canonicalize_display(&candidate) else {
+            continue;
+        };
+        let file_name = canonical.file_name().and_then(|n| n.to_str());
+        if file_name.map(|n| is_allowed_tool_name(n, allowed_names)) == Some(true) {
+            return Some(canonical.to_string_lossy().to_string());
         }
     }
     None
@@ -321,29 +548,41 @@ fn find_in_tools_bin(name: &str, allowed_names: &[&str]) -> Option<String> {
 
 fn find_in_path_dirs(name: &str, allowed_names: &[&str], path_var: &str) -> Option<PathBuf> {
     for dir in std::env::split_paths(path_var) {
-        // An empty PATH entry conventionally means the current directory.
-        if dir.as_os_str().is_empty() {
+        // An empty PATH entry conventionally means the current directory,
+        // and a relative one (`.`, `bin`, `..\tools`) is resolved against
+        // it too — the planted-binary vector this resolver exists to
+        // close. Only absolute entries are searched (on Windows a
+        // root-relative `\bin` is not absolute either: it follows the
+        // current drive).
+        if dir.as_os_str().is_empty() || !dir.is_absolute() {
             continue;
         }
         let Ok(dir) = dir.canonicalize() else {
             continue;
         };
-        for candidate_name in [name.to_string(), format!("{name}.exe")] {
-            let candidate = dir.join(&candidate_name);
-            let Ok(metadata) = std::fs::metadata(&candidate) else {
-                continue;
-            };
-            if !metadata.is_file() {
-                continue;
-            }
-            let Ok(canonical) = crate::util::canonicalize_display(&candidate) else {
-                continue;
-            };
-            if let Some(file_name) = canonical.file_name().and_then(|file| file.to_str())
-                && is_allowed_tool_name(file_name, allowed_names)
-            {
-                return Some(canonical);
-            }
+        if let Some(found) = find_in_canonical_dir(&dir, name, allowed_names) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_in_canonical_dir(dir: &Path, name: &str, allowed_names: &[&str]) -> Option<PathBuf> {
+    for candidate_name in [name.to_string(), format!("{name}.exe")] {
+        let candidate = dir.join(&candidate_name);
+        let Ok(metadata) = std::fs::metadata(&candidate) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(canonical) = crate::util::canonicalize_display(&candidate) else {
+            continue;
+        };
+        if let Some(file_name) = canonical.file_name().and_then(|file| file.to_str())
+            && is_allowed_tool_name(file_name, allowed_names)
+        {
+            return Some(canonical);
         }
     }
     None
@@ -415,26 +654,6 @@ mod tests {
     }
 
     #[test]
-    fn resolves_tools_installed_into_package_dirs() {
-        // Given: a binary the in-app installer placed under tools/sleuthkit/
-        let exe = std::env::current_exe().unwrap();
-        let package_dir = exe.parent().unwrap().join("tools").join("sleuthkit");
-        std::fs::create_dir_all(&package_dir).unwrap();
-        let probe = package_dir.join("frametrace-probe-mmls.exe");
-        std::fs::write(&probe, b"stub").unwrap();
-        // When: the bare name is resolved
-        let resolved =
-            super::resolve_bare_tool_path("frametrace-probe-mmls", &["frametrace-probe-mmls"]);
-        let _ = std::fs::remove_file(&probe);
-        // Then: the package-dir copy is found
-        let resolved = resolved.expect("tool in tools/<package> must resolve");
-        assert!(
-            resolved.ends_with("frametrace-probe-mmls.exe"),
-            "{resolved}"
-        );
-    }
-
-    #[test]
     fn missing_bare_tool_is_an_error_never_a_bare_name() {
         // A tool absent from PATH and tools/bin must not fall back to a bare
         // name: Command::new would then search the CWD (Windows) or empty
@@ -499,6 +718,205 @@ mod tests {
         let impostor_path = impostor_dir.display().to_string();
         assert!(find_in_path_dirs("ffprobe", &["ffprobe"], &impostor_path).is_none());
 
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn relative_path_entries_are_never_searched() {
+        // A tool reachable only through relative PATH entries — resolved
+        // against the current directory, i.e. the cargo package root
+        // here — must not be found; the same directory given absolutely
+        // is.
+        let cwd = std::env::current_dir().unwrap();
+        let rel = Path::new("target").join(format!("ft-relpath-test-{}", std::process::id()));
+        let tool_dir = cwd.join(&rel).join("bin");
+        fs::create_dir_all(&tool_dir).unwrap();
+        fs::write(tool_dir.join("ffprobe.exe"), b"planted").unwrap();
+        fs::write(tool_dir.join("ffprobe"), b"planted").unwrap();
+        let relative_entries = [rel.join("bin"), Path::new(".").join(&rel).join("bin")];
+        for entry in &relative_entries {
+            assert!(entry.is_relative());
+            let path_var = std::env::join_paths([entry]).unwrap();
+            assert!(
+                find_in_path_dirs("ffprobe", &["ffprobe"], &path_var.to_string_lossy()).is_none(),
+                "relative PATH entry {} was searched",
+                entry.display()
+            );
+        }
+        // `.` and `bin` style entries mixed with nothing absolute.
+        let mixed = std::env::join_paths([Path::new("."), Path::new("bin"), &rel.join("bin")])
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(find_in_path_dirs("ffprobe", &["ffprobe"], &mixed).is_none());
+        let absolute = tool_dir.display().to_string();
+        assert!(find_in_path_dirs("ffprobe", &["ffprobe"], &absolute).is_some());
+        let _ = fs::remove_dir_all(cwd.join(rel));
+    }
+
+    /// B-7 (Fix round 2): a manifest tool installed in tools/bin is used
+    /// even when a (possibly planted) copy sits on PATH; that PATH copy is
+    /// reported as `shadowed_by`. Other tools keep PATH first.
+    #[test]
+    fn manifest_tools_resolve_from_tools_bin_before_path_and_report_the_shadow() {
+        use super::{PathDirs, is_manifest_tool, lookup_in, resolve_bare_in};
+        let shadow_in = |name: &str, path_var: &str, bin: Option<&Path>| {
+            lookup_in(name, &PathDirs::from_var(path_var), bin).shadowed_by
+        };
+        let base =
+            std::env::temp_dir().join(format!("frametrace-tools-bin-first-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let tools_root = base.join("tools");
+        let tools_bin = tools_root.join("bin");
+        let planted = base.join("user-writable");
+        fs::create_dir_all(&tools_bin).unwrap();
+        fs::create_dir_all(&planted).unwrap();
+        let exe = if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        };
+        fs::write(tools_bin.join(exe), b"pinned").unwrap();
+        fs::write(planted.join(exe), b"planted").unwrap();
+        let path_var = planted.display().to_string();
+        let canon = |p: &Path| p.canonicalize().unwrap();
+
+        assert!(is_manifest_tool("ffmpeg") && is_manifest_tool("ffprobe.exe"));
+        assert!(is_manifest_tool("fls") && is_manifest_tool("deepfake-lens"));
+        assert!(!is_manifest_tool("python") && !is_manifest_tool("frametrace-probe-icat"));
+
+        let used = resolve_bare_in("ffmpeg", &["ffmpeg"], &path_var, Some(&tools_root), true)
+            .expect("resolves");
+        assert_eq!(canon(Path::new(&used)), canon(&tools_bin.join(exe)));
+        let shadow =
+            shadow_in("ffmpeg", &path_var, Some(&tools_root)).expect("the PATH copy is reported");
+        assert_eq!(canon(Path::new(&shadow)), canon(&planted.join(exe)));
+
+        // A non-manifest tool: PATH first, as before.
+        let used =
+            resolve_bare_in("ffmpeg", &["ffmpeg"], &path_var, Some(&tools_root), false).unwrap();
+        assert_eq!(canon(Path::new(&used)), canon(&planted.join(exe)));
+
+        // Nothing in tools/bin: PATH is the fallback and nothing is shadowed.
+        let empty_root = base.join("empty-tools");
+        let empty_bin = empty_root.join("bin");
+        fs::create_dir_all(&empty_bin).unwrap();
+        let used =
+            resolve_bare_in("ffmpeg", &["ffmpeg"], &path_var, Some(&empty_root), true).unwrap();
+        assert_eq!(canon(Path::new(&used)), canon(&planted.join(exe)));
+        assert!(shadow_in("ffmpeg", &path_var, Some(&empty_root)).is_none());
+        // tools/bin itself on PATH is the same file, not a shadow.
+        let same = tools_bin.display().to_string();
+        assert!(shadow_in("ffmpeg", &same, Some(&tools_root)).is_none());
+        // No PATH copy: nothing shadowed.
+        assert!(shadow_in("ffmpeg", "", Some(&tools_root)).is_none());
+        // The lookup resolves like resolve_bare_in, from the same walk.
+        let walked = lookup_in("ffmpeg", &PathDirs::from_var(&path_var), Some(&tools_root));
+        assert_eq!(
+            canon(Path::new(&walked.used.unwrap())),
+            canon(&tools_bin.join(exe))
+        );
+
+        // Fix round 3: deepfake-lens resolves from its private venv first
+        // (not tools/bin), so a tools/bin-vs-PATH shadow would be wrong:
+        // never reported.
+        let lens = if cfg!(windows) {
+            "deepfake-lens.exe"
+        } else {
+            "deepfake-lens"
+        };
+        fs::write(tools_bin.join(lens), b"pinned").unwrap();
+        fs::write(planted.join(lens), b"other").unwrap();
+        assert!(shadow_in("deepfake-lens", &path_var, Some(&tools_root)).is_none());
+        let _ = fs::remove_dir_all(base);
+    }
+
+    /// PR #6 merge: Sleuth Kit / libewf live in their own `tools/<tool>/`
+    /// folder (their DLLs must not sit next to the 64-bit FFmpeg); FFmpeg
+    /// stays in `tools/bin`. One function decides the order for every
+    /// caller (resolver, status lookup, shadow report).
+    #[test]
+    fn isolated_tools_resolve_from_their_own_folder_then_tools_bin() {
+        use super::{
+            ISOLATED_TOOLS, PathDirs, foreign_runtime_dlls_in, isolated_tool_for_binary, lookup_in,
+            resolve_bare_in, tool_search_dirs_in,
+        };
+        let base =
+            std::env::temp_dir().join(format!("frametrace-isolated-tools-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("tools");
+        let bin = root.join("bin");
+        let tsk = root.join("sleuthkit");
+        let ffmpeg_dir = root.join("ffmpeg");
+        for dir in [&bin, &tsk, &ffmpeg_dir] {
+            fs::create_dir_all(dir).unwrap();
+        }
+        let exe = |name: &str| {
+            if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_string()
+            }
+        };
+        let canon = |p: &Path| p.canonicalize().unwrap();
+
+        // The search order is fixed per binary.
+        assert_eq!(
+            tool_search_dirs_in(&root, "fls"),
+            vec![tsk.clone(), bin.clone()]
+        );
+        assert_eq!(
+            tool_search_dirs_in(&root, "ewfinfo.exe"),
+            vec![root.join("libewf"), bin.clone()]
+        );
+        assert_eq!(tool_search_dirs_in(&root, "ffmpeg"), vec![bin.clone()]);
+        assert_eq!(tool_search_dirs_in(&root, "ffprobe"), vec![bin.clone()]);
+        assert_eq!(tool_search_dirs_in(&root, "python"), vec![bin.clone()]);
+        assert_eq!(isolated_tool_for_binary("icat"), Some("sleuthkit"));
+        assert_eq!(isolated_tool_for_binary("ewfexport.exe"), Some("libewf"));
+        assert_eq!(isolated_tool_for_binary("ffmpeg"), None);
+        // Every isolated tool is a manifest tool that the guided installer
+        // cannot install (it only writes tools/bin).
+        let manifest = crate::tool_install::manifest().unwrap();
+        for name in ISOLATED_TOOLS {
+            let tool = crate::tool_install::find_tool(manifest, name).expect("manifest tool");
+            assert!(
+                crate::tool_install::not_installable_reason(tool).is_some(),
+                "{name} must stay a manual install"
+            );
+        }
+
+        // A copy in tools/sleuthkit wins over a legacy copy in tools/bin.
+        fs::write(tsk.join(exe("fls")), b"tsk").unwrap();
+        fs::write(bin.join(exe("fls")), b"legacy").unwrap();
+        let used = resolve_bare_in("fls", &["fls"], "", Some(&root), true).unwrap();
+        assert_eq!(canon(Path::new(&used)), canon(&tsk.join(exe("fls"))));
+        let walked = lookup_in("fls", &PathDirs::from_var(""), Some(&root));
+        assert_eq!(
+            canon(Path::new(&walked.used.unwrap())),
+            canon(&tsk.join(exe("fls")))
+        );
+        // Only the legacy tools/bin copy: still found (old instructions).
+        fs::remove_file(tsk.join(exe("fls"))).unwrap();
+        let used = resolve_bare_in("fls", &["fls"], "", Some(&root), true).unwrap();
+        assert_eq!(canon(Path::new(&used)), canon(&bin.join(exe("fls"))));
+        // FFmpeg has no private folder: tools/ffmpeg is never searched.
+        fs::write(ffmpeg_dir.join(exe("ffmpeg")), b"stray").unwrap();
+        assert_eq!(
+            resolve_bare_in("ffmpeg", &["ffmpeg"], "", Some(&root), true),
+            None
+        );
+
+        // Sleuth Kit's 32-bit runtime DLLs left in tools/bin are reported.
+        assert!(foreign_runtime_dlls_in(&bin).is_empty());
+        fs::write(bin.join("UCRTBASE.dll"), b"x").unwrap();
+        fs::write(bin.join("zlib.dll"), b"x").unwrap();
+        fs::write(bin.join("avcodec-61.dll"), b"x").unwrap();
+        assert_eq!(
+            foreign_runtime_dlls_in(&bin),
+            vec!["UCRTBASE.dll", "zlib.dll"]
+        );
+        assert!(foreign_runtime_dlls_in(&base.join("missing")).is_empty());
         let _ = fs::remove_dir_all(base);
     }
 

@@ -914,10 +914,11 @@ function validationFlagRows(list, keyOf, usable) {
   return out;
 }
 const validationFlagsByPath = validationFlagRows(validationLog, item => normalizePath(item.target_path), validationsByPath);
-// Allocated (not deleted) videos copied out by the E01 pipeline also log a
-// recover-inode event, but they are indexed as ordinary videos from
-// artifacts/extracted — listing them again as recoveries doubled every live
-// video and inflated the recovery count.
+// Allocated (not deleted) videos copied out of the image log an
+// extract-inode event (a recover-inode one in cases made before that split),
+// but they are indexed as ordinary videos from artifacts/extracted — listing
+// them again as recoveries doubled every live video and inflated the
+// recovery count.
 const EXTRACTED_OUTPUT_RE = /(^|[\\/])artifacts[\\/]extracted[\\/]/i;
 // A triage candidate read out for playback/export logs its own recovery
 // event; it stays one record (the candidate, so marks keep their id) that
@@ -928,7 +929,7 @@ const extractedShaByKey = new Map();
 filesystemLog.forEach(item => {
   // A headerless frame run is read out as .raw and rebuilt at its preview
   // path: the rebuild (repair-video) is that candidate's read.
-  if (!item || !item.output_path || (item.event !== "recover-inode" && item.event !== "recover-unallocated" && item.event !== "repair-video")) return;
+  if (!item || !item.output_path || (item.event !== "recover-inode" && item.event !== "extract-inode" && item.event !== "recover-unallocated" && item.event !== "repair-video")) return;
   const key = normalizePath(item.output_path);
   if (recoveryPreviewKeys.has(key)) recoveryReadByKey.set(key, item);
   else if (EXTRACTED_OUTPUT_RE.test(String(item.output_path)) && item.sha256) extractedShaByKey.set(key, item.sha256);

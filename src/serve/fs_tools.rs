@@ -6,9 +6,40 @@
 use super::system::drive_roots;
 use super::*;
 
+/// Windows device names (compared ASCII-lowercased, before the first `.`),
+/// including `CONIN$` / `CONOUT$` and the superscript-digit `COM¹`-`COM³` /
+/// `LPT¹`-`LPT³` forms Windows also maps to devices (merge review hunch).
 const RESERVED_NAMES: &[&str] = &[
-    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    "conin$",
+    "conout$",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "com\u{b9}",
+    "com\u{b2}",
+    "com\u{b3}",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
+    "lpt\u{b9}",
+    "lpt\u{b2}",
+    "lpt\u{b3}",
 ];
 
 /// A single new path segment, valid on Windows as well as Linux so a case
@@ -45,15 +76,47 @@ pub(crate) fn validate_folder_name(raw: &str) -> Result<&str, &'static str> {
 
 /// Creates exactly one folder `parent/name`; never creates missing parents
 /// and never reuses an existing entry.
+///
+/// PR #6 merge audit (docs/security-review.md): the route is a nonce- and
+/// Origin-gated POST (`http::authorize_on`), and `parent` is refused at the
+/// HTTP layer for UNC / device / reserved paths (`path_fields_for`). Here
+/// the parent is bound like every other stored path ([`bind_path`]: the
+/// strict remote check on the text as given, `paste_path` normalization,
+/// the check again), the new folder's full path is checked too (a reserved
+/// device name anywhere), and a parent that is itself a symbolic link or
+/// junction is refused — the folder is created only where the examiner
+/// sees it, never through a redirect.
+///
+/// [`bind_path`]: super::state::bind_path
 pub(crate) fn make_folder(parent: &str, name: &str) -> Result<PathBuf, String> {
     let parent = parent.trim();
-    super::http::reject_remote_path(parent, &[]).map_err(str::to_string)?;
+    let missing_parent = || "상위 폴더가 없습니다 — 먼저 폴더를 고르십시오".to_string();
+    if parent.is_empty() {
+        return Err(missing_parent());
+    }
+    let strict = |text: &str| super::http::reject_remote_path(text, &[]);
+    let base = super::state::bind_path(Path::new(parent), strict).map_err(str::to_string)?;
     let name = validate_folder_name(name).map_err(str::to_string)?;
-    let base = PathBuf::from(parent);
-    if parent.is_empty() || !base.is_dir() {
-        return Err("상위 폴더가 없습니다 — 먼저 폴더를 고르십시오".into());
+    match std::fs::symlink_metadata(&base) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(
+                "상위 폴더가 바로 가기 링크(심볼릭 링크·정션)입니다 — 실제 폴더를 고르십시오"
+                    .into(),
+            );
+        }
+        Ok(meta) if meta.is_dir() => {}
+        _ => return Err(missing_parent()),
+    }
+    // Merge review L4: a link / junction ANYWHERE above the parent
+    // (`C:\x\junction\sub`) redirects the new folder just the same.
+    if let Some(link) = linked_ancestor(&base) {
+        return Err(format!(
+            "상위 경로의 {}이(가) 바로 가기 링크(심볼릭 링크·정션)입니다 — 링크를 거치지 않는 실제 폴더를 고르십시오",
+            link.display()
+        ));
     }
     let target = base.join(name);
+    strict(&target.to_string_lossy()).map_err(str::to_string)?;
     match std::fs::create_dir(&target) {
         Ok(()) => Ok(target),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -61,6 +124,26 @@ pub(crate) fn make_folder(parent: &str, name: &str) -> Result<PathBuf, String> {
         }
         Err(e) => Err(format!("폴더를 만들 수 없습니다: {e}")),
     }
+}
+
+/// Merge review L4: the first ancestor of `path` (itself included) that is
+/// a symbolic link or junction (`symlink_metadata` never follows one; Rust
+/// reports a Windows junction as a link). On Unix a link owned by root
+/// (macOS `/var` → `/private/var`, `/tmp`) is system layout, not a planted
+/// redirect, and is allowed.
+pub(crate) fn linked_ancestor(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .filter(|ancestor| !ancestor.as_os_str().is_empty())
+        .find(|ancestor| {
+            std::fs::symlink_metadata(ancestor).is_ok_and(|meta| {
+                #[cfg(unix)]
+                let system = std::os::unix::fs::MetadataExt::uid(&meta) == 0;
+                #[cfg(not(unix))]
+                let system = false;
+                meta.file_type().is_symlink() && !system
+            })
+        })
+        .map(Path::to_path_buf)
 }
 
 pub(crate) fn api_mkdir(request: &Request) -> String {
@@ -180,8 +263,24 @@ mod tests {
         assert_eq!(validate_folder_name("  case-001 "), Ok("case-001"));
         assert_eq!(validate_folder_name("사건 2026"), Ok("사건 2026"));
         for bad in [
-            "", "   ", ".", "..", "a/b", r"a\b", "c:", "x?", "end.", "CON", "nul.txt", "Com3",
+            "",
+            "   ",
+            ".",
+            "..",
+            "a/b",
+            r"a\b",
+            "c:",
+            "x?",
+            "end.",
+            "CON",
+            "nul.txt",
+            "Com3",
             "a\u{7}",
+            "CONIN$",
+            "conout$.txt",
+            "COM\u{b9}",
+            "lpt\u{b2}.log",
+            "LPT\u{b3}",
         ] {
             assert!(
                 validate_folder_name(bad).is_err(),
@@ -189,6 +288,14 @@ mod tests {
             );
         }
         assert!(validate_folder_name(&"가".repeat(121)).is_err());
+        // Not device names: a longer stem, superscript four.
+        for ok in ["CONIN", "com\u{b9}0", "LPT\u{2074}", "console"] {
+            assert_eq!(
+                validate_folder_name(ok),
+                Ok(ok),
+                "{ok:?} is an ordinary name"
+            );
+        }
     }
 
     #[test]
@@ -207,6 +314,78 @@ mod tests {
         );
         assert!(make_folder(&dir.display().to_string(), "../escape").is_err());
         assert!(make_folder(r"\\evil\share", "x").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// PR #6 merge audit: the parent is bound like every stored path
+    /// (remote / device refused before and after `paste_path`
+    /// normalization), a trailing separator is normalized away, and a
+    /// parent that is a symbolic link / junction is refused.
+    #[test]
+    fn make_folder_binds_the_parent_and_refuses_links_and_device_paths() {
+        let dir = scratch("mk-bind");
+        let sep = std::path::MAIN_SEPARATOR;
+        let made = make_folder(&format!("{}{sep}", dir.display()), "c1").unwrap();
+        assert_eq!(made, dir.join("c1"));
+        for parent in [
+            r"\\?\GLOBALROOT\Device\Harddisk0",
+            r"\\.\PhysicalDrive0",
+            "//evil/share",
+        ] {
+            if cfg!(windows) || !parent.starts_with('/') {
+                assert!(make_folder(parent, "x").is_err(), "{parent}");
+            }
+        }
+        if cfg!(windows) {
+            let err = make_folder(&dir.join("COM1").display().to_string(), "x").unwrap_err();
+            assert!(!err.is_empty());
+        }
+        let real = dir.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.join("link");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&real, &link).is_ok();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_dir(&real, &link).is_ok();
+        if linked {
+            let err = make_folder(&link.display().to_string(), "x").unwrap_err();
+            assert!(err.contains("링크"), "{err}");
+            assert!(!real.join("x").exists(), "nothing created through the link");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Merge review L4: a junction ABOVE the parent (`<dir>\junction\sub`)
+    /// is refused like a junction parent; nothing is created through it.
+    #[cfg(windows)]
+    #[test]
+    fn make_folder_refuses_a_junction_anywhere_above_the_parent() {
+        let dir = scratch("mk-junction");
+        let real = dir.join("real");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        let junction = dir.join("junction");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(&real)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        assert!(made, "mklink /J needs no privilege");
+        assert_eq!(
+            linked_ancestor(&junction.join("sub")),
+            Some(junction.clone())
+        );
+        assert_eq!(linked_ancestor(&real.join("sub")), None);
+        let err = make_folder(&junction.join("sub").display().to_string(), "x").unwrap_err();
+        assert!(err.contains("링크"), "{err}");
+        assert!(
+            !real.join("sub").join("x").exists(),
+            "nothing created through the junction"
+        );
+        // The real path still works.
+        assert!(make_folder(&real.join("sub").display().to_string(), "x").is_ok());
+        // remove_dir on a junction removes the link only.
+        std::fs::remove_dir(&junction).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

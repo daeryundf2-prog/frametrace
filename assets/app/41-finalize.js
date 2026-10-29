@@ -478,6 +478,8 @@ async function gatherFinalizeChecks() {
       st.busy ? (e ? `${e.label} ${e.stage}/${e.stages} 진행 중` : "끝난 뒤 '다시 확인'을 누르십시오.")
         : "보강이 끝나지 않았습니다 — 같은 소스로 다시 분석하면 남은 파일만 처리합니다.");
   } else if (phase === "running") add("block", "분석이 진행 중입니다", "끝난 뒤 '다시 확인'을 누르십시오.");
+  // Fix round 16 L-busy: /api/status `busy_kind` names a guided tool install.
+  else if (st.busy && st.busy_kind === "tool-install") add("block", "도구 설치가 진행 중입니다", "첫 화면 ‘도구’에서 진행 상황을 볼 수 있습니다 — 끝난 뒤 다시 확인하십시오.");
   else if (st.busy) add("block", "다른 작업이 진행 중입니다", `현재 단계: ${phase || "-"} — 끝난 뒤 다시 확인하십시오.`);
   else if (!["review-ready", "done", "finalized"].includes(phase)) add("block", "완료된 분석 결과가 없습니다", "먼저 분석을 끝내십시오.");
   // R13 (track S c76a4df): `blocks_finalize` decides, not the state.
@@ -561,6 +563,10 @@ async function gatherFinalizeChecks() {
   }
   if (!FIN.audit && st && ["review-ready", "done", "finalized"].includes(phase)) await finRunAudit();
   if (FIN.audit) add(FIN.audit.level === "ok" ? "ok" : "warn", FIN.audit.text, "");
+  // §28: a missing required tool (FFmpeg) — a warning, not a block.
+  if (typeof htFinalizeChecks === "function") {
+    try { (await htFinalizeChecks()).forEach(c => checks.push(c)); } catch (e) {}
+  }
   return { checks, caseId, status: st };
 }
 
@@ -899,6 +905,7 @@ function finBuild() {
     `<input type="file" id="marksFile" accept=".json" hidden>` +
     `<button type="button" id="btnImportMarks" title="다른 PC·오프라인 뷰어에서 내보낸 마크 JSON을 가져올 때만 사용합니다 — 이 화면의 뷰어 마크는 자동으로 케이스에 반영됩니다">외부 마크 파일 가져오기 (보고서 갱신)</button>` +
     `<pre class="h-fin-out mono" id="advOut" hidden></pre><div id="advLink"></div>` +
+    `<div class="h-toolprompt" id="advToolPrompt" role="group" aria-label="필요한 도구" hidden></div>` +
     `</div></details>` +
     `</div>` +
     `<div class="h-sheet-foot h-fin-foot"><span class="h-fin-hint muted" id="finalHint" role="status"></span>` +
@@ -951,9 +958,20 @@ function finApplyEnv() {
   const btn = mount && mount.querySelector("button[data-adv='deepfake']");
   if (!btn || !FIN.env) return;
   const ok = FIN.env.deepfake === true;
-  btn.dataset.envOff = ok ? "" : "1";
-  if (!ok) { btn.disabled = true; btn.title = "deepfake-lens 미설치 — pip install deepfake-lens 또는 FRAMETRACE_DEEPFAKE_LENS 경로 설정"; }
-  else if (!FIN.advBusy) btn.disabled = false;
+  // §28: only a server that can install deepfake-lens here
+  // (installable === true) keeps the button — the click shows the install
+  // prompt instead of running. Otherwise it stays disabled with the
+  // server's short manual_hint as the tooltip.
+  const ask = !ok && typeof htNeedsTool === "function" && htNeedsTool("deepfake-lens");
+  btn.dataset.envOff = ok || ask ? "" : "1";
+  if (!ok && !ask) {
+    btn.disabled = true;
+    btn.title = (typeof htToolHint === "function" && htToolHint("deepfake-lens")) || htT("dfManual");
+  }
+  else {
+    if (ask) btn.title = htT("dfAskBtn");
+    if (!FIN.advBusy) btn.disabled = false;
+  }
 }
 // Repaints everything that depends on state; never touches the typed
 // examiner name or the <details> open state.
@@ -1064,7 +1082,7 @@ function finResetSheet() {
   FIN.incomplete = null; FIN.reportStale = null;
   FIN.result = null; FIN.verify = null; FIN.audit = null; FIN.checks = []; FIN.status = null;
   FIN.caseId = null; FIN.examinerTouched = false; FIN.gen++;
-  if (FIN.built) { finEl("finalExaminer").value = ""; finHint(""); finEl("advOut").hidden = true; finEl("advOut").textContent = ""; finEl("advLink").innerHTML = ""; finPaint(); }
+  if (FIN.built) { finEl("finalExaminer").value = ""; finHint(""); finEl("advOut").hidden = true; finEl("advOut").textContent = ""; if (typeof htHidePrompt === "function") htHidePrompt(finEl("advToolPrompt")); finEl("advLink").innerHTML = ""; finPaint(); }
   if (FIN.open) finRefresh();
 }
 function finSetFinalizing(on) {
@@ -1091,7 +1109,7 @@ async function finLateBlocker() {
   if (!st || st.ok === false || st.malformed) return "서버 상태를 확인할 수 없습니다.";
   if (Number(st.pending_marks) > 0) return `저장 대기 마크 ${Number(st.pending_marks)}건이 아직 케이스에 반영되지 않았습니다.`;
   if (st.mark_conflicts && Number(st.mark_conflicts.count) > 0) return `해결하지 않은 저장 충돌 ${Number(st.mark_conflicts.count)}건이 있습니다.`;
-  if (st.busy) return "다른 작업이 진행 중입니다.";
+  if (st.busy) return st.busy_kind === "tool-install" ? "도구 설치가 진행 중입니다 — 끝난 뒤 다시 시도하십시오." : "다른 작업이 진행 중입니다.";
   return viewerSays();
 }
 async function finFinalize() {
@@ -1222,11 +1240,24 @@ async function finAdvanced(btn) {
     });
     if (!go) return;
   }
+  // §28: deepfake-lens known missing here → the install prompt, no run.
+  const prompt = finEl("advToolPrompt");
+  if (typeof htHidePrompt === "function") htHidePrompt(prompt);
+  if (tool === "deepfake" && typeof htNeedsTool === "function" && htNeedsTool("deepfake-lens")) {
+    out.hidden = true; out.textContent = "";
+    htShowToolPrompt(prompt, "deepfake-lens", () => finAdvanced(btn));
+    return;
+  }
   btn.disabled = true; FIN.advBusy = true;
   out.hidden = false; out.textContent = "실행 중…";
   finEl("advLink").innerHTML = "";
   try {
     const res = await jpost("/api/advanced", { tool, extra });
+    if (!res.ok && res.tool_missing && typeof htShowToolPrompt === "function") {
+      out.hidden = true; out.textContent = "";
+      htShowToolPrompt(prompt, String(res.tool_missing), () => finAdvanced(btn));
+      return;
+    }
     out.textContent = res.ok ? (res.output || "완료") : "실패: " + (res.error || "알 수 없는 오류");
     if (res.ok && res.url) finEl("advLink").innerHTML = `<a href="/case/${esc(res.url)}" target="_blank" rel="noopener">산출물 열기: ${esc(res.url)}${finIcon("i-external")}</a>`;
   } finally {

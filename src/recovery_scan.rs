@@ -1518,6 +1518,7 @@ fn read_deleted_entry(
         skip_sparse_holes: false,
         icat_bin: "icat".to_string(),
         timeout_secs: None,
+        extract: false,
     };
     crate::tsk::recover_inode_in(case_dir, &context, &options, true).map(|_| ())
 }

@@ -1,9 +1,12 @@
 ﻿# Builds libewf tools (ewfacquire/ewfinfo/ewfverify/ewfexport) from source
 # inside a per-user MSYS2 environment (no admin required) and installs them
-# into target/release/tools/bin (copy to tools/bin to bundle them with
-# scripts/make-portable.ps1, or put them next to the release binary).
+# into target/release/tools/libewf (their own folder: the DLLs below must not
+# sit next to FFmpeg in tools/bin — src/tool_policy.rs ISOLATED_TOOLS). For a
+# portable copy pass -Destination <FrameTrace folder>\tools\libewf. FrameTrace
+# never runs this script itself (one installer: frametrace tools install, and
+# it installs FFmpeg only); make-portable.ps1 bundles no tool.
 #
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/build-libewf-tools.ps1
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/build-libewf-tools.ps1 [-Destination <dir>]
 # Notes:
 #   - libewf upstream ships source only (GitHub/SourceForge), so building is
 #     the supported way to get Windows binaries.
@@ -22,8 +25,8 @@ param(
     [string]$Msys2Release = "20260927",
     [string]$Msys2Sha256 = "",
     # Install folder for the built tools. Empty keeps the developer layout
-    # (target/release/tools/bin + target/debug/deps/tools/bin); the
-    # workstation's in-app installer passes its own staging folder.
+    # (target/release/tools/libewf + target/debug/deps/tools/libewf); for a
+    # portable copy pass <FrameTrace folder>\tools\libewf.
     [string]$Destination = ""
 )
 $ErrorActionPreference = "Stop"
@@ -180,17 +183,17 @@ if (Test-Path $objdump) {
     }
 }
 
-# 7. deploy to tools/bin layout (or the caller-chosen -Destination)
+# 7. deploy to the tools/libewf layout (or the caller-chosen -Destination)
 if ($Destination) {
     $dest = $Destination
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $dest -Force }
 } else {
-    $dest = Join-Path $repoRoot "target/release/tools/bin"
+    $dest = Join-Path $repoRoot "target/release/tools/libewf"
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination $dest -Force }
-    # integration tests discover tools/bin next to the test binary too
-    $depsDest = Join-Path $repoRoot "target/debug/deps/tools/bin"
+    # integration tests discover tools/libewf next to the test binary too
+    $depsDest = Join-Path $repoRoot "target/debug/deps/tools/libewf"
     New-Item -ItemType Directory -Force -Path $depsDest | Out-Null
     Copy-Item "$dest/*" $depsDest -Force
 }

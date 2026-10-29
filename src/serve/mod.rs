@@ -84,7 +84,9 @@ mod tests_r9_server;
 mod tests_recent;
 #[cfg(test)]
 mod tests_review3;
-mod tool_setup;
+#[cfg(test)]
+mod tests_tools;
+mod tools;
 
 pub(crate) use discovery::{
     find_running_server, publish_local_server, token_for_port, write_instance_file,
@@ -252,6 +254,9 @@ pub(crate) fn bind_cli_case(typed: &Path) -> Result<PathBuf, String> {
 
 fn run_on(options: ServeOptions, bound: Option<TcpListener>) -> Result<(), String> {
     proc::install_process_guard();
+    // Leftover `tools/.staging-*` of a killed install (skipped while
+    // another process holds the install lock).
+    crate::tool_install::clean_stale_staging_at_start();
     let state: SharedState = Arc::new(Mutex::new(JobState::new()));
     if let Some(typed) = &options.case_dir {
         // R20-S3 (P34): `case_dir` is bound like a typed `/api/start` case
@@ -1606,8 +1611,12 @@ pub(crate) fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/audio-measure") => json(api_audio_measure(request, state)),
         ("GET", "/api/recent-cases") => json(api_recent_cases()),
         ("POST", "/api/recent-cases/forget") => json(api_recent_cases_forget(request)),
-        ("POST", "/api/tools/install") => json(tool_setup::api_tools_install(request)),
-        ("GET", "/api/tools/install-status") => json(tool_setup::api_tools_install_status()),
+        ("GET", "/api/tools") => json(tools::api_tools(request, state)),
+        ("GET", "/api/tools/install-status") => json(tools::api_tools_install_status(state)),
+        ("POST", "/api/tools/install") => json(tools::api_tools_install(request, state)),
+        ("POST", "/api/tools/install-cancel") => {
+            json(tools::api_tools_install_cancel(request, state))
+        }
         ("POST", "/api/mkdir") => json(fs_tools::api_mkdir(request)),
         ("GET", "/api/places") => json(fs_tools::api_places()),
         _ => plain(404, b"not found".to_vec()),

@@ -390,3 +390,299 @@ fn package_case_cli_allow_pending_flag() {
     assert!(allowed.join("manifest.sha256").is_file());
     let _ = fs::remove_dir_all(&base);
 }
+
+/// PR #6 merge: allocated-video extraction keeps the image's folder tree
+/// under artifacts/extracted, but a filesystem path from the image can
+/// never climb out of it (`..`, roots, drive letters, ADS colons).
+#[test]
+fn extracted_paths_keep_the_tree_and_never_escape() {
+    use super::forensic::clean_relative_path;
+    assert_eq!(
+        clean_relative_path("/DCIM/100/clip.mp4"),
+        Path::new("DCIM").join("100").join("clip.mp4")
+    );
+    assert_eq!(
+        clean_relative_path(r"\Videos\a.mp4 (deleted)"),
+        Path::new("Videos").join("a.mp4")
+    );
+    for hostile in ["../../x.mp4", "/a/../../b.mp4", "..", "/", ""] {
+        let clean = clean_relative_path(hostile);
+        assert!(
+            clean
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_))),
+            "{hostile:?} -> {clean:?}"
+        );
+    }
+    assert_eq!(clean_relative_path(""), PathBuf::from("unnamed.bin"));
+    // Korean folder names and extensions survive; double separators do not
+    // invent folders.
+    assert_eq!(
+        clean_relative_path("/블랙박스//주행 영상/20260101.MP4"),
+        Path::new("블랙박스").join("주행 영상").join("20260101.MP4")
+    );
+    use super::forensic::clean_path_component;
+    assert_eq!(clean_path_component("CON.mp4").as_deref(), Some("_CON.mp4"));
+    assert_eq!(clean_path_component("com1").as_deref(), Some("_com1"));
+    assert_eq!(
+        clean_path_component("a:b*c?.mp4").as_deref(),
+        Some("a_b_c_.mp4")
+    );
+    assert_eq!(clean_path_component("name. . ").as_deref(), Some("name"));
+    assert_eq!(clean_path_component(".."), None);
+    assert_eq!(clean_path_component(" "), None);
+    // An image file named like our in-progress files must not be swept as
+    // a stale `.part` by the next run (merge confirmation review, Low).
+    assert_eq!(
+        clean_path_component(".x.ft4242.part.mp4").as_deref(),
+        Some("_.x.ft4242.part.mp4")
+    );
+    assert!(!crate::join::is_pid_part_name("_.x.ft4242.part.mp4", None));
+    assert_eq!(
+        clean_path_component(".hidden.mp4").as_deref(),
+        Some(".hidden.mp4")
+    );
+    let drive = clean_relative_path("C:/Windows/x.mp4");
+    assert!(
+        drive
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_))),
+        "{drive:?}"
+    );
+}
+
+/// PR #6 merge: `--allocated-videos` selects live (not deleted) video
+/// candidates once each, keeping the image path as the note.
+#[test]
+fn allocated_video_selectors_pick_live_video_candidates_once() {
+    let dir = std::env::temp_dir().join(format!("ft-allocated-sel-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let entries = dir.join("entries.jsonl");
+    fs::write(
+        &entries,
+        concat!(
+            "{\"inode\":\"10\",\"path\":\"/DCIM/a.mp4\",\"deleted\":false,\"video_candidate\":true}\n",
+            "{\"inode\":\"10\",\"path\":\"/DCIM/a.mp4\",\"deleted\":false,\"video_candidate\":true}\n",
+            "{\"inode\":\"11\",\"path\":\"/DCIM/b.mp4\",\"deleted\":true,\"video_candidate\":true}\n",
+            "{\"inode\":\"12\",\"path\":\"/doc.txt\",\"deleted\":false,\"video_candidate\":false}\n",
+            "\n"
+        ),
+    )
+    .unwrap();
+    let items = crate::lazy_extract::allocated_video_selectors(&entries).unwrap();
+    assert_eq!(items.len(), 1, "{items:?}");
+    assert_eq!(items[0].selector, "10");
+    assert_eq!(items[0].action.as_deref(), Some("extract"));
+    assert_eq!(items[0].notes.as_deref(), Some("/DCIM/a.mp4"));
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Merge review M1: an existing output is skipped only when the tsk audit
+/// proves it is this item's own earlier output; any other file under the
+/// same (case-folded / cleaned) name — another inode, image or partition —
+/// makes the item take a distinct name, and reruns stay idempotent.
+#[test]
+fn recover_batch_output_choice_proves_the_source_before_skipping() {
+    use super::forensic::{InodeOutputRecord, OutputChoice, choose_output_path};
+    let dir = std::env::temp_dir().join(format!("ft-m1-choice-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let tree = dir.join("artifacts/extracted/DCIM");
+    fs::create_dir_all(&tree).unwrap();
+    let image = "C:\\cases\\disk.raw";
+    let record = |path: &Path, image: &str, offset: u64, inode: &str| InodeOutputRecord {
+        output_path: crate::util::canonicalize_display(path).unwrap(),
+        image_path: image.to_string(),
+        partition_offset: offset,
+        inode: inode.to_string(),
+        size_bytes: fs::metadata(path).unwrap().len(),
+    };
+
+    // (a) case-insensitive host: /DCIM/Clip.MP4 (inode 10) is on disk; the
+    // image's /DCIM/clip.mp4 (inode 11) must not be "already there".
+    let upper = tree.join("Clip.MP4");
+    fs::write(&upper, b"first").unwrap();
+    let records = vec![record(&upper, image, 2048, "10")];
+    let lower = tree.join("clip.mp4");
+    let choice = choose_output_path(&lower, "__ino11", image, 2048, "11", &records);
+    let host_folds_case = lower.exists();
+    match &choice {
+        OutputChoice::Fresh(path) if host_folds_case => {
+            assert_eq!(path, &tree.join("clip__ino11.mp4"));
+        }
+        OutputChoice::Fresh(path) => assert_eq!(path, &lower),
+        OutputChoice::Same(path) => panic!("another inode's file skipped: {path:?}"),
+    }
+    // ... while the same item IS recognised (no copy per rerun).
+    assert_eq!(
+        choose_output_path(&upper, "__ino10", image, 2048, "10", &records),
+        OutputChoice::Same(upper.clone())
+    );
+
+    // (b) names equal after cleaning: `a:b.mp4` / `a_b.mp4`, `v.mp4.` /
+    // `v.mp4` map to one path; the second source gets its own name.
+    assert_eq!(
+        super::forensic::clean_relative_path("/DCIM/a:b.mp4"),
+        super::forensic::clean_relative_path("/DCIM/a_b.mp4")
+    );
+    assert_eq!(
+        super::forensic::clean_relative_path("/DCIM/v.mp4."),
+        super::forensic::clean_relative_path("/DCIM/v.mp4")
+    );
+    let ab = tree.join("a_b.mp4");
+    fs::write(&ab, b"from a:b").unwrap();
+    let mut records = vec![record(&ab, image, 2048, "20")];
+    let alt = tree.join("a_b__ino21.mp4");
+    assert_eq!(
+        choose_output_path(&ab, "__ino21", image, 2048, "21", &records),
+        OutputChoice::Fresh(alt.clone())
+    );
+    // Once written (and recorded), a rerun finds it again — not `_001`.
+    fs::write(&alt, b"from a_b").unwrap();
+    records.push(record(&alt, image, 2048, "21"));
+    assert_eq!(
+        choose_output_path(&ab, "__ino21", image, 2048, "21", &records),
+        OutputChoice::Same(alt.clone())
+    );
+    assert_eq!(
+        choose_output_path(&ab, "__ino20", image, 2048, "20", &records),
+        OutputChoice::Same(ab.clone())
+    );
+
+    // (c) a reused case: the same path and inode from ANOTHER image or
+    // ANOTHER partition is a different source.
+    for (other_image, offset) in [("C:\\cases\\other.raw", 2048), (image, 4096)] {
+        match choose_output_path(&ab, "__ino20", other_image, offset, "20", &records) {
+            OutputChoice::Fresh(path) => {
+                assert!(!path.exists(), "{path:?}");
+                assert_ne!(path, ab);
+            }
+            OutputChoice::Same(path) => panic!("{other_image}@{offset} skipped as {path:?}"),
+        }
+    }
+    // Both the base and the alt name taken by other sources: `_001`.
+    let taken = tree.join("x.mp4");
+    let taken_alt = tree.join("x__ino5.mp4");
+    fs::write(&taken, b"1").unwrap();
+    fs::write(&taken_alt, b"2").unwrap();
+    assert_eq!(
+        choose_output_path(&taken, "__ino5", image, 0, "5", &[]),
+        OutputChoice::Fresh(tree.join("x__ino5_001.mp4"))
+    );
+
+    // A size that no longer matches the record proves nothing.
+    fs::write(&ab, b"changed since").unwrap();
+    assert!(matches!(
+        choose_output_path(&ab, "__ino20", image, 2048, "20", &records),
+        OutputChoice::Fresh(_)
+    ));
+
+    // Hunch: a 0-byte source with its own record is the same file on every
+    // rerun (no (1), (2) copies); a 0-byte leftover without one is not.
+    let empty = tree.join("empty.mp4");
+    fs::write(&empty, b"").unwrap();
+    let with_record = vec![record(&empty, image, 0, "30")];
+    assert_eq!(
+        choose_output_path(&empty, "__ino30", image, 0, "30", &with_record),
+        OutputChoice::Same(empty.clone())
+    );
+    assert_eq!(
+        choose_output_path(&empty, "__ino30", image, 0, "30", &[]),
+        OutputChoice::Fresh(tree.join("empty__ino30.mp4"))
+    );
+
+    // Deleted-file recovery `{inode}_{name}`: the same inode number on
+    // another partition gets the `__off<offset>` name.
+    let recovered = dir.join("artifacts/recovered/filesystem");
+    fs::create_dir_all(&recovered).unwrap();
+    let leaf = recovered.join("7_a.mp4");
+    fs::write(&leaf, b"p1").unwrap();
+    let rec = vec![record(&leaf, image, 2048, "7")];
+    assert_eq!(
+        choose_output_path(&leaf, "__off4096", image, 4096, "7", &rec),
+        OutputChoice::Fresh(recovered.join("7_a__off4096.mp4"))
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Merge review M1: the audit identities come from the case's chained tsk
+/// lane (recover-inode and extract-inode), other events ignored.
+#[test]
+fn inode_output_records_read_recover_and_extract_events() {
+    let dir = std::env::temp_dir().join(format!("ft-m1-records-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("evidence/logs")).unwrap();
+    let lane = dir.join("evidence/logs/tsk-audit.jsonl");
+    for line in [
+        r#"{"schema_version":1,"event":"inspect-image-filesystem","image_path":"/i.raw"}"#,
+        r#"{"schema_version":1,"event":"recover-inode","image_path":"/i.raw","partition_offset":2048,"inode":"7","output_path":"/c/7_a.mp4","size_bytes":3}"#,
+        r#"{"schema_version":1,"event":"extract-inode","image_path":"/i.raw","partition_offset":2048,"inode":"8","output_path":"/c/x/b.mp4","size_bytes":0}"#,
+    ] {
+        audit::append_chained_jsonl(&lane, line).unwrap();
+    }
+    let records = super::forensic::inode_output_records(&dir);
+    assert_eq!(records.len(), 2, "{records:?}");
+    assert_eq!(records[0].inode, "7");
+    assert_eq!(records[1].output_path, PathBuf::from("/c/x/b.mp4"));
+    assert_eq!(records[1].size_bytes, 0);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Hunches: Windows device names (CONIN$, CONOUT$, superscript COM/LPT)
+/// get the `_` prefix in extracted names; the free-space check refuses
+/// before the case volume runs out.
+#[test]
+fn extraction_names_and_space_check() {
+    use super::forensic::{
+        EXTRACT_FREE_FLOOR_BYTES, clean_path_component, extraction_space_check,
+        is_reserved_device_name,
+    };
+    for name in [
+        "CONIN$",
+        "conout$.mp4",
+        "COM\u{b9}.mp4",
+        "lpt\u{b2}",
+        "LPT\u{b3}.x",
+        "com9",
+    ] {
+        assert_eq!(
+            clean_path_component(name).as_deref(),
+            Some(format!("_{name}").as_str()),
+            "{name}"
+        );
+    }
+    for plain in ["CONIN", "COM10", "COM\u{2074}", "LPT", "console.mp4"] {
+        assert!(
+            !is_reserved_device_name(plain.split('.').next().unwrap()),
+            "{plain}"
+        );
+        assert_eq!(clean_path_component(plain).as_deref(), Some(plain));
+    }
+    assert!(extraction_space_check(EXTRACT_FREE_FLOOR_BYTES + 10, 10).is_ok());
+    let err = extraction_space_check(EXTRACT_FREE_FLOOR_BYTES + 9, 10).unwrap_err();
+    assert!(err.contains("insufficient disk space"), "{err}");
+    assert!(extraction_space_check(0, 0).is_err());
+}
+
+/// Hunch: scan-folder registers the case's own artifacts/extracted tree as
+/// a derived source, never as an original evidence folder.
+#[test]
+fn scan_folder_registers_extracted_tree_as_derived() {
+    let dir = std::env::temp_dir().join(format!("ft-derived-src-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let extracted = dir.join("artifacts/extracted");
+    fs::create_dir_all(extracted.join("DCIM")).unwrap();
+    fs::create_dir_all(dir.join("evidence")).unwrap();
+    let derived = super::case::scan_folder_source_input(&dir, &extracted, "{}".into());
+    assert_eq!(derived.kind, super::case::EXTRACTED_SOURCE_KIND);
+    assert!(derived.notes.as_deref().unwrap().starts_with("Derived"));
+    let sub = super::case::scan_folder_source_input(&dir, &extracted.join("DCIM"), "{}".into());
+    assert_eq!(sub.kind, super::case::EXTRACTED_SOURCE_KIND);
+    let evidence = super::case::scan_folder_source_input(&dir, &dir.join("evidence"), "{}".into());
+    assert_eq!(evidence.kind, "folder");
+    assert_eq!(
+        evidence.notes.as_deref(),
+        Some("Auto-registered by scan-folder")
+    );
+    let _ = fs::remove_dir_all(&dir);
+}

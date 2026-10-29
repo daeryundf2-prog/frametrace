@@ -92,7 +92,7 @@ fn fake_cli(dir: &Path, stderr_line: Option<&str>) -> PathBuf {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut body = String::from("#!/bin/sh\n");
+        let mut body = String::from("#!/bin/sh\n[ \"$1\" = --warm ] && exit 0\n");
         if let Some(line) = stderr_line {
             // Double quotes: R8-S7 lines carry `${FRAMETRACE_STEP_WARNINGS}`.
             body.push_str(&format!("echo \"{line}\" >&2\n"));
@@ -102,6 +102,7 @@ fn fake_cli(dir: &Path, stderr_line: Option<&str>) -> PathBuf {
         let path = dir.join("fake-r5.sh");
         std::fs::write(&path, body).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_support::warm_unix_script(&path);
         path
     }
     #[cfg(windows)]
@@ -752,6 +753,32 @@ fn s14_killed_package_step_removes_only_its_own_reservation() {
         "another process's reservation was removed"
     );
     assert!(reports.join(".package_200.ft777.part").is_dir());
+    let _ = std::fs::remove_dir_all(case);
+}
+
+/// Merge review L1: a killed recover-batch --allocated-videos leaves its
+/// `.part` in a subfolder of artifacts/extracted (the image's tree); the
+/// kill sweep reaches it, and only the killed pid's.
+#[test]
+fn l1_killed_extraction_part_in_a_subfolder_is_swept() {
+    let case = temp_case("l1-extract");
+    let deep = case.join("artifacts/extracted/DCIM/100");
+    std::fs::create_dir_all(&deep).unwrap();
+    let part = crate::join::pid_part_path(&deep.join("x.mp4"), 4242);
+    let other = crate::join::pid_part_path(&deep.join("y.mp4"), 777);
+    std::fs::write(&part, b"torn").unwrap();
+    std::fs::write(&other, b"live").unwrap();
+    let args = vec![
+        "recover-batch".to_string(),
+        case.to_string_lossy().to_string(),
+        "image.raw".to_string(),
+        "--allocated-videos".to_string(),
+    ];
+    let lines = super::media::sweep_killed_step(&args, 4242);
+    assert!(lines.iter().all(Result::is_ok), "{lines:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(!part.exists(), "the killed step's part stays");
+    assert!(other.exists(), "another process's part was removed");
     let _ = std::fs::remove_dir_all(case);
 }
 

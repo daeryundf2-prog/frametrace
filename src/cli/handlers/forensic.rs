@@ -324,7 +324,19 @@ pub fn recover_inode(
     image_file: &Path,
     options: TskRecoverOptions,
 ) -> Result<(), String> {
+    run_recover_inode(case_dir, image_file, options).map(|_| ())
+}
+
+/// [`recover_inode`] returning the recovery result (recover-batch keeps
+/// the new output's audit identity for the rest of the batch, M1).
+fn run_recover_inode(
+    case_dir: &Path,
+    image_file: &Path,
+    options: TskRecoverOptions,
+) -> Result<tsk::TskRecoverResult, String> {
     ensure_case(case_dir)?;
+    // Merge review M2: a live-file copy is an extraction, not a recovery.
+    let event = options.audit_event();
     let source = case_db::register_evidence_source(
         case_dir,
         &case_db::EvidenceSourceInput {
@@ -334,13 +346,13 @@ pub fn recover_inode(
             write_protect: Some("source image read-only; inode output is derived".to_string()),
             acquisition_tool: Some("Sleuth Kit icat".to_string()),
             evidence_hash: None,
-            notes: Some("Auto-registered by recover-inode".to_string()),
+            notes: Some(format!("Auto-registered by {event}")),
             metadata_json: Some(tsk_recover_options_json(&options)),
         },
     )?;
     let job = case_db::start_job(
         case_dir,
-        "recover-inode",
+        event,
         image_file,
         Some(1),
         &tsk_recover_options_json(&options),
@@ -352,8 +364,15 @@ pub fn recover_inode(
             return Err(err);
         }
     };
-    case_db::complete_job(case_dir, &job.job_id, 1, "recover-inode completed")?;
-    println!("inode recovered");
+    case_db::complete_job(case_dir, &job.job_id, 1, &format!("{event} completed"))?;
+    println!(
+        "{}",
+        if options.extract {
+            "inode extracted"
+        } else {
+            "inode recovered"
+        }
+    );
     println!("source registered: {} ({})", source.source_id, source.kind);
     println!("job: {} ({})", job.job_id, job.job_type);
     println!("image: {}", result.image_path.display());
@@ -376,7 +395,7 @@ pub fn recover_inode(
                 .unwrap_or_else(|| Path::new("."))
         )
     );
-    Ok(())
+    Ok(result)
 }
 
 /// R19-S2: `next: carve-file "<case>" "<raw>"` — each path quoted when
@@ -538,6 +557,8 @@ struct RecoverTask {
     action: &'static str,
     detail_folder: &'static str,
     options: TskRecoverOptions,
+    /// The inspection's `fls -l` size of a live file, when listed.
+    size_hint: Option<u64>,
 }
 
 /// How many icat recoveries run at once. Each one decompresses the E01 on
@@ -572,6 +593,7 @@ fn workers_for(configured: Option<usize>, ssd: Option<bool>, cores: usize, tasks
 fn run_recover_tasks(
     case_dir: &Path,
     image_file: &Path,
+    image_identity: &str,
     job_id: &str,
     tasks: &[RecoverTask],
     slots: &mut [Option<BatchOutcome>],
@@ -627,6 +649,91 @@ fn run_recover_tasks(
     let done = std::sync::atomic::AtomicU64::new(0);
     let last_report = std::sync::Mutex::new(std::time::Instant::now());
     let results = std::sync::Mutex::new(Vec::with_capacity(tasks.len()));
+    let largest_so_far = std::sync::atomic::AtomicU64::new(0);
+    let out_of_space: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    // Hunch: never fill the case volume. Every worker may be writing a file
+    // as large as the largest one so far (or as this one's listed size), so
+    // the reserve covers all of them.
+    let space_refusal = |task: &RecoverTask| -> Option<String> {
+        let mut stop = out_of_space.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(reason) = stop.as_ref() {
+            return Some(reason.clone());
+        }
+        if !task.options.extract {
+            return None;
+        }
+        let target = task.options.output_path.as_deref()?;
+        let free = crate::diskspace::available_bytes(target).unwrap_or(u64::MAX);
+        let in_flight = largest_so_far
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .max(task.size_hint.unwrap_or(0))
+            .saturating_mul(workers as u64);
+        let reason = extraction_space_check(free, in_flight).err()?;
+        eprintln!("{reason}");
+        *stop = Some(reason.clone());
+        Some(reason)
+    };
+    let run_one = |task: &RecoverTask| -> BatchOutcome {
+        if let Some(reason) = space_refusal(task) {
+            return failed(task, reason);
+        }
+        // A live file can be read out by playback/export at the same time
+        // (lazy_extract::ensure_materialized): both take the inode's lock,
+        // and a copy that landed meanwhile is this item's own output.
+        let _lock = if task.options.extract {
+            match crate::lazy_extract::lock_target(
+                case_dir,
+                &crate::lazy_extract::inode_lock_key(
+                    task.options.partition_offset,
+                    &task.options.inode,
+                ),
+            ) {
+                Ok(lock) => Some(lock),
+                Err(err) => return failed(task, err),
+            }
+        } else {
+            None
+        };
+        if let Some(output) = task.options.output_path.as_deref()
+            && output.exists()
+            && proven_own_output(
+                output,
+                image_identity,
+                task.options.partition_offset,
+                &task.options.inode,
+                &inode_output_records(case_dir),
+            )
+        {
+            return BatchOutcome {
+                selector: task.selector.clone(),
+                action: task.action,
+                status: "skipped",
+                detail: format!(
+                    "already read out of this image (playback/export) at {} (kept, not overwritten)",
+                    output.display()
+                ),
+            };
+        }
+        match tsk::recover_inode_in(case_dir, &context, &task.options, false) {
+            Ok(result) => {
+                largest_so_far.fetch_max(result.size_bytes, std::sync::atomic::Ordering::SeqCst);
+                for warning in &result.warnings {
+                    eprintln!("warning: {}: {warning}", task.selector);
+                }
+                BatchOutcome {
+                    selector: task.selector.clone(),
+                    action: task.action,
+                    status: "ok",
+                    detail: format!(
+                        "saved into {} as {}",
+                        task.detail_folder,
+                        result.output_path.display()
+                    ),
+                }
+            }
+            Err(error) => failed(task, error),
+        }
+    };
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| {
@@ -635,21 +742,7 @@ fn run_recover_tasks(
                     let Some(task) = tasks.get(index) else {
                         break;
                     };
-                    let outcome =
-                        match tsk::recover_inode_in(case_dir, &context, &task.options, false) {
-                            Ok(result) => {
-                                for warning in &result.warnings {
-                                    eprintln!("warning: {}: {warning}", task.selector);
-                                }
-                                BatchOutcome {
-                                    selector: task.selector.clone(),
-                                    action: task.action,
-                                    status: "ok",
-                                    detail: format!("saved into {}", task.detail_folder),
-                                }
-                            }
-                            Err(error) => failed(task, error),
-                        };
+                    let outcome = run_one(task);
                     results
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
@@ -669,6 +762,274 @@ fn run_recover_tasks(
     for (slot, outcome) in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
         slots[slot] = Some(outcome);
     }
+}
+
+/// The image-internal path `raw` (an `fls` path, `/` or `\` separated) as
+/// a relative path under `artifacts/extracted` that keeps the folder tree
+/// and the names (Korean folder names, extensions) but can never leave it:
+/// empty, `.` and `..` components are dropped, roots / drive letters /
+/// ADS colons cannot survive ([`clean_path_component`]).
+pub(crate) fn clean_relative_path(raw: &str) -> std::path::PathBuf {
+    let raw = raw.trim().trim_end_matches("(deleted)").trim();
+    let mut path = std::path::PathBuf::new();
+    for part in raw.split(['/', '\\']) {
+        if let Some(clean) = clean_path_component(part) {
+            path.push(clean);
+        }
+    }
+    if path.as_os_str().is_empty() {
+        std::path::PathBuf::from("unnamed.bin")
+    } else {
+        path
+    }
+}
+
+/// One path component safe on Windows and Unix, or `None` for one that
+/// names no folder (`""`, `.`, `..`). Characters Windows forbids in names
+/// (`<>:"/\|?*`, control characters) become `_`, trailing dots / spaces
+/// are trimmed (Windows drops them silently), and a reserved device name
+/// (`CON`, `nul.txt`, `COM1`, …) gets a `_` prefix. Everything else —
+/// Unicode letters, spaces, the extension — is kept.
+pub(crate) fn clean_path_component(part: &str) -> Option<String> {
+    let mapped: String = part
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect();
+    let trimmed = mapped.trim().trim_end_matches(['.', ' ']);
+    if trimmed.is_empty() {
+        return None;
+    }
+    let stem = trimmed.split('.').next().unwrap_or_default().trim_end();
+    // A name shaped like our own in-progress files (`.x.ft4242.part…`)
+    // would be swept as a stale `.part` by the next extraction run — give
+    // it the same `_` prefix as a device name.
+    Some(
+        if is_reserved_device_name(stem) || crate::join::is_pid_part_name(trimmed, None) {
+            format!("_{trimmed}")
+        } else {
+            trimmed.to_string()
+        },
+    )
+}
+
+/// A Windows reserved device name (the part before the first `.`):
+/// `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM1`-`COM9`,
+/// `LPT1`-`LPT9` and the superscript forms `COM¹`-`COM³` / `LPT¹`-`LPT³`
+/// that Windows also maps to devices — ASCII case-insensitive.
+pub(crate) fn is_reserved_device_name(stem: &str) -> bool {
+    let upper = stem.to_ascii_uppercase();
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return true;
+    }
+    let chars: Vec<char> = upper.chars().collect();
+    chars.len() == 4
+        && matches!(chars[..3], ['C', 'O', 'M'] | ['L', 'P', 'T'])
+        && matches!(chars[3], '1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}')
+}
+
+/// Merge review M1: who wrote an existing icat output — the image, partition
+/// offset and inode of a `recover-inode` / `extract-inode` record in the
+/// case's tsk audit lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InodeOutputRecord {
+    pub(crate) output_path: std::path::PathBuf,
+    pub(crate) image_path: String,
+    pub(crate) partition_offset: u64,
+    pub(crate) inode: String,
+    pub(crate) size_bytes: u64,
+}
+
+/// Every `recover-inode` / `extract-inode` output the case's
+/// `evidence/logs/tsk-audit.jsonl` records (usable entries only — an
+/// unreadable or forged lane proves nothing, so the batch then writes a
+/// new name instead of skipping).
+pub(crate) fn inode_output_records(case_dir: &Path) -> Vec<InodeOutputRecord> {
+    let rows = audit::read_lane_rows(&case_dir.join("evidence/logs/tsk-audit.jsonl"))
+        .map(|lane| lane.usable_values())
+        .unwrap_or_default();
+    rows.iter()
+        .filter(|row| {
+            matches!(
+                row.get("event").and_then(|v| v.as_str()),
+                Some(tsk::RECOVER_EVENT | tsk::EXTRACT_EVENT)
+            )
+        })
+        .filter_map(|row| {
+            Some(InodeOutputRecord {
+                output_path: std::path::PathBuf::from(row.get("output_path")?.as_str()?),
+                image_path: row.get("image_path")?.as_str()?.to_string(),
+                partition_offset: row.get("partition_offset")?.as_u64()?,
+                inode: row.get("inode")?.as_str()?.to_string(),
+                size_bytes: row.get("size_bytes")?.as_u64()?,
+            })
+        })
+        .collect()
+}
+
+/// What recover-batch does with one item's output name (M1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum OutputChoice {
+    /// This exact source (image, partition, inode) already wrote this file
+    /// (the audit record names it, same size): kept, reported `skipped`.
+    Same(std::path::PathBuf),
+    /// A free name to write to.
+    Fresh(std::path::PathBuf),
+}
+
+/// `base` with `suffix` before its extension (`clip.mp4` + `__ino7` →
+/// `clip__ino7.mp4`).
+fn with_name_suffix(base: &Path, suffix: &str) -> std::path::PathBuf {
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let name = match base.extension() {
+        Some(ext) => format!("{stem}{suffix}.{}", ext.to_string_lossy()),
+        None => format!("{stem}{suffix}"),
+    };
+    base.with_file_name(name)
+}
+
+/// Merge review M1: picks the output of one recover-batch item. An existing
+/// file is skipped ONLY when the tsk audit proves it is this item's own
+/// earlier output (same canonical output path, image, partition offset,
+/// inode and size). Otherwise it belongs to a DIFFERENT source that maps
+/// to the same name (case-insensitive host: `Clip.MP4` vs `clip.mp4`;
+/// names equal after cleaning: `a:b.mp4` vs `a_b.mp4`, `clip.mp4.` vs
+/// `clip.mp4`; another image / partition in a reused case), and this item
+/// is written next to it as `<stem><alt_suffix>.<ext>` (then
+/// `<stem><alt_suffix>_001.<ext>` …). Probing the same sequence on every
+/// run keeps reruns idempotent — never a new copy per run, a 0-byte
+/// source included (its record matches like any other).
+pub(crate) fn choose_output_path(
+    base: &Path,
+    alt_suffix: &str,
+    image_path: &str,
+    partition_offset: u64,
+    inode: &str,
+    records: &[InodeOutputRecord],
+) -> OutputChoice {
+    choose_output_path_by(base, alt_suffix, |candidate| {
+        proven_own_output(candidate, image_path, partition_offset, inode, records)
+    })
+}
+
+/// [`choose_output_path`] with the audit proof supplied by the caller
+/// (`is_own(candidate)`: the tsk audit proves an existing regular file at
+/// `candidate` is this source's output).
+pub(crate) fn choose_output_path_by(
+    base: &Path,
+    alt_suffix: &str,
+    is_own: impl Fn(&Path) -> bool,
+) -> OutputChoice {
+    let alt = with_name_suffix(base, alt_suffix);
+    let candidates = [base.to_path_buf(), alt.clone()]
+        .into_iter()
+        .chain((1..1000).map(|n| with_name_suffix(&alt, &format!("_{n:03}"))));
+    for candidate in candidates {
+        let meta = match std::fs::symlink_metadata(&candidate) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return OutputChoice::Fresh(candidate);
+            }
+            Err(_) => continue,
+            Ok(meta) => meta,
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        if is_own(&candidate) {
+            return OutputChoice::Same(candidate);
+        }
+    }
+    OutputChoice::Fresh(crate::util::unique_available_path(&alt))
+}
+
+/// M1: the tsk audit proves the file at `path` is the output of this image,
+/// partition offset and inode (same canonical output path, same size).
+fn proven_own_output(
+    path: &Path,
+    image_path: &str,
+    partition_offset: u64,
+    inode: &str,
+    records: &[InodeOutputRecord],
+) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    let Ok(canonical) = crate::util::canonicalize_display(path) else {
+        return false;
+    };
+    records.iter().any(|record| {
+        record.output_path == canonical
+            && record.image_path == image_path
+            && record.partition_offset == partition_offset
+            && record.inode == inode
+            && record.size_bytes == meta.len()
+    })
+}
+
+/// [`inode_output_records`] keyed by canonical output path, for callers
+/// that prove many files at once (the lazy listing).
+pub(crate) fn inode_output_records_by_path(
+    case_dir: &Path,
+) -> std::collections::HashMap<std::path::PathBuf, Vec<InodeOutputRecord>> {
+    let mut by_path: std::collections::HashMap<_, Vec<_>> = std::collections::HashMap::new();
+    for record in inode_output_records(case_dir) {
+        by_path
+            .entry(record.output_path.clone())
+            .or_default()
+            .push(record);
+    }
+    by_path
+}
+
+/// [`proven_own_output`] over [`inode_output_records_by_path`].
+pub(crate) fn proven_own_output_in(
+    path: &Path,
+    image_path: &str,
+    partition_offset: u64,
+    inode: &str,
+    by_path: &std::collections::HashMap<std::path::PathBuf, Vec<InodeOutputRecord>>,
+) -> bool {
+    let Ok(canonical) = crate::util::canonicalize_display(path) else {
+        return false;
+    };
+    by_path.get(&canonical).is_some_and(|records| {
+        proven_own_output(path, image_path, partition_offset, inode, records)
+    })
+}
+
+/// Free space kept on the case volume while extracting (hunch: refuse
+/// before filling the disk). The inspection's `fls -r -p` listing carries
+/// no file sizes, so the batch cannot total them up front; before each
+/// item it needs this floor plus the largest file written so far.
+pub(crate) const EXTRACT_FREE_FLOOR_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// `Err` (a clear message) when `free` bytes cannot take the next item:
+/// below [`EXTRACT_FREE_FLOOR_BYTES`] plus the largest output so far.
+pub(crate) fn extraction_space_check(free: u64, largest_so_far: u64) -> Result<(), String> {
+    let needed = EXTRACT_FREE_FLOOR_BYTES.saturating_add(largest_so_far);
+    if free < needed {
+        return Err(format!(
+            "insufficient disk space for further extraction: {} free on the case volume, need at least {} (1 GB reserve + the largest file so far) — free space and rerun; finished files are kept and skipped",
+            crate::diskspace::human_bytes(free),
+            crate::diskspace::human_bytes(needed)
+        ));
+    }
+    Ok(())
 }
 
 pub fn recover_batch(
@@ -758,10 +1119,31 @@ pub fn recover_batch(
                 .or_insert(0usize) += 1;
         }
     }
+    // M1: the identity of every earlier output decides whether an existing
+    // file is this item's.
+    let records = inode_output_records(case_dir);
+    let image_identity = crate::util::canonicalize_display(image_file)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
+    // Live-file sizes from the newest inspection (`fls -l`) size the
+    // free-space reserve before the first copy has finished.
+    let listed_sizes = latest_entries_jsonl(case_dir)
+        .and_then(|entries| crate::lazy_extract::listed_sizes(&entries).ok())
+        .unwrap_or_default();
+    // L1: `.part` files a killed extraction left anywhere in the tree
+    // (same pid / age rules as every other stale-part sweep).
+    if extract_targets.iter().any(Option::is_some) {
+        for (path, result) in crate::join::sweep_stale_parts_recursive(&extracted_root) {
+            if let Err(err) = result {
+                eprintln!("warning: {err} ({})", path.display());
+            }
+        }
+    }
     // Plan every item first (skips are decided here), then run the icat
     // recoveries on a worker pool.
     let mut slots: Vec<Option<BatchOutcome>> = Vec::with_capacity(selection.items.len());
     let mut tasks: Vec<RecoverTask> = Vec::new();
+    let mut claimed = std::collections::HashSet::new();
     for (item, extract_target) in selection.items.iter().zip(extract_targets) {
         let inode = item
             .selector
@@ -771,21 +1153,43 @@ pub fn recover_batch(
             .to_string();
 
         let item_is_extract = extract_target.is_some();
-        let (output_path, recover_deleted, detail_folder) = if let Some(rel) = extract_target {
+        let action = if item_is_extract {
+            "extract"
+        } else {
+            "recover"
+        };
+        let skipped = |detail: String| {
+            Some(BatchOutcome {
+                selector: item.selector.clone(),
+                action,
+                status: "skipped",
+                detail,
+            })
+        };
+        let (base_path, recover_deleted, detail_folder, alt_suffix) = if let Some(rel) =
+            extract_target
+        {
             let target = extracted_root.join(rel);
+            // An older build's extraction under the legacy name is reused
+            // only when it is unambiguous AND the audit proves it is this
+            // item's own output (M1).
             if !target.is_file()
                 && let Some(legacy) =
                     legacy_extracted_file(&extracted_root, item.notes.as_deref(), &legacy_counts)
+                && proven_own_output(&legacy, &image_identity, partition_offset, &inode, &records)
             {
-                slots.push(Some(BatchOutcome {
-                    selector: item.selector.clone(),
-                    action: "extract",
-                    status: "ok",
-                    detail: format!("already exists (legacy name) at {}", legacy.display()),
-                }));
+                slots.push(skipped(format!(
+                        "already extracted from this image, partition and inode at {} (legacy name, kept)",
+                        legacy.display()
+                    )));
                 continue;
             }
-            (target, false, "artifacts/extracted")
+            (
+                target,
+                false,
+                "artifacts/extracted",
+                format!("__ino{}", crate::util::sanitize_filename(&inode)),
+            )
         } else {
             let filename = item
                 .notes
@@ -794,47 +1198,69 @@ pub fn recover_batch(
                 .and_then(|n| n.to_str())
                 .unwrap_or("");
             let clean_name = filename.trim_end_matches("(deleted)").trim();
-            let leaf = if clean_name.is_empty() {
-                format!("inode_{}.bin", crate::util::sanitize_filename(&inode))
-            } else {
-                format!(
-                    "{}_{}",
-                    crate::util::sanitize_filename(&inode),
-                    crate::util::sanitize_filename(clean_name)
-                )
+            // The original name (extension kept) after the inode, so two
+            // deleted files with one name never collide.
+            let leaf = match clean_path_component(clean_name) {
+                None => format!("inode_{}.bin", crate::util::sanitize_filename(&inode)),
+                Some(name) => format!("{}_{name}", crate::util::sanitize_filename(&inode)),
             };
-            let target = case_dir.join("artifacts/Recovery/Filesystem").join(leaf);
-            (target, true, "artifacts/Recovery/Filesystem")
+            // PR #6 merge: the documented recovery folder
+            // (docs/FILESYSTEM_RECOVERY.md) — packaged with the case
+            // (package.rs) and swept for stale `.part` files (media.rs).
+            let target = case_dir.join("artifacts/recovered/filesystem").join(leaf);
+            (
+                target,
+                true,
+                "artifacts/recovered/filesystem",
+                // M1: the same inode number on another partition.
+                format!("__off{partition_offset}"),
+            )
         };
 
-        if output_path.is_file()
-            && std::fs::metadata(&output_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
-                > 0
-        {
-            slots.push(Some(BatchOutcome {
-                selector: item.selector.clone(),
-                action: if item_is_extract {
-                    "extract"
-                } else {
-                    "recover"
-                },
-                status: "ok",
-                detail: format!("already exists at {}", output_path.display()),
-            }));
+        // Never overwrite (recover_inode refuses an existing output): an
+        // existing file is kept and this item reported `skipped` only when
+        // the audit proves it is this item's own earlier output; a file of
+        // another source under the same (cleaned / case-folded) name makes
+        // this item take a distinct name (M1).
+        let output_path = match choose_output_path(
+            &base_path,
+            &alt_suffix,
+            &image_identity,
+            partition_offset,
+            &inode,
+            &records,
+        ) {
+            OutputChoice::Same(existing) => {
+                slots.push(skipped(format!(
+                    "already {} from this image, partition and inode at {} (kept, not overwritten)",
+                    if item_is_extract {
+                        "extracted"
+                    } else {
+                        "recovered"
+                    },
+                    existing.display()
+                )));
+                continue;
+            }
+            OutputChoice::Fresh(path) => path,
+        };
+        // The outputs are written in parallel, so nothing exists yet to tell
+        // two items of this batch apart: an output already claimed here is
+        // the same inode listed twice.
+        if !claimed.insert(path_key(&output_path)) {
+            slots.push(skipped(format!(
+                "another item of this selection already writes {} (the same inode listed twice)",
+                output_path.display()
+            )));
             continue;
         }
 
         tasks.push(RecoverTask {
             slot: slots.len(),
             selector: item.selector.clone(),
-            action: if item_is_extract {
-                "extract"
-            } else {
-                "recover"
-            },
+            action,
             detail_folder,
+            size_hint: listed_sizes.get(&inode).copied(),
             options: TskRecoverOptions {
                 partition_offset,
                 inode,
@@ -844,21 +1270,31 @@ pub fn recover_batch(
                 skip_sparse_holes: true,
                 icat_bin: "icat".to_string(),
                 timeout_secs,
+                extract: item_is_extract,
             },
         });
         slots.push(None);
     }
-    run_recover_tasks(case_dir, image_file, &job.job_id, &tasks, &mut slots);
+    run_recover_tasks(
+        case_dir,
+        image_file,
+        &image_identity,
+        &job.job_id,
+        &tasks,
+        &mut slots,
+    );
     let outcomes: Vec<BatchOutcome> = slots.into_iter().flatten().collect();
 
     let ok = outcomes.iter().filter(|o| o.status == "ok").count();
     let failed = outcomes.iter().filter(|o| o.status == "failed").count();
+    let skipped = outcomes.iter().filter(|o| o.status == "skipped").count();
     let line = format!(
-        "{{\"schema_version\":1,\"event\":\"recover-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"results\":{}}}",
+        "{{\"schema_version\":1,\"event\":\"recover-batch\",\"selection_path\":\"{}\",\"requested\":{},\"ok\":{},\"failed\":{},\"skipped\":{},\"results\":{}}}",
         json_escape(&selection_label),
         outcomes.len(),
         ok,
         failed,
+        skipped,
         outcomes_json(&outcomes),
     );
     audit::append_chained_jsonl(&case_dir.join("artifacts/logs/batch-log.jsonl"), &line)?;
@@ -885,12 +1321,19 @@ pub fn recover_batch(
     println!("requested: {}", outcomes.len());
     println!("ok: {ok}");
     println!("failed: {failed}");
+    println!("skipped: {skipped}");
     for outcome in &outcomes {
         println!(
             "  [{}] {}: {}",
             outcome.status, outcome.selector, outcome.detail
         );
     }
+    // L2: one machine-readable summary line after the per-item lines (a long
+    // run's head may be cut from the output the server retains).
+    println!(
+        "recover batch result: requested={} ok={ok} failed={failed} skipped={skipped}",
+        outcomes.len()
+    );
     if failed > 0 {
         // Some items are missing from the result: the workstation must show
         // that as a warning, never as a clean pass (exit code 5).

@@ -22,9 +22,11 @@ pub fn extracted_root(case_dir: &Path) -> PathBuf {
 
 /// Relative path under `artifacts/extracted` for an allocated file's
 /// filesystem path: the card's folder and file names as they are (Korean,
-/// spaces, the extension), with only Windows-illegal characters replaced.
+/// spaces, the extension), with only Windows-illegal characters replaced
+/// and device names / names shaped like our `.part` files prefixed
+/// ([`crate::cli::handlers::forensic::clean_relative_path`]).
 pub(crate) fn extracted_relative_path(raw: &str) -> PathBuf {
-    relative_path_with(raw, crate::util::sanitize_path_component)
+    crate::cli::handlers::forensic::clean_relative_path(raw)
 }
 
 /// The pre-fix spelling ([`crate::util::sanitize_filename`] per component:
@@ -168,6 +170,14 @@ pub(crate) fn allocated_video_selectors(
         .collect())
 }
 
+/// `fls -l` sizes of the live videos in an entries file, by inode.
+pub(crate) fn listed_sizes(entries_jsonl: &Path) -> Result<HashMap<String, u64>, String> {
+    Ok(read_entries(entries_jsonl)?
+        .into_iter()
+        .filter_map(|entry| Some((entry.item.selector, entry.size_bytes?)))
+        .collect())
+}
+
 /// One live video row of an entries file.
 struct AllocatedEntry {
     item: SelectionItem,
@@ -265,14 +275,55 @@ pub fn allocated_listing(case_dir: &Path) -> Result<Option<AllocatedListing>, St
     let entries = read_entries(&entries_path)?;
     let items: Vec<SelectionItem> = entries.iter().map(|entry| entry.item.clone()).collect();
     let targets = plan_extract_targets(&items, true);
+    // Merge review M1 for the listing: a file already at a planned path is
+    // this listing's only when the tsk audit proves it came from this image,
+    // partition and inode — otherwise (a reused case, another card) the
+    // entry moves to the `__ino<inode>` name recover-batch would write, so
+    // the review never shows another source's bytes under this record.
+    let root = extracted_root(case_dir);
+    let image_identity = crate::util::canonicalize_display(&image_path)
+        .unwrap_or_else(|_| image_path.clone())
+        .to_string_lossy()
+        .to_string();
+    let mut proofs = None;
     let files = entries
         .into_iter()
         .zip(targets)
         .filter_map(|(entry, target)| {
+            let planned = target?;
+            let base = root.join(&planned);
+            let relative = if fs::symlink_metadata(&base).is_err() {
+                planned
+            } else {
+                let proofs = proofs.get_or_insert_with(|| {
+                    crate::cli::handlers::forensic::inode_output_records_by_path(case_dir)
+                });
+                let inode = entry.item.selector.as_str();
+                let chosen = match crate::cli::handlers::forensic::choose_output_path_by(
+                    &base,
+                    &format!("__ino{}", crate::util::sanitize_filename(inode)),
+                    |candidate| {
+                        crate::cli::handlers::forensic::proven_own_output_in(
+                            candidate,
+                            &image_identity,
+                            partition_offset,
+                            inode,
+                            proofs,
+                        )
+                    },
+                ) {
+                    crate::cli::handlers::forensic::OutputChoice::Same(path)
+                    | crate::cli::handlers::forensic::OutputChoice::Fresh(path) => path,
+                };
+                chosen
+                    .strip_prefix(&root)
+                    .map(Path::to_path_buf)
+                    .unwrap_or(planned)
+            };
             Some(ListedFile {
                 inode: entry.item.selector,
                 card_path: entry.item.notes.unwrap_or_default(),
-                relative: target?,
+                relative,
                 size_bytes: entry.size_bytes,
             })
         })
@@ -325,7 +376,12 @@ pub fn ensure_materialized(case_dir: &Path, path: &Path) -> Result<bool, String>
     }) else {
         return Ok(false);
     };
-    let _lock = lock_target(case_dir, &wanted)?;
+    // Keyed by inode, not by the requested spelling: recover-batch's workers
+    // take the same lock for the same inode.
+    let _lock = lock_target(
+        case_dir,
+        &inode_lock_key(listing.partition_offset, &file.inode),
+    )?;
     if target.is_file() {
         return Ok(true);
     }
@@ -339,6 +395,8 @@ pub fn ensure_materialized(case_dir: &Path, path: &Path) -> Result<bool, String>
         skip_sparse_holes: true,
         icat_bin: "icat".to_string(),
         timeout_secs: None,
+        // A live-file copy is an extraction, not a recovery (merge review M2).
+        extract: true,
     };
     match tsk::recover_inode_in(case_dir, &context, &options, true) {
         Ok(_) => Ok(true),
@@ -348,6 +406,12 @@ pub fn ensure_materialized(case_dir: &Path, path: &Path) -> Result<bool, String>
         }
         Err(err) => Err(format!("{} ({}): {err}", file.card_path, file.inode)),
     }
+}
+
+/// The [`lock_target`] key of one inode's read-out (`partition offset` +
+/// inode), shared by playback/export reads and recover-batch.
+pub(crate) fn inode_lock_key(partition_offset: u64, inode: &str) -> String {
+    format!("inode:{partition_offset}:{}", inode.trim())
 }
 
 /// Exclusive lock on `db/extract-locks/<hash of key>.lock`, held until the
@@ -426,6 +490,50 @@ mod tests {
         // Not a listed file: left to the caller, nothing is read.
         assert!(!ensure_materialized(&case, &case.join("artifacts/other/x.avi")).unwrap());
         assert!(!ensure_materialized(&case, &extracted_root(&case).join("EVENT/zzz.avi")).unwrap());
+        let _ = fs::remove_dir_all(&case);
+    }
+
+    /// Merge review M1 for the lazy index: a file already at a planned path
+    /// stays this listing's only when the tsk audit proves it came from this
+    /// image, partition and inode; another source's file moves the entry to
+    /// the `__ino<inode>` name recover-batch writes.
+    #[test]
+    fn listing_never_claims_another_sources_file() {
+        let case = std::env::temp_dir().join(format!("ft-lazy-m1-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&case);
+        write_inspection(
+            &case,
+            concat!(
+                r#"{"inode":"519","path":"EVENT/a.avi","deleted":false,"video_candidate":true,"size_bytes":5}"#,
+                "\n"
+            ),
+        );
+        let existing = extracted_root(&case).join("EVENT").join("a.avi");
+        fs::create_dir_all(existing.parent().unwrap()).unwrap();
+        fs::write(&existing, b"other").unwrap();
+        let relative = |case: &Path| {
+            allocated_listing(case).unwrap().unwrap().files[0]
+                .relative
+                .to_string_lossy()
+                .replace('\\', "/")
+        };
+        // No audit record proves it: another card's copy, never this entry.
+        assert_eq!(relative(&case), "EVENT/a__ino519.avi");
+
+        // The audit proves it is this image's inode 519: the entry keeps it.
+        let lane = case.join("evidence/logs/tsk-audit.jsonl");
+        fs::create_dir_all(lane.parent().unwrap()).unwrap();
+        let row = serde_json::json!({
+            "schema_version": 1,
+            "event": "extract-inode",
+            "image_path": "C:\\img\\card.E01",
+            "partition_offset": 2048,
+            "inode": "519",
+            "output_path": crate::util::canonicalize_display(&existing).unwrap(),
+            "size_bytes": 5,
+        });
+        crate::audit::append_chained_jsonl(&lane, &row.to_string()).unwrap();
+        assert_eq!(relative(&case), "EVENT/a.avi");
         let _ = fs::remove_dir_all(&case);
     }
 

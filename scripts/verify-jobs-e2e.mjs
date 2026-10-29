@@ -167,13 +167,17 @@ try {
   await page.waitForSelector('#btnRecoverDeleted:not([hidden])', { timeout: 10000 });
   // The raw-image carve button is hidden in the UI (the deleted-video scan
   // carves the image itself); it still drives the case-job contract here.
-  const showCarve = () => page.evaluate(() => { document.getElementById('btnCarve').hidden = false; });
-  await showCarve();
+  // Unhide and click in one step (the status poll hides it again), once the
+  // poll that follows review-ready has re-enabled it.
+  const clickCarve = async () => {
+    await page.waitForFunction(() => !document.getElementById('btnCarve').disabled, null, { timeout: 15000 });
+    await page.evaluate(() => { const b = document.getElementById('btnCarve'); b.hidden = false; b.click(); });
+  };
 
   // ---- 2. carve → cancel ----------------------------------------------------
   const raw = join(caseDir, 'evidence/images/evidence.raw');
   writeRaw(raw, 320);
-  await page.click('#btnCarve');
+  await clickCarve();
   await page.waitForSelector('#dlgBackdrop:not([hidden]) #dlgOk');
   await page.click('#dlgOk'); // carve confirm
   const running = await until(async () => {
@@ -215,8 +219,7 @@ try {
   const markId = await page.evaluate(() => document.querySelector('#recordGrid .card[data-id^="vid_"]')?.dataset.id);
   const marksBefore = importMarks.length;
   await openJobsSheet();
-  await showCarve();
-  await page.click('#btnCarve');
+  await clickCarve();
   await page.waitForSelector('#dlgBackdrop:not([hidden]) #dlgOk');
   await page.click('#dlgOk');
   await until(async () => /진행 중/.test(await page.textContent('#jobTitle')), 10000);

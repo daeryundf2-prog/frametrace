@@ -533,6 +533,58 @@ pub fn deepfake_scan(case_dir: &Path, force: bool, retry_failed: bool) -> Result
     Ok(())
 }
 
+/// The doctor line of a found ffmpeg: its encoder note, a warning when
+/// proxies/exports will not get H.264 or the file cannot be run at all
+/// (Fix round 8: an existing but unspawnable ffmpeg was "ok").
+fn ffmpeg_check(
+    found: &str,
+    feature: &str,
+    shadow: &str,
+    encoders: &crate::ffmpeg_encoders::Encoders,
+) -> DoctorCheck {
+    let name = "ffmpeg";
+    match encoders.build_note() {
+        // `|| spawn_failed()` is redundant on purpose: pins the intent even if the mpeg4 fallback changes.
+        Some(note) if !encoders.video().is_h264() || encoders.spawn_failed() => {
+            DoctorCheck::warn(name, format!("{found} — {feature} · {note}{shadow}"))
+        }
+        Some(note) => DoctorCheck::ok(name, format!("{found} — {feature} · {note}{shadow}")),
+        None => DoctorCheck::ok(name, format!("{found} — {feature}{shadow}")),
+    }
+}
+
+/// One WARN per kept rollback backup under `tools_dir` (size and how to
+/// restore it); none when there is nothing to restore.
+fn rollback_backup_checks(tools_dir: &Path) -> Vec<DoctorCheck> {
+    crate::tool_install::rollback_backups(tools_dir)
+        .iter()
+        .map(|backup| {
+            DoctorCheck::warn(
+                &format!(
+                    "tool rollback backup ({})",
+                    backup.tool.as_deref().unwrap_or("unknown tool")
+                ),
+                crate::tool_install::rollback_hint(backup),
+            )
+        })
+        .collect()
+}
+
+/// A WARN naming the Sleuth Kit runtime DLLs found in `tools/bin`
+/// ([`crate::tool_policy::TSK_RUNTIME_DLLS`]); none when there are none.
+fn foreign_dll_check(found: &[String]) -> Option<DoctorCheck> {
+    if found.is_empty() {
+        return None;
+    }
+    Some(DoctorCheck::warn(
+        "tools/bin DLLs",
+        format!(
+            "tools/bin에 Sleuth Kit의 32비트 런타임 DLL이 있습니다 ({}) — 64비트 FFmpeg가 잘못된 DLL을 읽어 시작하지 못할 수 있습니다. mmls·fls·icat과 이 DLL들을 tools/sleuthkit 폴더로 옮기십시오.",
+            found.join(", ")
+        ),
+    ))
+}
+
 /// One diagnostic line for `frametrace doctor`. `level` renders as
 /// OK/WARN/FAIL — WARN means the workstation runs but a feature lane is
 /// unavailable, FAIL means a blocking defect (corrupt db, broken keyring).
@@ -584,11 +636,37 @@ pub fn doctor(case_dir: Option<&Path>, json: bool) -> Result<(), String> {
         ("fls", "삭제 파일 나열"),
         ("icat", "inode 내용 복구"),
     ] {
+        // A different copy on PATH that the pinned tools/bin one takes
+        // precedence over (B-7): not used, shown so it can be checked.
+        let shadow = crate::tool_policy::shadowed_by(name)
+            .map(|other| {
+                format!(
+                    " · 주의: PATH의 다른 {name}({other})는 쓰지 않음(FrameTrace tools 폴더 우선)"
+                )
+            })
+            .unwrap_or_default();
         match crate::tool_policy::resolve_tool_binary(name, &[name]) {
-            Ok(found) => checks.push(DoctorCheck::ok(name, format!("{found} — {feature}"))),
+            Ok(found) if name == "ffmpeg" => {
+                // A build without libx264 (e.g. the BtbN build the installer
+                // fetches): say which H.264
+                // encoder proxies/exports will use instead (and when
+                // h264_mf is listed but cannot start — Windows N/KN without
+                // the Media Feature Pack).
+                let encoders = crate::ffmpeg_encoders::for_binary(&found);
+                checks.push(ffmpeg_check(&found, feature, &shadow, &encoders));
+            }
+            Ok(found) => checks.push(DoctorCheck::ok(
+                name,
+                format!("{found} — {feature}{shadow}"),
+            )),
             Err(err) => checks.push(DoctorCheck::warn(
                 name,
-                format!("미설치 — {feature} 불가 ({err})"),
+                // Track S3: point at the pinned installer (or the
+                // manual-install hint when the tool has no checksum).
+                match crate::tool_install::install_hint_for_binary(name) {
+                    Some(hint) => format!("미설치 — {feature} 불가 ({err}) · {hint}"),
+                    None => format!("미설치 — {feature} 불가 ({err})"),
+                },
             )),
         }
     }
@@ -610,6 +688,17 @@ pub fn doctor(case_dir: Option<&Path>, json: bool) -> Result<(), String> {
             "미설치 — 합성 영상 스크리닝 불가 (선택 기능)".into(),
         )
     });
+
+    // Fix round 13 L1: previous tool files kept after an incomplete
+    // rollback (tools/rollback-backup-*, tools/python/rollback-backup-*).
+    if let Ok(dirs) = crate::tool_install::InstallDirs::for_current_exe() {
+        checks.extend(rollback_backup_checks(&dirs.tools_dir));
+    }
+    // PR #6 merge: Sleuth Kit's 32-bit runtime DLLs left in tools/bin (the
+    // old copy instructions) sit next to the 64-bit FFmpeg.
+    checks.extend(foreign_dll_check(
+        &crate::tool_policy::foreign_runtime_dlls_in_tools_bin(),
+    ));
 
     // Writable probe + free space on the case (or current) volume.
     let probe_dir = case_dir
@@ -793,6 +882,98 @@ mod tests {
     use crate::audit;
     use crate::audit_key::AuditKey;
     use std::fs;
+
+    /// PR #6 merge: Sleuth Kit runtime DLLs in tools/bin are a WARN that
+    /// names them and points at tools/sleuthkit; none found, no line.
+    #[test]
+    fn doctor_warns_about_sleuth_kit_dlls_in_tools_bin() {
+        assert!(super::foreign_dll_check(&[]).is_none());
+        let check = super::foreign_dll_check(&["ucrtbase.dll".into(), "zlib.dll".into()])
+            .expect("a warning");
+        assert_eq!(check.level, "WARN");
+        assert!(
+            check.detail.contains("ucrtbase.dll, zlib.dll")
+                && check.detail.contains("tools/sleuthkit"),
+            "{}",
+            check.detail
+        );
+    }
+
+    /// Fix round 13 L1: every kept rollback backup is a WARN naming its
+    /// tool, path, size and RESTORE.txt.
+    #[test]
+    fn doctor_lists_kept_rollback_backups_as_warnings() {
+        let base = std::env::temp_dir().join(format!(
+            "ft-doctor-rollback-{}-{}",
+            std::process::id(),
+            crate::tool_install::random_hex()
+        ));
+        let tools = base.join("tools");
+        assert!(super::rollback_backup_checks(&tools).is_empty());
+        let kept = tools.join("rollback-backup-00aa");
+        std::fs::create_dir_all(&kept).unwrap();
+        std::fs::write(kept.join("0.bak"), vec![0u8; 2048]).unwrap();
+        std::fs::write(
+            kept.join("RESTORE.txt"),
+            "tool: ffmpeg
+how to
+C:/x/bin/ffmpeg.exe <- 0.bak
+",
+        )
+        .unwrap();
+        let venv = tools.join("python/rollback-backup-00bb/deepfake-lens/Scripts");
+        std::fs::create_dir_all(&venv).unwrap();
+        std::fs::write(venv.join("python.exe"), b"py").unwrap();
+        // Not a backup: ignored.
+        std::fs::create_dir_all(tools.join(".staging-plain/backup")).unwrap();
+        let checks = super::rollback_backup_checks(&tools);
+        assert_eq!(
+            checks.len(),
+            2,
+            "{:?}",
+            checks.iter().map(|c| &c.detail).collect::<Vec<_>>()
+        );
+        assert!(checks.iter().all(|c| c.level == "WARN"));
+        assert_eq!(checks[0].name, "tool rollback backup (ffmpeg)");
+        assert!(
+            checks[0].detail.contains(&kept.display().to_string())
+                && checks[0].detail.contains("MB")
+                && checks[0].detail.contains("RESTORE.txt")
+                && checks[0].detail.contains("복원"),
+            "{}",
+            checks[0].detail
+        );
+        assert_eq!(checks[1].name, "tool rollback backup (deepfake-lens)");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// Fix round 8 (L3): an ffmpeg that exists but cannot be run is a
+    /// WARN saying that clips, proxies and exports may fail, not an OK.
+    #[test]
+    fn an_unrunnable_ffmpeg_is_a_warning() {
+        let dir = std::env::temp_dir().join(format!("ft-doctor-unrunnable-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let fake = crate::ffmpeg_encoders::tests::unrunnable_ffmpeg(&dir);
+        let encoders = crate::ffmpeg_encoders::for_binary(&fake);
+        let check = super::ffmpeg_check(&fake, "클립", "", &encoders);
+        assert_eq!(check.level, "WARN", "{}", check.detail);
+        assert!(
+            check.detail.ends_with(
+                "— 클립 · ffmpeg 실행 실패 — 클립·프록시·내보내기가 실패할 수 있음 · 잠시 뒤 다시 확인"
+            ),
+            "{}",
+            check.detail
+        );
+        // A working build with libx264 stays OK without a note.
+        let full =
+            crate::ffmpeg_encoders::Encoders::from_listing(crate::ffmpeg_encoders::tests::FULL);
+        let check = super::ffmpeg_check("ffmpeg", "클립", "", &full);
+        assert_eq!(
+            (check.level, check.detail.as_str()),
+            ("OK", "ffmpeg — 클립")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// R10-I9: key introduction is decided per CASE — a lane without any
     /// HMAC in a case where another lane holds HMAC entries was stripped

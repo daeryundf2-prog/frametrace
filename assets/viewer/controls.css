@@ -53,7 +53,7 @@
 #selectionBar #btnSelectFiltered, #selectionBar #btnClearSelection { background: transparent; border-color: transparent; }
 #selectionBar #btnSelectFiltered:hover, #selectionBar #btnClearSelection:hover { background: var(--surface-2); border-color: var(--border-strong); }
 /* primary (filled) — one per region */
-#selectionBar button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+#selectionBar button.primary { height: var(--ctl-h-lg); background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 #selectionBar button.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
 #selectionBar button.primary:active { background: var(--accent-ink); filter: brightness(.92); }
 #selectionBar button.primary:disabled { background: var(--disabled-bg); border-color: var(--border); color: var(--disabled-fg); }
@@ -320,8 +320,8 @@ html:root .ft-viewer .count-pills button.toggle.is-zero:not([aria-pressed="true"
 .ft-viewer .card:hover .thumb input[data-check], .ft-viewer .card:focus-within .thumb input[data-check],
 .ft-viewer .card[aria-selected="true"] .thumb input[data-check], .ft-viewer .thumb input[data-check]:checked,
 .ft-viewer .thumb input[data-check]:focus-visible { opacity: 1; }
-.ft-viewer .kind-badge { font-weight: 600; font-size: 12px; padding: 0 6px; line-height: 18px; border-radius: 3px; }
-.ft-viewer .thumb .rec-type { left: 6px; font-size: 12px; }
+.ft-viewer .kind-badge { font-weight: 600; font-size: var(--fs-xs); padding: 0 6px; line-height: 18px; border-radius: 3px; }
+.ft-viewer .thumb .rec-type { left: 6px; font-size: var(--fs-xs); }
 .ft-viewer .card:hover .thumb .rec-type, .ft-viewer .card[aria-selected="true"] .thumb .rec-type { left: 36px; }
 .ft-viewer .channel-badge { font-weight: 600; }
 /* "미검증 후보" on every card is the default state: say it quietly. */

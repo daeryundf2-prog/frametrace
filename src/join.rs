@@ -3437,6 +3437,56 @@ fn remove_path_retry(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Merge review L1: [`sweep_pid_parts`] in `dir` and every real folder below
+/// it (`artifacts/extracted` keeps the image's folder tree, so a killed
+/// extraction leaves its `.part` in a subfolder). Links / junctions are
+/// never followed; in-progress (`.part`) folders are not descended into.
+pub fn sweep_pid_parts_recursive(dir: &Path, pid: u32) -> Vec<(PathBuf, Result<(), String>)> {
+    sweep_tree(dir, &|folder| sweep_pid_parts(folder, pid))
+}
+
+/// Merge review L1: [`sweep_stale_parts`] (same pid / age rules) in `dir`
+/// and every real folder below it.
+pub fn sweep_stale_parts_recursive(dir: &Path) -> Vec<(PathBuf, Result<(), String>)> {
+    sweep_stale_parts_recursive_with(dir, &crate::util::probe_process, STALE_TEMP_AGE_SECS)
+}
+
+/// [`sweep_stale_parts_recursive`] with the probe and minimum age injected.
+pub fn sweep_stale_parts_recursive_with(
+    dir: &Path,
+    probe: &dyn Fn(u32) -> crate::util::ProcessProbe,
+    min_age_secs: u64,
+) -> Vec<(PathBuf, Result<(), String>)> {
+    sweep_tree(dir, &|folder| {
+        sweep_stale_parts_with(folder, probe, min_age_secs)
+    })
+}
+
+type SweepResults = Vec<(PathBuf, Result<(), String>)>;
+
+fn sweep_tree(dir: &Path, sweep: &dyn Fn(&Path) -> SweepResults) -> SweepResults {
+    const MAX_DEPTH: usize = 64;
+    let mut out = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), 0usize)];
+    while let Some((folder, depth)) = stack.pop() {
+        out.extend(sweep(&folder));
+        if depth >= MAX_DEPTH {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            // `file_type` never follows a link; a junction is a link here.
+            let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            if real_dir && !is_pid_part_name(&entry.file_name().to_string_lossy(), None) {
+                stack.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    out
+}
+
 /// Removes every in-progress file/directory process `pid` left in `dir`
 /// (the server's sweep after it killed that step). Returns each removal.
 pub fn sweep_pid_parts(dir: &Path, pid: u32) -> Vec<(PathBuf, Result<(), String>)> {
@@ -5915,6 +5965,65 @@ mod tests {
             sweep_stale_parts_with(&dir, &dead, STALE_TEMP_AGE_SECS).is_empty(),
             "own part never swept"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Merge review L1: artifacts/extracted keeps the image's folder tree,
+    /// so a killed extraction's `.part` sits in a subfolder. The recursive
+    /// sweeps (kill sweep: that pid; stale sweep: same pid / age rules)
+    /// reach it; links / junctions are never followed.
+    #[test]
+    fn recursive_sweeps_reach_parts_in_subfolders() {
+        let dir = joined_case("l1-recursive");
+        let extracted = dir.join("artifacts/extracted");
+        let deep = extracted.join("DCIM/100");
+        std::fs::create_dir_all(&deep).unwrap();
+        let killed = pid_part_path(&deep.join("a.mp4"), 4242);
+        let other = pid_part_path(&deep.join("b.mp4"), 7);
+        let done = deep.join("c.mp4");
+        std::fs::write(&killed, b"torn").unwrap();
+        std::fs::write(&other, b"live?").unwrap();
+        std::fs::write(&done, b"done").unwrap();
+        // The flat sweep never saw it.
+        assert!(sweep_pid_parts(&extracted, 4242).is_empty());
+        let removed = sweep_pid_parts_recursive(&extracted, 4242);
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert!(!killed.exists() && other.exists() && done.exists());
+        // Stale: fresh parts stay; an old dead writer's goes; own never.
+        let dead = |_: u32| crate::util::ProcessProbe::Gone;
+        assert!(
+            sweep_stale_parts_recursive_with(&extracted, &dead, STALE_TEMP_AGE_SECS).is_empty()
+        );
+        age(&other);
+        let own = pid_part_path(&deep.join("d.mp4"), std::process::id());
+        std::fs::write(&own, b"mine").unwrap();
+        age(&own);
+        let removed = sweep_stale_parts_recursive_with(&extracted, &dead, STALE_TEMP_AGE_SECS);
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert!(!other.exists() && own.exists() && done.exists());
+        // A junction / link inside the tree is not followed.
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let foreign = pid_part_path(&outside.join("e.mp4"), 4242);
+        std::fs::write(&foreign, b"not ours").unwrap();
+        let link = extracted.join("link");
+        #[cfg(windows)]
+        let linked = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .is_ok_and(|out| out.status.success());
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&outside, &link).is_ok();
+        if linked {
+            assert!(sweep_pid_parts_recursive(&extracted, 4242).is_empty());
+            assert!(foreign.exists(), "swept through a link");
+            #[cfg(windows)]
+            std::fs::remove_dir(&link).unwrap();
+            #[cfg(unix)]
+            std::fs::remove_file(&link).unwrap();
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
