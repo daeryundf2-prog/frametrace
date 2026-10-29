@@ -44,7 +44,6 @@ function setInputsDisabled(disabled) {
   document.querySelectorAll("#blkEvidence input, #blkEvidence select, #blkEvidence button, #blkRecent button").forEach(el => {
     el.disabled = disabled || (el.dataset && el.dataset.envOff === "1");
   });
-  if (!disabled && $("directE01").checked) $("skipE01Verify").disabled = true;
 }
 function setEnvOff(el, off) {
   if (!el) return;

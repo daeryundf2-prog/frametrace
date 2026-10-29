@@ -23,7 +23,10 @@ pub(super) struct StreamOutcome {
     pub(super) last_line: String,
 }
 
-pub(super) fn run_streaming(command: &mut Command, report: Reporter<'_>) -> Result<StreamOutcome, String> {
+pub(super) fn run_streaming(
+    command: &mut Command,
+    report: Reporter<'_>,
+) -> Result<StreamOutcome, String> {
     let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -56,7 +59,10 @@ fn wait_reporting(
     last_line: &mut String,
 ) -> Result<ExitStatus, String> {
     loop {
-        if let Some(status) = child.try_wait().map_err(|err| format!("프로세스 대기 실패: {err}"))? {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|err| format!("프로세스 대기 실패: {err}"))?
+        {
             return Ok(status);
         }
         match rx.recv_timeout(POLL) {
@@ -112,7 +118,11 @@ mod tests {
         // When: it is streamed
         let outcome = run_streaming(&mut command, &|line| seen.lock().unwrap().push(line)).unwrap();
         // Then: completion follows the child's exit, not pipe EOF
-        assert!(started.elapsed() < Duration::from_secs(15), "hung for {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "hung for {:?}",
+            started.elapsed()
+        );
         assert!(outcome.status.success());
         assert!(seen.lock().unwrap().iter().any(|l| l == "built"));
     }

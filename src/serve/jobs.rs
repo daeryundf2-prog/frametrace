@@ -114,14 +114,27 @@ pub(crate) fn api_start(request: &Request, state: &SharedState) -> String {
     );
     record_recent_case(&case_dir, Some(source_path.as_path()));
     let worker_state = Arc::clone(state);
+    let image_case =
+        matches!(input_kind, InputKind::E01 | InputKind::E01Direct).then(|| case_dir.clone());
+    // Direct triage reads the E01 in place, so its hash check (ewfverify,
+    // done by import-e01 in the export pipeline) follows in the background.
+    let verify_e01 =
+        (input_kind == InputKind::E01Direct && !skip_e01_verify).then(|| source_path.clone());
     let spawned = thread::Builder::new()
         .name("ft-pipeline".into())
         .spawn(move || {
-            // Held for the whole run: the pipeline clears `busy` itself in
-            // its final state update; if it unwinds instead, dropping the
-            // lease frees `busy` and records the failure.
-            let _lease = lease;
-            run_pipeline(worker_state, job);
+            {
+                // Held for the whole run: the pipeline clears `busy` itself
+                // in its final state update; if it unwinds instead, dropping
+                // the lease frees `busy` and records the failure.
+                let _lease = lease;
+                run_pipeline(Arc::clone(&worker_state), job);
+            }
+            // The deleted-video scan follows once the pipeline's lease is
+            // gone (it takes `busy` for itself).
+            if let Some(case_dir) = image_case {
+                start_deleted_scan_after_review(&worker_state, &case_dir, verify_e01.as_deref());
+            }
         });
     if spawned.is_err() {
         // The closure (and with it the lease) was dropped: `busy` is free.
@@ -587,52 +600,40 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
     let case_text = job.case_dir.to_string_lossy().to_string();
     set_step(&state, 3, StepStatus::Running);
 
-    // E01 filesystem triage: extract allocated videos preserving folder hierarchy
-    if let Some((image_path, partition_offset)) = crate::serve::records::newest_tsk_inspection(&job.case_dir) {
+    // E01 filesystem triage: the live videos are indexed straight from the
+    // fls listing — nothing is extracted up front. The examiner reviews at
+    // once; a clip is read out of the image when it is played or exported
+    // (crate::lazy_extract), so only what is looked at or selected is read.
+    let listed = crate::serve::records::newest_tsk_inspection(&job.case_dir).is_some();
+    let index_args: Vec<String> = if listed {
         log(
             &state,
-            format!(
-                "정상 영상 추출 중 (기존 폴더 구조 유지: artifacts/extracted @ offset {partition_offset})…"
-            ),
+            "정상 영상 목록 색인 중 (일괄 추출 없음 — 영상은 재생·내보내기할 때 이미지에서 읽습니다)…"
+                .into(),
         );
-        let extract_args = vec![
-            "recover-batch".into(),
-            case_text.clone(),
-            image_path.to_string_lossy().to_string(),
-            "--allocated-videos".into(),
-            "--partition-offset".into(),
-            partition_offset.to_string(),
-        ];
-        match run_step(&exe, &extract_args, &state) {
-            Ok(output) => log(&state, output),
-            Err(err) => log(&state, format!("정상 영상 자동 추출 건너뜀: {err}")),
-        }
-    }
-
-    let extracted_dir = job.case_dir.join("artifacts/extracted");
-    let scan_target = if extracted_dir.is_dir() {
-        extracted_dir.to_string_lossy().to_string()
+        vec!["index-image-files".into(), case_text.clone()]
     } else {
-        job.case_dir.join("evidence").to_string_lossy().to_string()
+        let mut args: Vec<String> = vec![
+            "scan-folder".into(),
+            case_text.clone(),
+            job.case_dir.join("evidence").to_string_lossy().to_string(),
+            "--no-ffprobe".into(),
+        ];
+        if job.with_hash {
+            args.push("--hash".into());
+        }
+        if job.with_deepfake {
+            args.push("--deepfake".into());
+        }
+        args
     };
-
-    let mut scan_args: Vec<String> = vec![
-        "scan-folder".into(),
-        case_text.clone(),
-        scan_target,
-        "--no-ffprobe".into(),
-    ];
-    if job.with_hash {
-        scan_args.push("--hash".into());
-    }
-    if job.with_deepfake {
-        scan_args.push("--deepfake".into());
-    }
-    match run_step(&exe, &scan_args, &state) {
+    match run_step(&exe, &index_args, &state) {
         Ok(output) => {
             log(&state, output);
             set_step(&state, 3, StepStatus::Done);
-            if job.with_deepfake {
+            if job.with_deepfake && listed {
+                warn_step(&state, 3, "딥페이크 스크리닝은 실행되지 않았습니다 — 정상 영상은 아직 이미지에서 읽지 않았습니다. 필요한 영상을 고른 뒤 고급 도구의 '딥페이크 스크리닝'으로 실행하십시오.".into());
+            } else if job.with_deepfake {
                 log(&state, "딥페이크 스크리닝은 색인된 파일에 적용되었습니다 — 이후 카빙/inode 복구로 추가된 파일은 고급 도구의 '딥페이크 스크리닝'으로 보강하십시오.".into());
             }
         }
@@ -661,7 +662,7 @@ pub(crate) fn run_e01_pipeline_tail(state: SharedState, job: PipelineJob, exe: &
             guard.busy = false;
             guard.byte_progress = None;
             guard.logs.push(
-                "검토 화면이 준비되었습니다. 삭제 영상 후보는 '삭제 영상 후보 복구' 버튼으로, 카빙·개별 inode 복구는 CLI(carve-file/recover-inode)로 수행한 뒤 재검토하십시오.".into(),
+                "검토 화면이 준비되었습니다. 정상 영상은 재생할 때 이미지에서 읽고, 필요한 영상만 골라 '선택 영상 추출'로 꺼냅니다. 삭제 영상 찾기가 이어서 자동으로 실행됩니다.".into(),
             );
         }
         Err(err) => {
@@ -4076,9 +4077,11 @@ pub(crate) fn verify_sources_with_exe(state: &SharedState, exe: &Path) -> String
     }
 }
 
-/// `POST /api/recover-deleted`: run recover-batch --deleted-videos on the
-/// image from the latest filesystem inspection, then regenerate the
-/// review bundle so the recovered items appear in the viewer.
+/// `POST /api/recover-deleted`: find the deleted videos of the image from
+/// the latest filesystem inspection (`scan-deleted`: graded deleted entries
+/// plus unallocated-space carving, nothing read out), then regenerate the
+/// review bundle so the candidates appear in the viewer. Each one is read
+/// out of the image when the examiner plays or exports it.
 ///
 /// UX-06: runs as a background job. The response is immediate —
 /// `{ok:true, job:{kind, started_unix}}` — and progress, cancel and the
@@ -4093,6 +4096,17 @@ pub(crate) fn api_recover_deleted(state: &SharedState) -> String {
 /// [`api_recover_deleted`] parameterised on the CLI executable (tests run
 /// a fake step binary).
 pub(crate) fn recover_deleted_with_exe(state: &SharedState, exe: &Path) -> String {
+    recover_deleted_then_verify(state, exe, None)
+}
+
+/// [`recover_deleted_with_exe`]; with `verify_e01`, the E01 analysed in
+/// place is hash-verified (ewfverify) after the scan, inside the same job —
+/// the review is open meanwhile instead of waiting for a full-image read.
+pub(crate) fn recover_deleted_then_verify(
+    state: &SharedState,
+    exe: &Path,
+    verify_e01: Option<&Path>,
+) -> String {
     let case_dir = state_lock(state).case_dir.clone();
     let Some(case_dir) = case_dir else {
         return "{\"ok\":false,\"error\":\"먼저 INPUT 분석을 실행하십시오.\"}".to_string();
@@ -4102,29 +4116,62 @@ pub(crate) fn recover_deleted_with_exe(state: &SharedState, exe: &Path) -> Strin
             .to_string();
     };
     let case_text = case_dir.to_string_lossy().to_string();
-    let args = vec![
-        "recover-batch".into(),
-        case_text,
-        image_path.to_string_lossy().to_string(),
-        "--deleted-videos".into(),
-        "--partition-offset".into(),
-        partition_offset.to_string(),
-    ];
+    let args = vec!["scan-deleted".into(), case_text.clone()];
+    let then = verify_e01.map(|e01| CaseJobStep {
+        label: "E01 해시 검증",
+        args: vec![
+            "verify-e01".into(),
+            case_text,
+            e01.to_string_lossy().to_string(),
+        ],
+        start_log: "E01 해시 검증 중(ewfverify) — 이미지 전체를 읽어 수집 당시 해시와 비교합니다. 그동안 뷰어를 계속 쓸 수 있습니다.",
+        failed_warning: "E01 해시 검증 실패 — 이미지가 수집 당시와 다를 수 있습니다. 검증 로그(evidence/logs/e01-verify-*.txt)를 확인하십시오",
+    });
     start_case_job(
         state,
         exe,
         CaseJobSpec {
             kind: "recover-deleted",
-            stage_label: "삭제 영상 후보 복구",
+            stage_label: "삭제 영상 찾기",
             case_dir,
             main_args: args,
             start_log: format!(
-                "삭제 영상 후보 복구 중… ({} @ 오프셋 {partition_offset})",
+                "삭제 영상 찾는 중… 삭제 엔트리 확인 + 빈 영역 스캔 ({} @ 오프셋 {partition_offset}) — 그동안 뷰어를 계속 쓸 수 있습니다",
                 image_path.display()
             ),
-            done_log: "복구 완료 — 뷰어를 새로 열면 복구된 항목이 보입니다.",
+            done_log: "삭제 영상 찾기 완료 — 뷰어를 새로 고치면 삭제 영상 후보가 보입니다. 재생하면 그 영상만 이미지에서 읽습니다.",
+            then,
         },
     )
+}
+
+/// After an E01/image analysis reached the review: start the deleted-video
+/// scan in the background, so deleted candidates join the review while the
+/// examiner already works on the live videos. A refusal (another job holds
+/// the case) is logged; the examiner can start it from the jobs menu.
+pub(crate) fn start_deleted_scan_after_review(
+    state: &SharedState,
+    case_dir: &Path,
+    verify_e01: Option<&Path>,
+) {
+    {
+        let guard = state_lock(state);
+        if guard.phase != "review-ready" || guard.case_dir.as_deref() != Some(case_dir) {
+            return;
+        }
+    }
+    if newest_tsk_inspection(case_dir).is_none() {
+        return;
+    }
+    let response = match std::env::current_exe() {
+        Ok(exe) => recover_deleted_then_verify(state, &exe, verify_e01),
+        Err(err) => api_err(&err.to_string()),
+    };
+    if !response.contains("\"ok\":true") {
+        state_lock(state).logs.push(format!(
+            "삭제 영상 찾기를 자동으로 시작하지 못했습니다 — 작업 메뉴의 '삭제 영상 찾기'로 다시 시도하십시오: {response}"
+        ));
+    }
 }
 
 /// `POST /api/carve`: run bounded signature carving over the case's
@@ -4182,6 +4229,7 @@ pub(crate) fn carve_with_exe(request: &Request, state: &SharedState, exe: &Path)
             main_args: args,
             start_log: format!("시그니처 카빙 실행 중… ({})", raw.display()),
             done_log: "카빙 완료 — 뷰어를 새로 열면 카빙 후보가 보입니다.",
+            then: None,
         },
     )
 }
@@ -4230,11 +4278,13 @@ pub(crate) fn audio_measure_with_exe(request: &Request, state: &SharedState, exe
                 "소리 측정 중… (미측정 항목)".to_string()
             },
             done_log: "소리 측정 완료 — 뷰어를 새로 열면 측정 결과가 보입니다.",
+            then: None,
         },
     )
 }
 
-/// What a background case job runs: one main CLI step, then make-review.
+/// What a background case job runs: one main CLI step, an optional
+/// follow-up step, then make-review.
 pub(crate) struct CaseJobSpec {
     pub(crate) kind: &'static str,
     pub(crate) stage_label: &'static str,
@@ -4242,6 +4292,17 @@ pub(crate) struct CaseJobSpec {
     pub(crate) main_args: Vec<String>,
     pub(crate) start_log: String,
     pub(crate) done_log: &'static str,
+    pub(crate) then: Option<CaseJobStep>,
+}
+
+/// A follow-up step of a case job. Its failure does not undo the main
+/// step's result: it is reported as a warning (never silently) and the
+/// review is still regenerated.
+pub(crate) struct CaseJobStep {
+    pub(crate) label: &'static str,
+    pub(crate) args: Vec<String>,
+    pub(crate) start_log: &'static str,
+    pub(crate) failed_warning: &'static str,
 }
 
 /// Takes the busy lease, publishes the job in [`JobState::case_job`] and
@@ -4283,7 +4344,7 @@ pub(crate) fn start_case_job(state: &SharedState, exe: &Path, spec: CaseJobSpec)
             started_unix,
             finished_unix: None,
             stage: 1,
-            stages: 2,
+            stages: if spec.then.is_some() { 3 } else { 2 },
             stage_label: spec.stage_label,
             state: "running",
             error: None,
@@ -4361,12 +4422,32 @@ fn run_case_job(
     if cancelled() {
         return end_with(lease, CaseJobEnd::Cancelled);
     }
+    if let Some(step) = &spec.then {
+        {
+            let mut guard = state_lock(state);
+            if let Some(job) = guard.case_job.as_mut() {
+                job.stage = 2;
+                job.stage_label = step.label;
+            }
+            guard.logs.push(step.start_log.to_string());
+        }
+        match run_step(exe, &step.args, state) {
+            Ok(output) => state_lock(state).logs.push(output),
+            Err(_) if cancelled() => return end_with(lease, CaseJobEnd::Cancelled),
+            Err(err) => {
+                let message = format!("{}: {err}", step.failed_warning);
+                let mut guard = state_lock(state);
+                guard.logs.push(format!("경고: {message}"));
+                guard.warnings.push((4, message));
+            }
+        }
+    }
     let mut seen_epoch = {
         let _gate = marks_gate();
         let drained = drain_pending_marks(state, &spec.case_dir);
         let mut guard = state_lock(state);
         if let Some(job) = guard.case_job.as_mut() {
-            job.stage = 2;
+            job.stage = job.stages;
             job.stage_label = "리뷰 생성";
         }
         if let Err(err) = drained {

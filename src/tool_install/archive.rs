@@ -62,7 +62,10 @@ fn download(url: &str, dest: &Path, report: Reporter<'_>) -> Result<(), String> 
             break status;
         }
         let bytes = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
-        report(format!("다운로드 중 · {:.1} MB", bytes as f64 / 1_048_576.0));
+        report(format!(
+            "다운로드 중 · {:.1} MB",
+            bytes as f64 / 1_048_576.0
+        ));
         std::thread::sleep(Duration::from_millis(500));
     };
     if status.success() {
@@ -78,8 +81,8 @@ fn download(url: &str, dest: &Path, report: Reporter<'_>) -> Result<(), String> 
 
 pub(super) fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
     let file = File::open(path).map_err(|err| format!("다운로드 파일을 열 수 없습니다: {err}"))?;
-    let actual = crate::sha256::digest_reader(file)
-        .map_err(|err| format!("SHA-256 계산 실패: {err}"))?;
+    let actual =
+        crate::sha256::digest_reader(file).map_err(|err| format!("SHA-256 계산 실패: {err}"))?;
     if actual == expected {
         Ok(())
     } else {

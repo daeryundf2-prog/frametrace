@@ -292,7 +292,14 @@ pub(crate) fn cached_index(
     case_dir: &Path,
 ) -> Result<Arc<serde_json::Value>, &'static str> {
     let index_path = case_dir.join("db/video_index.json");
-    let meta = index_path.metadata().map_err(|_| "no case index yet")?;
+    let meta = index_path
+        .metadata()
+        .or_else(|_| {
+            // Same swap window as the read below.
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            index_path.metadata()
+        })
+        .map_err(|_| "no case index yet")?;
     let mtime = meta.modified().unwrap_or(UNIX_EPOCH);
     let len = meta.len();
     if let Some(cache) = &state_lock(state).index_cache
@@ -302,7 +309,18 @@ pub(crate) fn cached_index(
     {
         return Ok(Arc::clone(&cache.value));
     }
-    let text = crate::util::read_to_string(&index_path).map_err(|_| "no case index yet")?;
+    // The file exists: a failed read is the moment another process swaps
+    // it (Windows refuses opens during the replace) — read again shortly
+    // instead of telling the viewer there is no index.
+    let mut read = crate::util::read_to_string(&index_path);
+    for _ in 0..4 {
+        if read.is_ok() || !index_path.is_file() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        read = crate::util::read_to_string(&index_path);
+    }
+    let text = read.map_err(|_| "no case index yet")?;
     let value = Arc::new(
         serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|_| "case index is not valid JSON")?,
@@ -643,6 +661,19 @@ pub(crate) fn api_records_meta(state: &SharedState) -> String {
         })
         .map(read_jsonl)
         .unwrap_or(serde_json::Value::Array(Vec::new()));
+    // The deleted-video triage rows ride in the same array (kind
+    // "recovery-candidate"), exactly as the bundle carries them.
+    let fls_entries = match fls_entries {
+        serde_json::Value::Array(mut rows) => {
+            rows.extend(
+                crate::recovery_scan::latest_candidates_jsonl(&case_dir)
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok()),
+            );
+            serde_json::Value::Array(rows)
+        }
+        other => other,
+    };
     // Same thumb mapping the bundle generator emits: review/thumbs/<id>.jpg
     // relative to the served viewer page.
     let mut thumbs = serde_json::Map::new();

@@ -161,6 +161,9 @@ function setInputKind(kind) {
 function syncInputKindView() {
   const e01 = inputKind() === "e01";
   $("verifyRow").style.display = e01 ? "flex" : "none";
+  // Per-file hashing/ffprobe presets apply to folder scans only: an E01's
+  // files are indexed from the listing and read when played or extracted.
+  $("folderOpts").hidden = e01;
   syncE01Need();
   updateModeInfo();
 }
@@ -175,9 +178,4 @@ function syncE01Need() {
   el.hidden = !(envState && !envState.e01 && detectedKind === "e01");
 }
 
-function syncDirectE01() {
-  const direct = $("directE01").checked;
-  $("skipE01Verify").disabled = direct;
-  if (direct) $("skipE01Verify").checked = false;
-}
 

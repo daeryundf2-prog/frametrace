@@ -193,7 +193,17 @@ fn latest_fls_entries_jsonl(case_dir: &Path) -> String {
     let Some(path) = best else {
         return String::new();
     };
-    read_to_string(&path).unwrap_or_default()
+    let mut text = read_to_string(&path).unwrap_or_default();
+    // The deleted-video triage rows ride along (kind "recovery-candidate");
+    // the viewer splits them out.
+    let candidates = crate::recovery_scan::latest_candidates_jsonl(case_dir);
+    if !candidates.is_empty() {
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&candidates);
+    }
+    text
 }
 /// Batch-recovers viewer-selected deleted inodes (kind "candidate") from a
 /// raw image. Each recovery appends its own tsk-audit entry; the batch outcome
@@ -258,49 +268,6 @@ pub(crate) fn deleted_video_selectors(
     Ok(items)
 }
 
-/// Allocated (live) video-candidate selectors from an inspect-image entries file —
-/// the auto-target list for extracting active videos while preserving directory hierarchy.
-pub(crate) fn allocated_video_selectors(
-    entries_jsonl: &Path,
-) -> Result<Vec<crate::selection::SelectionItem>, String> {
-    let text = fs::read_to_string(entries_jsonl)
-        .map_err(|err| format!("failed to read {}: {err}", entries_jsonl.display()))?;
-    let mut items = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for (line_no, line) in text.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|err| {
-            format!(
-                "invalid entries line {}:{}: {err}",
-                entries_jsonl.display(),
-                line_no + 1
-            )
-        })?;
-        let deleted = value.get("deleted").and_then(|v| v.as_bool()) == Some(true);
-        let video = value.get("video_candidate").and_then(|v| v.as_bool()) == Some(true);
-        let Some(inode) = value.get("inode").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        if !deleted && video && !inode.is_empty() && seen.insert(inode.to_string()) {
-            items.push(crate::selection::SelectionItem {
-                selector: inode.to_string(),
-                kind: Some("filesystem".to_string()),
-                action: Some("extract".to_string()),
-                format: None,
-                time_seconds: None,
-                notes: value
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-            });
-        }
-    }
-    Ok(items)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -319,7 +286,8 @@ pub(crate) use doctor::{
     rotate_audit_key, verify_audit,
 };
 pub(crate) use forensic::{
-    carve_file, import_e01, inspect_e01, inspect_image, recover_batch, recover_inode,
+    carve_file, import_e01, index_image_files, inspect_e01, inspect_image, recover_batch,
+    recover_inode, repair_video, scan_deleted, verify_e01,
 };
 pub(crate) use join_audio::{JoinVideoArgs, join_video, measure_audio, split_ids};
 pub(crate) use media::{

@@ -275,6 +275,81 @@ pub fn scan_folder(
     Ok(result)
 }
 
+/// One file known from a filesystem listing; it need not exist on disk yet.
+pub struct ListedVideo {
+    pub path: PathBuf,
+    pub relative_path: String,
+    pub size_bytes: u64,
+}
+
+/// Indexes files known from a filesystem listing — the live videos of an
+/// image, read out of it only when needed ([`crate::lazy_extract`]). Same
+/// outputs and id rules as [`scan_folder`], but no file is opened, hashed
+/// or probed. A file already read out keeps its indexed record (hash,
+/// probe) while its size still matches the listing.
+pub fn index_listed_videos(
+    case_dir: &Path,
+    source_dir: &Path,
+    listed: &[ListedVideo],
+) -> Result<ScanResult, String> {
+    let mut id_registry = load_existing_video_ids(case_dir)?;
+    let existing: HashMap<String, VideoRecord> = load_existing_record_lines(case_dir)?
+        .into_iter()
+        .map(|line| (line.key(), line.record))
+        .collect();
+    let mut records = Vec::with_capacity(listed.len());
+    let mut total_bytes = 0u64;
+    for file in listed {
+        total_bytes = total_bytes.saturating_add(file.size_bytes);
+        if let Some(record) = existing.get(&source_key(&file.path))
+            && record.size_bytes == file.size_bytes
+            && file.path.is_file()
+        {
+            records.push(record.clone());
+            continue;
+        }
+        let extension = file
+            .path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let probe = ProbeSummary::skipped();
+        let confidence = classify_confidence(&extension, &probe);
+        let source_profile = detector::detect_source_profile(&file.relative_path, &extension, None);
+        records.push(VideoRecord {
+            id: id_registry.id_for(&file.path),
+            source_path: file.path.clone(),
+            relative_path: file.relative_path.clone(),
+            extension,
+            size_bytes: file.size_bytes,
+            modified_unix: None,
+            sha256: None,
+            hash_status: "skipped".to_string(),
+            probe,
+            confidence,
+            source_profile,
+        });
+    }
+    let result = ScanResult {
+        source_path: source_dir.to_path_buf(),
+        scanned_unix: now_unix()?,
+        video_count: records.len(),
+        total_bytes,
+        unchanged_files: 0,
+        resumed_from_checkpoint: 0,
+        warnings: Vec::new(),
+        options: ScanOptions {
+            hash_files: false,
+            use_ffprobe: false,
+            ..ScanOptions::default()
+        },
+        records,
+    };
+    write_scan_outputs(case_dir, &result)?;
+    Ok(result)
+}
+
 fn write_scan_outputs(case_dir: &Path, result: &ScanResult) -> Result<(), String> {
     let run_path = case_dir
         .join("db/scan_runs")

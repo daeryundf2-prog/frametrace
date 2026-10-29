@@ -498,10 +498,11 @@ pub fn make_review(case_dir: &Path, redact_paths: bool, build_proxies: bool) -> 
         evidence_viewer_path.display()
     );
     println!(
-        "thumbnails: {} created, {} cached, {} unavailable{}",
+        "thumbnails: {} created, {} cached, {} unavailable, {} not read from the image yet{}",
         thumb_stats.created,
         thumb_stats.cached,
         thumb_stats.skipped,
+        thumb_stats.not_read,
         if thumb_stats.ffmpeg_missing {
             " (ffmpeg not found; rerun with ffmpeg in PATH)"
         } else {
@@ -1745,6 +1746,8 @@ struct ThumbnailStats {
     created: usize,
     cached: usize,
     skipped: usize,
+    /// Sources not on disk yet (listed, read from the image on demand).
+    not_read: usize,
     ffmpeg_missing: bool,
 }
 
@@ -1781,6 +1784,11 @@ fn generate_review_thumbnails(
         let output = thumbs_dir.join(format!("{id}.jpg"));
         if thumbnail_is_fresh(Path::new(source), &output) {
             cached_ids.push(id.clone());
+        } else if !Path::new(source).is_file() {
+            // A live video indexed from an image listing and not read out
+            // yet (crate::lazy_extract): reading every clip just for a
+            // thumbnail is the bulk extraction the review avoids.
+            stats.not_read += 1;
         } else {
             pending.push((id, source));
         }

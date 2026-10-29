@@ -8,7 +8,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use wait_timeout::ChildExt;
 
-const DEFAULT_MAX_ENTRIES: usize = 20_000;
+/// Listing cap (entries kept from one fls walk). It must never bite on a
+/// real card: a dashcam SD card holds thousands of 1-minute clips per
+/// channel plus deleted directory entries, and the cut drops whole folders
+/// (fls walks depth-first), so live videos vanish from the review. The
+/// cap only bounds the entries file — fls output is parsed in full anyway.
+pub const DEFAULT_MAX_ENTRIES: usize = 5_000_000;
 const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "mov", "m4v", "avi", "mkv", "wmv", "asf", "mpg", "mpeg", "mts", "m2ts", "ts", "3gp",
     "webm", "flv", "dav", "dav_", "nov", "ave", "g64", "g64x", "glv", "blk", "264", "265", "h264",
@@ -91,18 +96,22 @@ pub struct FlsEntry {
     pub path: Option<String>,
     pub deleted: bool,
     pub video_candidate: bool,
+    /// Size from the `fls -l` columns (`None` for a plain listing line).
+    pub size_bytes: Option<u64>,
 }
 
 impl FlsEntry {
     fn to_json(&self) -> String {
         format!(
-            "{{\"raw_line\":\"{}\",\"file_type\":{},\"inode\":{},\"path\":{},\"deleted\":{},\"video_candidate\":{}}}",
+            "{{\"raw_line\":\"{}\",\"file_type\":{},\"inode\":{},\"path\":{},\"deleted\":{},\"video_candidate\":{},\"size_bytes\":{}}}",
             json_escape(&self.raw_line),
             audit::optional_string(self.file_type.as_deref()),
             audit::optional_string(self.inode.as_deref()),
             audit::optional_string(self.path.as_deref()),
             self.deleted,
-            self.video_candidate
+            self.video_candidate,
+            self.size_bytes
+                .map_or_else(|| "null".to_string(), |size| size.to_string())
         )
     }
 }
@@ -410,12 +419,52 @@ pub fn inspect_image(
     })
 }
 
+/// What a batch of recoveries from one image resolves once instead of per
+/// inode: the canonical image path, the icat binary and its version (the
+/// version probe is a process launch of its own).
+pub struct RecoverContext {
+    image_path: PathBuf,
+    icat_bin: String,
+    icat_version: String,
+}
+
+impl RecoverContext {
+    pub fn new(image_path: &Path, icat_bin: &str) -> Result<Self, String> {
+        let image_path = canonical_image_path(image_path)?;
+        let resolved = resolve_tool_binary(icat_bin, &["icat"])
+            .map_err(|err| format!("{err} (install Sleuth Kit and ensure icat is in PATH)"))?;
+        Ok(Self {
+            image_path,
+            icat_bin: resolved,
+            icat_version: tsk_command_version(icat_bin, &["icat"]),
+        })
+    }
+
+    pub fn image_path(&self) -> &Path {
+        &self.image_path
+    }
+}
+
 pub fn recover_inode(
     case_dir: &Path,
     image_path: &Path,
     options: &TskRecoverOptions,
 ) -> Result<TskRecoverResult, String> {
-    let image_path = canonical_image_path(image_path)?;
+    let context = RecoverContext::new(image_path, &options.icat_bin)?;
+    recover_inode_in(case_dir, &context, options, true)
+}
+
+/// [`recover_inode`] with the per-image work already done. `sweep_parts`
+/// clears dead writers' `.part` files from the output folder first; a batch
+/// sweeps each folder once up front instead (listing a folder of thousands
+/// of clips per inode made the batch quadratic).
+pub fn recover_inode_in(
+    case_dir: &Path,
+    context: &RecoverContext,
+    options: &TskRecoverOptions,
+    sweep_parts: bool,
+) -> Result<TskRecoverResult, String> {
+    let image_path = context.image_path.clone();
     if options.inode.trim().is_empty() {
         return Err("inode must not be empty".to_string());
     }
@@ -439,16 +488,12 @@ pub fn recover_inode(
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)
             .map_err(|err| format!("failed to create recovery output directory: {err}"))?;
-        for (path, result) in crate::join::sweep_stale_parts(parent) {
-            if let Err(err) = result {
-                eprintln!("warning: {err} ({})", path.display());
-            }
+        if sweep_parts {
+            sweep_dead_parts(parent);
         }
     }
 
     let args = icat_args(&image_path, options);
-    let icat_bin = resolve_tool_binary(&options.icat_bin, &["icat"])
-        .map_err(|err| format!("{err} (install Sleuth Kit and ensure icat is in PATH)"))?;
     // C2: icat streams into a pid-tagged `.part`; only a complete recovery
     // is published under the final name (a killed recovery leaves just the
     // `.part`, which the server sweeps).
@@ -461,10 +506,10 @@ pub fn recover_inode(
         .map_err(|err| format!("failed to create {}: {err}", part_path.display()))?;
     let final_path = output_path;
     let output_path = part_path.clone();
-    let mut command = Command::new(&icat_bin);
+    let mut command = Command::new(&context.icat_bin);
     command
         .args(&args)
-        .stdout(Stdio::from(output))
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = crate::util::hide_console(&mut command)
         .spawn()
@@ -475,8 +520,12 @@ pub fn recover_inode(
         let _ = std::io::Read::read_to_end(&mut stderr_pipe, &mut buffer);
         buffer
     });
-    // icat writes the recovered bytes straight to disk; a timeout must never
-    // leave that partial file looking like a successful recovery.
+    // One pass: the bytes are hashed and zero-checked while they are
+    // written (the old flow re-read every recovered file twice afterwards).
+    let stdout_pipe = child.stdout.take().expect("piped icat stdout");
+    let copier = std::thread::spawn(move || copy_hashing(stdout_pipe, output));
+    // A timeout must never leave the partial file looking like a
+    // successful recovery.
     let status = match options.timeout_secs {
         Some(secs) => match child
             .wait_timeout(std::time::Duration::from_secs(secs))
@@ -486,6 +535,7 @@ pub fn recover_inode(
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = copier.join();
                 let _ = fs::remove_file(&output_path);
                 return Err(format!(
                     "icat did not finish within {secs}s and was terminated (retry with a larger --timeout)"
@@ -496,6 +546,10 @@ pub fn recover_inode(
             .wait()
             .map_err(|err| format!("failed to wait for icat: {err}"))?,
     };
+    // icat has no children, so its stdout closes when it exits.
+    let copied = copier
+        .join()
+        .unwrap_or_else(|_| Err(std::io::Error::other("copy thread panicked")));
     // C10: bounded — a grandchild holding the pipe must not hang us.
     let stderr_bytes =
         crate::join::join_reader_bounded(stderr_reader, crate::join::READER_JOIN_CAP)
@@ -509,6 +563,16 @@ pub fn recover_inode(
             String::from_utf8_lossy(&stderr_bytes).trim()
         ));
     }
+    let copied = match copied {
+        Ok(copied) => copied,
+        Err(err) => {
+            let _ = fs::remove_file(&output_path);
+            return Err(format!(
+                "failed to write recovered output {}: {err}",
+                output_path.display()
+            ));
+        }
+    };
     let explicit_output = options.output_path.is_some();
     let mut target = final_path;
     let mut published = false;
@@ -543,13 +607,22 @@ pub fn recover_inode(
     let size_bytes = fs::metadata(&output_path)
         .map_err(|err| format!("failed to read recovered output metadata: {err}"))?
         .len();
-    let sha256 = audit::digest_file(&output_path)?;
+    // The digest describes the bytes streamed; the published file must
+    // hold exactly those bytes.
+    if size_bytes != copied.bytes {
+        return Err(format!(
+            "recovered output {} holds {size_bytes} bytes but {} were written",
+            output_path.display(),
+            copied.bytes
+        ));
+    }
+    let sha256 = copied.sha256;
     let validation_status = "candidate-unvalidated".to_string();
     let mut warnings = Vec::new();
     // An all-zero recovery means the clusters are unallocated or were
     // TRIMmed — routine on SSD images — and must not be reported as
     // recovered content.
-    if size_bytes > 0 && file_is_all_zero(&output_path)? {
+    if size_bytes > 0 && copied.all_zero {
         warnings.push(
             "recovered content is entirely zero bytes — the clusters are likely unallocated or TRIMmed (common on SSD images); do not report this as recovered content".to_string(),
         );
@@ -570,7 +643,7 @@ pub fn recover_inode(
             options.recover_deleted,
             options.include_slack,
             options.skip_sparse_holes,
-            json_escape(&tsk_command_version(&options.icat_bin, &["icat"])),
+            json_escape(&context.icat_version),
             json_escape(&options.icat_bin),
             audit::json_string_array(&args),
             audit::json_string_array(&warnings)
@@ -590,24 +663,52 @@ pub fn recover_inode(
     })
 }
 
-/// Streams a file and reports whether every byte is zero — used to flag
-/// recoveries that are all unallocated slack.
-fn file_is_all_zero(path: &Path) -> Result<bool, String> {
-    use std::io::Read;
-    let mut file =
-        File::open(path).map_err(|err| format!("failed to read recovered output: {err}"))?;
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|err| format!("failed to read recovered output: {err}"))?;
-        if read == 0 {
-            return Ok(true);
-        }
-        if buffer[..read].iter().any(|byte| *byte != 0) {
-            return Ok(false);
+/// Removes `.part` files of dead writers from `dir` (C2), warning on
+/// failures.
+pub fn sweep_dead_parts(dir: &Path) {
+    for (path, result) in crate::join::sweep_stale_parts(dir) {
+        if let Err(err) = result {
+            eprintln!("warning: {err} ({})", path.display());
         }
     }
+}
+
+/// What [`copy_hashing`] saw on the way through.
+struct CopiedBytes {
+    bytes: u64,
+    sha256: String,
+    /// Every byte was zero — the recovery is unallocated slack / TRIMmed.
+    all_zero: bool,
+}
+
+/// Copies `reader` into `file` while hashing it and checking for an
+/// all-zero body, then flushes.
+fn copy_hashing(mut reader: impl std::io::Read, file: File) -> std::io::Result<CopiedBytes> {
+    use std::io::Write;
+    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    let mut hasher = crate::sha256::Sha256Stream::default();
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut bytes = 0u64;
+    let mut all_zero = true;
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        };
+        let chunk = &buffer[..read];
+        hasher.update(chunk);
+        all_zero = all_zero && chunk.iter().all(|byte| *byte == 0);
+        writer.write_all(chunk)?;
+        bytes += read as u64;
+    }
+    writer.flush()?;
+    Ok(CopiedBytes {
+        bytes,
+        sha256: hasher.finish(),
+        all_zero,
+    })
 }
 
 struct InspectSummaryInput<'a> {
@@ -652,11 +753,11 @@ fn inspect_summary_json(input: &InspectSummaryInput<'_>) -> String {
     )
 }
 
-fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
+pub(crate) fn append_tsk_audit(case_dir: &Path, body_json: &str) -> Result<(), String> {
     audit::append_chained_jsonl(&case_dir.join("evidence/logs/tsk-audit.jsonl"), body_json)
 }
 
-fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn canonical_image_path(path: &Path) -> Result<PathBuf, String> {
     // libewf-backed tools (mmls/fls/icat reading E01 directly) cannot open
     // relative or mixed-separator paths — canonicalize to an absolute,
     // separator-normalized, non-extended path before spawning them.
@@ -696,8 +797,8 @@ fn run_capture(
     }
     Ok(CommandOutput {
         status_success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stdout: crate::util::tool_output_text(&output.stdout),
+        stderr: crate::util::tool_output_text(&output.stderr),
     })
 }
 
@@ -800,8 +901,9 @@ fn drain_streaming(
         Ok(StreamedOutput {
             output: CommandOutput {
                 status_success: status.map(|s| s.success()).unwrap_or(false),
-                stdout: String::from_utf8_lossy(&stdout).to_string(),
-                stderr: String::from_utf8_lossy(&stderr).to_string(),
+                // fls prints names in the ANSI code page on Windows.
+                stdout: crate::util::tool_output_text(&stdout),
+                stderr: crate::util::tool_output_text(&stderr),
             },
             timed_out,
             lines_seen,
@@ -825,7 +927,7 @@ impl CommandOutput {
     }
 }
 
-fn tsk_command_version(binary: &str, allowed: &[&str]) -> String {
+pub(crate) fn tsk_command_version(binary: &str, allowed: &[&str]) -> String {
     command_version(binary, allowed, "-V")
 }
 
@@ -967,9 +1069,22 @@ fn parse_fls_entry(line: &str) -> Option<FlsEntry> {
         .rev()
         .find(|token| token.chars().any(|ch| ch.is_ascii_digit()))
         .map(|token| token.trim_matches('+').to_string());
-    let path = right.trim().to_string();
+    // `fls -l` appends tab-separated columns after the name: mtime, atime,
+    // ctime, crtime, size, uid, gid. Names cannot hold a tab on any
+    // filesystem fls reads, so the first column is the whole path.
+    let mut columns = right.trim().split('\t');
+    let path = columns.next().unwrap_or_default().trim().to_string();
+    let size_bytes = columns
+        .nth(4)
+        .and_then(|size| size.trim().parse::<u64>().ok());
     let deleted = tokens.contains(&"*") || path.contains("(deleted)");
-    let video_candidate = path_has_video_extension(&path);
+    // A directory or TSK virtual entry ($OrphanFiles, …) is never a video,
+    // whatever its name ends with — extracting one with icat fails.
+    let is_container = file_type.as_deref().is_some_and(|kind| {
+        kind.split('/')
+            .any(|part| part.eq_ignore_ascii_case("d") || part.eq_ignore_ascii_case("v"))
+    });
+    let video_candidate = !is_container && path_has_video_extension(&path);
 
     Some(FlsEntry {
         raw_line: raw.to_string(),
@@ -978,6 +1093,7 @@ fn parse_fls_entry(line: &str) -> Option<FlsEntry> {
         path: Some(path),
         deleted,
         video_candidate,
+        size_bytes,
     })
 }
 
@@ -999,6 +1115,9 @@ fn fls_args(image_path: &Path, offset: u64) -> Vec<String> {
     vec![
         "-r".to_string(),
         "-p".to_string(),
+        // Sizes (and times) per entry: the review lists live videos with
+        // their size before any of them is read out of the image.
+        "-l".to_string(),
         "-o".to_string(),
         offset.to_string(),
         tsk_path_string(image_path),
@@ -1025,7 +1144,7 @@ fn icat_args(image_path: &Path, options: &TskRecoverOptions) -> Vec<String> {
     args
 }
 
-fn tsk_path_string(path: &Path) -> String {
+pub(crate) fn tsk_path_string(path: &Path) -> String {
     let raw = audit::path_string(path);
     raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
 }
@@ -1033,8 +1152,9 @@ fn tsk_path_string(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        TskRecoverOptions, choose_partition_offset, drain_streaming, fls_args, icat_args,
-        is_protective_mbr_only, parse_fls_entry, parse_mmls_partitions,
+        DEFAULT_MAX_ENTRIES, TskInspectOptions, TskRecoverOptions, choose_partition_offset,
+        drain_streaming, fls_args, icat_args, is_protective_mbr_only, parse_fls_entry,
+        parse_mmls_partitions,
     };
     use std::path::Path;
     use std::process::{Command, Stdio};
@@ -1174,11 +1294,94 @@ Units are in 512-byte sectors
     }
 
     #[test]
+    fn copy_hashing_writes_hashes_and_flags_zero_bodies_in_one_pass() {
+        let dir = std::env::temp_dir().join(format!("ft-copy-hashing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Larger than one copy buffer, with the only non-zero byte at the end.
+        let mut data = vec![0u8; 3 * 1024 * 1024 + 17];
+        *data.last_mut().unwrap() = 7;
+        let path = dir.join("out.bin");
+        let copied = super::copy_hashing(
+            std::io::Cursor::new(data.clone()),
+            std::fs::File::create(&path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(copied.bytes, data.len() as u64);
+        assert_eq!(copied.sha256, crate::sha256::digest_bytes(&data));
+        assert!(!copied.all_zero);
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+        let zeros = super::copy_hashing(
+            std::io::Cursor::new(vec![0u8; 4096]),
+            std::fs::File::create(dir.join("zero.bin")).unwrap(),
+        )
+        .unwrap();
+        assert!(zeros.all_zero);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ssd_probe_never_fails_hard() {
+        // Machine-dependent answer; it must only never panic, and a path
+        // that does not exist is unknown.
+        let _ = crate::util::path_on_ssd(&std::env::temp_dir());
+        assert_eq!(
+            crate::util::path_on_ssd(Path::new("Q:\\definitely\\missing\\x.E01")),
+            None
+        );
+    }
+
+    #[test]
+    fn long_listing_lines_keep_the_path_and_read_the_size() {
+        let line = "r/r 519:\tEVENT/20260924_214412_EVT_1.avi\t2026-09-24 21:44:12 (KST)\t2026-09-24 00:00:00 (KST)\t0000-00-00 00:00:00 (UTC)\t2026-09-24 21:44:12 (KST)\t40140800\t0\t0";
+        let entry = parse_fls_entry(line).expect("entry");
+        assert_eq!(
+            entry.path.as_deref(),
+            Some("EVENT/20260924_214412_EVT_1.avi")
+        );
+        assert_eq!(entry.inode.as_deref(), Some("519"));
+        assert_eq!(entry.size_bytes, Some(40_140_800));
+        assert!(entry.video_candidate && !entry.deleted);
+        let deleted = parse_fls_entry(
+            "r/r * 525:\tEVENT/old.avi\t2026-09-24 21:44:12 (KST)\t2026-09-24 00:00:00 (KST)\t0000-00-00 00:00:00 (UTC)\t2026-09-24 21:44:12 (KST)\t3016\t0\t0",
+        )
+        .expect("entry");
+        assert!(deleted.deleted);
+        assert_eq!(deleted.path.as_deref(), Some("EVENT/old.avi"));
+        // A plain (non -l) line still parses, without a size.
+        let plain = parse_fls_entry("r/r 7:\tPARK/x.mp4").expect("entry");
+        assert_eq!(plain.path.as_deref(), Some("PARK/x.mp4"));
+        assert_eq!(plain.size_bytes, None);
+    }
+
+    #[test]
+    fn allocated_fls_videos_are_candidates_but_directories_are_not() {
+        let live = parse_fls_entry("r/r 12550151:\tINF/20261017_170617_INF_1.AVI").expect("entry");
+        assert!(!live.deleted);
+        assert!(live.video_candidate);
+        let dir = parse_fls_entry("d/d 8:\tbackup.avi").expect("entry");
+        assert!(!dir.video_candidate);
+        let virt = parse_fls_entry("v/v 99:\t$OrphanFiles").expect("entry");
+        assert!(!virt.video_candidate);
+    }
+
+    #[test]
+    fn listing_cap_never_cuts_a_real_card() {
+        // A 256 GB dashcam card: ~4 channels x 1-minute clips plus deleted
+        // entries runs into the tens of thousands.
+        const { assert!(DEFAULT_MAX_ENTRIES >= 1_000_000) };
+        assert_eq!(
+            TskInspectOptions::default().max_entries,
+            DEFAULT_MAX_ENTRIES
+        );
+    }
+
+    #[test]
     fn builds_tsk_command_args() {
         let image = Path::new("/cases/image.raw");
         assert_eq!(
             fls_args(image, 2048),
-            vec!["-r", "-p", "-o", "2048", "/cases/image.raw"]
+            vec!["-r", "-p", "-l", "-o", "2048", "/cases/image.raw"]
         );
 
         let options = TskRecoverOptions {

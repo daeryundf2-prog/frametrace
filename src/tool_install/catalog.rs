@@ -39,7 +39,9 @@ pub const ALL_PACKAGES: [ToolPackage; 3] = [
 impl ToolPackage {
     /// Parses the identifier the UI sends (`ffmpeg`, `sleuthkit`, `libewf`).
     pub fn parse(id: &str) -> Option<Self> {
-        ALL_PACKAGES.into_iter().find(|package| package.id() == id.trim())
+        ALL_PACKAGES
+            .into_iter()
+            .find(|package| package.id() == id.trim())
     }
 
     pub fn id(self) -> &'static str {
@@ -137,7 +139,11 @@ mod tests {
             if let InstallMethod::Archive(pin) = package.method() {
                 assert!(pin.url.starts_with("https://"), "{}", pin.url);
                 assert_eq!(pin.sha256.len(), 64, "{}", package.id());
-                assert!(pin.sha256.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()));
+                assert!(
+                    pin.sha256
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                );
                 assert!(!pin.bin_prefix.ends_with('/'));
             }
         }
@@ -145,7 +151,16 @@ mod tests {
 
     #[test]
     fn every_probed_workflow_tool_has_a_provider() {
-        for tool in ["ffmpeg", "ffprobe", "ewfinfo", "ewfverify", "ewfexport", "mmls", "fls", "icat"] {
+        for tool in [
+            "ffmpeg",
+            "ffprobe",
+            "ewfinfo",
+            "ewfverify",
+            "ewfexport",
+            "mmls",
+            "fls",
+            "icat",
+        ] {
             assert!(ToolPackage::providing(tool).is_some(), "{tool}");
         }
         assert_eq!(ToolPackage::providing("deepfake-lens"), None);
@@ -153,7 +168,8 @@ mod tests {
 
     #[test]
     fn package_dirs_are_distinct() {
-        let dirs: std::collections::BTreeSet<_> = ALL_PACKAGES.iter().map(|p| p.dir_name()).collect();
+        let dirs: std::collections::BTreeSet<_> =
+            ALL_PACKAGES.iter().map(|p| p.dir_name()).collect();
         assert_eq!(dirs.len(), ALL_PACKAGES.len());
     }
 }

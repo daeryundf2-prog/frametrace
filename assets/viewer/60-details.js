@@ -61,7 +61,7 @@ function renderDetails() {
     return;
   }
   els.mediaTitle.textContent = record.originalName || record.name || record.id;
-  els.mediaStatus.textContent = record.status;
+  els.mediaStatus.textContent = statusLabel(record.status);
   els.mediaStatus.className = `badge ${statusClass(record.status)}`;
   els.mediaStatus.title = statusTitle(record);
   const dualMates = state.layout.dual ? matesOf(record) : [];
@@ -270,7 +270,7 @@ function renderDetails() {
 // counted with its own filter excluded, computed once per render.
 function renderTree(facets) {
   const { typeCounts, kindCounts, dayCounts, audioCounts, dirCounts } = facets || facetCounts();
-  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined") };
+  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined"), repaired: t("filter.kind.repaired") };
   const items = [];
 
   // 1. Folder structure tree
@@ -323,6 +323,8 @@ function renderTree(facets) {
       const depth = folder === "Root" ? 0 : folder.split("/").length - 1;
       let name = folder === "Root" ? t("tree.root") : (folder.split("/").pop());
       if (folder === "Recovery") name = t("tree.recovery");
+      const recoverySub = { "Recovery/Candidates": "tree.rec.candidates", "Recovery/Carved": "tree.rec.carved", "Recovery/Filesystem": "tree.rec.filesystem", "Recovery/Repaired": "tree.rec.repaired" }[folder];
+      if (recoverySub) name = t(recoverySub);
       const count = getSubtreeCount(folder);
       if (count === 0) return;
       const isRecoveryNode = folder.startsWith("Recovery");
@@ -455,6 +457,11 @@ function renderMetrics() {
   els.metricVerified.textContent = counts.verified;
   els.metricFailed.textContent = counts.failed;
   if (els.metricAnomaly) anomalyPillUpdate(els.metricAnomaly, counts);
+  // A status pill with nothing to show is drawn quietly (still clickable).
+  for (const n of [els.metricVerified, els.metricFailed, els.metricCarved, els.metricAnomaly]) {
+    const pill = n && n.closest && n.closest("button");
+    if (pill) pill.classList.toggle("is-zero", String(n.textContent).trim() === "0");
+  }
   const markCount = markTallyNow().all; // R7 U4: kept by changed id, not a walk of the mark map per render
   els.selectionCount.textContent = tf("sel.count", { n: state.selectedIds.size, m: markCount });
   if (typeof syncJoinButton === "function") syncJoinButton();
@@ -584,7 +591,7 @@ function renderChips() {
 // Active filters as removable chips above the grid — visible only while the
 // rail (which shows the same state) is collapsed.
 function activeFilterList() {
-  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined") };
+  const kindLabels = { video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined"), repaired: t("filter.kind.repaired") };
   const list = [];
   const chip = state.chip || "";
   if (chip && !chip.startsWith("status:")) {

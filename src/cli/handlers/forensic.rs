@@ -4,6 +4,10 @@ use crate::carve::{self, CarveOptions};
 use crate::case_db;
 use crate::checkpoint::ResumeMode;
 use crate::e01::{self, E01Options};
+use crate::lazy_extract::{
+    allocated_video_selectors, legacy_extracted_file, legacy_extracted_relative_path, path_key,
+    plan_extract_targets,
+};
 use crate::tsk::{self, TskInspectOptions, TskRecoverOptions};
 use crate::util::json_escape;
 use std::path::Path;
@@ -68,6 +72,15 @@ fn exit_partial(reason: &str) -> ! {
     eprintln!("{}{reason}", crate::tsk::PARTIAL_LINE_PREFIX);
     let _ = std::io::stderr().flush();
     std::process::exit(crate::tsk::EXIT_PARTIAL);
+}
+
+pub fn verify_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let log = e01::verify_e01(case_dir, e01_file, &options)
+        .map_err(|err| format!("E01 hash verification failed: {err}"))?;
+    println!("E01 hash verification: verified (stored hash matches the recomputed media)");
+    println!("verify log: {}", log.display());
+    Ok(())
 }
 
 pub fn import_e01(case_dir: &Path, e01_file: &Path, options: E01Options) -> Result<(), String> {
@@ -242,11 +255,13 @@ fn inspect_image_run(
             metadata_json: Some(tsk_inspect_options_json(&options)),
         },
     )?;
+    // fls has no total up front: the cap (`max_entries`) is not one — the
+    // workstation showed it as "0/5000000" progress.
     let job = case_db::start_job(
         case_dir,
         "inspect-image",
         image_file,
-        Some(options.max_entries as u64),
+        None,
         &tsk_inspect_options_json(&options),
     )?;
     let progress_job_id = job.job_id.clone();
@@ -387,21 +402,272 @@ pub(crate) fn next_scan_folder_hint(case_dir: &Path, folder: &Path) -> String {
     ])
 }
 
-fn clean_relative_path(raw: &str) -> std::path::PathBuf {
-    let raw = raw.trim().trim_end_matches("(deleted)").trim();
-    let norm = raw.replace('\\', "/");
-    let trimmed = norm.trim_start_matches('/');
-    let mut path = std::path::PathBuf::new();
-    for part in trimmed.split('/') {
-        let clean = crate::util::sanitize_filename(part);
-        if !clean.is_empty() && clean != "." && clean != ".." {
-            path.push(clean);
+/// Indexes the live videos of the latest filesystem inspection where their
+/// extraction would put them, without reading any of them: the review opens
+/// as soon as the card is listed, and each clip is read out of the image
+/// when it is first played or exported ([`crate::lazy_extract`]).
+pub fn index_image_files(case_dir: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let listing = crate::lazy_extract::allocated_listing(case_dir)?.ok_or_else(|| {
+        "no filesystem inspection found; run inspect-image or inspect-e01 --filesystem first"
+            .to_string()
+    })?;
+    let case_root = crate::util::canonicalize_display(case_dir)
+        .map_err(|err| format!("failed to canonicalize case directory: {err}"))?;
+    let root = crate::lazy_extract::extracted_root(&case_root);
+    let without_size = listing
+        .files
+        .iter()
+        .filter(|file| file.size_bytes.is_none())
+        .count();
+    let listed: Vec<crate::scan::ListedVideo> = listing
+        .files
+        .iter()
+        .map(|file| crate::scan::ListedVideo {
+            path: root.join(&file.relative),
+            relative_path: file.relative.to_string_lossy().to_string(),
+            size_bytes: file.size_bytes.unwrap_or(0),
+        })
+        .collect();
+    let result = crate::scan::index_listed_videos(case_dir, &root, &listed)?;
+    println!(
+        "indexed {} live video(s) from the image listing; each is read out of the image when first played or exported",
+        result.video_count
+    );
+    println!("image: {}", listing.image_path.display());
+    if without_size > 0 {
+        println!(
+            "warning: {without_size} listed file(s) have no size (inspection made without fls -l); re-run the analysis to list sizes"
+        );
+    }
+    Ok(())
+}
+
+/// Finds the deleted videos of the latest inspected image without reading
+/// them out ([`crate::recovery_scan`]); the review lists them graded, and
+/// each is read when first played or exported.
+pub fn scan_deleted(case_dir: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    let job = case_db::start_job(case_dir, "scan-deleted", case_dir, None, "{}")?;
+    let job_id = job.job_id.clone();
+    let last = std::sync::Mutex::new(std::time::Instant::now());
+    let progress = move |done: u64, total: u64| {
+        let mut last = last.lock().unwrap_or_else(|e| e.into_inner());
+        if done >= total || last.elapsed() >= std::time::Duration::from_secs(1) {
+            *last = std::time::Instant::now();
+            let _ = case_db::report_job_progress(case_dir, &job_id, Some(total), done);
+        }
+    };
+    let summary = match crate::recovery_scan::scan_deleted(case_dir, Some(&progress)) {
+        Ok(summary) => summary,
+        Err(err) => {
+            let _ = case_db::fail_job(case_dir, &job.job_id, &err);
+            return Err(err);
+        }
+    };
+    let found = summary.deleted_entries + summary.carved + summary.frame_runs;
+    case_db::complete_job(
+        case_dir,
+        &job.job_id,
+        found as u64,
+        "scan-deleted completed",
+    )?;
+    println!("deleted video scan complete (nothing read out yet)");
+    println!(
+        "deleted entries: {} (intact {}, partly overwritten {}, overwritten {}, unknown {})",
+        summary.deleted_entries,
+        summary.intact,
+        summary.partial,
+        summary.overwritten,
+        summary.unknown
+    );
+    println!(
+        "unallocated space scanned: {} bytes, carved candidates: {}",
+        summary.unallocated_bytes, summary.carved
+    );
+    println!("headerless frame runs: {}", summary.frame_runs);
+    println!(
+        "allocated tails scanned: {} file(s), {} bytes, candidates found there: {}",
+        summary.tail_files, summary.tail_bytes, summary.tail_candidates
+    );
+    println!("candidates: {}", summary.candidates_path.display());
+    for warning in &summary.warnings {
+        println!("warning: {warning}");
+    }
+    Ok(())
+}
+
+/// Repairs a broken/recovered video into `artifacts/Recovery/Repaired/`
+/// ([`crate::video_repair`]); the source is never modified.
+pub fn repair_video(case_dir: &Path, video: &Path) -> Result<(), String> {
+    ensure_case(case_dir)?;
+    crate::lazy_extract::ensure_materialized(case_dir, video)?;
+    let source = crate::util::canonicalize_display(video)
+        .map_err(|err| format!("failed to open {}: {err}", video.display()))?;
+    let entry = crate::video_repair::repair_video(case_dir, &source)?;
+    let field = |key: &str| entry.get(key).and_then(|v| v.as_str()).unwrap_or("-");
+    let reused = entry.get("reused").and_then(|v| v.as_bool()) == Some(true);
+    println!(
+        "{} ({}): {}",
+        if reused {
+            "already repaired"
+        } else {
+            "repaired"
+        },
+        field("method"),
+        field("output_path")
+    );
+    println!("sha256: {}", field("sha256"));
+    println!("validation: {}", field("validation_status"));
+    for note in entry
+        .get("notes")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str())
+    {
+        println!("note: {note}");
+    }
+    Ok(())
+}
+
+/// One icat recovery of a batch; `slot` is its position in the outcomes.
+struct RecoverTask {
+    slot: usize,
+    selector: String,
+    action: &'static str,
+    detail_folder: &'static str,
+    options: TskRecoverOptions,
+}
+
+/// How many icat recoveries run at once. Each one decompresses the E01 on
+/// its own core, so a solid-state source scales with cores; a spinning or
+/// unidentified disk (USB bridges often do not say) gets two streams, which
+/// overlaps decompression with I/O without thrashing the heads.
+/// `FRAMETRACE_EXTRACT_JOBS` overrides.
+fn recover_workers(image: &Path, tasks: usize) -> usize {
+    let configured = std::env::var("FRAMETRACE_EXTRACT_JOBS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok());
+    let cores = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(4);
+    workers_for(configured, crate::util::path_on_ssd(image), cores, tasks)
+}
+
+/// Pure part of [`recover_workers`].
+fn workers_for(configured: Option<usize>, ssd: Option<bool>, cores: usize, tasks: usize) -> usize {
+    let workers = match configured.filter(|jobs| *jobs > 0) {
+        Some(jobs) => jobs,
+        None if ssd == Some(true) => cores.clamp(2, 8),
+        None => 2,
+    };
+    workers.clamp(1, 32).min(tasks.max(1))
+}
+
+/// Runs `tasks` on a worker pool and fills their `slots`. The image, icat
+/// and the source registration are resolved once for the batch (they cost
+/// a process launch and several fsynced log/DB writes per item before), and
+/// the batch job reports done/total so the workstation shows real progress.
+fn run_recover_tasks(
+    case_dir: &Path,
+    image_file: &Path,
+    job_id: &str,
+    tasks: &[RecoverTask],
+    slots: &mut [Option<BatchOutcome>],
+) {
+    if tasks.is_empty() {
+        return;
+    }
+    let failed = |task: &RecoverTask, detail: String| BatchOutcome {
+        selector: task.selector.clone(),
+        action: task.action,
+        status: "failed",
+        detail,
+    };
+    let setup = tsk::RecoverContext::new(image_file, "icat").and_then(|context| {
+        case_db::register_evidence_source(
+            case_dir,
+            &case_db::EvidenceSourceInput {
+                kind: "forensic-image".to_string(),
+                path: image_file.to_path_buf(),
+                source_id: None,
+                write_protect: Some("source image read-only; inode output is derived".to_string()),
+                acquisition_tool: Some("Sleuth Kit icat".to_string()),
+                evidence_hash: None,
+                notes: Some("Auto-registered by recover-batch".to_string()),
+                metadata_json: None,
+            },
+        )?;
+        Ok(context)
+    });
+    let context = match setup {
+        Ok(context) => context,
+        Err(err) => {
+            for task in tasks {
+                slots[task.slot] = Some(failed(task, err.clone()));
+            }
+            return;
+        }
+    };
+    let mut folders = std::collections::BTreeSet::new();
+    for task in tasks {
+        if let Some(parent) = task.options.output_path.as_deref().and_then(Path::parent) {
+            folders.insert(parent.to_path_buf());
         }
     }
-    if path.as_os_str().is_empty() {
-        std::path::PathBuf::from("unnamed.bin")
-    } else {
-        path
+    for folder in &folders {
+        tsk::sweep_dead_parts(folder);
+    }
+
+    let total = tasks.len() as u64;
+    let workers = recover_workers(context.image_path(), tasks.len());
+    println!("recovering {total} item(s) with {workers} worker(s)");
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let done = std::sync::atomic::AtomicU64::new(0);
+    let last_report = std::sync::Mutex::new(std::time::Instant::now());
+    let results = std::sync::Mutex::new(Vec::with_capacity(tasks.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    let Some(task) = tasks.get(index) else {
+                        break;
+                    };
+                    let outcome =
+                        match tsk::recover_inode_in(case_dir, &context, &task.options, false) {
+                            Ok(result) => {
+                                for warning in &result.warnings {
+                                    eprintln!("warning: {}: {warning}", task.selector);
+                                }
+                                BatchOutcome {
+                                    selector: task.selector.clone(),
+                                    action: task.action,
+                                    status: "ok",
+                                    detail: format!("saved into {}", task.detail_folder),
+                                }
+                            }
+                            Err(error) => failed(task, error),
+                        };
+                    results
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push((task.slot, outcome));
+                    let finished = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    // Throttled: one progress write a second, plus the last.
+                    let mut last = last_report.lock().unwrap_or_else(|e| e.into_inner());
+                    if finished == total || last.elapsed() >= std::time::Duration::from_secs(1) {
+                        *last = std::time::Instant::now();
+                        let _ =
+                            case_db::report_job_progress(case_dir, job_id, Some(total), finished);
+                    }
+                }
+            });
+        }
+    });
+    for (slot, outcome) in results.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        slots[slot] = Some(outcome);
     }
 }
 
@@ -422,7 +688,10 @@ pub fn recover_batch(
         })?;
         let items = allocated_video_selectors(&entries_jsonl)?;
         if items.is_empty() {
-            println!("latest inspection {} lists no allocated video candidates", entries_jsonl.display());
+            println!(
+                "latest inspection {} lists no allocated video candidates",
+                entries_jsonl.display()
+            );
             return Ok(());
         }
         println!("auto-selection (allocated): {}", entries_jsonl.display());
@@ -455,7 +724,8 @@ pub fn recover_batch(
         )
     } else {
         let selection_path = selection_path.ok_or_else(|| {
-            "recover-batch needs a selection file or --deleted-videos / --allocated-videos".to_string()
+            "recover-batch needs a selection file or --deleted-videos / --allocated-videos"
+                .to_string()
         })?;
         let parsed = crate::selection::parse_selection_file(selection_path)?;
         crate::selection::enforce_case_binding(
@@ -478,8 +748,21 @@ pub fn recover_batch(
     )?;
 
     let is_extract = allocated_videos;
-    let mut outcomes = Vec::new();
-    for item in &selection.items {
+    let extracted_root = crate::lazy_extract::extracted_root(case_dir);
+    let extract_targets = plan_extract_targets(&selection.items, is_extract);
+    let mut legacy_counts = std::collections::HashMap::new();
+    for (item, target) in selection.items.iter().zip(&extract_targets) {
+        if let (Some(_), Some(note)) = (target, item.notes.as_deref()) {
+            *legacy_counts
+                .entry(path_key(&legacy_extracted_relative_path(note)))
+                .or_insert(0usize) += 1;
+        }
+    }
+    // Plan every item first (skips are decided here), then run the icat
+    // recoveries on a worker pool.
+    let mut slots: Vec<Option<BatchOutcome>> = Vec::with_capacity(selection.items.len());
+    let mut tasks: Vec<RecoverTask> = Vec::new();
+    for (item, extract_target) in selection.items.iter().zip(extract_targets) {
         let inode = item
             .selector
             .trim()
@@ -487,11 +770,21 @@ pub fn recover_batch(
             .unwrap_or(item.selector.trim())
             .to_string();
 
-        let item_is_extract = is_extract || item.action.as_deref() == Some("extract");
-        let (output_path, recover_deleted, detail_folder) = if item_is_extract {
-            let note = item.notes.as_deref().unwrap_or(&inode);
-            let clean_rel = clean_relative_path(note);
-            let target = case_dir.join("artifacts/extracted").join(clean_rel);
+        let item_is_extract = extract_target.is_some();
+        let (output_path, recover_deleted, detail_folder) = if let Some(rel) = extract_target {
+            let target = extracted_root.join(rel);
+            if !target.is_file()
+                && let Some(legacy) =
+                    legacy_extracted_file(&extracted_root, item.notes.as_deref(), &legacy_counts)
+            {
+                slots.push(Some(BatchOutcome {
+                    selector: item.selector.clone(),
+                    action: "extract",
+                    status: "ok",
+                    detail: format!("already exists (legacy name) at {}", legacy.display()),
+                }));
+                continue;
+            }
             (target, false, "artifacts/extracted")
         } else {
             let filename = item
@@ -504,50 +797,59 @@ pub fn recover_batch(
             let leaf = if clean_name.is_empty() {
                 format!("inode_{}.bin", crate::util::sanitize_filename(&inode))
             } else {
-                format!("{}_{}", crate::util::sanitize_filename(&inode), crate::util::sanitize_filename(clean_name))
+                format!(
+                    "{}_{}",
+                    crate::util::sanitize_filename(&inode),
+                    crate::util::sanitize_filename(clean_name)
+                )
             };
             let target = case_dir.join("artifacts/Recovery/Filesystem").join(leaf);
             (target, true, "artifacts/Recovery/Filesystem")
         };
 
         if output_path.is_file()
-            && std::fs::metadata(&output_path).map(|m| m.len()).unwrap_or(0) > 0
+            && std::fs::metadata(&output_path)
+                .map(|m| m.len())
+                .unwrap_or(0)
+                > 0
         {
-            outcomes.push(BatchOutcome {
+            slots.push(Some(BatchOutcome {
                 selector: item.selector.clone(),
-                action: if item_is_extract { "extract" } else { "recover" },
+                action: if item_is_extract {
+                    "extract"
+                } else {
+                    "recover"
+                },
                 status: "ok",
                 detail: format!("already exists at {}", output_path.display()),
-            });
+            }));
             continue;
         }
 
-        let options = TskRecoverOptions {
-            partition_offset,
-            inode,
-            output_path: Some(output_path),
-            recover_deleted,
-            include_slack: false,
-            skip_sparse_holes: true,
-            icat_bin: "icat".to_string(),
-            timeout_secs,
-        };
-        let outcome = recover_inode(case_dir, image_file, options);
-        outcomes.push(match outcome {
-            Ok(()) => BatchOutcome {
-                selector: item.selector.clone(),
-                action: if item_is_extract { "extract" } else { "recover" },
-                status: "ok",
-                detail: format!("saved into {detail_folder}"),
+        tasks.push(RecoverTask {
+            slot: slots.len(),
+            selector: item.selector.clone(),
+            action: if item_is_extract {
+                "extract"
+            } else {
+                "recover"
             },
-            Err(error) => BatchOutcome {
-                selector: item.selector.clone(),
-                action: if item_is_extract { "extract" } else { "recover" },
-                status: "failed",
-                detail: error,
+            detail_folder,
+            options: TskRecoverOptions {
+                partition_offset,
+                inode,
+                output_path: Some(output_path),
+                recover_deleted,
+                include_slack: false,
+                skip_sparse_holes: true,
+                icat_bin: "icat".to_string(),
+                timeout_secs,
             },
         });
+        slots.push(None);
     }
+    run_recover_tasks(case_dir, image_file, &job.job_id, &tasks, &mut slots);
+    let outcomes: Vec<BatchOutcome> = slots.into_iter().flatten().collect();
 
     let ok = outcomes.iter().filter(|o| o.status == "ok").count();
     let failed = outcomes.iter().filter(|o| o.status == "failed").count();
@@ -589,5 +891,120 @@ pub fn recover_batch(
             outcome.status, outcome.selector, outcome.detail
         );
     }
+    if failed > 0 {
+        // Some items are missing from the result: the workstation must show
+        // that as a warning, never as a clean pass (exit code 5).
+        exit_partial(&format!(
+            "{failed} of {} item(s) failed — see artifacts/logs/batch-log.jsonl",
+            outcomes.len()
+        ));
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use super::*;
+    use crate::selection::SelectionItem;
+
+    fn item(inode: &str, path: &str) -> SelectionItem {
+        SelectionItem {
+            selector: inode.to_string(),
+            kind: Some("filesystem".to_string()),
+            action: Some("extract".to_string()),
+            format: None,
+            time_seconds: None,
+            notes: Some(path.to_string()),
+        }
+    }
+
+    fn rel(path: &Option<PathBuf>) -> String {
+        path.as_ref().unwrap().to_string_lossy().replace('\\', "/")
+    }
+
+    #[test]
+    fn extracted_paths_keep_card_names_and_extensions() {
+        let targets = plan_extract_targets(
+            &[
+                item("12550151", "INF/20261017_170617_INF_1.avi"),
+                item("4103", "/주차/20260913_153310_PARK.MP4"),
+                item("77", "EVENT/clip:1.mp4 (deleted)"),
+            ],
+            true,
+        );
+        assert_eq!(rel(&targets[0]), "INF/20261017_170617_INF_1.avi");
+        assert_eq!(rel(&targets[1]), "주차/20260913_153310_PARK.MP4");
+        assert_eq!(rel(&targets[2]), "EVENT/clip_1.mp4");
+    }
+
+    #[test]
+    fn colliding_names_never_share_an_output() {
+        // Old mapping: both became `___/a_avi` and the second was skipped as
+        // "already exists" — a live video silently missing from the review.
+        let targets = plan_extract_targets(
+            &[
+                item("10", "상시/a.avi"),
+                item("11", "상시/A.AVI"),
+                item("12", "x/b?.avi"),
+                item("13", "x/b*.avi"),
+                item("14", "x/c.avi"),
+            ],
+            true,
+        );
+        let names: Vec<String> = targets.iter().map(rel).collect();
+        assert_eq!(names[0], "상시/a~10.avi");
+        assert_eq!(names[1], "상시/A~11.AVI");
+        assert_eq!(names[2], "x/b_~12.avi");
+        assert_eq!(names[3], "x/b_~13.avi");
+        assert_eq!(names[4], "x/c.avi");
+        let unique: std::collections::HashSet<String> =
+            names.iter().map(|name| name.to_lowercase()).collect();
+        assert_eq!(unique.len(), names.len());
+    }
+
+    #[test]
+    fn recover_items_get_no_extract_target() {
+        let mut recover = item("5", "EVENT/x.avi");
+        recover.action = Some("recover".to_string());
+        let targets = plan_extract_targets(&[recover, item("6", "EVENT/y.avi")], false);
+        assert!(targets[0].is_none());
+        assert_eq!(rel(&targets[1]), "EVENT/y.avi");
+    }
+
+    #[test]
+    fn worker_count_follows_storage_and_override() {
+        // SSD: scale with cores, capped at 8.
+        assert_eq!(workers_for(None, Some(true), 32, 1000), 8);
+        assert_eq!(workers_for(None, Some(true), 4, 1000), 4);
+        // Spinning or unknown disk: two streams.
+        assert_eq!(workers_for(None, Some(false), 32, 1000), 2);
+        assert_eq!(workers_for(None, None, 32, 1000), 2);
+        // Override wins; 0 is ignored; never more workers than items.
+        assert_eq!(workers_for(Some(5), None, 32, 1000), 5);
+        assert_eq!(workers_for(Some(0), None, 32, 1000), 2);
+        assert_eq!(workers_for(Some(99), None, 32, 1000), 32);
+        assert_eq!(workers_for(None, Some(true), 32, 3), 3);
+        assert_eq!(workers_for(None, None, 32, 0), 1);
+    }
+
+    #[test]
+    fn legacy_extraction_is_reused_only_when_unambiguous() {
+        let root = std::env::temp_dir().join(format!("ft-legacy-extract-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("EVENT")).unwrap();
+        std::fs::write(root.join("EVENT/clip_avi"), b"RIFF....AVI ").unwrap();
+        let key = path_key(&legacy_extracted_relative_path("EVENT/clip.avi"));
+        let mut counts = std::collections::HashMap::new();
+        counts.insert(key.clone(), 1usize);
+        assert_eq!(
+            legacy_extracted_file(&root, Some("EVENT/clip.avi"), &counts),
+            Some(root.join("EVENT/clip_avi"))
+        );
+        counts.insert(key, 2);
+        assert_eq!(
+            legacy_extracted_file(&root, Some("EVENT/clip.avi"), &counts),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

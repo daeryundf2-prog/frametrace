@@ -147,6 +147,7 @@
               <div class="pathstatus" id="caseStatus" aria-live="polite"></div>
               <p class="hint opencase">이미 만든 케이스라면 <button type="button" class="quiet h-inline" id="btnOpenCase">이 케이스 열기</button></p>
             </div>
+            <div id="folderOpts">
             <div class="fieldlabel" id="scanModeLabel">분석 모드</div>
             <div class="h-seg" role="radiogroup" aria-labelledby="scanModeLabel">
               <label title="해시·ffprobe 생략 — 파일 목록과 기본 메타데이터만 색인합니다 (대용량 소스 1차 선별용)"><input type="radio" name="scanMode" value="quick"> 빠른 선별</label>
@@ -161,9 +162,11 @@
               <label><input type="checkbox" id="withDeepfake"> 딥페이크 스크리닝 (deepfake-lens — 느릴 수 있음; 판정이 아니라 검토 우선순위)</label>
               <label id="withAudioWrap"><input type="checkbox" id="withAudio"> 소리 측정 — 오디오 트랙을 끝까지 디코드해 무음 여부를 잽니다(대용량은 해시만큼 오래 걸릴 수 있음)</label>
             </div>
+            </div>
             <div class="checks" id="verifyRow" style="display:none;">
-              <label><input type="checkbox" id="skipE01Verify"> E01 해시 검증 생략 (ewfverify는 이미지 크기에 비례해 오래 걸립니다 — 최종 증거용은 생략 비권장)</label>
-              <label><input type="checkbox" id="directE01"> 빠른 검토 — raw export 생략, E01에서 직접 파일시스템 조사 (대용량 이미지에 적합; 카빙은 별도 export 필요)</label>
+              <p class="case-hint">E01은 추출 없이 바로 분석해 뷰어를 엽니다. 영상은 재생·추출할 때만 이미지에서 읽습니다.</p>
+              <label><input type="checkbox" id="skipE01Verify"> E01 해시 검증 생략 (기본: 뷰어를 연 뒤 백그라운드에서 ewfverify로 검증 — 최종 증거용은 생략 비권장)</label>
+              <label><input type="checkbox" id="rawE01"> 원본 이미지를 raw로 먼저 전체 추출 (예전 방식 — 이미지 크기만큼 시간·디스크가 듭니다)</label>
             </div>
           </div>
         </details>

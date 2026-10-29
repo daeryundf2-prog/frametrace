@@ -446,11 +446,11 @@ fn case_job_keeps_review_phase_and_still_blocks_finalize() {
     let exe = fake_cli(
         &case,
         r#"case "$1" in
-  recover-batch) sleep 2; echo ok ;;
+  scan-deleted) sleep 2; echo ok ;;
   *) echo ok ;;
 esac"#,
         &format!(
-            "if \"%1\"==\"recover-batch\" (\n{}\n)\necho ok",
+            "if \"%1\"==\"scan-deleted\" (\n{}\n)\necho ok",
             cmd_sleep(2)
         ),
     );

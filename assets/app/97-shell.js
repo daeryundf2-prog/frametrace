@@ -207,6 +207,15 @@ function hAutoOpenJobs() {
   hJobsAutoOpened = true;
   hOpenSheet("jobs", $("hBtnJobs"));
 }
+// ...and closes it again once the review is on screen: the sheet would
+// otherwise cover the player. Background work (deleted-video scan, hash
+// check) stays in the chip, which reopens the sheet on a click.
+let hJobsAutoClosed = false;
+function hAutoCloseJobs() {
+  if (!hJobsAutoOpened || hJobsAutoClosed || !FTStore.state.panels.jobs) return;
+  hJobsAutoClosed = true;
+  hCloseSheet("jobs", false);
+}
 $("hBtnJobs").addEventListener("click", () => hToggleSheet("jobs", $("hBtnJobs")));
 $("hBtnHostJobs").addEventListener("click", () => hOpenSheet("jobs", $("hBtnHostJobs")));
 $("hBtnFinalize").addEventListener("click", () => hToggleSheet("finalize", $("hBtnFinalize")));

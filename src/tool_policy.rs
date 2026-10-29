@@ -428,7 +428,10 @@ mod tests {
         let _ = std::fs::remove_file(&probe);
         // Then: the package-dir copy is found
         let resolved = resolved.expect("tool in tools/<package> must resolve");
-        assert!(resolved.ends_with("frametrace-probe-mmls.exe"), "{resolved}");
+        assert!(
+            resolved.ends_with("frametrace-probe-mmls.exe"),
+            "{resolved}"
+        );
     }
 
     #[test]

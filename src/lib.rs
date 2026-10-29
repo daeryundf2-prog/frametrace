@@ -17,15 +17,18 @@ pub mod dfxml;
 pub mod diskspace;
 pub mod e01;
 pub mod ffprobe;
+pub mod frame_carve;
 pub mod hikvision;
 pub mod hmac;
 pub mod html_report;
 pub mod join;
 pub mod known_hash;
+pub mod lazy_extract;
 pub mod model;
 pub mod package;
 pub mod paste_path;
 pub mod qa;
+pub mod recovery_scan;
 pub mod rectime;
 pub mod redact;
 pub mod report;
@@ -44,6 +47,7 @@ pub mod tsk;
 pub mod util;
 pub mod validation;
 pub mod video_export;
+pub mod video_repair;
 
 /// Runs `f` on a dedicated worker thread with a large stack and returns its
 /// exit code.

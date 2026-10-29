@@ -3,8 +3,8 @@
 //! jump targets: home, Desktop, Documents, Downloads and drives — under
 //! WSL also the Windows drives and Windows user folders below `/mnt`).
 
-use super::*;
 use super::system::drive_roots;
+use super::*;
 
 const RESERVED_NAMES: &[&str] = &[
     "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
@@ -21,15 +21,22 @@ pub(crate) fn validate_folder_name(raw: &str) -> Result<&str, &'static str> {
     if name.chars().count() > 120 {
         return Err("폴더 이름이 너무 깁니다 (120자 이하)");
     }
-    if name == "." || name == ".."
-        || name.chars().any(|c| c.is_control() || r#"\/:*?"<>|"#.contains(c))
+    if name == "."
+        || name == ".."
+        || name
+            .chars()
+            .any(|c| c.is_control() || r#"\/:*?"<>|"#.contains(c))
     {
         return Err(r#"폴더 이름에 쓸 수 없는 문자가 있습니다 (\ / : * ? " < > |)"#);
     }
     if name.ends_with('.') {
         return Err("폴더 이름은 마침표로 끝날 수 없습니다");
     }
-    let stem = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     if RESERVED_NAMES.contains(&stem.as_str()) {
         return Err("Windows 예약어(CON, NUL, COM1 등)는 폴더 이름으로 쓸 수 없습니다");
     }
@@ -73,7 +80,9 @@ fn is_wsl() -> bool {
 
 fn home_dir() -> Option<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_dir())
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
 }
 
 fn place(label: &str, path: &Path, kind: &str) -> serde_json::Value {
@@ -83,7 +92,11 @@ fn place(label: &str, path: &Path, kind: &str) -> serde_json::Value {
 /// Home plus its Desktop / Documents / Downloads, each only when present.
 fn user_places(home: &Path, prefix: &str, out: &mut Vec<serde_json::Value>) {
     out.push(place(&format!("{prefix}홈"), home, "home"));
-    for (sub, label) in [("Desktop", "바탕 화면"), ("Documents", "문서"), ("Downloads", "다운로드")] {
+    for (sub, label) in [
+        ("Desktop", "바탕 화면"),
+        ("Documents", "문서"),
+        ("Downloads", "다운로드"),
+    ] {
         let dir = home.join(sub);
         if dir.is_dir() {
             out.push(place(&format!("{prefix}{label}"), &dir, "folder"));
@@ -100,7 +113,10 @@ pub(crate) fn windows_profiles(users_root: &Path) -> Vec<PathBuf> {
             read.flatten()
                 .map(|e| e.path())
                 .filter(|p| {
-                    let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+                    let name = p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_lowercase())
+                        .unwrap_or_default();
                     !skip.contains(&name.as_str()) && p.join("Desktop").is_dir()
                 })
                 .collect()
@@ -118,8 +134,14 @@ pub(crate) fn places_json(home: Option<PathBuf>, wsl: bool, mnt: &Path) -> Strin
         }
         for letter in b'a'..=b'z' {
             let root = mnt.join((letter as char).to_string());
-            if std::fs::read_dir(&root).map(|mut r| r.next().is_some()).unwrap_or(false) {
-                let label = format!("Windows {}: 드라이브", (letter as char).to_ascii_uppercase());
+            if std::fs::read_dir(&root)
+                .map(|mut r| r.next().is_some())
+                .unwrap_or(false)
+            {
+                let label = format!(
+                    "Windows {}: 드라이브",
+                    (letter as char).to_ascii_uppercase()
+                );
                 places.push(place(&label, &root, "drive"));
             }
         }
@@ -128,7 +150,11 @@ pub(crate) fn places_json(home: Option<PathBuf>, wsl: bool, mnt: &Path) -> Strin
         user_places(&home, if wsl { "Linux " } else { "" }, &mut places);
     }
     for root in drive_roots() {
-        let label = if cfg!(windows) { format!("{} 드라이브", root.trim_end_matches('\\')) } else { "루트 (/)".into() };
+        let label = if cfg!(windows) {
+            format!("{} 드라이브", root.trim_end_matches('\\'))
+        } else {
+            "루트 (/)".into()
+        };
         places.push(place(&label, Path::new(&root), "drive"));
     }
     serde_json::json!({"ok": true, "wsl": wsl, "places": places}).to_string()
@@ -153,8 +179,14 @@ mod tests {
     fn folder_names_reject_separators_traversal_and_reserved_words() {
         assert_eq!(validate_folder_name("  case-001 "), Ok("case-001"));
         assert_eq!(validate_folder_name("사건 2026"), Ok("사건 2026"));
-        for bad in ["", "   ", ".", "..", "a/b", r"a\b", "c:", "x?", "end.", "CON", "nul.txt", "Com3", "a\u{7}"] {
-            assert!(validate_folder_name(bad).is_err(), "{bad:?} must be refused");
+        for bad in [
+            "", "   ", ".", "..", "a/b", r"a\b", "c:", "x?", "end.", "CON", "nul.txt", "Com3",
+            "a\u{7}",
+        ] {
+            assert!(
+                validate_folder_name(bad).is_err(),
+                "{bad:?} must be refused"
+            );
         }
         assert!(validate_folder_name(&"가".repeat(121)).is_err());
     }
@@ -169,7 +201,10 @@ mod tests {
         assert!(dup.contains("이미"), "{dup}");
         let missing = make_folder(&dir.join("없음").display().to_string(), "x").unwrap_err();
         assert!(missing.contains("상위 폴더"), "{missing}");
-        assert!(!dir.join("없음").exists(), "missing parents are never created");
+        assert!(
+            !dir.join("없음").exists(),
+            "missing parents are never created"
+        );
         assert!(make_folder(&dir.display().to_string(), "../escape").is_err());
         assert!(make_folder(r"\\evil\share", "x").is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -185,18 +220,39 @@ mod tests {
         std::fs::create_dir_all(mnt.join("c/Users/Public/Desktop")).unwrap();
         std::fs::create_dir_all(mnt.join("d")).unwrap(); // empty: not mounted
 
-        let body: serde_json::Value = serde_json::from_str(&places_json(Some(home.clone()), true, &mnt)).unwrap();
-        let labels: Vec<String> = body["places"].as_array().unwrap().iter()
-            .map(|p| p["label"].as_str().unwrap().to_string()).collect();
+        let body: serde_json::Value =
+            serde_json::from_str(&places_json(Some(home.clone()), true, &mnt)).unwrap();
+        let labels: Vec<String> = body["places"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["label"].as_str().unwrap().to_string())
+            .collect();
         assert_eq!(body["wsl"], true);
-        assert!(labels.contains(&"Windows 바탕 화면".to_string()), "{labels:?}");
-        assert!(labels.contains(&"Windows C: 드라이브".to_string()), "{labels:?}");
-        assert!(!labels.iter().any(|l| l.starts_with("Windows D:")), "empty mount point skipped: {labels:?}");
+        assert!(
+            labels.contains(&"Windows 바탕 화면".to_string()),
+            "{labels:?}"
+        );
+        assert!(
+            labels.contains(&"Windows C: 드라이브".to_string()),
+            "{labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|l| l.starts_with("Windows D:")),
+            "empty mount point skipped: {labels:?}"
+        );
         assert!(labels.contains(&"Linux 다운로드".to_string()), "{labels:?}");
-        assert!(!labels.contains(&"Linux 문서".to_string()), "absent folders skipped");
-        assert_eq!(windows_profiles(&mnt.join("c/Users")), vec![mnt.join("c/Users/kim")]);
+        assert!(
+            !labels.contains(&"Linux 문서".to_string()),
+            "absent folders skipped"
+        );
+        assert_eq!(
+            windows_profiles(&mnt.join("c/Users")),
+            vec![mnt.join("c/Users/kim")]
+        );
 
-        let plain: serde_json::Value = serde_json::from_str(&places_json(Some(home), false, &mnt)).unwrap();
+        let plain: serde_json::Value =
+            serde_json::from_str(&places_json(Some(home), false, &mnt)).unwrap();
         assert_eq!(plain["places"][0]["label"], "홈");
         let _ = std::fs::remove_dir_all(&root);
     }

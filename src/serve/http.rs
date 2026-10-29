@@ -12,8 +12,8 @@ use crate::util::{
 pub(crate) const MAX_BODY: usize = 4 * 1024 * 1024;
 
 /// SEC-06: `/api/capture-frame` carries a base64 canvas JPEG (quality
-/// 0.92). A 4K frame is 3-5 MB of JPEG, i.e. up to ~7 MB of base64 — more
-/// than [`MAX_BODY`] — so that one route gets a larger request cap.
+/// 0.92). A 4K frame is 3-5 MB of JPEG, i.e. up to ~7 MB of base64 ??more
+/// than [`MAX_BODY`] ??so that one route gets a larger request cap.
 pub(crate) const MAX_CAPTURE_FRAME_BODY: usize = 16 * 1024 * 1024;
 
 /// Request-body cap for a route (decided from the request line, before any
@@ -33,14 +33,14 @@ pub(crate) const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// R5-S7: connections that may sit in the unauthenticated header phase at
 /// once, server-wide. R4-B12 counted them per peer ADDRESS, but every
-/// local process — the examiner's own page included — is 127.0.0.1, so
+/// local process ??the examiner's own page included ??is 127.0.0.1, so
 /// the per-peer cap of 16 was in effect a global cap that a burst of the
 /// viewer's own parallel requests (thumbnails, records pages) could hit
 /// and get 503 for. The header phase is short for a real client; only a
 /// slow-drip client stays in it, for at most [`HEADER_READ_TIMEOUT`].
 pub(crate) const MAX_PREAUTH: usize = 48;
 
-/// R5-S7: authenticated requests in flight at once — a separate pool, so
+/// R5-S7: authenticated requests in flight at once ??a separate pool, so
 /// unauthenticated connections (up to [`MAX_PREAUTH`]) can never use up
 /// the slots of requests that already proved the token / nonce.
 pub(crate) const MAX_AUTHED: usize = 64;
@@ -173,7 +173,7 @@ pub(crate) fn http_auth_class(method: &str, token_configured: bool) -> HttpAuthC
 /// refusal code (403 cross-origin/rebinding, 401 missing proof).
 ///
 /// Without a configured token, mutating requests must present the
-/// per-instance nonce — planted as a SameSite=Strict ft_nonce cookie on
+/// per-instance nonce ??planted as a SameSite=Strict ft_nonce cookie on
 /// page loads, so same-origin fetches carry it while cross-site forms and
 /// clients that never learned it are refused. Scripts read the nonce from
 /// the ft_nonce cookie a GET / plants or from the user-private instance
@@ -327,7 +327,7 @@ pub(crate) fn handle_connection_with(
     // C2: cookies are scoped by host, not by port, so the auth cookies are
     // named after the port this server listens on.
     let port = stream.local_addr().ok().map(|addr| addr.port());
-    // R4-B2: `GET /?launch=<code>` is its own gate — a valid one-time code
+    // R4-B2: `GET /?launch=<code>` is its own gate ??a valid one-time code
     // plants the auth cookie and redirects to `/`.
     if request.method == "GET"
         && request.path == "/"
@@ -345,7 +345,7 @@ pub(crate) fn handle_connection_with(
         return result;
     }
     // S3: Origin/Host, token and nonce live in the header block, so the
-    // gate runs before a single body byte is read — an unauthenticated
+    // gate runs before a single body byte is read ??an unauthenticated
     // client can no longer make the server buffer a 16 MiB body first.
     let authorized = authorize_on(&request, token.as_deref(), &instance, port);
     // R5-S7: an authorized request moves to its own pool BEFORE leaving
@@ -393,6 +393,11 @@ pub(crate) fn handle_connection_with(
     }
     if request.method == "GET" && request.path == "/media" {
         let result = serve_media(&mut stream, &request, &state);
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        return result;
+    }
+    if request.method == "GET" && request.path == "/api/thumb" {
+        let result = serve_thumb(&mut stream, &request, &state);
         let _ = stream.shutdown(std::net::Shutdown::Write);
         return result;
     }
@@ -685,7 +690,7 @@ pub(crate) fn json_string(value: &str) -> String {
 /// authority (host *and* port) must equal the Host authority: a page served
 /// by some other localhost port (a dev server, another local tool) is a
 /// different origin and must not drive this workstation with the examiner's
-/// cookies (Windows review item 7). Host is then mandatory — without it the
+/// cookies (Windows review item 7). Host is then mandatory ??without it the
 /// comparison cannot be made.
 pub(crate) fn request_is_localhost_trusted(request: &Request) -> bool {
     if let Some(origin) = request.origin.as_deref() {
@@ -746,7 +751,7 @@ pub(crate) fn origin_authority_host(authority: &str) -> Option<String> {
 }
 
 /// `(lowercase host, port)` of an `http` authority (`host[:port]`, IPv6 in
-/// brackets — returned without them). A missing port normalizes to 80, the
+/// brackets ??returned without them). A missing port normalizes to 80, the
 /// http default, so `Origin: http://127.0.0.1` matches `Host: 127.0.0.1`.
 pub(crate) fn authority_host_port(authority: &str) -> Option<(String, u16)> {
     // Origins are `scheme://host[:port]`; a path tail is cut off and any
@@ -780,26 +785,26 @@ pub(crate) fn authority_host_port(authority: &str) -> Option<(String, u16)> {
 }
 
 /// Refusal text for a network (UNC) or device-namespace path.
-pub(crate) const REMOTE_PATH_ERROR: &str = "네트워크(UNC)·장치 경로는 허용되지 않습니다 — 로컬 드라이브 경로를 사용하십시오. / UNC and device paths are refused.";
+pub(crate) const REMOTE_PATH_ERROR: &str = "?ㅽ듃?뚰겕(UNC)쨌?μ튂 寃쎈줈???덉슜?섏? ?딆뒿?덈떎 ??濡쒖뺄 ?쒕씪?대툕 寃쎈줈瑜??ъ슜?섏떗?쒖삤. / UNC and device paths are refused.";
 
 /// Windows review item 8: a user-supplied path that names a network share
-/// (`\\server\share`, `//server/share`, `\\?\UNC\…`) or the device
-/// namespace (`\\.\…`, `\\?\GLOBALROOT…`, `\??\…`) must be refused BEFORE
-/// any filesystem call — merely `canonicalize`/`metadata` on a UNC path
+/// (`\\server\share`, `//server/share`, `\\?\UNC\??) or the device
+/// namespace (`\\.\??, `\\?\GLOBALROOT??, `\??\??) must be refused BEFORE
+/// any filesystem call ??merely `canonicalize`/`metadata` on a UNC path
 /// makes Windows open an SMB session and hand the examiner's NTLM
 /// credentials to whatever host the path names, and those GET routes are
-/// reachable from any web page (e.g. `<img src=…/media?path=\\evil\x>`).
+/// reachable from any web page (e.g. `<img src=??media?path=\\evil\x>`).
 ///
 /// Exceptions:
 /// - an approved root that is itself UNC admits paths under that exact
 ///   share prefix (case-insensitive, component boundary, no `..`);
-/// - the verbatim local-drive form `\\?\C:\…` (what `canonicalize` returns
+/// - the verbatim local-drive form `\\?\C:\?? (what `canonicalize` returns
 ///   on Windows) stays allowed: it never leaves the machine.
 ///
 /// The check is textual and platform-independent, so it holds on every OS.
 ///
 /// Policy (which routes use this vs. [`reject_device_path`]): the SMB/NTLM
-/// leak vector is a cross-origin GET — `<img>`/`<video>` send no Origin
+/// leak vector is a cross-origin GET ??`<img>`/`<video>` send no Origin
 /// header, so any web page can make the browser issue one. Every GET route
 /// therefore refuses UNC unless it lies under an approved UNC root. The
 /// POST routes where the examiner types a source/case path
@@ -812,7 +817,7 @@ pub(crate) const REMOTE_PATH_ERROR: &str = "네트워크(UNC)·장치 경로는 
 /// with `/` is never remote there.
 ///
 /// S2: on Windows a component that names a reserved DOS device (`CON`,
-/// `NUL`, `COM1`, `LPT1`, … — also with an extension, `nul.txt`) is
+/// `NUL`, `COM1`, `LPT1`, ????also with an extension, `nul.txt`) is
 /// refused too: `C:\x\COM1` opens the serial port, and a `metadata` /
 /// `read` on it can block a handler thread for good.
 pub(crate) fn reject_remote_path(
@@ -858,8 +863,8 @@ pub(crate) fn reject_remote_path_on(
 
 /// Lenient form of [`reject_remote_path`] for the POST routes where the
 /// examiner explicitly types a path ([`route_admits_typed_unc`]): a
-/// well-formed UNC share path (`\\server\share\…`, `//server/share/…`,
-/// `\\?\UNC\server\share\…`, no `.`/`..` components) is admitted;
+/// well-formed UNC share path (`\\server\share\??, `//server/share/??,
+/// `\\?\UNC\server\share\??, no `.`/`..` components) is admitted;
 /// device-namespace and malformed remote paths are still refused.
 pub(crate) fn reject_device_path(raw: &str) -> Result<(), &'static str> {
     reject_device_path_on(raw, cfg!(windows))
@@ -883,11 +888,11 @@ pub(crate) fn reject_device_path_on(raw: &str, windows: bool) -> Result<(), &'st
 }
 
 /// Refusal text for a path naming a reserved Windows device (S2).
-pub(crate) const RESERVED_DEVICE_ERROR: &str = "Windows 예약 장치 이름(CON·PRN·AUX·NUL·COM0–9·LPT0–9 등)이 들어간 경로는 허용되지 않습니다. / Paths naming a reserved Windows device are refused.";
+pub(crate) const RESERVED_DEVICE_ERROR: &str = "Windows ?덉빟 ?μ튂 ?대쫫(CON쨌PRN쨌AUX쨌NUL쨌COM0??쨌LPT0?? ?????ㅼ뼱媛?寃쎈줈???덉슜?섏? ?딆뒿?덈떎. / Paths naming a reserved Windows device are refused.";
 
 /// Routes whose path fields may name a UNC share the examiner typed (see
 /// the policy on [`reject_remote_path`]). Only same-origin, nonce-gated
-/// POSTs qualify — never a GET.
+/// POSTs qualify ??never a GET.
 pub(crate) fn route_admits_typed_unc(method: &str, path: &str) -> bool {
     matches!(
         (method, path),
@@ -910,7 +915,7 @@ pub(crate) fn approved_path_roots(state: &SharedState) -> Vec<PathBuf> {
 
 /// Request fields that carry a filesystem path, per route. Checked in
 /// [`handle_connection_timed`] before the request is routed, so even
-/// handlers outside this file (`/api/open-folder` → `resolve_open_folder`)
+/// handlers outside this file (`/api/open-folder` ??`resolve_open_folder`)
 /// never reach `canonicalize` with a UNC path. Handlers in system.rs /
 /// media.rs repeat the check themselves (defense in depth). Routes listed
 /// in [`route_admits_typed_unc`] get the lenient check (typed UNC shares
@@ -918,16 +923,18 @@ pub(crate) fn approved_path_roots(state: &SharedState) -> Vec<PathBuf> {
 pub(crate) fn path_fields_for(method: &str, path: &str) -> &'static [(bool, &'static str)] {
     // (from_query, field)
     match (method, path) {
-        ("GET", "/media") => &[(true, "path")],
+        ("GET", "/media" | "/api/thumb") => &[(true, "path")],
         ("GET", "/api/browse") => &[(true, "path")],
         ("GET", "/api/case-info") => &[(true, "case_dir")],
         ("POST", "/api/open-case") => &[(false, "case_dir")],
         ("POST", "/api/open-folder") => &[(false, "path")],
         ("POST", "/api/mkdir") => &[(false, "parent")],
         ("POST", "/api/preflight" | "/api/start") => &[(false, "source_path"), (false, "case_dir")],
-        ("POST", "/api/export-clip" | "/api/telemetry" | "/api/proxy") => &[(false, "path")],
+        ("POST", "/api/export-clip" | "/api/telemetry" | "/api/proxy" | "/api/repair-video") => {
+            &[(false, "path")]
+        }
         ("POST", "/api/advanced") => &[(false, "extra")],
-        // Join and sound measurement take indexed ids only — never a path
+        // Join and sound measurement take indexed ids only ??never a path
         // (the CLI resolves sources from the case index).
         ("POST", "/api/join-check" | "/api/join" | "/api/audio-measure") => &[],
         _ => &[],
@@ -990,8 +997,8 @@ pub(crate) enum AuthProof {
 }
 
 /// C2: name of an auth cookie (`ft_token` / `ft_nonce`) for the server on
-/// `port`. Browsers scope cookies by host only — a `Path=/` cookie set by
-/// 127.0.0.1:8478 replaces the one 127.0.0.1:8477 planted — so two
+/// `port`. Browsers scope cookies by host only ??a `Path=/` cookie set by
+/// 127.0.0.1:8478 replaces the one 127.0.0.1:8477 planted ??so two
 /// workstation instances side by side overwrote each other's proof and
 /// answered each other's pages with intermittent 401s. Each server plants
 /// `ft_token_<port>` / `ft_nonce_<port>`. `None` (no listening port known,
@@ -1006,7 +1013,7 @@ pub(crate) fn auth_cookie_name(base: &str, port: Option<u16>) -> String {
 /// Whether the Cookie header carries `base` for `port` with a value equal
 /// to `secret`. The per-port name is checked; the legacy unsuffixed name
 /// (planted by builds before C2) is accepted for one release as a
-/// fallback — only when its value validates, so another instance's stale
+/// fallback ??only when its value validates, so another instance's stale
 /// legacy cookie can never stand in for this one's.
 pub(crate) fn auth_cookie_matches(
     cookie_header: Option<&str>,
@@ -1026,7 +1033,7 @@ pub(crate) fn auth_cookie_matches(
 
 /// Checks the optional shared-secret gate. A valid `?token=` query value
 /// authenticates *and* asks the caller to plant the `ft_token_<port>`
-/// cookie — page-initiated fetches (video elements, fetch() without
+/// cookie ??page-initiated fetches (video elements, fetch() without
 /// headers) can only carry cookies, not custom headers.
 #[cfg(test)]
 pub(crate) fn request_authorized(request: &Request, token: &str) -> AuthProof {
@@ -1088,7 +1095,7 @@ pub(crate) fn launch_redirect_target(query: &str) -> String {
 }
 
 /// R6-S3: the `200` page a launch request answers with: it replaces itself
-/// (`location.replace`, keeping the address-bar hash) with `target` — a
+/// (`location.replace`, keeping the address-bar hash) with `target` ??a
 /// same-origin path from [`launch_redirect_target`]. `<noscript>` falls
 /// back to a meta refresh, plus a plain link. `no-store`, no referrer.
 pub(crate) fn launch_step_page(target: &str) -> Vec<u8> {
@@ -1096,7 +1103,7 @@ pub(crate) fn launch_step_page(target: &str) -> Vec<u8> {
         crate::util::script_json_value(&serde_json::Value::String(target.to_string()));
     let safe = crate::util::html_escape(target);
     let body = format!(
-        "<!doctype html>\n<html lang=\"ko\"><head><meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>FrameTrace</title>\n<noscript><meta http-equiv=\"refresh\" content=\"0;url={safe}\"></noscript>\n</head><body><p>FrameTrace 워크스테이션을 여는 중… / Opening the FrameTrace workstation…</p>\n<p><a href=\"{safe}\">열리지 않으면 여기를 누르십시오 / click here if nothing happens</a></p>\n<script>location.replace({script_target} + location.hash);</script>\n</body></html>\n"
+        "<!doctype html>\n<html lang=\"ko\"><head><meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>FrameTrace</title>\n<noscript><meta http-equiv=\"refresh\" content=\"0;url={safe}\"></noscript>\n</head><body><p>FrameTrace ?뚰겕?ㅽ뀒?댁뀡???щ뒗 以묅?/ Opening the FrameTrace workstation??/p>\n<p><a href=\"{safe}\">?대━吏 ?딆쑝硫??ш린瑜??꾨Ⅴ??떆??/ click here if nothing happens</a></p>\n<script>location.replace({script_target} + location.hash);</script>\n</body></html>\n"
     );
     respond(
         200,
@@ -1108,7 +1115,7 @@ pub(crate) fn launch_step_page(target: &str) -> Vec<u8> {
 }
 
 /// R4-B2: answer to `GET /?launch=<code>`.
-/// - valid, unexpired, unused code → a same-origin step page
+/// - valid, unexpired, unused code ??a same-origin step page
 ///   ([`launch_step_page`], R6-S3) to `/` with the `ft_token_<port>`
 ///   cookie (the code is consumed: single use);
 /// - otherwise, a request that already proves the token (cookie/header)
@@ -1127,13 +1134,13 @@ pub(crate) fn launch_response(
     }
     // R5 (contract with U14): the redirect drops `launch` (and any
     // `token`) but keeps every other query parameter, so a launch URL such
-    // as `/?launch=…&case=…` still lands where it pointed.
+    // as `/?launch=??case=?? still lands where it pointed.
     let target = launch_redirect_target(&request.query);
     // R6-S3: a same-origin HTML step instead of `303`. A launch URL opened
     // from a `file://` launch page (Linux/macOS) or another site is a
     // cross-site navigation, and a redirect keeps that chain cross-site:
     // the browser stored the `SameSite=Strict` token cookie but did not
-    // send it with the redirected `GET /` → 401. A navigation the
+    // send it with the redirected `GET /` ??401. A navigation the
     // workstation's own page starts is same-site, so the cookie goes.
     let redirect = || launch_step_page(&target);
     let (token, valid) = {
@@ -1155,7 +1162,7 @@ pub(crate) fn launch_response(
     respond(
         401,
         "text/html; charset=utf-8",
-        "<!doctype html><meta charset=\"utf-8\"><title>FrameTrace</title><p>실행 링크가 만료되었거나 이미 사용되었습니다. FrameTrace를 다시 실행하면 새 링크로 열립니다.</p><p>This launch link expired or was already used; start FrameTrace again.</p>"
+        "<!doctype html><meta charset=\"utf-8\"><title>FrameTrace</title><p>?ㅽ뻾 留곹겕媛 留뚮즺?섏뿀嫄곕굹 ?대? ?ъ슜?섏뿀?듬땲?? FrameTrace瑜??ㅼ떆 ?ㅽ뻾?섎㈃ ??留곹겕濡??대┰?덈떎.</p><p>This launch link expired or was already used; start FrameTrace again.</p>"
             .as_bytes()
             .to_vec(),
         "no-store",
@@ -1199,7 +1206,7 @@ pub(crate) fn instance_fingerprint(instance: &str) -> String {
 
 /// Inserts the `ft_nonce_<port>` cookie so the served page's same-origin
 /// fetches carry the instance proof automatically. SameSite=Strict keeps
-/// it off cross-site form POSTs — the request then fails the nonce gate.
+/// it off cross-site form POSTs ??the request then fails the nonce gate.
 pub(crate) fn set_nonce_cookie(response: &mut Vec<u8>, nonce: &str, port: Option<u16>) {
     let name = auth_cookie_name("ft_nonce", port);
     let header = format!("Set-Cookie: {name}={nonce}; HttpOnly; SameSite=Strict; Path=/\r\n");
@@ -1294,7 +1301,7 @@ fn is_thumbnail_path(case_dir: &Path, path: &Path) -> bool {
 }
 
 /// Serves a file under the case directory. Responses are streamed in 64 KiB
-/// chunks rather than read fully into memory — case artifacts (reports,
+/// chunks rather than read fully into memory ??case artifacts (reports,
 /// exported bundles) can be large, and the buffered version multiplied
 /// memory use by the concurrent-request count. Thumbnails carry a strong
 /// ETag (304 on a matching `If-None-Match`); a `?v=` content-addressed URL
@@ -1339,13 +1346,13 @@ pub(crate) fn serve_case_file_with(
     let mut total = meta.len();
     // R5-S2: a script under the case folder runs in the workstation origin
     // when a trusted page loads it (`review/data-bundle.js`), so its bytes
-    // must be pinned in the same HMAC'd manifest as the pages — an edited
+    // must be pinned in the same HMAC'd manifest as the pages ??an edited
     // or planted script is refused outright (a page's hash says nothing
     // about the sibling file it loads). R4-B5: a page at a generated
     // location is trusted only when the manifest lists its exact bytes;
     // an unlisted one renders sandboxed (no script).
     // R6-S7 / R7-S2: what is served under the trusted answer is exactly
-    // what was verified — see [`verify_for_serving`].
+    // what was verified ??see [`verify_for_serving`].
     let is_script = is_script_path(&path);
     let is_page = !is_script && is_generated_page(&case_dir, &path);
     let head_only = HEAD_ONLY.with(std::cell::Cell::get);
@@ -1503,11 +1510,11 @@ fn sha256_bytes(bytes: &[u8]) -> [u8; 32] {
     sha2::Sha256::digest(bytes).into()
 }
 
-/// R7-S2: a file's identity as far as the platform tells it — size,
+/// R7-S2: a file's identity as far as the platform tells it ??size,
 /// modification time, file id (volume + index / device + inode) and
 /// change time (ctime / NTFS `ChangeTime`, updated by every write).
 ///
-/// R8-S2: NOT proof that the bytes are unchanged — NTFS `ChangeTime` is
+/// R8-S2: NOT proof that the bytes are unchanged ??NTFS `ChangeTime` is
 /// settable with `SetFileInformationByHandle(FileBasicInfo)`, so a
 /// same-size rewrite can restore the whole identity. It only detects a
 /// change DURING one verification or transfer, and answers HEAD (no body)
@@ -1596,8 +1603,8 @@ struct CachedVerdict {
 /// Most cached verdicts kept (the map is cleared when it is full).
 const VERIFY_CACHE_MAX: usize = 512;
 
-/// R7-S2: verdicts by canonical path. Its own lock — never `state_lock`
-/// — and held only for the map operation, never during disk work.
+/// R7-S2: verdicts by canonical path. Its own lock ??never `state_lock`
+/// ??and held only for the map operation, never during disk work.
 fn verify_cache() -> &'static Mutex<std::collections::HashMap<PathBuf, CachedVerdict>> {
     static CACHE: std::sync::OnceLock<Mutex<std::collections::HashMap<PathBuf, CachedVerdict>>> =
         std::sync::OnceLock::new();
@@ -1748,8 +1755,7 @@ pub(crate) fn verify_for_serving(
             body: VerifiedBody::Memory(bytes),
         };
     }
-    // R8-S2: a GET always hashes the file before its first byte is sent —
-    // the cached verdict is never a shortcut for content. Its identity
+    // R8-S2: a GET always hashes the file before its first byte is sent ??    // the cached verdict is never a shortcut for content. Its identity
     // (size, mtime, file id, change time) can be forged: NTFS `ChangeTime`
     // is settable through `SetFileInformationByHandle`, so a same-size
     // rewrite with every timestamp restored matched the cache, and the
@@ -1894,7 +1900,7 @@ pub(crate) fn stream_verified(
         ))
     };
     // R10-S9: the open handle pins the file (on Windows nothing can
-    // rename or replace it meanwhile — a regenerated review bundle, an
+    // rename or replace it meanwhile ??a regenerated review bundle, an
     // `_INCOMPLETE` package rename). A client that keeps reading just
     // enough to beat the 60 s per-write timeout held it for hours; the
     // whole transfer now has a deadline from its size, and each write may
@@ -2031,7 +2037,7 @@ thread_local! {
 }
 
 /// Writes exactly `remaining` bytes from `reader` to `stream` in bounded
-/// chunks — the shared transfer loop for media ranges and case files.
+/// chunks ??the shared transfer loop for media ranges and case files.
 pub(crate) fn stream_body(
     stream: &mut TcpStream,
     reader: &mut impl Read,
@@ -2065,7 +2071,7 @@ pub(crate) fn path_is_under(root: &Path, candidate: &Path) -> bool {
     };
     // Component-wise comparison on canonicalized paths: both sides resolve
     // to the filesystem's real casing, so the prefix check is exact. The
-    // old case-folded string compare treated `CASE/` as `case/` — on a
+    // old case-folded string compare treated `CASE/` as `case/` ??on a
     // case-sensitive filesystem that is a *different* directory, i.e. a
     // containment bypass.
     candidate.starts_with(&root_canonical)
@@ -2096,7 +2102,7 @@ pub(crate) fn is_active_document(path: &Path) -> bool {
     )
 }
 
-/// SEC-02: true only for HTML pages FrameTrace itself generates — the
+/// SEC-02: true only for HTML pages FrameTrace itself generates ??the
 /// review viewer (`review/*.html`), report pages (`reports/**.html`) and
 /// the same two locations inside a finalized `reports/package_*/` copy.
 /// Everything else under the case (extracted evidence, carved/recovered
@@ -2138,7 +2144,7 @@ pub(crate) fn is_generated_page(case_dir: &Path, canonical: &Path) -> bool {
 }
 
 /// R4-B5: headers for a page at a generated location whose bytes the
-/// manifest does not vouch for — rendered inline but sandboxed (opaque
+/// manifest does not vouch for ??rendered inline but sandboxed (opaque
 /// origin, no script), so it can neither run code nor reach the APIs.
 pub(crate) const UNVERIFIED_PAGE_HEADERS: &str = "Content-Security-Policy: sandbox; default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'; frame-ancestors 'self'\r\n";
 
@@ -2235,6 +2241,20 @@ pub(crate) fn serve_media(
         return write_simple(stream, 400, reason.as_bytes());
     }
     let candidate = PathBuf::from(&raw_path);
+    // A live video of an inspected image is indexed before it is read: the
+    // first request for it copies that one file out of the image (only
+    // listed files of the bound case qualify ??never an arbitrary path).
+    let case_dir = state_lock(state).case_dir.clone();
+    if !candidate.is_file()
+        && let Some(case_dir) = case_dir.as_deref()
+        && let Err(err) = crate::lazy_extract::ensure_materialized(case_dir, &candidate)
+    {
+        return write_simple(
+            stream,
+            502,
+            format!("?대?吏?먯꽌 ?곸긽???쎌? 紐삵뻽?듬땲?? {err}").as_bytes(),
+        );
+    }
     let canonical = match candidate.canonicalize() {
         Ok(path) => path,
         Err(_) => return write_simple(stream, 404, b"media not found"),
@@ -2276,8 +2296,8 @@ pub(crate) fn serve_media(
     if file.seek(SeekFrom::Start(start)).is_err() {
         return write_simple(stream, 500, b"seek failed");
     }
-    // R5-S2: evidence is never served with a script MIME type — with
-    // `nosniff`, `<script src="/media?path=…evil.js">` is then refused by
+    // R5-S2: evidence is never served with a script MIME type ??with
+    // `nosniff`, `<script src="/media?path=?쫊vil.js">` is then refused by
     // the browser instead of running in the workstation origin.
     let media_type = if is_script_path(&canonical) {
         "application/octet-stream"
@@ -2307,6 +2327,144 @@ pub(crate) fn serve_media(
         .map_err(|err| format!("write failed: {err}"))?;
     let mut reader = file;
     stream_body(stream, &mut reader, length)
+}
+
+/// Thumbnails made on request: at most this many at once (each one may
+/// first read its video out of the image).
+const MAX_THUMBS_AT_ONCE: usize = 2;
+
+/// Sources whose on-request thumbnail is being made, so two requests for
+/// one video never share a part file and the image is not read twice.
+fn thumbs_in_flight() -> &'static (
+    Mutex<std::collections::HashSet<PathBuf>>,
+    std::sync::Condvar,
+) {
+    static IN_FLIGHT: std::sync::OnceLock<(
+        Mutex<std::collections::HashSet<PathBuf>>,
+        std::sync::Condvar,
+    )> = std::sync::OnceLock::new();
+    IN_FLIGHT.get_or_init(Default::default)
+}
+
+/// `GET /api/thumb?path=`: one frame of a video as a JPEG, for the grid
+/// cards the review bundle has no thumbnail for ??a live video of an
+/// inspected image (indexed, not read yet) or a deleted-video candidate.
+/// The viewer asks only for the cards on screen; the video is read out of
+/// the image like a playback would ([`crate::lazy_extract`]) and the frame
+/// is kept in `review/thumbs/lazy-<path hash>.jpg` for the next request.
+pub(crate) fn serve_thumb(
+    stream: &mut TcpStream,
+    request: &Request,
+    state: &SharedState,
+) -> Result<(), String> {
+    let Some(raw_path) = query_value(&request.query, "path") else {
+        return write_simple(stream, 400, b"missing path");
+    };
+    let (roots, case_dir) = {
+        let guard = state_lock(state);
+        (guard.media_roots.clone(), guard.case_dir.clone())
+    };
+    let Some(case_dir) = case_dir else {
+        return write_simple(stream, 409, b"no case open");
+    };
+    if let Err(reason) = reject_remote_path(&raw_path, &roots) {
+        return write_simple(stream, 400, reason.as_bytes());
+    }
+    let candidate = PathBuf::from(&raw_path);
+    let key = crate::lazy_extract::path_key(&candidate);
+    let digest = crate::sha256::digest_bytes(key.as_bytes());
+    let thumb = case_dir
+        .join("review/thumbs")
+        .join(format!("lazy-{}.jpg", &digest[..16]));
+    let (lock, ready) = thumbs_in_flight();
+    {
+        let mut busy = lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        while busy.contains(&candidate) || busy.len() >= MAX_THUMBS_AT_ONCE {
+            busy = ready
+                .wait(busy)
+                .unwrap_or_else(|poison| poison.into_inner());
+        }
+        busy.insert(candidate.clone());
+    }
+    let made = make_thumb(&case_dir, &roots, &candidate, &thumb);
+    lock.lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .remove(&candidate);
+    ready.notify_all();
+    match made.and_then(|()| std::fs::read(&thumb).map_err(|err| err.to_string())) {
+        Ok(bytes) => {
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nCache-Control: private, max-age=86400\r\nX-Content-Type-Options: nosniff\r\n{REFERRER_POLICY}Connection: close\r\n\r\n",
+                bytes.len()
+            );
+            stream
+                .write_all(head.as_bytes())
+                .and_then(|_| stream.write_all(&bytes))
+                .map_err(|err| format!("write failed: {err}"))
+        }
+        Err(err) => write_simple(
+            stream,
+            502,
+            format!("?몃꽕?쇱쓣 留뚮뱾吏 紐삵뻽?듬땲?? {err}").as_bytes(),
+        ),
+    }
+}
+
+/// Reads `source` out of the image when needed (approved roots only) and
+/// writes its thumbnail to `thumb` unless a fresh one is there.
+fn make_thumb(
+    case_dir: &Path,
+    roots: &[PathBuf],
+    source: &Path,
+    thumb: &Path,
+) -> Result<(), String> {
+    if !source.is_file() {
+        crate::lazy_extract::ensure_materialized(case_dir, source)?;
+    }
+    let canonical = source
+        .canonicalize()
+        .map_err(|_| "media not found".to_string())?;
+    let allowed = roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| path_is_under(&root, &canonical));
+    if !allowed {
+        return Err("path outside approved roots".to_string());
+    }
+    let fresh = match (std::fs::metadata(&canonical), std::fs::metadata(thumb)) {
+        (Ok(source), Ok(thumb)) => match (source.modified(), thumb.modified()) {
+            (Ok(source), Ok(thumb)) => thumb >= source,
+            _ => false,
+        },
+        _ => false,
+    };
+    if fresh {
+        return Ok(());
+    }
+    if let Some(parent) = thumb.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let ffmpeg = crate::tool_policy::resolve_tool_binary("ffmpeg", &["ffmpeg"])
+        .map_err(|err| err.to_string())?;
+    let source_text = canonical.to_string_lossy().to_string();
+    // A frame a few seconds in shows the scene better than a black first
+    // frame; a clip shorter than that falls back to its start.
+    crate::video_export::extract_review_thumbnail(
+        Path::new(&ffmpeg),
+        &source_text,
+        thumb,
+        "3",
+        crate::video_export::REVIEW_THUMB_TIMEOUT_SECS,
+    )
+    .or_else(|_| {
+        crate::video_export::extract_review_thumbnail(
+            Path::new(&ffmpeg),
+            &source_text,
+            thumb,
+            "0",
+            crate::video_export::REVIEW_THUMB_TIMEOUT_SECS,
+        )
+    })
 }
 
 pub(crate) fn write_range_unsatisfiable(stream: &mut TcpStream, total: u64) -> Result<(), String> {
@@ -2339,7 +2497,7 @@ pub(crate) fn parse_range(value: &str, total: u64) -> Option<(u64, Option<u64>)>
     let (start_text, end_text) = value.split_once('-')?;
     if start_text.is_empty() {
         // Suffix range: the last N bytes. A zero or unparseable length is
-        // unsatisfiable per RFC 7233 — signal it via start >= total so the
+        // unsatisfiable per RFC 7233 ??signal it via start >= total so the
         // caller maps to 416.
         let suffix = end_text.parse::<u64>().ok()?;
         if suffix == 0 {
@@ -2397,9 +2555,9 @@ pub(crate) fn respond(
     bytes
 }
 
-/// R4-B13: anti-framing headers every HTML response carries — a CSP
+/// R4-B13: anti-framing headers every HTML response carries ??a CSP
 /// `frame-ancestors 'self'` (unless `existing` headers already set one)
-/// and the legacy `X-Frame-Options: SAMEORIGIN` for older engines — so no
+/// and the legacy `X-Frame-Options: SAMEORIGIN` for older engines ??so no
 /// other site can frame a workstation page (clickjacking the finalize or
 /// delete buttons).
 pub(crate) fn html_frame_headers(existing: &str) -> String {
@@ -2414,7 +2572,7 @@ pub(crate) fn html_frame_headers(existing: &str) -> String {
 }
 
 /// Percent-encodes a value for RFC 5986/5987 ext-value (`filename*=`).
-/// attr-char per RFC 5987 §3.2.1; everything else becomes %XX of the UTF-8
+/// attr-char per RFC 5987 짠3.2.1; everything else becomes %XX of the UTF-8
 /// byte sequence, so Korean and other non-ASCII names round-trip correctly.
 pub(crate) fn percent_encode_header_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
@@ -2570,7 +2728,7 @@ mod tests_origin_and_paths {
             "relative/a.mp4",
             r"\\?\C:\cases\a.mp4",
             // R21-S1: the root separator makes it the drive, not the
-            // volume device (`\\?\d:` is refused — tests_r21_server).
+            // volume device (`\\?\d:` is refused ??tests_r21_server).
             r"\\?\d:\",
             "",
         ] {

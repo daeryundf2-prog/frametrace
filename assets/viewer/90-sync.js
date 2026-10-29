@@ -2017,10 +2017,11 @@ ${rowHtml}
 });
 
 // 서버 측 자료 묶음 — 선택 파일을 exports/selection-*/ 에 해시 매니페스트와 함께 복사.
-document.getElementById("btnExportSelected").addEventListener("click", async () => {
+// 선택 막대의 '선택 영상 추출'과 내보내기 메뉴의 '선별 자료 묶기'가 같은 동작이다.
+document.getElementById("btnExportSelected").addEventListener("click", () => extractSelected(document.getElementById("btnExportSelected")));
+async function extractSelected(btn) {
   const selected = selectedRecords();
   if (!selected.length) { toast(t("toast.selectFirst")); return; }
-  const btn = document.getElementById("btnExportSelected");
   await withBusy(btn, async () => {
     const res = await viewerPost("/api/export-selected", { items: selected.map(exportItem) }, { contentType: "application/json" });
     if (!res.ok) {
@@ -2030,7 +2031,7 @@ document.getElementById("btnExportSelected").addEventListener("click", async () 
     toast(tf("toast.exportDone", { copied: res.copied, skipped: res.skipped, dir: res.export_dir }));
     viewerPost("/api/open-folder", { path: res.export_dir }, { contentType: "application/json" }).catch(() => {});
   }, { fail: () => t("toast.offline") });
-});
+}
 
 // --- 원본 파일 다운로드: /media?path&download=1이 Content-Disposition으로
 // 저장을 유도. file:// 스탠드얼론 번들에서는 서버가 없으므로 원본/프록시의

@@ -238,7 +238,7 @@ function passesRest(record, chip, query) {
   if (chip === "anomaly:unauth" && !record.hasUnauthAnomaly) return false;
   if (chip === "anomaly:pc" && !record.hasPcAnomaly) return false;
   if (chip === "warning" && !(record.warnings || []).length) return false;
-  if (chip === "kind:recovery" && record.kind !== "candidate" && record.kind !== "filesystem") return false;
+  if (chip === "kind:recovery" && record.kind !== "candidate" && record.kind !== "filesystem" && record.kind !== "repaired") return false;
   if (chip === "marked:any" && !state.marks[record.id] && !(state.tags[record.id] || []).length && !(state.notes[record.id] || "").trim()) return false;
   if (chip.startsWith("tag:")) {
     const tags = state.tags[record.id] || [];
@@ -309,7 +309,7 @@ function computeFilteredRecords() {
 function groupKeyFor(record) {
   switch (state.groupBy) {
     case "day": return record.recDay || t("group.noTime");
-    case "kind": return ({ video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined") })[record.kind] || record.kind;
+    case "kind": return ({ video: t("filter.kind.video"), carved: t("filter.kind.carved"), filesystem: t("filter.kind.filesystem"), candidate: t("filter.kind.candidate"), joined: t("filter.kind.joined"), repaired: t("filter.kind.repaired") })[record.kind] || record.kind;
     case "recType": return recTypeLabel(record.recType);
     case "status": return statusLabel(record.status);
     case "mark": return markOf(record) ? markLabel(markOf(record).status) : t("group.noMark");
@@ -925,6 +925,10 @@ function audioFlag(record) {
 // in 65-actions.js): render the placeholder straight away.
 const thumbRetried = new Set();
 const thumbDead = new Set();
+// On-request thumbnails (/api/thumb) that failed, by when: a candidate the
+// deleted-video scan has not finished with yet can be read a minute later.
+const lazyThumbFailedAt = new Map();
+const LAZY_THUMB_RETRY_MS = 60000;
 
 // R9 U1: the trust of one log entry shown next to it (details lists):
 // nothing for authenticated / legacy entries.
@@ -981,6 +985,11 @@ function thumbPending(record) {
   return (phase === "running" || phase === "review-partial") && record.kind !== "candidate" && record.status !== "validation-failed";
 }
 
+function lazyThumbUrl(record) {
+  if (!record.path || !/^https?:$/.test(location.protocol)) return "";
+  return "/api/thumb?path=" + encodeURIComponent(record.path);
+}
+
 function thumbHtml(record, displayName) {
   if (record.thumb && !thumbDead.has(record.thumb)) {
     return `<img src="${escapeHtml(record.thumb)}" alt="${escapeHtml(tf("thumb.alt", { name: displayName }))}" loading="lazy" decoding="async" fetchpriority="low">`;
@@ -989,12 +998,32 @@ function thumbHtml(record, displayName) {
   if (!record.thumb && thumbPending(record)) {
     return `<div class="ph pending" title="${escapeHtml(t("thumb.pendingTip"))}">${escapeHtml(t("thumb.pending"))}</div>`;
   }
+  // No thumbnail in the bundle (a video of an image not read yet, a deleted
+  // video candidate): the server makes one when the card scrolls into view.
+  const lazy = lazyThumbUrl(record);
+  if (lazy && !(Date.now() - (lazyThumbFailedAt.get(lazy) || 0) < LAZY_THUMB_RETRY_MS)) {
+    return `<img src="${escapeHtml(lazy)}" alt="${escapeHtml(tf("thumb.alt", { name: displayName }))}" loading="lazy" decoding="async" fetchpriority="low">`;
+  }
   // A URL that failed (twice) can be retried; a record that never had a
   // thumbnail has nothing to retry.
   const retry = record.thumb
     ? `<button type="button" class="quiet" data-thumb-retry="${escapeHtml(record.thumb)}" title="${escapeHtml(t("thumb.retryTip"))}">${escapeHtml(t("thumb.retry"))}</button>`
     : "";
   return `<div class="ph"><span>${t("thumb.missing")}</span>${retry}</div>`;
+}
+
+// Deleted-video triage grade (src/recovery_scan.rs): whether a live file
+// reuses the candidate's units now, and whether its first bytes match its
+// container. Text + colour, the scan's note as the tooltip.
+const RECOVERY_GRADE_CLASS = { intact: "ok", partial: "warn", overwritten: "failed", unknown: "candidate", unallocated: "candidate", frames: "candidate", tail: "candidate" };
+function recoveryBadgeHtml(record) {
+  const grade = record.recoveryGrade;
+  if (!grade || !RECOVERY_GRADE_CLASS[grade]) return "";
+  const tip = escapeHtml(record.note && record.note !== "-" ? record.note : t(`rec.grade.${grade}`));
+  const header = record.recoveryHeaderOk === false
+    ? ` <span class="badge warn" title="${tip}">${escapeHtml(t("rec.header.bad"))}</span>`
+    : "";
+  return ` <span class="badge ${RECOVERY_GRADE_CLASS[grade]}" title="${tip}">${escapeHtml(t(`rec.grade.${grade}`))}</span>${header}`;
 }
 
 function renderCard(record) {
@@ -1005,6 +1034,9 @@ function renderCard(record) {
     ? record.originalName
     : record.name;
   const thumb = thumbHtml(record, displayName);
+  // The card shows the file name; its folder is in the tooltip and the
+  // folder tree (a narrow card cut "FRONT\2026…" down to the folder).
+  const cardName = String(displayName || "").split(/[\\/]/).filter(Boolean).pop() || displayName;
   const recTypeTag = record.recType ? `<span class="rec-type">${escapeHtml(recTypeLabel(record.recType))}</span>` : "";
   const recTime = record.recTime
     ? record.recSource === "name-date"
@@ -1031,11 +1063,11 @@ function renderCard(record) {
   // role=gridcell (inside a role=row) may contain the selection checkbox and
   // the retry button — no nested-interactive inside an option.
   return `<div class="card ${active ? "active" : ""}" data-id="${escapeHtml(record.id)}" tabindex="${active ? 0 : -1}" role="gridcell" title="${escapeHtml(displayName)}" aria-selected="${state.selectedIds.has(record.id)}"${active ? ' aria-current="true"' : ""}>
-    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}: ${escapeHtml(displayName)}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}<span class="dur">${fmtDuration(record.duration)}</span></div>
+    <div class="thumb">${thumb}<input type="checkbox" aria-label="${escapeHtml(t("aria.select"))}: ${escapeHtml(displayName)}" ${state.selectedIds.has(record.id) ? "checked" : ""} data-check="${escapeHtml(record.id)}">${recTypeTag}${kindChip}${Number.isFinite(record.duration) ? `<span class="dur">${fmtDuration(record.duration)}</span>` : ""}</div>
     <div class="meta">
-      <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(displayName, state.query)}</span>${record.channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
-      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="sub">${fmtBytes(record.size)}${audioFlag(record)}${staleTag}</span></div>
-      <div class="badge-row">${statusBadgeHtml(record.status, record)}${markChip}${anomalyChip}${warnChip}${dflChip}</div>
+      <div class="name-row"><span class="name" title="${escapeHtml(displayName)}">${highlightEscape(cardName, state.query)}</span>${record.channel ? `<span class="channel-badge">${escapeHtml(record.channel)}</span>` : ""}</div>
+      <div class="time-row"><span class="time-text">${recTime ? escapeHtml(recTime) : t("time.unknown")}</span><span class="sub">${record.recoverySizeExact === false ? "≤ " : ""}${fmtBytes(record.size)}${audioFlag(record)}${staleTag}</span></div>
+      <div class="badge-row">${statusBadgeHtml(record.status, record)}${recoveryBadgeHtml(record)}${markChip}${anomalyChip}${warnChip}${dflChip}</div>
       ${tagsHtml}
     </div>
   </div>`;

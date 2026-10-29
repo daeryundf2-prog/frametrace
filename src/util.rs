@@ -899,12 +899,230 @@ pub fn sanitize_filename(input: &str) -> String {
     if out.is_empty() {
         return "clip".to_string();
     }
-    let upper = out.to_ascii_uppercase();
-    let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+    if is_windows_device_name(&out) {
+        out.insert(0, '_');
+    }
+    out
+}
+
+/// Text a forensic tool printed. Windows builds of Sleuth Kit print file
+/// names in the system ANSI code page (CP949 on Korean Windows), not UTF-8:
+/// read as UTF-8, every Korean folder and file name became U+FFFD, so
+/// `상시/정상.avi` and `상시/주차.avi` turned into one name. A line that is
+/// valid UTF-8 is kept as is; any other line is decoded from the ANSI code
+/// page on Windows (lossy UTF-8 elsewhere).
+pub fn tool_output_text(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|byte| *byte == b'\n') {
+        match std::str::from_utf8(line) {
+            Ok(text) => out.push_str(text),
+            Err(_) => out.push_str(&ansi_code_page_text(line)),
+        }
+    }
+    out
+}
+
+#[cfg(windows)]
+fn ansi_code_page_text(bytes: &[u8]) -> String {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MultiByteToWideChar(
+            code_page: u32,
+            flags: u32,
+            source: *const u8,
+            source_len: i32,
+            wide: *mut u16,
+            wide_len: i32,
+        ) -> i32;
+    }
+    const CP_ACP: u32 = 0;
+    let lossy = || String::from_utf8_lossy(bytes).into_owned();
+    let Ok(len) = i32::try_from(bytes.len()) else {
+        return lossy();
+    };
+    if len == 0 {
+        return String::new();
+    }
+    // SAFETY: `bytes` holds `len` readable bytes; a null output buffer only
+    // asks for the required UTF-16 length.
+    let needed =
+        unsafe { MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), len, std::ptr::null_mut(), 0) };
+    let Ok(capacity) = usize::try_from(needed) else {
+        return lossy();
+    };
+    if capacity == 0 {
+        return lossy();
+    }
+    let mut wide = vec![0u16; capacity];
+    // SAFETY: `wide` has room for the `needed` units the first call asked for.
+    let written =
+        unsafe { MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), len, wide.as_mut_ptr(), needed) };
+    match usize::try_from(written) {
+        Ok(written) if written > 0 => String::from_utf16_lossy(&wide[..written]),
+        _ => lossy(),
+    }
+}
+
+#[cfg(not(windows))]
+fn ansi_code_page_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Whether the volume holding `path` is solid-state (its storage driver
+/// reports no seek penalty). `None` when the driver does not say — USB
+/// bridges in front of spinning disks often do not — so callers should
+/// treat `None` like a spinning disk.
+#[cfg(windows)]
+pub fn path_on_ssd(path: &Path) -> Option<bool> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetVolumePathNameW(file: *const u16, volume: *mut u16, volume_len: u32) -> i32;
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *const c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
+        fn DeviceIoControl(
+            device: *mut c_void,
+            code: u32,
+            input: *const c_void,
+            input_len: u32,
+            output: *mut c_void,
+            output_len: u32,
+            returned: *mut u32,
+            overlapped: *mut c_void,
+        ) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    #[repr(C)]
+    struct StoragePropertyQuery {
+        property_id: u32,
+        query_type: u32,
+        additional: [u8; 4],
+    }
+    #[repr(C)]
+    struct SeekPenaltyDescriptor {
+        version: u32,
+        size: u32,
+        incurs_seek_penalty: u8,
+    }
+    const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002D_1400;
+    const STORAGE_DEVICE_SEEK_PENALTY_PROPERTY: u32 = 7;
+    const FILE_SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    const OPEN_EXISTING: u32 = 3;
+
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut volume = [0u16; 261];
+    // SAFETY: `wide` is NUL-terminated; `volume` holds the length passed.
+    if unsafe { GetVolumePathNameW(wide.as_ptr(), volume.as_mut_ptr(), volume.len() as u32) } == 0 {
+        return None;
+    }
+    let end = volume.iter().position(|unit| *unit == 0)?;
+    let root = String::from_utf16(&volume[..end]).ok()?;
+    // Drive-letter volumes only (`E:\`); a mount point or UNC share is
+    // reported as unknown.
+    let drive = root.strip_suffix('\\').unwrap_or(&root);
+    if drive.len() != 2 || !drive.ends_with(':') {
+        return None;
+    }
+    let device: Vec<u16> = format!(r"\\.\{drive}")
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: zero access rights is enough for a property query; the
+    // handle is closed below.
+    let handle = unsafe {
+        CreateFileW(
+            device.as_ptr(),
+            0,
+            FILE_SHARE_READ_WRITE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            0,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle.is_null() || handle as isize == -1 {
+        return None;
+    }
+    let query = StoragePropertyQuery {
+        property_id: STORAGE_DEVICE_SEEK_PENALTY_PROPERTY,
+        query_type: 0,
+        additional: [0; 4],
+    };
+    let mut descriptor = SeekPenaltyDescriptor {
+        version: 0,
+        size: 0,
+        incurs_seek_penalty: 1,
+    };
+    let mut returned = 0u32;
+    // SAFETY: both buffers live across the call and match the sizes passed.
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            (&query as *const StoragePropertyQuery).cast(),
+            std::mem::size_of::<StoragePropertyQuery>() as u32,
+            (&mut descriptor as *mut SeekPenaltyDescriptor).cast(),
+            std::mem::size_of::<SeekPenaltyDescriptor>() as u32,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    // SAFETY: `handle` came from CreateFileW above.
+    unsafe { CloseHandle(handle) };
+    (ok != 0 && returned >= 9).then_some(descriptor.incurs_seek_penalty == 0)
+}
+
+#[cfg(not(windows))]
+pub fn path_on_ssd(_path: &Path) -> Option<bool> {
+    None
+}
+
+/// CON/PRN/AUX/NUL/COM1-9/LPT1-9 (any case) — names Windows cannot create.
+fn is_windows_device_name(stem: &str) -> bool {
+    let upper = stem.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
         || ((upper.starts_with("COM") || upper.starts_with("LPT"))
             && upper.len() == 4
-            && matches!(upper.as_bytes()[3], b'1'..=b'9'));
-    if reserved {
+            && matches!(upper.as_bytes()[3], b'1'..=b'9'))
+}
+
+/// One path component made storable on Windows while keeping its original
+/// spelling: Korean and other non-ASCII letters, spaces and the extension
+/// survive; only `<>:"/\|?*` and control characters become `_`, trailing
+/// dots/spaces are dropped, and a device name (`CON.avi`) gets a leading `_`.
+///
+/// Unlike [`sanitize_filename`] this is for mirroring a device's folder
+/// tree (allocated-file extraction): the examiner must see the same names
+/// as on the card, and the extension must survive so the file is indexed
+/// and played as what it is. An all-illegal input returns an empty string.
+pub fn sanitize_path_component(input: &str) -> String {
+    let mut out: String = input
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect();
+    let kept = out.trim_end_matches(['.', ' ']).len();
+    out.truncate(kept);
+    let stem = out.split('.').next().unwrap_or_default().trim_end();
+    if is_windows_device_name(stem) {
         out.insert(0, '_');
     }
     out
@@ -2307,8 +2525,8 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        csv_safe_cell, run_with_timeout, sanitize_filename, unique_dir, unique_path,
-        write_text_atomic,
+        csv_safe_cell, run_with_timeout, sanitize_filename, sanitize_path_component, unique_dir,
+        unique_path, write_text_atomic,
     };
 
     /// R6-S1: only one JSON value ever reaches a generated script; text
@@ -2505,6 +2723,53 @@ mod tests {
         assert_eq!(sanitize_filename("한글.avi"), "___avi");
         // Not capped: existing artifacts are located by re-sanitizing.
         assert_eq!(sanitize_filename(&"x".repeat(500)).len(), 500);
+    }
+
+    #[test]
+    fn tool_output_text_decodes_ansi_lines_and_keeps_utf8() {
+        let utf8 = "r/r 519:\tEVENT/주차.avi\n";
+        assert_eq!(super::tool_output_text(utf8.as_bytes()), utf8);
+        // `r/r 1030:\t상시/정상.avi` as Korean Windows' fls prints it (CP949).
+        let mut ansi = b"r/r 1030:\t".to_vec();
+        ansi.extend_from_slice(&[0xBB, 0xF3, 0xBD, 0xC3, b'/', 0xC1, 0xA4, 0xBB, 0xF3]);
+        ansi.extend_from_slice(b".avi\n");
+        let mut mixed = utf8.as_bytes().to_vec();
+        mixed.extend_from_slice(&ansi);
+        let text = super::tool_output_text(&mixed);
+        assert!(text.starts_with(utf8), "{text}");
+        assert!(text.ends_with(".avi\n"), "{text}");
+        #[cfg(windows)]
+        {
+            #[link(name = "kernel32")]
+            unsafe extern "system" {
+                fn GetACP() -> u32;
+            }
+            // SAFETY: no arguments, no preconditions.
+            if unsafe { GetACP() } == 949 {
+                assert!(text.contains("상시/정상.avi"), "{text}");
+            }
+            assert!(!text.contains('\u{FFFD}'), "{text}");
+        }
+    }
+
+    #[test]
+    fn sanitize_path_component_keeps_original_names() {
+        assert_eq!(
+            sanitize_path_component("20260924_214412_EVT_1.avi"),
+            "20260924_214412_EVT_1.avi"
+        );
+        assert_eq!(sanitize_path_component("주차 녹화.MP4"), "주차 녹화.MP4");
+        assert_eq!(sanitize_path_component("a:b|c?.mp4"), "a_b_c_.mp4");
+        assert_eq!(sanitize_path_component("x\u{0}y\n.avi"), "x_y_.avi");
+        assert_eq!(sanitize_path_component("name. "), "name");
+        assert_eq!(sanitize_path_component(".."), "");
+        assert_eq!(sanitize_path_component("CON.avi"), "_CON.avi");
+        assert_eq!(sanitize_path_component("lpt1"), "_lpt1");
+        assert_eq!(sanitize_path_component("console.avi"), "console.avi");
+        assert_eq!(
+            sanitize_path_component(".TFF_REC_RESERVED0002.SYS"),
+            ".TFF_REC_RESERVED0002.SYS"
+        );
     }
 
     #[test]

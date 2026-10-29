@@ -164,7 +164,11 @@ try {
     await page.waitForSelector('#hJobsSheet:not([hidden])', { timeout: 5000 });
   };
   await openJobsSheet();
-  await page.waitForSelector('#btnCarve:not([hidden])', { timeout: 10000 });
+  await page.waitForSelector('#btnRecoverDeleted:not([hidden])', { timeout: 10000 });
+  // The raw-image carve button is hidden in the UI (the deleted-video scan
+  // carves the image itself); it still drives the case-job contract here.
+  const showCarve = () => page.evaluate(() => { document.getElementById('btnCarve').hidden = false; });
+  await showCarve();
 
   // ---- 2. carve → cancel ----------------------------------------------------
   const raw = join(caseDir, 'evidence/images/evidence.raw');
@@ -211,6 +215,7 @@ try {
   const markId = await page.evaluate(() => document.querySelector('#recordGrid .card[data-id^="vid_"]')?.dataset.id);
   const marksBefore = importMarks.length;
   await openJobsSheet();
+  await showCarve();
   await page.click('#btnCarve');
   await page.waitForSelector('#dlgBackdrop:not([hidden]) #dlgOk');
   await page.click('#dlgOk');

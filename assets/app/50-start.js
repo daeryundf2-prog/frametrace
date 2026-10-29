@@ -53,7 +53,7 @@ $("btnStart").addEventListener("click", async () => {
       with_deepfake: $("withDeepfake").checked,
       with_audio: $("withAudio").checked && !$("withAudio").disabled,
       skip_e01_verify: $("skipE01Verify").checked,
-      e01_direct: inputKind() === "e01" && $("directE01").checked
+      e01_direct: inputKind() === "e01" && !$("rawE01").checked
     });
     if (!res.ok) {
       $("startErr").classList.add("show");
@@ -67,7 +67,7 @@ $("btnStart").addEventListener("click", async () => {
       withFfprobe: $("withFfprobe").checked,
       withDeepfake: $("withDeepfake").checked,
       skipE01Verify: $("skipE01Verify").checked,
-      directE01: $("directE01").checked,
+      rawE01: $("rawE01").checked,
       lastSource: source,
       lastCase: caseDir,
     });
@@ -164,8 +164,9 @@ async function guardedPageReload(reason) {
   location.reload();
   return true;
 }
-$("directE01").addEventListener("change", syncDirectE01);
 document.querySelectorAll("input[name='scanMode']").forEach(r => r.addEventListener("change", () => applyScanMode(r.value)));
+$("rawE01").addEventListener("change", updateOptSummary);
+$("skipE01Verify").addEventListener("change", updateOptSummary);
 $("withHash").addEventListener("change", syncScanMode);
 $("withFfprobe").addEventListener("change", syncScanMode);
 

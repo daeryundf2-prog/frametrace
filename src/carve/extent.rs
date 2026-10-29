@@ -5,6 +5,24 @@ use super::*;
 /// the real boundary instead of blindly running to the next signature or
 /// EOF. Returns (extent_bytes, boundary_note) — the note always states how
 /// the end was determined so downstream review can weigh it.
+/// [`refine_extent`] for a candidate already copied into its own file
+/// (the hit at offset 0): the deleted-video triage reads a candidate out
+/// of the image first and tightens it here with the same rules.
+pub(crate) fn refine_extent_in_file(
+    source: &Path,
+    signature: &str,
+    extension: &str,
+    available: u64,
+) -> (u64, String) {
+    let hit = CarveHit {
+        offset: 0,
+        signature: signature.to_string(),
+        extension: extension.to_string(),
+        nested_in: None,
+    };
+    refine_extent(source, &hit, available, available)
+}
+
 pub(super) fn refine_extent(
     source: &Path,
     hit: &CarveHit,
@@ -146,6 +164,15 @@ pub(super) fn riff_extent(source: &Path, start: u64, span: u64) -> (u64, String)
         let mut hdr = [0u8; 8];
         if file.seek(SeekFrom::Start(start)).is_ok() && file.read_exact(&mut hdr).is_ok() {
             let declared = u64::from(u32::from_le_bytes(hdr[4..8].try_into().unwrap())) + 8;
+            // A recording cut off mid-write leaves the size field 0 (or a
+            // stale small value): that is no boundary at all — trusting it
+            // carved an AVI down to its 8-byte header.
+            if declared < 12 {
+                return (
+                    span,
+                    "RIFF size field is 0/invalid (recording cut off before the header was finalised) — boundary is heuristic; follow the chunk chain (repair) to find the real end.".to_string(),
+                );
+            }
             if declared <= span {
                 return (
                     declared,

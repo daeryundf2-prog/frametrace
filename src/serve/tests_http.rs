@@ -71,6 +71,8 @@ const EXPECTED_ROUTES: &[(&str, &str)] = &[
     ("POST", "/api/telemetry"),
     ("POST", "/api/transcode-queue"),
     ("POST", "/api/proxy"),
+    // Deleted-video triage phase 2: derived playable copy.
+    ("POST", "/api/repair-video"),
     ("POST", "/api/advanced"),
     ("POST", "/api/carve"),
     ("POST", "/api/open-folder"),

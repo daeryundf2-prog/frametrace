@@ -949,6 +949,7 @@ fn b17_case_job_refuses_while_a_write_op_runs_or_the_case_switched() {
             main_args: vec!["carve-file".into()],
             start_log: String::new(),
             done_log: "",
+            then: None,
         },
     ));
     assert_eq!(

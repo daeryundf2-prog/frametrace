@@ -1,7 +1,12 @@
 const videos = Array.isArray(scan.videos) ? scan.videos : [];
 
+// The deleted-video triage rows (src/recovery_scan.rs) ride in flsEntries
+// with kind "recovery-candidate"; the filesystem listing is the rest.
+const RECOVERY_ROW_KIND = "recovery-candidate";
+const flsListing = (DATA.flsEntries || []).filter(entry => entry && entry.kind !== RECOVERY_ROW_KIND);
+const recoveryRows = (DATA.flsEntries || []).filter(entry => entry && entry.kind === RECOVERY_ROW_KIND);
 const flsEntryByInode = new Map();
-(DATA.flsEntries || []).forEach(entry => {
+flsListing.forEach(entry => {
   if (entry.inode != null) flsEntryByInode.set(String(entry.inode), entry);
 });
 
@@ -665,7 +670,7 @@ function logChainArchiveText(chain) {
 function logChainLanesOf(record) {
   const lanes = ["validationLog"];
   if (record && record.kind === "carved") lanes.push("carveLog");
-  if (record && record.kind === "filesystem") lanes.push("filesystemLog");
+  if (record && (record.kind === "filesystem" || record.kind === "repaired")) lanes.push("filesystemLog");
   if (record && record.kind === "joined") lanes.push("joinLog");
   if (record && Array.isArray(record.anomalies) && record.anomalies.length) lanes.push("anomalyLog");
   return lanes;
@@ -909,8 +914,27 @@ function validationFlagRows(list, keyOf, usable) {
   return out;
 }
 const validationFlagsByPath = validationFlagRows(validationLog, item => normalizePath(item.target_path), validationsByPath);
+// Allocated (not deleted) videos copied out by the E01 pipeline also log a
+// recover-inode event, but they are indexed as ordinary videos from
+// artifacts/extracted — listing them again as recoveries doubled every live
+// video and inflated the recovery count.
+const EXTRACTED_OUTPUT_RE = /(^|[\\/])artifacts[\\/]extracted[\\/]/i;
+// A triage candidate read out for playback/export logs its own recovery
+// event; it stays one record (the candidate, so marks keep their id) that
+// takes the read's hash and size, not a second "filesystem" record.
+const recoveryPreviewKeys = new Set(recoveryRows.map(row => normalizePath(absolutizeArtifactPath(row.preview_path))));
+const recoveryReadByKey = new Map();
+const extractedShaByKey = new Map();
+filesystemLog.forEach(item => {
+  // A headerless frame run is read out as .raw and rebuilt at its preview
+  // path: the rebuild (repair-video) is that candidate's read.
+  if (!item || !item.output_path || (item.event !== "recover-inode" && item.event !== "recover-unallocated" && item.event !== "repair-video")) return;
+  const key = normalizePath(item.output_path);
+  if (recoveryPreviewKeys.has(key)) recoveryReadByKey.set(key, item);
+  else if (EXTRACTED_OUTPUT_RE.test(String(item.output_path)) && item.sha256) extractedShaByKey.set(key, item.sha256);
+});
 const recoveredFilesystemLog = currentLogEntries(
-  filesystemLog.filter(item => item && item.event === "recover-inode" && item.output_path),
+  filesystemLog.filter(item => item && item.event === "recover-inode" && item.output_path && !EXTRACTED_OUTPUT_RE.test(String(item.output_path)) && !recoveryPreviewKeys.has(normalizePath(item.output_path))),
   item => `${item.partition_offset ?? 0}:${item.inode || normalizePath(item.output_path)}`,
   logChains && logChains.filesystemLog, filesystemLog);
 // Case-level warnings recorded on inspection events (e.g. a truncated
@@ -1079,6 +1103,101 @@ function anomalySummaryNote(record) {
   }
   return t(record.hasUnauthAnomaly ? "anomaly.unauthShort" : "anomaly.pcTip");
 }
+// One deleted-video triage candidate: a deleted directory entry (kind
+// "candidate", id fls:<inode> as before) or an unallocated-space carve
+// (kind "carved"). `path` is where it is read out to; the workstation reads
+// it out of the image on the first play/export (src/recovery_scan.rs).
+// What a candidate is, in words: a deleted file keeps its card path; the
+// rest are named by where they were found (the read-out file name such as
+// uframes_33673828.avi stays visible as the path).
+function recoveryName(row) {
+  if (row.source === "deleted-entry") return row.name || row.card_path || row.id;
+  const kind = t(row.grade === "frames" ? "rec.name.frames" : "rec.name.carved");
+  if (row.stream === "allocated-tails" && row.card_path) return tf("rec.name.tail", { file: row.card_path, kind });
+  const offset = Number(row.image_offset);
+  return Number.isFinite(offset) ? tf("rec.name.at", { kind, at: fmtBytes(offset) }) : (row.name || row.id);
+}
+function recoveryRecord(row) {
+  const path = absolutizeArtifactPath(row.preview_path);
+  const key = normalizePath(path);
+  const read = recoveryReadByKey.get(key) || null;
+  const validation = validationsByPath.get(key);
+  const st = recordStatusOf(read, validation, untrustedValidationsByPath.get(key), "candidate-unvalidated");
+  const entry = row.source === "deleted-entry";
+  return {
+    id: row.id,
+    kind: entry ? "candidate" : "carved",
+    name: recoveryName(row),
+    path,
+    fileUrl: fileUrl(path),
+    parser: entry ? "fls + icat -r" : (row.signature || "carve"),
+    vendor: entry ? t("cand.vendor") : row.grade === "frames" ? t("rec.frames.vendor") : row.stream === "allocated-tails" ? t("rec.tail.vendor") : t("rec.unalloc.vendor"),
+    ext: row.extension || extOfPath(path),
+    videoCandidate: true,
+    status: st.status,
+    statusTrust: st.trust,
+    statusNewer: !!st.newer,
+    statusNote: st.note || "",
+    sha256: validation?.target_sha256 || read?.sha256 || "-",
+    duration: validation?.duration_seconds ?? null,
+    codec: validation?.video_codec || "-",
+    container: "",
+    probeOk: undefined,
+    size: read && Number.isFinite(read.size_bytes) ? read.size_bytes : row.size_bytes,
+    note: [row.note || "-"].concat(read && read.event === "repair-video" && Array.isArray(read.notes) ? read.notes : []).join(" · "),
+    offset: row.image_offset,
+    inode: row.inode || undefined,
+    originalPath: row.card_path || "",
+    indexStatus: read ? "active" : "recovery-pending",
+    modifiedUnix: null,
+    recoveryGrade: row.grade,
+    recoveryHeaderOk: row.header_ok,
+    recoverySizeExact: !!row.size_exact || !!read,
+    warnings: read && Array.isArray(read.warnings) ? [...read.warnings] : [],
+    validation,
+    validationFlags: validationFlagsByPath.get(key) || []
+  };
+}
+// A playable derived copy of a broken recovery (src/video_repair.rs: AVI
+// re-index, moov-less MP4 rebuild), from its `repair-video` event. The
+// source record stays as it was; this is a separate, derived record.
+function repairedRecord(item) {
+  const path = absolutizeArtifactPath(item.output_path);
+  const key = normalizePath(path);
+  const validation = validationsByPath.get(key);
+  const st = recordStatusOf(item, validation, untrustedValidationsByPath.get(key), "derived");
+  const name = path.split(/[\\\/]/).pop() || String(item.output_path);
+  const sourceName = String(item.source_path || "").split(/[\\\/]/).pop();
+  return {
+    id: `repair:${String(item.sha256 || name).slice(0, 16)}`,
+    kind: "repaired",
+    name,
+    path,
+    fileUrl: fileUrl(path),
+    parser: item.method || "repair",
+    vendor: t("rep.vendor"),
+    status: st.status,
+    statusTrust: st.trust,
+    statusNewer: !!st.newer,
+    statusNote: st.note || "",
+    sha256: item.sha256 || "-",
+    duration: validation?.duration_seconds ?? null,
+    codec: validation?.video_codec || item.codec || "-",
+    ext: extOfPath(path),
+    container: "",
+    probeOk: undefined,
+    size: item.size_bytes,
+    note: [tf("rep.note", { source: sourceName })].concat(Array.isArray(item.notes) ? item.notes : []).join(" · "),
+    originalPath: sourceName,
+    indexStatus: "active",
+    repairInfo: item,
+    validation,
+    validationFlags: validationFlagsByPath.get(key) || []
+  };
+}
+const repairLog = filesystemLog.filter(item => item && item.event === "repair-video" && item.output_path && !recoveryPreviewKeys.has(normalizePath(item.output_path)));
+const recoveryEntryInodes = new Set(recoveryRows.filter(row => row.source === "deleted-entry" && row.inode != null).map(row => String(row.inode)));
+
 const records = [
   ...videos.map(video => {
     const validation = validationsByPath.get(normalizePath(video.source_path));
@@ -1095,7 +1214,7 @@ const records = [
       statusTrust: st.trust,
       statusNewer: !!st.newer,
       statusNote: st.note || "",
-      sha256: validation?.target_sha256 || video.sha256 || video.hash_status || "-",
+      sha256: validation?.target_sha256 || video.sha256 || extractedShaByKey.get(normalizePath(video.source_path)) || video.hash_status || "-",
       duration: validation?.duration_seconds ?? video.duration_seconds,
       codec: validation?.video_codec || video.video_codec || "-",
       audioCodec: video.audio_codec || "",
@@ -1147,11 +1266,13 @@ const records = [
       validationFlags: validationFlagsByPath.get(normalizePath(item.output_path)) || []
     };
   }),
-  ...(DATA.flsEntries || [])
+  ...recoveryRows.map(recoveryRecord),
+  ...flsListing
     // Deleted entries are forensic evidence regardless of extension — a
     // dashcam's in-progress recording temp files (20260917112038816) have
     // no extension at all. Non-video candidates stay flagged honestly.
-    .filter(entry => entry.deleted)
+    // Entries the triage graded are listed through recoveryRecord above.
+    .filter(entry => entry.deleted && !recoveryEntryInodes.has(String(entry.inode)))
     .map(entry => {
       const inode = entry.inode != null ? String(entry.inode) : "";
       return {
@@ -1211,6 +1332,7 @@ const records = [
       validationFlags: validationFlagsByPath.get(normalizePath(item.output_path)) || []
     };
   }),
+  ...repairLog.map(repairedRecord),
   ...joinLog.map(item => {
     const path = absolutizeArtifactPath(item.output_path);
     const name = path.split(/[\\\/]/).pop() || String(item.output_path);
@@ -1260,10 +1382,28 @@ const records = [
   })
 ];
 
+// A recovered/carved record whose bytes hash like an earlier record (a live
+// video, or another candidate) is the same video: flagged, never hidden.
+{
+  const firstBySha = new Map();
+  for (const record of records) {
+    const sha = typeof record.sha256 === "string" && /^[0-9a-f]{64}$/i.test(record.sha256) ? record.sha256.toLowerCase() : "";
+    if (!sha) continue;
+    const first = firstBySha.get(sha);
+    if (!first) {
+      firstBySha.set(sha, record);
+    } else if (record.kind === "candidate" || record.kind === "carved" || record.kind === "filesystem") {
+      record.duplicateOf = first.id;
+      record.warnings = [...(record.warnings || []), tf("rec.duplicate", { name: first.name || first.id })];
+    }
+  }
+}
+
 function dirPathOfRecord(record) {
   if (record.kind === "carved") return "Recovery/Carved";
   if (record.kind === "filesystem") return "Recovery/Filesystem";
   if (record.kind === "candidate") return "Recovery/Candidates";
+  if (record.kind === "repaired") return "Recovery/Repaired";
   let raw = record.name || record.originalPath || "";
   raw = String(raw).replace(/\\/g, "/").replace(/^\/+/, "");
   if (raw.startsWith("artifacts/extracted/")) {

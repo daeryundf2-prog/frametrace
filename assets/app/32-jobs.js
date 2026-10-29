@@ -29,7 +29,7 @@ const PROJECT_NEW_ID = "hProjectNew";
 const CASE_JOBS = {
   recover: {
     serverKind: "recover-deleted",
-    title: "삭제 영상 후보 복구",
+    title: "삭제 영상 찾기",
     url: () => "/api/recover-deleted",
     confirm: null,
   },
@@ -82,7 +82,7 @@ function jobsSheetHtml() {
   <section id="jobsStart" class="h-job-sec" aria-label="작업 시작" hidden>
     <h3>작업 시작</h3>
     <div class="h-job-actions">
-      <button type="button" id="btnRecoverDeleted" hidden title="조사된 이미지에서 삭제된 영상 후보를 복구한 뒤 뷰어를 갱신합니다">삭제 영상 후보 복구</button>
+      <button type="button" id="btnRecoverDeleted" hidden title="조사된 이미지에서 삭제된 영상(삭제 엔트리·빈 영역)을 찾아 뷰어에 표시합니다. 영상은 재생·내보내기할 때만 읽습니다 (E01 분석 뒤 자동 실행)">삭제 영상 찾기</button>
       <button type="button" id="btnCarve" hidden title="export된 raw 이미지에서 영상 시그니처를 카빙합니다 (E01 전체 export 분석 필요)">이미지 카빙</button>
     </div>
     <label class="h-job-chk" id="reassembleWrap" hidden title="조각난 영상을 이어붙인 후보를 추가로 만듭니다. 시간이 더 걸리며, 결과는 검증 전 '후보'로만 표시됩니다 — 확정된 복구가 아닙니다"><input type="checkbox" id="chkReassemble"> 카빙 시 조각 재조립 시도</label>
@@ -127,9 +127,11 @@ const jobsSheetMounted = mountJobsSheet();
 
 // ---- tool buttons (Recover / Carve) ----
 function setCaseToolsVisible(on) {
+  // '삭제 영상 찾기' carves the free space of the image itself (E01 read in
+  // place); the older raw-image carve stays reachable from the CLI only.
   for (const id of ["btnRecoverDeleted", "btnCarve", "reassembleWrap"]) {
     const el = $(id);
-    if (el) el.hidden = !on;
+    if (el) el.hidden = id === "btnRecoverDeleted" ? !on : true;
   }
   const sec = $("jobsStart");
   if (sec) sec.hidden = !on;

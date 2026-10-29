@@ -117,7 +117,12 @@ async function hostViewerMount() {
   // An unmount while init is still loading supersedes it (seq).
   const seq = ++hostViewer.seq;
   hostViewer.pending = window.FTViewer.init({ embed: true, host: node, theme, locale: storeLocale || null })
-    .then(() => { if (seq !== hostViewer.seq) return false; hostViewer.mounted = true; return true; })
+    .then(() => {
+      if (seq !== hostViewer.seq) return false;
+      hostViewer.mounted = true;
+      if (typeof hAutoCloseJobs === "function") hAutoCloseJobs();
+      return true;
+    })
     .catch(err => { console.error("viewer mount failed", err); return false; })
     .finally(() => { hostViewer.pending = null; });
   return hostViewer.pending;

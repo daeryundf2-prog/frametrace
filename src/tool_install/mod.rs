@@ -40,19 +40,31 @@ pub fn install(package: ToolPackage, report: Reporter<'_>) -> Result<PathBuf, St
     install_into(&root, package, report)
 }
 
-fn install_into(root: &Path, package: ToolPackage, report: Reporter<'_>) -> Result<PathBuf, String> {
+fn install_into(
+    root: &Path,
+    package: ToolPackage,
+    report: Reporter<'_>,
+) -> Result<PathBuf, String> {
     let staging = root.join(format!(".staging-{}", package.dir_name()));
     let _ = std::fs::remove_dir_all(&staging);
-    std::fs::create_dir_all(&staging)
-        .map_err(|err| format!("임시 폴더를 만들 수 없습니다 ({}): {err}", staging.display()))?;
-    let result = stage_package(package, &staging, report)
-        .and_then(|staged| promote(root, package, &staged));
+    std::fs::create_dir_all(&staging).map_err(|err| {
+        format!(
+            "임시 폴더를 만들 수 없습니다 ({}): {err}",
+            staging.display()
+        )
+    })?;
+    let result =
+        stage_package(package, &staging, report).and_then(|staged| promote(root, package, &staged));
     let _ = std::fs::remove_dir_all(&staging);
     result
 }
 
 /// Produces a complete package directory inside `staging`.
-fn stage_package(package: ToolPackage, staging: &Path, report: Reporter<'_>) -> Result<PathBuf, String> {
+fn stage_package(
+    package: ToolPackage,
+    staging: &Path,
+    report: Reporter<'_>,
+) -> Result<PathBuf, String> {
     let staged = staging.join("pkg");
     std::fs::create_dir_all(&staged).map_err(|err| format!("임시 폴더 생성 실패: {err}"))?;
     let source = match package.method() {
@@ -81,7 +93,10 @@ fn promote(root: &Path, package: ToolPackage, staged: &Path) -> Result<PathBuf, 
     let dest = root.join(package.dir_name());
     if dest.exists() {
         std::fs::remove_dir_all(&dest).map_err(|err| {
-            format!("기존 {} 폴더를 지울 수 없습니다 (사용 중인지 확인): {err}", package.label())
+            format!(
+                "기존 {} 폴더를 지울 수 없습니다 (사용 중인지 확인): {err}",
+                package.label()
+            )
         })?;
     }
     std::fs::rename(staged, &dest).map_err(|err| format!("설치 폴더 이동 실패: {err}"))?;
@@ -89,7 +104,8 @@ fn promote(root: &Path, package: ToolPackage, staged: &Path) -> Result<PathBuf, 
 }
 
 fn copy_files(from: &Path, to: &Path) -> Result<(), String> {
-    let entries = std::fs::read_dir(from).map_err(|err| format!("{} 읽기 실패: {err}", from.display()))?;
+    let entries =
+        std::fs::read_dir(from).map_err(|err| format!("{} 읽기 실패: {err}", from.display()))?;
     for entry in entries {
         let entry = entry.map_err(|err| format!("폴더 항목 읽기 실패: {err}"))?;
         let path = entry.path();
@@ -101,7 +117,11 @@ fn copy_files(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_receipt(package: ToolPackage, dir: &Path, source: serde_json::Value) -> Result<(), String> {
+fn write_receipt(
+    package: ToolPackage,
+    dir: &Path,
+    source: serde_json::Value,
+) -> Result<(), String> {
     let mut files = Vec::new();
     let mut names: Vec<_> = std::fs::read_dir(dir)
         .map_err(|err| format!("설치 폴더 읽기 실패: {err}"))?
@@ -110,9 +130,14 @@ fn write_receipt(package: ToolPackage, dir: &Path, source: serde_json::Value) ->
         .collect();
     names.sort();
     for path in names {
-        let file = std::fs::File::open(&path).map_err(|err| format!("{} 열기 실패: {err}", path.display()))?;
-        let digest = crate::sha256::digest_reader(file).map_err(|err| format!("해시 계산 실패: {err}"))?;
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = std::fs::File::open(&path)
+            .map_err(|err| format!("{} 열기 실패: {err}", path.display()))?;
+        let digest =
+            crate::sha256::digest_reader(file).map_err(|err| format!("해시 계산 실패: {err}"))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         files.push(serde_json::json!({ "name": name, "sha256": digest }));
     }
     let installed_at = SystemTime::now()
@@ -126,8 +151,10 @@ fn write_receipt(package: ToolPackage, dir: &Path, source: serde_json::Value) ->
         "installed_at_unix": installed_at,
         "files": files,
     });
-    let text = serde_json::to_string_pretty(&receipt).map_err(|err| format!("설치 기록 직렬화 실패: {err}"))?;
-    std::fs::write(dir.join(RECEIPT_FILE), text).map_err(|err| format!("설치 기록 저장 실패: {err}"))
+    let text = serde_json::to_string_pretty(&receipt)
+        .map_err(|err| format!("설치 기록 직렬화 실패: {err}"))?;
+    std::fs::write(dir.join(RECEIPT_FILE), text)
+        .map_err(|err| format!("설치 기록 저장 실패: {err}"))
 }
 
 /// Absolute path of a binary shipped with Windows.
@@ -141,7 +168,8 @@ mod tests {
     use super::*;
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ft-tool-install-{tag}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ft-tool-install-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -169,10 +197,16 @@ mod tests {
         let dir = temp_dir("receipt");
         std::fs::write(dir.join("ffmpeg.exe"), b"hello world").unwrap();
 
-        write_receipt(ToolPackage::Ffmpeg, &dir, serde_json::json!({ "method": "archive" })).unwrap();
+        write_receipt(
+            ToolPackage::Ffmpeg,
+            &dir,
+            serde_json::json!({ "method": "archive" }),
+        )
+        .unwrap();
 
         let receipt: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join(RECEIPT_FILE)).unwrap()).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(dir.join(RECEIPT_FILE)).unwrap())
+                .unwrap();
         assert_eq!(receipt["package"], "ffmpeg");
         assert_eq!(receipt["version"], "9.0.2");
         assert_eq!(

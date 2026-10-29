@@ -20,7 +20,7 @@ function legacyCopy(text) {
 (function restorePrefs() {
   const prefs = loadPrefs();
   // The evidence kind is not restored: it is detected from each path.
-  for (const [id, key] of [["withHash", "withHash"], ["withFfprobe", "withFfprobe"], ["withDeepfake", "withDeepfake"], ["skipE01Verify", "skipE01Verify"], ["directE01", "directE01"]]) {
+  for (const [id, key] of [["withHash", "withHash"], ["withFfprobe", "withFfprobe"], ["withDeepfake", "withDeepfake"], ["skipE01Verify", "skipE01Verify"], ["rawE01", "rawE01"]]) {
     if (typeof prefs[key] === "boolean") $(id).checked = prefs[key];
   }
   // The empty state opens empty: the last source/case stay one click away

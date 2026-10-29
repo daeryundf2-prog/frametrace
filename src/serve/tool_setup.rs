@@ -130,7 +130,11 @@ mod tests {
     use super::*;
 
     fn reset() {
-        *status_lock() = InstallStatus { package: None, phase: Phase::Idle, message: String::new() };
+        *status_lock() = InstallStatus {
+            package: None,
+            phase: Phase::Idle,
+            message: String::new(),
+        };
     }
 
     // One test owns the global slot end to end so parallel test threads
@@ -147,7 +151,11 @@ mod tests {
         let body: serde_json::Value = serde_json::from_str(&api_tools_install_status()).unwrap();
         assert_eq!(body["phase"], "failed");
         assert_eq!(body["message"], "네트워크 오류");
-        assert_eq!(try_begin(ToolPackage::SleuthKit), Ok(()), "a failed install frees the slot");
+        assert_eq!(
+            try_begin(ToolPackage::SleuthKit),
+            Ok(()),
+            "a failed install frees the slot"
+        );
         reset();
     }
 
@@ -172,7 +180,12 @@ mod tests {
     #[test]
     fn status_lists_every_catalog_package() {
         let body: serde_json::Value = serde_json::from_str(&api_tools_install_status()).unwrap();
-        let ids: Vec<_> = body["packages"].as_array().unwrap().iter().map(|p| p["id"].clone()).collect();
+        let ids: Vec<_> = body["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].clone())
+            .collect();
         assert_eq!(ids, ["ffmpeg", "sleuthkit", "libewf"]);
     }
 }

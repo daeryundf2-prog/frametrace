@@ -23,6 +23,22 @@ pub fn digest_reader<R: Read>(mut reader: R) -> io::Result<String> {
     Ok(hex_lower(&hasher.finalize()))
 }
 
+/// Incremental SHA-256 for bytes that are hashed while they are written
+/// (one pass instead of writing a file and reading it back).
+#[derive(Default)]
+pub struct Sha256Stream(sha2::Sha256);
+
+impl Sha256Stream {
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// Lowercase hex digest — identical to [`digest_reader`] over the same bytes.
+    pub fn finish(self) -> String {
+        hex_lower(&self.0.finalize())
+    }
+}
+
 /// Hashes `bytes` in one shot and returns the lowercase hex digest.
 pub fn digest_bytes(bytes: &[u8]) -> String {
     hex_lower(&sha2::Sha256::digest(bytes))
@@ -81,6 +97,16 @@ mod tests {
             .unwrap();
             assert_eq!(digest, expected, "mismatch at chunk size {chunk}");
         }
+    }
+
+    #[test]
+    fn stream_matches_reader_digest() {
+        let data: Vec<u8> = (0..300_000u32).map(|v| (v % 239) as u8).collect();
+        let mut stream = super::Sha256Stream::default();
+        for chunk in data.chunks(7_777) {
+            stream.update(chunk);
+        }
+        assert_eq!(stream.finish(), digest_bytes(&data));
     }
 
     #[test]

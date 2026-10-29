@@ -1303,6 +1303,11 @@ pub(crate) fn api_telemetry(request: &Request, state: &SharedState) -> String {
     } else {
         let alt = body_value(&request.body, "path").unwrap_or_default();
         let candidate = PathBuf::from(alt.trim());
+        // A deleted-video candidate not read out of the image yet (an AVI
+        // needing a proxy, a clip export) is read out first.
+        if let Err(err) = crate::lazy_extract::ensure_materialized(&case_dir, &candidate) {
+            return api_err(&format!("이미지에서 영상을 읽지 못했습니다: {err}"));
+        }
         let roots = state_lock(state).media_roots.clone();
         // Item 8: a UNC/device path never reaches canonicalize.
         let allowed = super::http::reject_remote_path(&alt, &roots).is_ok()
@@ -1420,15 +1425,18 @@ pub(crate) fn api_transcode_queue(request: &Request, state: &SharedState) -> Str
 /// review proxy for an indexed video so the viewer can offer smooth
 /// playback of heavy originals without forcing a full proxy pass.
 pub(crate) fn api_proxy(request: &Request, state: &SharedState) -> String {
-    let case_dir = state_lock(state).case_dir.clone();
-    let Some(case_dir) = case_dir else {
-        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
-            .to_string();
-    };
-    let _busy = match try_acquire_busy(state) {
-        Ok(guard) => guard,
+    // A write op, not the job lease: playing an AVI must not wait for a
+    // background case job (the deleted-video scan of a whole card can run
+    // for many minutes). Shutdown and finalize still wait for it.
+    let (write_op, case_dir) = match try_begin_write_op(state) {
+        Ok(op) => op,
         Err(err) => return api_err(&err),
     };
+    // One proxy at a time (two clicks on one record must not race).
+    static PROXY_LOCK: Mutex<()> = Mutex::new(());
+    let _one = PROXY_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let id = body_value(&request.body, "id").unwrap_or_default();
     if id.trim().is_empty() {
         return "{\"ok\":false,\"error\":\"증거 id가 비어 있습니다.\"}".to_string();
@@ -1446,6 +1454,11 @@ pub(crate) fn api_proxy(request: &Request, state: &SharedState) -> String {
     } else {
         let alt = body_value(&request.body, "path").unwrap_or_default();
         let candidate = PathBuf::from(alt.trim());
+        // A deleted-video candidate not read out of the image yet (an AVI
+        // needing a proxy, a clip export) is read out first.
+        if let Err(err) = crate::lazy_extract::ensure_materialized(&case_dir, &candidate) {
+            return api_err(&format!("이미지에서 영상을 읽지 못했습니다: {err}"));
+        }
         let roots = state_lock(state).media_roots.clone();
         // Item 8: a UNC/device path never reaches canonicalize.
         let allowed = super::http::reject_remote_path(&alt, &roots).is_ok()
@@ -1485,7 +1498,13 @@ pub(crate) fn api_proxy(request: &Request, state: &SharedState) -> String {
                 case_dir.to_string_lossy().to_string(),
                 selector.clone(),
             ];
-            if let Err(err) = run_step(&exe, &args, state) {
+            let cancel = write_op.cancel_flag();
+            if let Err(err) = super::jobs::run_step_cancellable(
+                &exe,
+                &args,
+                &|| cancel.load(std::sync::atomic::Ordering::SeqCst),
+                state,
+            ) {
                 return serde_json::json!({"ok": false, "error": err}).to_string();
             }
             match find_existing() {
@@ -1501,6 +1520,52 @@ pub(crate) fn api_proxy(request: &Request, state: &SharedState) -> String {
         "{{\"ok\":true,\"path\":{}}}",
         json_string(proxy.to_string_lossy().as_ref())
     )
+}
+
+/// `POST /api/repair-video` `{id, path}`: build a playable derived copy of
+/// a recovered/broken video (AVI re-index, moov-less MP4 rebuild — see
+/// [`crate::video_repair`]). The source stays untouched; the copy lands in
+/// `artifacts/Recovery/Repaired/` and its `repair-video` audit entry is
+/// returned so the viewer can list it at once.
+pub(crate) fn api_repair_video(request: &Request, state: &SharedState) -> String {
+    let case_dir = state_lock(state).case_dir.clone();
+    let Some(case_dir) = case_dir else {
+        return "{\"ok\":false,\"error\":\"먼저 케이스를 열거나 분석을 실행하십시오.\"}"
+            .to_string();
+    };
+    let _busy = match try_acquire_busy(state) {
+        Ok(guard) => guard,
+        Err(err) => return api_err(&err),
+    };
+    let alt = body_value(&request.body, "path").unwrap_or_default();
+    if alt.trim().is_empty() {
+        return api_err("복원할 영상의 경로가 없습니다.");
+    }
+    let candidate = PathBuf::from(alt.trim());
+    if let Err(err) = crate::lazy_extract::ensure_materialized(&case_dir, &candidate) {
+        return api_err(&format!("이미지에서 영상을 읽지 못했습니다: {err}"));
+    }
+    let roots = state_lock(state).media_roots.clone();
+    // Item 8: a UNC/device path never reaches canonicalize.
+    let canonical = match super::http::reject_remote_path(&alt, &roots)
+        .ok()
+        .and_then(|_| candidate.canonicalize().ok())
+    {
+        Some(canonical)
+            if roots
+                .iter()
+                .filter_map(|root| root.canonicalize().ok())
+                .any(|root| path_is_under(&root, &canonical)) =>
+        {
+            canonical
+        }
+        _ => return api_err("케이스 안의 영상만 복원할 수 있습니다."),
+    };
+    let source = crate::util::strip_windows_extended_prefix(&canonical);
+    match crate::video_repair::repair_video(&case_dir, &source) {
+        Ok(entry) => serde_json::json!({"ok": true, "entry": entry}).to_string(),
+        Err(err) => api_err(&format!("복원하지 못했습니다: {err}")),
+    }
 }
 
 /// `POST /api/advanced`: run a CLI-only case tool from the workstation.
@@ -1707,6 +1772,7 @@ pub(crate) fn api_export_selected_with(
     {
         let items = &items;
         let roots = &roots;
+        let case_dir = case_dir.as_path();
         let export_dir = &export_dir;
         let outcomes = &outcomes;
         let next_index = &next_index;
@@ -1725,7 +1791,24 @@ pub(crate) fn api_export_selected_with(
                             break;
                         };
                         before_item(index);
-                        let outcome = export_one(item, roots, export_dir, field);
+                        // A selected live video not yet read out of the
+                        // image is read now (the selective extraction).
+                        let path_text = field(item, "path");
+                        let materialized = if path_text.is_empty() {
+                            Ok(true)
+                        } else {
+                            crate::lazy_extract::ensure_materialized(
+                                case_dir,
+                                Path::new(&path_text),
+                            )
+                        };
+                        let outcome = match materialized {
+                            Err(err) => ExportOutcome {
+                                skip_reason: format!("image-read-failed: {err}"),
+                                ..ExportOutcome::default()
+                            },
+                            Ok(_) => export_one(item, roots, export_dir, field),
+                        };
                         outcomes.lock().unwrap_or_else(|e| e.into_inner())[index] = Some(outcome);
                     }
                 });

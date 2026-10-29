@@ -578,6 +578,7 @@ pub fn resolve_video_source(case_dir: &Path, selector: &str) -> Result<PathBuf, 
         };
         if matched {
             let path = PathBuf::from(&source_path);
+            crate::lazy_extract::ensure_materialized(case_dir, &path)?;
             if path.is_file() {
                 return canonicalize_display(&path)
                     .map_err(|err| format!("failed to canonicalize source path: {err}"));
@@ -642,6 +643,10 @@ fn resolve_through_records(
         }
     };
     let path = crate::model::record_os_path(found)?;
+    // A live video indexed from an image listing is read out on first use.
+    if let Err(err) = crate::lazy_extract::ensure_materialized(case_dir, &path) {
+        return Some(Err(err));
+    }
     Some(if path.is_file() {
         crate::model::canonicalize_lossless(&path)
             .map_err(|err| format!("failed to canonicalize source path: {err}"))

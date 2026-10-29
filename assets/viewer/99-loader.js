@@ -54,6 +54,19 @@ function loaderApiBase() {
   return (window.FTViewer && window.FTViewer._apiBase) || "";
 }
 
+// records-meta names thumbnails relative to the review folder
+// ("thumbs/<id>.jpg"); the page that loads them through the API is not
+// necessarily in that folder (the workstation shell hosts the viewer at
+// "/"), so they are served from the server's /review/ path.
+function rebaseApiThumbs(thumbs) {
+  if (!thumbs || typeof thumbs !== "object") return thumbs;
+  const out = {};
+  for (const [id, path] of Object.entries(thumbs)) {
+    out[id] = typeof path === "string" && !/^(?:[a-z]+:|\/)/i.test(path) ? `${loaderApiBase()}/review/${path}` : path;
+  }
+  return out;
+}
+
 function loaderOverlay(root) {
   const note = document.createElement("div");
   note.id = "ft-load-note";
@@ -260,7 +273,7 @@ async function loadViewerDataFromApi(first, ui) {
     validationLog: meta.validationLog,
     anomalyLog: meta.anomalyLog,
     flsEntries: meta.flsEntries,
-    thumbs: meta.thumbs,
+    thumbs: rebaseApiThumbs(meta.thumbs),
     annotations: meta.annotations,
     deepfake: meta.deepfake,
     telemetry: meta.telemetry,
@@ -334,6 +347,9 @@ async function loadViewerDataOnce(ui) {
         "서버가 증거 목록을 제공하지 못했습니다. / The server could not provide the evidence list.",
         first.error || "/api/records"
       );
+      // The analysis has not written the case index yet (or a case is
+      // still being bound): not a failure — the loader waits for it.
+      if (/no case index yet|no case open/i.test(String(first.error || ""))) apiError.notReady = true;
     }
   }
   // Hosted in the workstation page (GET /), the API is the only source:
@@ -361,7 +377,14 @@ async function loadViewerData(mount) {
     return inline;
   }
   const ui = loaderOverlay(root);
+  // Waits `ms`, ending early when the mount is torn down.
+  const pause = ms => new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+    if (signal) signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+  let transientRetries = 0;
   for (;;) {
+    if (signal && signal.aborted) return null;
     try {
       const data = await loadViewerDataOnce(ui);
       ui.remove();
@@ -374,6 +397,23 @@ async function loadViewerData(mount) {
       const error = err && err.ftViewerLoad
         ? err
         : ViewerLoadError("증거 목록을 불러오지 못했습니다. / Failed to load the evidence list.", String(err && err.message || err));
+      // The case index is still being written by the analysis: wait for
+      // it quietly instead of stopping on an error the examiner must clear.
+      if (error.notReady) {
+        ui.status("분석 결과를 기다리는 중… 색인이 준비되면 자동으로 열립니다. / Waiting for the case index — opens automatically when ready.");
+        await pause(1500);
+        continue;
+      }
+      // A blip (server busy replacing a file, a dropped connection, HTTP
+      // 5xx) is retried a few times before it is shown; 401 never is.
+      const transient = error.status !== 401 && !error.partial && (error.status === undefined || error.status >= 500);
+      if (transient && transientRetries < 3) {
+        transientRetries += 1;
+        ui.status(`잠시 후 다시 불러옵니다… (${transientRetries}/3) / Retrying…`);
+        await pause(800 * transientRetries);
+        continue;
+      }
+      transientRetries = 0;
       if (window.FTViewer) window.FTViewer._emit("error", { message: error.message, detail: error.detail || "", stage: "load" });
       const action = await ui.fail(error);
       if (action === "continue" && error.partial) {

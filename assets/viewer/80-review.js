@@ -552,7 +552,10 @@ const reviewMeta = (() => {
     count, progress, progressText, meter,
     scopeActive: document.getElementById("btnScopeActive"),
     scopeSelected: document.getElementById("btnScopeSelected"),
-    scopeLabel: document.getElementById("scopeSelLabel")
+    scopeLabel: document.getElementById("scopeSelLabel"),
+    extract: document.getElementById("btnExtractSelected"),
+    selectAll: document.getElementById("btnSelectFiltered"),
+    extractLabel: document.getElementById("extractSelLabel")
   };
 })();
 
@@ -580,6 +583,16 @@ function updateReviewMeta() {
   const { scopeActive, scopeSelected, scopeLabel } = reviewMeta;
   scopeLabel.textContent = tf("scope.btnSel", { n: selected });
   scopeSelected.disabled = selected === 0;
+  // The main thing a selection is for: getting those videos out. Shown
+  // only with a selection and a server to copy through.
+  if (reviewMeta.extract) {
+    const extract = selected > 0 && /^https?:$/.test(location.protocol);
+    reviewMeta.extract.hidden = !extract;
+    reviewMeta.extractLabel.textContent = tf("sel.extract", { n: selected });
+    // Room for it on one bar line at 1366 px: with a selection, '전체
+    // 선택' gives way (Ctrl+A still selects all).
+    if (reviewMeta.selectAll) reviewMeta.selectAll.hidden = extract;
+  }
   scopeSelected.setAttribute("aria-pressed", selected ? "true" : "false");
   setI18nTitle(scopeSelected, selected ? "scope.tipSelected" : "scope.tipNone");
   const noTarget = !selected && !state.activeId;
@@ -589,6 +602,7 @@ function updateReviewMeta() {
 }
 if (reviewMeta) {
   reviewMeta.scopeActive.addEventListener("click", () => { if (state.selectedIds.size) clearSelection(); });
+  if (reviewMeta.extract) reviewMeta.extract.addEventListener("click", () => extractSelected(reviewMeta.extract));
 }
 
 // --- consolidated status line (count · selection · save state) ----------
@@ -886,6 +900,27 @@ document.getElementById("btnTelemetry").addEventListener("click", async (ev) => 
       toast(tf("toast.telemetryFail", { err: data.error || "" }));
     }
   }, { fail: () => t("toast.telemetryOffline") });
+});
+
+// A recovered video that will not play (moov-less MP4, broken AVI index):
+// the workstation builds a playable derived copy beside it (the source is
+// untouched) and the viewer reloads to list it under Recovery/Repaired.
+document.getElementById("btnRepair").addEventListener("click", async (ev) => {
+  const record = selectedRecord();
+  if (!record || !record.path) { toast(t("toast.repairNoFile")); return; }
+  await withBusy(ev.currentTarget, async () => {
+    const data = await viewerPost("/api/repair-video", { id: record.id, path: record.path });
+    if (!data.ok || !data.entry) {
+      toast(tf("toast.repairFail", { err: data.error || "" }));
+      return;
+    }
+    const name = String(data.entry.output_path || "").split(/[\\\/]/).pop();
+    toast(tf(data.entry.reused ? "toast.repairReused" : "toast.repairDone", { name, status: statusLabel(data.entry.validation_status || "") }));
+    if (window.FTViewer && typeof FTViewer.reload === "function") {
+      const outcome = await FTViewer.reload({ reason: "repair" });
+      if (outcome === "refused") toast(t("toast.repairReload"));
+    }
+  }, { fail: () => t("toast.repairOffline") });
 });
 
 // Grab the decoded frame straight off the <video> element — no ffmpeg round

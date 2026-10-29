@@ -21,6 +21,7 @@
       <option value="filesystem" data-i18n="filter.kind.filesystem">파일시스템 복구</option>
       <option value="candidate" data-i18n="filter.kind.candidate">삭제 영상 후보 (복구 전)</option>
       <option value="joined" data-i18n="filter.kind.joined">이어붙인 영상</option>
+      <option value="repaired" data-i18n="filter.kind.repaired">복원본 (파생)</option>
     </select>
     <select id="status" title="검증 상태" data-i18n-title="filter.status" aria-label="검증 상태" data-i18n-aria-label="filter.status">
       <option value="" data-i18n="filter.status.all">전체 검증 상태</option>
@@ -174,6 +175,7 @@
             <button id="btnExportClip" type="button" data-i18n-title="tip.exportClip" title="IN~OUT 구간을 MP4 클립으로 내보냅니다 — 워크스테이션 서버 필요"><svg class="ic" aria-hidden="true"><use href="#i-clip"/></svg><span data-i18n="toolbar.clip">구간 내보내기</span></button>
             <button id="btnExportClipBurn" type="button" data-i18n-title="tip.exportClipBurn" title="타임코드·케이스ID·해시·호증표를 화면에 새긴 법원 제출용 클립입니다 — 서버 필요"><svg class="ic" aria-hidden="true"><use href="#i-court"/></svg><span data-i18n="toolbar.clipBurn">법원용 내보내기</span></button>
             <button id="btnProxy" type="button" data-i18n-title="tip.proxy" title="원본이 무거우면 검토용 저용량 프록시로 재생합니다 (없으면 생성 — 서버 필요)"><svg class="ic" aria-hidden="true"><use href="#i-proxy"/></svg><span data-i18n="toolbar.proxy">프록시 재생</span></button>
+            <button id="btnRepair" type="button" data-i18n-title="tip.repair" title="재생되지 않는 영상(moov 없는 MP4, 색인이 깨진 AVI)의 재생 가능한 복원본을 별도 파일로 만듭니다 — 원본은 그대로, 서버 필요"><svg class="ic" aria-hidden="true"><use href="#i-proxy"/></svg><span data-i18n="toolbar.repair">복원 시도</span></button>
             <span class="tb-size" role="group" aria-labelledby="videoSizeLabel">
               <span class="muted" id="videoSizeLabel" data-i18n="media.size">크기</span>
               <select id="videoMode" aria-labelledby="videoSizeLabel">
@@ -232,6 +234,7 @@
       </span>
       <button id="btnSelectFiltered" type="button" data-i18n-title="tip.selectAll" title="필터 결과 전체 선택 (Ctrl+A)" data-i18n="sel.selectAll">전체 선택</button>
       <button id="btnClearSelection" type="button" data-i18n-title="tip.clearSel" title="선택 해제 (Ctrl+D)" data-i18n="sel.clear">해제</button>
+      <button id="btnExtractSelected" type="button" class="primary" hidden data-i18n-title="tip.extractSel" title="선택한 영상을 원본 그대로 케이스 exports 폴더에 꺼냅니다 — SHA-256 해시 매니페스트와 감사 기록이 함께 남습니다"><svg class="ic" aria-hidden="true"><use href="#i-download"/></svg><span id="extractSelLabel">선택 영상 추출</span></button>
       <span class="sr-only" id="selectionCount">0개 선택</span>
     </div>
     <div class="bar-zone bar-verdict">

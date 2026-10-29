@@ -12,6 +12,17 @@ function setupGridDelegation() {
     // thumbRetried/thumbDead outlive grid re-renders (the virtual grid
     // recreates <img> nodes), so a bad URL costs one retry in total.
     const base = src.replace(/[?&]r=1$/, "");
+    // An on-request thumbnail (/api/thumb) failed on the server's side
+    // (not readable yet, or not a video): no immediate retry — the card
+    // asks again after LAZY_THUMB_RETRY_MS when it is rendered anew.
+    if (base.startsWith("/api/thumb")) {
+      lazyThumbFailedAt.set(base, Date.now());
+      const ph = document.createElement("div");
+      ph.className = "ph";
+      ph.textContent = t("thumb.missing");
+      img.replaceWith(ph);
+      return;
+    }
     if (!thumbRetried.has(base) && !/^data:/i.test(src)) {
       thumbRetried.add(base);
       setTimeout(() => { if (img.isConnected) img.src = base + (base.includes("?") ? "&" : "?") + "r=1"; }, 400);
@@ -160,14 +171,16 @@ const KIND_LABELS = {
   carved: t("filter.kind.carved"),
   filesystem: t("filter.kind.filesystem"),
   candidate: t("filter.kind.candidate"),
-  joined: t("filter.kind.joined")
+  joined: t("filter.kind.joined"),
+  repaired: t("filter.kind.repaired")
 };
 const KIND_SHORT = {
   video: t("kind.short.video"),
   carved: t("kind.short.carved"),
   filesystem: t("kind.short.filesystem"),
   candidate: t("kind.short.candidate"),
-  joined: t("kind.short.joined")
+  joined: t("kind.short.joined"),
+  repaired: t("kind.short.repaired")
 };
 
 function exportItem(record) {

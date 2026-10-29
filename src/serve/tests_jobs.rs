@@ -663,12 +663,12 @@ fn recover_returns_immediately_and_status_reaches_done() {
     let exe = fake_cli(
         &case_dir,
         r#"case "$1" in
-  recover-batch) sleep 1; echo "recovered 3 candidates" ;;
+  scan-deleted) sleep 1; echo "recovered 3 candidates" ;;
   make-review) echo "review rebuilt" ;;
   *) exit 9 ;;
 esac"#,
         &format!(
-            "if \"%1\"==\"recover-batch\" (\n{}\necho recovered 3 candidates\nexit /b 0\n)\nif \"%1\"==\"make-review\" (\necho review rebuilt\nexit /b 0\n)\nexit /b 9",
+            "if \"%1\"==\"scan-deleted\" (\n{}\necho recovered 3 candidates\nexit /b 0\n)\nif \"%1\"==\"make-review\" (\necho review rebuilt\nexit /b 0\n)\nexit /b 9",
             cmd_sleep(1)
         ),
     );
@@ -714,13 +714,13 @@ fn cancel_kills_the_recover_step_tree() {
         &case_dir,
         &format!(
             r#"case "$1" in
-  recover-batch) sleep 300 & echo $! > "{}"; wait ;;
+  scan-deleted) sleep 300 & echo $! > "{}"; wait ;;
   *) echo ok ;;
 esac"#,
             pid_file.display()
         ),
         &format!(
-            "if \"%1\"==\"recover-batch\" (\n{}\nexit /b 0\n)\necho ok",
+            "if \"%1\"==\"scan-deleted\" (\n{}\nexit /b 0\n)\necho ok",
             cmd_grandchild_sleeper(&pid_file)
         ),
     );
@@ -802,13 +802,13 @@ fn marks_saved_during_recover_are_queued_and_applied() {
         &case_dir,
         &format!(
             r#"case "$1" in
-  recover-batch) while [ ! -f "{}" ]; do sleep 0.05; done; echo recovered ;;
+  scan-deleted) while [ ! -f "{}" ]; do sleep 0.05; done; echo recovered ;;
   make-review) echo review ;;
 esac"#,
             gate.display()
         ),
         &format!(
-            "if \"%1\"==\"recover-batch\" (\n{}\necho recovered\nexit /b 0\n)\nif \"%1\"==\"make-review\" echo review\nexit /b 0",
+            "if \"%1\"==\"scan-deleted\" (\n{}\necho recovered\nexit /b 0\n)\nif \"%1\"==\"make-review\" echo review\nexit /b 0",
             cmd_wait_for_file(&gate)
         ),
     );

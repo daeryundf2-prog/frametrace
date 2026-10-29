@@ -19,6 +19,7 @@ pub(crate) use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod discovery;
 mod finalize_journal;
+mod fs_tools;
 mod http;
 mod jobs;
 mod media;
@@ -27,8 +28,6 @@ mod recent;
 mod records;
 mod state;
 mod system;
-mod tool_setup;
-mod fs_tools;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -85,6 +84,7 @@ mod tests_r9_server;
 mod tests_recent;
 #[cfg(test)]
 mod tests_review3;
+mod tool_setup;
 
 pub(crate) use discovery::{
     find_running_server, publish_local_server, token_for_port, write_instance_file,
@@ -106,7 +106,7 @@ pub(crate) use media::newest_package_dir;
 pub(crate) use media::{
     api_advanced, api_capture_frame, api_export_clip, api_export_clip_cancel,
     api_export_clip_status, api_export_selected, api_join, api_join_check, api_proxy,
-    api_telemetry, api_transcode_queue, cancel_all_clip_jobs, clip_job_json,
+    api_repair_video, api_telemetry, api_transcode_queue, cancel_all_clip_jobs, clip_job_json,
     running_clip_job_count,
 };
 pub(crate) use recent::{api_recent_cases, api_recent_cases_forget, record_recent_case};
@@ -1591,6 +1591,7 @@ pub(crate) fn route(request: &Request, state: &SharedState) -> Vec<u8> {
         ("POST", "/api/telemetry") => json(api_telemetry(request, state)),
         ("POST", "/api/transcode-queue") => json(api_transcode_queue(request, state)),
         ("POST", "/api/proxy") => json(api_proxy(request, state)),
+        ("POST", "/api/repair-video") => json(api_repair_video(request, state)),
         ("POST", "/api/advanced") => json(api_advanced(request, state)),
         ("POST", "/api/carve") => json(api_carve(request, state)),
         ("POST", "/api/open-folder") => json(api_open_folder(request, state)),

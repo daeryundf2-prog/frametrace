@@ -28,7 +28,8 @@ await test('Recover/Carve hidden until a case is open; chip is the entry to the 
   assert.equal(env.$('reassembleWrap').hidden, true);
   await env.advance(2000);
   assert.equal(env.$('btnRecoverDeleted').hidden, false);
-  assert.equal(env.$('btnCarve').hidden, false);
+  // The raw-image carve is CLI-only now: '삭제 영상 찾기' carves the image.
+  assert.equal(env.$('btnCarve').hidden, true);
   assert.equal(env.$('jobPanel').hidden, false, 'idle chip stays reachable while a case is open');
   assert.match(env.$('jobPanel').className, /\bidle\b/);
   assert.match(env.$('jobPanel').innerHTML, /id="hBtnJobs"[^>]*aria-controls="hJobsSheet"/);
@@ -47,7 +48,7 @@ await test('async job: progress, elapsed, completion via FTViewer.reload (never 
   await env.advance(1500);
   assert.equal(env.$('jobPanel').hidden, false);
   assert.match(env.$('jobPanel').className, /\brunning\b/);
-  assert.match(env.$('jobTitle').textContent, /삭제 영상 후보 복구 진행 중/);
+  assert.match(env.$('jobTitle').textContent, /삭제 영상 찾기 진행 중/);
   assert.match(env.$('jobDetail').textContent, /오프셋 2048/);
   assert.equal(env.$('btnJobCancel').hidden, false);
   assert.equal(env.$('btnRecoverDeleted').disabled, true);
@@ -188,10 +189,10 @@ await test('server job: failure whose text says "cancel" is still a failure, sho
 
 await test('shell reloaded mid-job adopts the running server job (progress + cancel)', async () => {
   const env = makeEnv({ routes: carveRoutes(), status: { phase: 'finalizing', busy: true, job_kind: 'recover-deleted',
-    job: sjob({ kind: 'recover-deleted', stage_label: '삭제 영상 후보 복구', elapsed_secs: 130 }) } });
+    job: sjob({ kind: 'recover-deleted', stage_label: '삭제 영상 찾기', elapsed_secs: 130 }) } });
   await env.advance(2000);
   assert.equal(env.$('jobPanel').hidden, false);
-  assert.match(env.$('jobTitle').textContent, /삭제 영상 후보 복구 진행 중/);
+  assert.match(env.$('jobTitle').textContent, /삭제 영상 찾기 진행 중/);
   assert.match(env.$('jobElapsed').textContent, /^경과 2:1\d$/);
   assert.equal(env.$('btnJobCancel').hidden, false);
   assert.equal(env.$('btnRecoverDeleted').disabled, true);

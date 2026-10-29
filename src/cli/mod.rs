@@ -106,6 +106,16 @@ pub enum Commands {
         #[arg(long)]
         filesystem: bool,
     },
+    /// Verify an E01 in place with libewf ewfverify (stored vs. recomputed
+    /// media hash) and audit the outcome — no raw export
+    VerifyE01 {
+        case_dir: PathBuf,
+        e01_file: PathBuf,
+        #[arg(long)]
+        ewfverify: Option<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
     /// Verify an E01 with libewf, export it to raw image form, hash the raw output
     ImportE01 {
         case_dir: PathBuf,
@@ -332,7 +342,7 @@ pub enum Commands {
         image_file: PathBuf,
         #[arg(long)]
         partition_offset: Option<u64>,
-        #[arg(long, default_value_t = 20000)]
+        #[arg(long, default_value_t = crate::tsk::DEFAULT_MAX_ENTRIES)]
         max_entries: usize,
         #[arg(long)]
         mmls: Option<String>,
@@ -383,6 +393,17 @@ pub enum Commands {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Index the live (allocated) videos of the latest filesystem inspection
+    /// without extracting them; each one is read out of the image the first
+    /// time it is played, exported or validated
+    IndexImageFiles { case_dir: PathBuf },
+    /// Find deleted videos in the latest inspected image without reading
+    /// them out: grade deleted entries (overwrite check) and carve the
+    /// unallocated space; each candidate is read when first played/exported
+    ScanDeleted { case_dir: PathBuf },
+    /// Build a playable derived copy of a broken/recovered video (AVI
+    /// re-index, moov-less MP4 rebuild); the source is never modified
+    RepairVideo { case_dir: PathBuf, video: PathBuf },
     /// Validate an indexed video, carved candidate, recovered inode, or artifact path with ffprobe
     ValidateArtifact {
         case_dir: PathBuf,
@@ -762,6 +783,19 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             };
             inspect_e01(&case_dir, &e01_file, options, filesystem)
         }
+        Commands::VerifyE01 {
+            case_dir,
+            e01_file,
+            ewfverify,
+            timeout,
+        } => {
+            let options = E01Options {
+                ewfverify_bin: ewfverify.unwrap_or_else(|| "ewfverify".to_string()),
+                timeout_secs: timeout,
+                ..E01Options::default()
+            };
+            verify_e01(&case_dir, &e01_file, options)
+        }
         Commands::ImportE01 {
             case_dir,
             e01_file,
@@ -1007,6 +1041,9 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             allocated_videos,
             timeout,
         ),
+        Commands::IndexImageFiles { case_dir } => index_image_files(&case_dir),
+        Commands::ScanDeleted { case_dir } => scan_deleted(&case_dir),
+        Commands::RepairVideo { case_dir, video } => repair_video(&case_dir, &video),
         Commands::ValidateArtifact {
             case_dir,
             selector,

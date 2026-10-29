@@ -16,6 +16,7 @@ mod signatures;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use extent::refine_extent_in_file;
 use extent::*;
 use mp4::*;
 use output::*;

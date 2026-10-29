@@ -22,12 +22,20 @@ pub(super) fn build_into(dest: &Path, staging: &Path, report: Reporter<'_>) -> R
     let mut command = Command::new(system32("WindowsPowerShell\\v1.0\\powershell.exe"));
     crate::util::hide_console(&mut command);
     command
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
         .arg(&script)
         .arg("-Destination")
         .arg(dest);
-    let outcome = run_streaming(&mut command, &|line| report(format!("libewf 빌드 · {line}")))
-        .map_err(|err| format!("PowerShell {err}"))?;
+    let outcome = run_streaming(&mut command, &|line| {
+        report(format!("libewf 빌드 · {line}"))
+    })
+    .map_err(|err| format!("PowerShell {err}"))?;
     if outcome.status.success() {
         return Ok(());
     }

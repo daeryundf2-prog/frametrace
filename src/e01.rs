@@ -85,6 +85,52 @@ pub fn inspect_e01(case_dir: &Path, e01_path: &Path, options: &E01Options) -> Re
     Ok(is_corrupted)
 }
 
+/// Integrity check of an E01 analysed in place (direct triage exports no
+/// raw image, so `import_e01`'s ewfverify never runs): ewfverify recomputes
+/// the media hash and compares it with the one stored at acquisition. The
+/// outcome — verified or not, with ewfverify's own words — is audited
+/// either way; a mismatch or a failed run is returned as an error.
+pub fn verify_e01(
+    case_dir: &Path,
+    e01_path: &Path,
+    options: &E01Options,
+) -> Result<PathBuf, String> {
+    let e01_path = canonical_e01_path(e01_path)?;
+    let verified_unix = now_unix()?;
+    let log_path = unique_path(
+        &case_dir
+            .join("evidence/logs")
+            .join(format!("e01-verify-{verified_unix}.txt")),
+    );
+    let args = vec![
+        "-q".to_string(),
+        "-d".to_string(),
+        "sha256".to_string(),
+        "-l".to_string(),
+        audit::path_string(&log_path),
+        audit::path_string(&e01_path),
+    ];
+    let outcome = run_status(
+        &options.ewfverify_bin,
+        &["ewfverify"],
+        &args,
+        options.timeout_secs,
+    );
+    append_e01_audit(
+        case_dir,
+        &format!(
+            "{{\"schema_version\":1,\"event\":\"verify-e01\",\"verified_unix\":{},\"e01_path\":\"{}\",\"verified\":{},\"error\":{},\"ewfverify_version\":\"{}\",\"ewfverify_log_path\":\"{}\"}}",
+            verified_unix,
+            json_escape(&e01_path.to_string_lossy()),
+            outcome.is_ok(),
+            audit::optional_string(outcome.as_ref().err().map(String::as_str)),
+            json_escape(&ewf_command_version(&options.ewfverify_bin, &["ewfverify"])),
+            json_escape(&log_path.to_string_lossy())
+        ),
+    )?;
+    outcome.map(|()| log_path)
+}
+
 pub fn import_e01(
     case_dir: &Path,
     e01_path: &Path,

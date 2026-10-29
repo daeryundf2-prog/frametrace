@@ -78,7 +78,10 @@ function updateOptSummary() {
   const modeNames = { quick: "빠른 선별", standard: "표준", full: "전체 (증거용)", custom: "사용자 지정" };
   const extras = [];
   if ($("withDeepfake").checked) extras.push("딥페이크");
-  el.textContent = `케이스 폴더 ${base ? base : "자동"} · ${modeNames[scanMode()] || "사용자 지정"}` + (extras.length ? " · " + extras.join(" · ") : "");
+  const mode = inputKind() === "e01"
+    ? ($("rawE01").checked ? "raw 추출 후 분석" : "E01 바로 분석") + ($("skipE01Verify").checked ? " · 해시 검증 생략" : "")
+    : modeNames[scanMode()] || "사용자 지정";
+  el.textContent = `케이스 폴더 ${base ? base : "자동"} · ${mode}` + (extras.length && inputKind() !== "e01" ? " · " + extras.join(" · ") : "");
 }
 
 // ---- 이전 프로젝트 ----
