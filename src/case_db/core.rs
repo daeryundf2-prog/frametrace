@@ -110,13 +110,17 @@ fn backup_before_migration(conn: &Connection) -> Result<Option<String>, String> 
         .as_secs();
     let backup_name = format!("case.db.backup-v{version}-to-v{SCHEMA_VERSION}-{timestamp}");
     let backup_path = db_path.with_file_name(backup_name);
-    conn.backup(rusqlite::MAIN_DB, &backup_path, None)
-        .map_err(|err| {
-            format!(
-                "failed to create SQLite migration backup {}: {err}",
-                backup_path.display()
-            )
-        })?;
+    conn.backup(
+        rusqlite::MAIN_DB,
+        &backup_path,
+        None::<fn(rusqlite::backup::Progress)>,
+    )
+    .map_err(|err| {
+        format!(
+            "failed to create SQLite migration backup {}: {err}",
+            backup_path.display()
+        )
+    })?;
     Ok(Some(version))
 }
 

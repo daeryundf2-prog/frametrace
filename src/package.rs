@@ -1154,8 +1154,12 @@ fn copy_package_file(
     }
     if rel == Path::new("db/case.db") {
         let conn = crate::case_db::open_readonly_case_db(&source)?;
-        conn.backup(rusqlite::MAIN_DB, &target, None)
-            .map_err(|err| format!("failed to snapshot package SQLite database: {err}"))?;
+        conn.backup(
+            rusqlite::MAIN_DB,
+            &target,
+            None::<fn(rusqlite::backup::Progress)>,
+        )
+        .map_err(|err| format!("failed to snapshot package SQLite database: {err}"))?;
     } else if let Some(RedactedCopy::Rewrite(text)) = &redacted_copy {
         write_text(&target, text).map_err(|err| {
             format!(
