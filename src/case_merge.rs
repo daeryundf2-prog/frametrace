@@ -656,8 +656,12 @@ impl DbSnapshot {
         }
         let path = staging_dir.join("case.db.snapshot");
         let conn = crate::case_db::open_readonly_case_db(&db)?;
-        conn.backup(rusqlite::MAIN_DB, &path, None)
-            .map_err(|err| format!("failed to snapshot the case database before merging: {err}"))?;
+        conn.backup(
+            rusqlite::MAIN_DB,
+            &path,
+            None::<fn(rusqlite::backup::Progress)>,
+        )
+        .map_err(|err| format!("failed to snapshot the case database before merging: {err}"))?;
         Ok(Self {
             path: Some(path),
             restored: std::cell::Cell::new(false),
